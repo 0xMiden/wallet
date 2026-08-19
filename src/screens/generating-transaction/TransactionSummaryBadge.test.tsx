@@ -7,6 +7,10 @@ import { ITransaction } from 'lib/miden/db/types';
 
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
 
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? key })
+}));
+
 jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 }
 }));
@@ -119,7 +123,23 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
-  it('returns undefined for a non-send transaction type', async () => {
+  it('returns undefined for a transaction type with no variant', async () => {
+    const { container, root } = await renderProbe(baseTransaction({ type: 'execute' }));
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  it('builds "{amount} {symbol} -> Consumed" for a consume with an amount', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
+    expect(container.textContent).toContain('Consumed');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for a consume without an amount', async () => {
     const { container, root } = await renderProbe(baseTransaction({ type: 'consume' }));
     expect(container.textContent).toContain('UNDEFINED');
     act(() => root.unmount());

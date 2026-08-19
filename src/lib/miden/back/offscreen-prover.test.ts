@@ -127,6 +127,31 @@ describe('offscreen-prover', () => {
       const mod = await import('./offscreen-prover');
       expect(mod.isOffscreenAvailable()).toBe(false);
     });
+
+    // Issue #260 flip-prep #4: inside the offscreen document itself the recursion
+    // guard must short-circuit isOffscreenAvailable() to false — EVEN when
+    // `chrome.offscreen.createDocument` is present — so an offscreen-doc write
+    // proves locally in-realm instead of re-dispatching OFFSCREEN_PROVE to a
+    // non-existent handler. Version-independent: it reads a global the offscreen
+    // doc sets, never `chrome.offscreen`'s (unreliable-in-doc) presence.
+    it('returns false inside the offscreen document (recursion guard), despite chrome.offscreen being present', async () => {
+      installChromeMock(); // chrome.offscreen.createDocument IS a function here
+      (globalThis as any).__MIDEN_IN_OFFSCREEN_DOC__ = true;
+      try {
+        const mod = await import('./offscreen-prover');
+        expect(mod.isOffscreenAvailable()).toBe(false);
+        expect(mod.isInOffscreenDocument()).toBe(true);
+      } finally {
+        delete (globalThis as any).__MIDEN_IN_OFFSCREEN_DOC__;
+      }
+    });
+
+    it('isInOffscreenDocument() is false in the SW realm (no offscreen-doc marker)', async () => {
+      delete (globalThis as any).__MIDEN_IN_OFFSCREEN_DOC__;
+      const mod = await import('./offscreen-prover');
+      expect(mod.isInOffscreenDocument()).toBe(false);
+      expect(mod.isOffscreenAvailable()).toBe(true);
+    });
   });
 
   describe('ensureOffscreenDocument', () => {

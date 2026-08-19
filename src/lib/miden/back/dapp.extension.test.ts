@@ -24,6 +24,9 @@ _g.__dappExtTest = {
     getInputNote: jest.fn(),
     getInputNoteDetails: jest.fn(),
     getConsumableNotes: jest.fn(),
+    // Slice-4: dapp reads consumable notes as DTOs via the proxy (flag-off →
+    // getMidenClient().getConsumableNoteDtos()).
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(),
     importNoteBytes: jest.fn(),
     on: jest.fn()
@@ -123,6 +126,10 @@ jest.mock('lib/miden/back/vault', () => ({
   }
 }));
 
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
@@ -130,7 +137,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32-addr'
+  getBech32AddressFromAccountId: () => 'bech32-addr',
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
@@ -201,6 +209,19 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The consume approval preview is derived from the note the wallet resolves, not
+  // from the dApp's declared faucet/amount/type, so consume tests need the note to
+  // exist in the store (note-1 / faucet-1 / 50, matching their request fixtures).
+  _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([
+    {
+      noteId: 'note-1',
+      noteType: 0,
+      senderAccountId: 's1',
+      nullifier: 'nf1',
+      state: 0,
+      assets: [{ faucetId: 'faucet-1', amount: '50' }]
+    }
+  ]);
   _g.__dappExtTest.intercomListeners.length = 0;
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
@@ -430,7 +451,7 @@ describe('requestPrivateNotes — extension flow', () => {
 
 describe('requestConsumableNotes — extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestConsumableNotes('https://miden.xyz', {
       type: MidenDAppMessageType.ConsumableNotesRequest,
@@ -614,7 +635,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes resolves when confirmed', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -628,27 +649,28 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes maps full notes and skips partial (id-less) ones', async () => {
-    const partialNote = { id: () => undefined, nullifier: () => undefined };
-    const fullNote = {
-      id: () => ({ toString: () => 'note-full' }),
-      metadata: () => ({
-        noteType: () => 'public',
-        sender: () => ({ toBech32: () => 'sender-bech32' })
-      }),
-      nullifier: () => 'nullifier-1',
-      state: () => 'committed',
-      details: () => ({
-        assets: () => ({
-          fungibleAssets: () => [
-            {
-              amount: () => ({ toString: () => '7' }),
-              faucetId: () => ({ toBech32: () => 'faucet-bech32' })
-            }
-          ]
-        })
-      })
+    // Slice-4: the proxy returns already-reduced ConsumableNoteDtos. A partial
+    // note reduces to noteId/nullifier null (dapp skips it); a full note carries
+    // the fields dapp maps 1:1 to InputNoteDetails.
+    const partialNote = {
+      noteId: null,
+      nullifier: null,
+      noteType: undefined,
+      senderAccountId: undefined,
+      state: 0,
+      assets: [],
+      swapAttachment: null
     };
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([partialNote, fullNote]);
+    const fullNote = {
+      noteId: 'note-full',
+      nullifier: 'nullifier-1',
+      noteType: 1,
+      senderAccountId: 'sender-bech32',
+      state: 2,
+      assets: [{ amount: '7', faucetId: 'faucet-bech32' }],
+      swapAttachment: null
+    };
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([partialNote, fullNote]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -746,6 +768,12 @@ describe('Full confirmation cycles in extension mode', () => {
       { confirmed: true, delegate: true }
     );
     expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
+
+    // 4th positional arg is `manualRetry`. The user just approved THIS consume on
+    // the confirm page, so auto-consume's exponential backoff must not swallow it
+    // and answer the dApp with a previous attempt's Failed row id.
+    const sdk = require('lib/miden/transaction');
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
   });
 
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {
@@ -765,7 +793,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes rejects when user declines (covers onDecline at L765)', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     await expect(
       driveConfirmation(

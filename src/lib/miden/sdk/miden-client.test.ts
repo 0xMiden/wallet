@@ -390,6 +390,33 @@ describe('getMidenClient singleton', () => {
         });
     });
   });
+
+  // GAP 7 (resilience): a startup RPC blip must NOT poison the singleton with a
+  // permanently-rejected init promise — the next call has to retry and succeed.
+  it('self-heals after a startup create() failure instead of poisoning the singleton', async () => {
+    const goodClient = { free: jest.fn() };
+    const create = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('node unreachable at startup'))
+      .mockResolvedValue(goodClient);
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free() {}
+      }
+    }));
+
+    let getMidenClient: (options?: unknown) => Promise<unknown> = async () => undefined;
+    jest.isolateModules(() => {
+      ({ getMidenClient } = require('./miden-client'));
+    });
+
+    // First construction fails → the call rejects.
+    await expect(getMidenClient()).rejects.toThrow('node unreachable at startup');
+    // The NEXT call must re-attempt create() and succeed (not replay the poison).
+    await expect(getMidenClient()).resolves.toBe(goodClient);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('resetMidenClient', () => {

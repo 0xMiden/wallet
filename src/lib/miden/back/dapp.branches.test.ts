@@ -110,11 +110,27 @@ jest.mock('lib/miden/back/vault', () => ({
 const _g = globalThis as any;
 _g.__dappBranchMockGetAccount = jest.fn();
 
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
-    getInputNoteDetails: jest.fn(async () => []),
+    // The consume approval preview is derived from the note the wallet resolves,
+    // not from the dApp's declared faucet/amount/type — so the note has to exist.
+    getInputNoteDetails: jest.fn(async () => [
+      {
+        noteId: 'note-1',
+        noteType: 0,
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 0,
+        assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+      }
+    ]),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
     on: jest.fn()
@@ -124,7 +140,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32-addr'
+  getBech32AddressFromAccountId: () => 'bech32-addr',
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
@@ -574,6 +591,31 @@ describe('requestSign — input validation', () => {
         kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  // Regression: the session is looked up by `sourceAccountId` but the signing key
+  // is loaded by `sourcePublicKey`, and nothing compared the two. Every account's
+  // auth secret is stored under `accAuthSecretKeyStrgKey(<commitment>)` under the
+  // one vault key, so a page holding a live session for account A could name A as
+  // the source account, pass account B's commitment, and get back a signature made
+  // with B's key — with `kind: 'signingInputs'` that authorizes a transaction on B.
+  // The approval sheet for `type: 'sign'` renders no account, so nothing on screen
+  // contradicts it.
+  it('throws NotGranted when sourcePublicKey names an account other than the session account', async () => {
+    await expect(
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        // Authorized account (a live session exists for it) …
+        sourceAccountId: 'miden-account-1',
+        // … but the key of a DIFFERENT account the wallet also owns.
+        sourcePublicKey: 'miden-account-2-commitment',
+        payload: 'aGVsbG8=',
+        kind: 'signingInputs'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    // Rejected before the vault is ever asked to sign.
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
   });
 });
 

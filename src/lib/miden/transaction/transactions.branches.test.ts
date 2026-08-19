@@ -22,6 +22,20 @@ import {
   readLastAuthReason
 } from './index'; // eslint-disable-line import/order
 
+/**
+ * The verbatim `Display` text miden-client produces for
+ * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.2` wasm. That SDK attaches NO code
+ * property for this variant, so this string is the ONLY signal the wallet's
+ * classifier has. Building the fixture from the real message — instead of
+ * hand-setting an `errorCode` the SDK never sets — is what makes these tests
+ * fail if the classifier stops recognising what the SDK actually throws.
+ */
+const APPLY_AFTER_SUBMIT_ERROR_MESSAGE =
+  "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed. " +
+  'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
+  '`Client::apply_transaction_update`. Do NOT resubmit the same transaction.';
+
 const _g = globalThis as any;
 _g.__txBrTest = {
   rows: [] as any[],
@@ -87,6 +101,12 @@ const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
 // Raw WASM client's lastAuthError(), read by readLastAuthReason in the
 // generate-loop catch. Default null = no auth failure recorded.
 const mockLastAuthError = jest.fn((): unknown => null);
+// The #260 offscreen client proxy (through which non-guardian send/swap/execute
+// now route their flag-off write) imports getMidenClient / withWasmClientLock via
+// the `lib/...` alias, which jest mocks separately from the relative specifier
+// below; bridge the alias to the same mock so the proxy's flag-off passthrough
+// invokes the wrapped sign callback exactly as the old inline switch did.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
     // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper
@@ -513,6 +533,36 @@ describe('waitForTransactionCompletion — error subscription', () => {
     const result = await waitForTransactionCompletion('tx-f');
     expect(result).toEqual({ errorMessage: 'Transaction failed' });
   });
+
+  it('resolves (never hangs) when a row reaches Completed with no resultBytes', async () => {
+    // The failure this guards: `TransactionResult.deserialize(undefined)` throws
+    // INSIDE dexie's `next` callback, after `cleanup()` has cleared the 5-minute
+    // timeout. The promise then settles as neither success nor timeout and the
+    // awaiting Epoch bridge/earn note builder blocks forever.
+    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    const result = await waitForTransactionCompletion('tx-no-result');
+    expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
+  });
+
+  it('resolves with the error message when deserializing the result throws', async () => {
+    const sdk = require('@miden-sdk/miden-sdk/lazy');
+    const original = sdk.TransactionResult.deserialize;
+    sdk.TransactionResult.deserialize = jest.fn(() => {
+      throw new Error('corrupt result bytes');
+    });
+    try {
+      txStore.push({
+        id: 'tx-bad-result',
+        status: ITransactionStatus.Completed,
+        transactionId: '0xdef',
+        resultBytes: new Uint8Array([9, 9, 9])
+      });
+      const result = await waitForTransactionCompletion('tx-bad-result');
+      expect(result).toEqual({ errorMessage: 'corrupt result bytes' });
+    } finally {
+      sdk.TransactionResult.deserialize = original;
+    }
+  });
 });
 
 describe('generateTransactionsLoop error paths', () => {
@@ -549,16 +599,14 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
-  it('marks Completed when errorCode is ApplyTransactionAfterSubmitFailed', async () => {
+  it('marks Completed on the SDK apply-after-submit error text', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
     let callCount = 0;
     sdk.withWasmClientLock = jest.fn(async (fn: any) => {
       callCount++;
       if (callCount >= 2) {
-        const err: any = new Error('apply failed');
-        err.errorCode = 'ApplyTransactionAfterSubmitFailed';
-        throw err;
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
       }
       return fn();
     });
@@ -576,6 +624,79 @@ describe('generateTransactionsLoop error paths', () => {
     // The errorCode dispatch is exercised; the final status depends on
     // mock timing between updateTransactionStatus and cancelTransaction.
     expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('marks a bridged-send Failed (never Completed) on the apply-after-submit error', async () => {
+    // `createBridgeP2IDNote` blocks on `waitForTransactionCompletion` and reads
+    // `outputNoteIds` off the finished row. This generic post-submit path has no
+    // TransactionResult to write, so a Completed row here would hang the Epoch
+    // bridge forever while reporting success — Fail it instead.
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-bridge-apply-fail',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    const row = txStore.find(t => t.id === 'tx-bridge-apply-fail');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.status).not.toBe(ITransactionStatus.Completed);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('marks an AGGLAYER bridged-send Completed (never Failed) on the apply-after-submit error', async () => {
+    // The route matters, not the type. An Agglayer (Slow) bridge-out is queued by
+    // `initiateB2AggBridge`, which returns the txId immediately and never awaits the
+    // row — so there is no waiter to strand, and the B2AGG note IS on chain. Failing
+    // it is actively harmful: `BridgeClaimSection` gates the deposit tracker and the
+    // whole Connect-wallet / Claim-Asset block on `status !== Failed`, so a Failed row
+    // removes the only in-wallet path to claim the bridged funds on L1 (the "Reclaim
+    // funds" fallback is Epoch-only), and Retry re-submits the same pre-built
+    // requestBytes, which the node rejects.
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-agglayer-apply-fail',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      requestBytes: new Uint8Array([9]),
+      extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    const row = txStore.find(t => t.id === 'tx-agglayer-apply-fail');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.status).not.toBe(ITransactionStatus.Failed);
 
     sdk.withWasmClientLock = origLock;
   });
@@ -631,9 +752,18 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // Locked → the loop skips cancellation (NOT Failed), leaving the tx
-    // mid-flight so the next auto-consume cycle retries it after unlock.
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+    // Locked → the loop skips cancellation (NOT Failed) AND genuinely returns the
+    // row to Queued. `generateTransaction` had already advanced it to
+    // GeneratingTransaction, which is exactly what `getTransactionsInProgress()`
+    // selects — leaving it there would head-of-line block the FIFO for every
+    // account until the stuck reaper Failed it (30 min desktop / 2 min mobile).
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore[0]!.processingStartedAt).toBeUndefined();
+    // Backed off so a still-locked wallet doesn't re-attempt every ~5s poll.
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    // The in-progress set is empty, so the very next loop pass can pick up
+    // another account's queued transaction instead of returning early.
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
 
     sdk.withWasmClientLock = origLock;
   });
@@ -659,7 +789,8 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
 
   it('leaves a Guardian tx Queued (not Failed) when the wallet locks mid-guardian-flow, e.g. at sign time (#313)', async () => {
@@ -686,7 +817,8 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
 
   it('invokes the wrapped sign callback during dispatch (success path)', async () => {
@@ -810,6 +942,28 @@ describe('readLastAuthReason', () => {
     });
     expect(await readLastAuthReason()).toBeUndefined();
   });
+
+  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
+  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
+  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
+  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
+  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
+  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
+  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    jest.resetModules();
+    try {
+      const { readLastAuthReason: readFlagOn } = await import('./helper');
+      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
+      // write must not be deferred on it.
+      mockLastAuthError.mockReturnValue({ reason: 'locked' });
+      expect(await readFlagOn()).toBeUndefined();
+    } finally {
+      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
+      mockLastAuthError.mockReturnValue(null);
+      jest.resetModules();
+    }
+  });
 });
 
 describe('buildSignCallbackError', () => {
@@ -835,5 +989,10 @@ describe('buildSignCallbackError', () => {
     expect(wrapped).toBeInstanceOf(Error);
     expect(wrapped.reason).toBe('internal');
     expect(wrapped.message).toContain('plain string failure');
+  });
+
+  it('tolerates an empty-message Error (falls back to internal)', () => {
+    const wrapped = buildSignCallbackError(new Error(''));
+    expect(wrapped.reason).toBe('internal');
   });
 });

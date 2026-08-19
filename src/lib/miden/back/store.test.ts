@@ -2,6 +2,7 @@
  * Coverage tests for `lib/miden/back/store.ts`.
  * Tests effector store event handlers and helper functions.
  */
+import { isLockedError } from 'lib/miden/transaction/helper';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -13,6 +14,7 @@ import {
   unlocked,
   accountsUpdated,
   assertInited,
+  assertUnlocked,
   withInited,
   withUnlocked,
   StoreState
@@ -21,6 +23,20 @@ import {
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {}
 }));
+
+/** Runs `fn`, asserts it threw, and returns the thrown value for inspection. */
+function captureThrow(fn: () => void): unknown {
+  let thrown: unknown;
+  let threw = false;
+  try {
+    fn();
+  } catch (err) {
+    threw = true;
+    thrown = err;
+  }
+  expect(threw).toBe(true);
+  return thrown;
+}
 
 describe('back/store', () => {
   beforeEach(() => {
@@ -131,11 +147,60 @@ describe('back/store', () => {
     });
   });
 
+  describe('assertUnlocked', () => {
+    const unlockedState = (): StoreState =>
+      ({ inited: true, vault: {} as any, status: WalletStatus.Ready }) as StoreState;
+
+    it('throws when the wallet is inited but LOCKED (no vault)', () => {
+      // The whole point: a locked wallet keeps `inited: true`, so an
+      // inited-only assert let every `withUnlocked` caller that never touches
+      // `vault` keep running after Lock — including the dApp handlers that read
+      // private notes and balances straight from the client.
+      expect(() => assertUnlocked({ inited: true, vault: null, status: WalletStatus.Locked } as StoreState)).toThrow(
+        'Wallet is locked'
+      );
+    });
+
+    it('throws when a vault is present but the status is not Ready', () => {
+      expect(() =>
+        assertUnlocked({ inited: true, vault: {} as any, status: WalletStatus.Locked } as StoreState)
+      ).toThrow('Wallet is locked');
+    });
+
+    it('tags the error so the transaction loop DEFERS instead of failing the tx', () => {
+      // `isLockedError` matches either `reason: 'locked'` or the message, and the
+      // loop leaves such a tx Queued for retry after unlock (issue #313).
+      const thrown = captureThrow(() =>
+        assertUnlocked({ inited: true, vault: null, status: WalletStatus.Locked } as StoreState)
+      );
+      expect((thrown as { reason?: string }).reason).toBe('locked');
+      expect(isLockedError(thrown)).toBe(true);
+    });
+
+    it('does not throw for a genuinely unlocked state', () => {
+      expect(() => assertUnlocked(unlockedState())).not.toThrow();
+    });
+
+    it('still throws "Not initialized" first when the store was never inited', () => {
+      expect(() => assertUnlocked({ inited: false, vault: null } as StoreState)).toThrow('Not initialized');
+    });
+  });
+
   describe('withUnlocked', () => {
-    it('calls factory when store is inited (assertUnlocked delegates to assertInited)', () => {
-      inited(true);
+    it('calls the factory when the store is unlocked', () => {
+      const vault = {} as any;
+      unlocked({ vault, accounts: [], settings: null as any, currentAccount: null as any, ownMnemonic: false });
       const result = withUnlocked(state => state.status);
-      expect(result).toBe(WalletStatus.Locked);
+      expect(result).toBe(WalletStatus.Ready);
+    });
+
+    it('refuses to run the factory once the wallet is locked', () => {
+      const vault = {} as any;
+      unlocked({ vault, accounts: [], settings: null as any, currentAccount: null as any, ownMnemonic: false });
+      locked();
+      const factory = jest.fn();
+      expect(() => withUnlocked(factory)).toThrow('Wallet is locked');
+      expect(factory).not.toHaveBeenCalled();
     });
   });
 });

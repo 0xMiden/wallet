@@ -1,9 +1,24 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
+import { assertClaimed } from '../helpers/assertions';
+import { pendingNoteTotal, vaultBalance, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
 
 // Primary guardian operator for the selected network (E2E_NETWORK): the local
 // container on localhost, the real OpenZeppelin operator on testnet/devnet.
 const A = getEnvironmentConfig().guardianUrl;
+
+// The faucet the harness deploys (miden-cli.ts createFaucet defaults).
+const TOKEN = 'TST';
+const TOKEN_DECIMALS = 8;
+// Minted to the account on walletA and claimed there, BEFORE the recovery.
+const FUND_BASE_UNITS = 100_000_000_000n;
+// Minted to the SAME account after it has been recovered on walletB, and
+// claimed with the rotated [new-hot, cold] signer set -- the money movement
+// this test actually exists to prove.
+const RECOVERY_MINT_BASE_UNITS = 25_000_000_000n;
+// Both claims land in the same account's vault, so this is what the recovered
+// wallet must still hold after a service-worker respawn.
+const RECOVERED_VAULT_BASE_UNITS = FUND_BASE_UNITS + RECOVERY_MINT_BASE_UNITS;
 
 /**
  * Guardian commitment (the on-chain `GUARDIAN_SLOT_NAMES.PUBLIC_KEY` value)
@@ -94,9 +109,20 @@ test.describe('Guardian recovery - real UI journey', () => {
 
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
-      await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
+      await midenCli.mint(faucetId, addressA, FUND_BASE_UNITS, 'public');
       await midenCli.sync();
       await walletA.claimAllNotes(180_000);
+
+      // claimAllNotes only drains the pending-note list; it does not prove the
+      // money became SPENDABLE. Pin the exact funded vault balance here, in
+      // setup, so a claim that silently no-oped fails at its own step instead of
+      // surfacing later as a confusing recovery failure -- and so the recovered
+      // wallet's post-recovery expectations below have a known starting point.
+      // Fees are paid in native MIDEN, not TST, so the note lands in full.
+      await waitForVaultBalance(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step('verify_baseline_on_a', async () => {
@@ -131,14 +157,47 @@ test.describe('Guardian recovery - real UI journey', () => {
     await steps.step(
       'recovered_wallet_is_usable',
       async () => {
-        await midenCli.mint(faucetId!, addressB!, 25_000_000_000, 'public');
+        // Baseline BEFORE the mint. walletB recovered the SAME account id that
+        // walletA already claimed FUND_BASE_UNITS into, so the recovered wallet
+        // must open on exactly that spendable balance -- a recovery that lost
+        // (or invented) funds fails right here.
+        await waitForVaultBalance(walletB.page, TOKEN, FUND_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+
+        await midenCli.mint(faucetId!, addressB!, RECOVERY_MINT_BASE_UNITS, 'public');
         await midenCli.sync();
+
+        // The mint has to be DISCOVERED as an unconsumed note before a claim can
+        // prove anything -- this is the half of the old `getBalance` sum that
+        // moved on its own, with no signer involved.
+        await waitForPendingNoteTotal(walletB.page, TOKEN, RECOVERY_MINT_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        const beforeClaim = {
+          vault: await vaultBalance(walletB.page, TOKEN),
+          pending: await pendingNoteTotal(walletB.page, TOKEN)
+        };
+
         await walletB.claimAllNotes(120_000);
-        const balance = await walletB.getBalance('TST');
-        expect(
-          balance,
-          'the rotated [new-hot, cold] signer set must be able to co-sign a real consume'
-        ).toBeGreaterThan(0);
+        await walletB.refreshBalances();
+
+        // The consume must move the note's value into the VAULT and out of the
+        // pending list: the rotated [new-hot, cold] signer set actually co-signed
+        // a transaction that committed. The old `> balanceBefore` on a
+        // vault+pending sum went up the moment the note was discovered, so it
+        // stayed green for a consume that never signed, never committed, or
+        // consumed a different faucet's note.
+        await assertClaimed(
+          { page: walletB.page, label: 'B' },
+          TOKEN,
+          TOKEN_DECIMALS,
+          beforeClaim,
+          RECOVERY_MINT_BASE_UNITS,
+          { timeoutMs: 120_000 }
+        );
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );
@@ -146,11 +205,15 @@ test.describe('Guardian recovery - real UI journey', () => {
     await steps.step('reopen_still_recovered_and_usable', async () => {
       await walletB.reopen(); // forces the extension's service worker to respawn
       await walletB.assertGuardianAuth(addressB!, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
-      const balanceAfterReopen = await walletB.getBalance('TST');
-      expect(
-        balanceAfterReopen,
-        'the recovered rotation must be durably persisted, not an in-session artifact'
-      ).toBeGreaterThan(0);
+      // Durability means the exact spendable holdings survive the respawn:
+      // walletA's funding plus this test's own claim, all in the vault. `> 0`
+      // survived a reopen that dropped the claimed balance back to a merely
+      // pending note, which is precisely the "in-session artifact" failure this
+      // step is here to catch.
+      await waitForVaultBalance(walletB.page, TOKEN, RECOVERED_VAULT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
   });
 });

@@ -46,7 +46,7 @@ export const EvmSwitchWalletDrawer: React.FC<EvmSwitchWalletDrawerProps> = ({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-switch-wallet">
       <DrawerContent className="px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <DrawerHeader>
           <DrawerTitle>{t('switchWallet')}</DrawerTitle>

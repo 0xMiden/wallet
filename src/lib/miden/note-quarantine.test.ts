@@ -35,9 +35,20 @@ jest.mock('lib/shared/helpers', () => ({
 }));
 
 const QUARANTINE_KEY = 'simulation_quarantined_note_ids';
+const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const NOW = 10_000_000_000;
+/** Persisted entry shape: an id plus the wall-clock ms it was quarantined at. */
+const entry = (id: string, at: number = NOW) => ({ id, at });
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Pin the clock so the TTL window is deterministic: entries default to `NOW`,
+  // which is inside it. Tests that exercise expiry re-pin it themselves.
+  jest.spyOn(Date, 'now').mockReturnValue(NOW);
   for (const k of Object.keys(STORE)) delete STORE[k];
   mockDeserialize.mockImplementation((bytes: Uint8Array) => ({
     id: () => ({ toString: () => `id:${Array.from(bytes).join('-')}` })
@@ -110,29 +121,45 @@ describe('importedNoteIds', () => {
 });
 
 describe('quarantineNoteIds', () => {
-  it('adds ids to an empty quarantine set', async () => {
+  it('adds ids to an empty quarantine set, stamped with the current time', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000);
     await quarantineNoteIds(['n1', 'n2']);
-    expect(mockPutToStorage).toHaveBeenCalledWith(QUARANTINE_KEY, ['n1', 'n2']);
+    expect(mockPutToStorage).toHaveBeenCalledWith(QUARANTINE_KEY, [
+      { id: 'n1', at: 1_000 },
+      { id: 'n2', at: 1_000 }
+    ]);
   });
 
-  it('dedups when an id is already quarantined, keeping the newest position', async () => {
-    STORE[QUARANTINE_KEY] = ['n1', 'n2'];
+  it('dedups when an id is already quarantined, keeping the newest position and stamp', async () => {
+    STORE[QUARANTINE_KEY] = [entry('n1', 500), entry('n2', 500)];
+    jest.spyOn(Date, 'now').mockReturnValue(2_000);
     await quarantineNoteIds(['n2', 'n3']);
-    expect(STORE[QUARANTINE_KEY]).toEqual(['n1', 'n2', 'n3']);
+    expect(STORE[QUARANTINE_KEY]).toEqual([
+      { id: 'n1', at: 500 },
+      { id: 'n2', at: 2_000 },
+      { id: 'n3', at: 2_000 }
+    ]);
   });
 
   it('caps to the last MAX_QUARANTINED (500) entries', async () => {
-    STORE[QUARANTINE_KEY] = Array.from({ length: 500 }, (_, i) => `old-${i}`);
+    STORE[QUARANTINE_KEY] = Array.from({ length: 500 }, (_, i) => entry(`old-${i}`));
     await quarantineNoteIds(['new-1']);
-    const stored: string[] = STORE[QUARANTINE_KEY];
+    const stored: { id: string }[] = STORE[QUARANTINE_KEY];
     expect(stored).toHaveLength(500);
-    expect(stored[0]).toBe('old-1');
-    expect(stored.at(-1)).toBe('new-1');
+    expect(stored[0]!.id).toBe('old-1');
+    expect(stored.at(-1)!.id).toBe('new-1');
   });
 
   it('is a no-op for an empty ids array (no storage write)', async () => {
     await quarantineNoteIds([]);
     expect(mockPutToStorage).not.toHaveBeenCalled();
+  });
+
+  it('prunes entries older than the TTL as it writes', async () => {
+    STORE[QUARANTINE_KEY] = [entry('stale', NOW - TTL_MS - 1), entry('fresh', NOW - 1_000)];
+    jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    await quarantineNoteIds(['new']);
+    expect((STORE[QUARANTINE_KEY] as { id: string }[]).map(e => e.id)).toEqual(['fresh', 'new']);
   });
 
   it('never throws when storage read fails', async () => {
@@ -148,9 +175,9 @@ describe('quarantineNoteIds', () => {
 
 describe('releaseNoteIds', () => {
   it('removes ids from the quarantine set', async () => {
-    STORE[QUARANTINE_KEY] = ['n1', 'n2', 'n3'];
+    STORE[QUARANTINE_KEY] = [entry('n1'), entry('n2'), entry('n3')];
     await releaseNoteIds(['n2']);
-    expect(STORE[QUARANTINE_KEY]).toEqual(['n1', 'n3']);
+    expect((STORE[QUARANTINE_KEY] as { id: string }[]).map(e => e.id)).toEqual(['n1', 'n3']);
   });
 
   it('is a no-op for an empty ids array (no storage write)', async () => {
@@ -159,9 +186,9 @@ describe('releaseNoteIds', () => {
   });
 
   it('tolerates releasing an id that is not quarantined', async () => {
-    STORE[QUARANTINE_KEY] = ['n1'];
+    STORE[QUARANTINE_KEY] = [entry('n1')];
     await releaseNoteIds(['does-not-exist']);
-    expect(STORE[QUARANTINE_KEY]).toEqual(['n1']);
+    expect((STORE[QUARANTINE_KEY] as { id: string }[]).map(e => e.id)).toEqual(['n1']);
   });
 
   it('never throws when storage read fails', async () => {
@@ -170,15 +197,15 @@ describe('releaseNoteIds', () => {
   });
 
   it('never throws when storage write fails', async () => {
-    STORE[QUARANTINE_KEY] = ['n1'];
+    STORE[QUARANTINE_KEY] = [entry('n1')];
     mockPutToStorage.mockRejectedValueOnce(new Error('storage down'));
     await expect(releaseNoteIds(['n1'])).resolves.toBeUndefined();
   });
 });
 
 describe('getQuarantinedNoteIds', () => {
-  it('returns a Set built from the persisted array', async () => {
-    STORE[QUARANTINE_KEY] = ['n1', 'n2'];
+  it('returns a Set built from the persisted entries', async () => {
+    STORE[QUARANTINE_KEY] = [entry('n1'), entry('n2')];
     const set = await getQuarantinedNoteIds();
     expect(set).toEqual(new Set(['n1', 'n2']));
   });
@@ -186,6 +213,24 @@ describe('getQuarantinedNoteIds', () => {
   it('returns an empty Set when nothing is persisted', async () => {
     const set = await getQuarantinedNoteIds();
     expect(set).toEqual(new Set());
+  });
+
+  it('stops hiding an entry once it is older than the TTL', async () => {
+    // A declined dApp simulation releases nothing, so without this bound the
+    // note would be hidden from every claim path for the life of the wallet.
+    STORE[QUARANTINE_KEY] = [entry('expired', NOW - TTL_MS - 1), entry('live', NOW - TTL_MS + 1_000)];
+    jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    expect(await getQuarantinedNoteIds()).toEqual(new Set(['live']));
+  });
+
+  it('ignores legacy bare-string entries written before the TTL existed', async () => {
+    STORE[QUARANTINE_KEY] = ['legacy-id', entry('current')];
+    expect(await getQuarantinedNoteIds()).toEqual(new Set(['current']));
+  });
+
+  it('returns an empty Set for a non-array persisted value', async () => {
+    STORE[QUARANTINE_KEY] = { not: 'an array' };
+    expect(await getQuarantinedNoteIds()).toEqual(new Set());
   });
 
   it('returns an empty Set (never throws) when storage read fails', async () => {

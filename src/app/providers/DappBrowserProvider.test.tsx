@@ -159,6 +159,15 @@ const mockHandleWebViewMessage: jest.Mock = jest.fn(() =>
 
 jest.mock('lib/dapp-browser', () => ({
   INJECTION_SCRIPT: 'INJECTED;',
+  // Real implementation — the provider derives a session's security principal
+  // with it, so a stub would make the origin assertions vacuous.
+  parseOrigin: (url: string) => {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return url;
+    }
+  },
   // Arrow-wrappers are lazy — they defer the variable lookup until
   // the mock is actually called, avoiding the TDZ from jest.mock hoisting.
   handleWebViewMessage: (...args: unknown[]) => mockHandleWebViewMessage(...args),
@@ -391,6 +400,130 @@ describe('park / restore lifecycle', () => {
     });
 
     expect(hook.result.current.session?.id).toBe('dapp-a');
+  });
+});
+
+// ── SEC-03: the security principal must follow the page actually loaded ──
+
+describe('session origin is derived from the URL being loaded, not a carried-over value', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+
+  /** Pull a plugin listener registered by the provider's one wiring effect. */
+  function listenerFor(event: string): (e: unknown) => void | Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`no listener registered for ${event}`);
+    return call[1] as (e: unknown) => void | Promise<void>;
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  it('a cold restore is stamped with the origin of session.url, not the persisted origin', async () => {
+    // The pair a pre-fix park could persist: the user opened evil.example, which
+    // navigated to gooddapp.io, so the LIVE origin was gooddapp.io while
+    // `session.url` still pointed at evil.example. A restore loads `session.url`.
+    mockLoadPersistedSessions.mockResolvedValueOnce([
+      {
+        id: 'dapp-cold',
+        url: 'https://evil.example/',
+        origin: 'https://gooddapp.io',
+        title: 'Good dApp',
+        favicon: null,
+        openedAt: 1,
+        parkedAt: 2
+      }
+    ]);
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await settle();
+    expect(hook.result.current.sessionStates).toHaveLength(1);
+
+    await act(async () => {
+      await hook.result.current.restore('dapp-cold');
+    });
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+
+    // The native webview was pointed at evil.example …
+    expect(mockPluginOpen).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://evil.example/' }));
+    // … so that is the principal its requests are authorized against.
+    expect(hook.result.current.sessionStates[0]!.origin).toBe('https://evil.example');
+    expect(hook.result.current.sessionStates[0]!.originConfirmed).toBe(false);
+  });
+
+  it('refuses a dApp request that arrives before urlChangeEvent confirms the load', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    mockExecuteScript.mockClear();
+
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        detail: JSON.stringify({
+          type: 'MIDEN_PAGE_REQUEST',
+          payload: { type: 'PRIVATE_NOTES_REQUEST' },
+          reqId: 'r1'
+        })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    const refusal = mockExecuteScript.mock.calls.map(c => String(c[1])).join('\n');
+    expect(refusal).toContain('NOT_GRANTED');
+  });
+
+  it('answers PING before confirmation — it is the bridge probe, not an origin-scoped request', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+
+    const onMessage = listenerFor('messageFromWebview');
+    await act(async () => {
+      await onMessage({
+        id: 'dapp-a',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles the request once urlChangeEvent confirms it, and moves url + origin together', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url: 'https://moved.example/app' });
+    });
+    await settle();
+
+    // url and origin are rewritten as a pair — a park would otherwise persist the
+    // new origin next to the old url.
+    expect(hook.result.current.sessionStates[0]!.session.url).toBe('https://moved.example/app');
+    expect(hook.result.current.sessionStates[0]!.session.origin).toBe('https://moved.example');
+    expect(hook.result.current.sessionStates[0]!.origin).toBe('https://moved.example');
+
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        detail: JSON.stringify({
+          type: 'MIDEN_PAGE_REQUEST',
+          payload: { type: 'PRIVATE_NOTES_REQUEST' },
+          reqId: 'r2'
+        })
+      });
+    });
+
+    expect(mockHandleWebViewMessage).toHaveBeenCalledWith(expect.anything(), 'https://moved.example', 'dapp-a');
   });
 });
 

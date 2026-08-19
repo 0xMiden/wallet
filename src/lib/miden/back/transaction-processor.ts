@@ -14,7 +14,6 @@ import { WalletMessageType } from 'lib/shared/types';
 
 import { getIntercom } from './defaults';
 import { accountsUpdated, withUnlocked } from './store';
-import type { Vault } from './vault';
 
 // NOTE: `webextension-polyfill` throws at module load time when
 // `globalThis.chrome?.runtime?.id` is undefined (non-extension
@@ -53,41 +52,21 @@ let isProcessing = false;
  * Sign callback that runs in the service worker.
  * Re-acquires the vault on each call (same pattern as dapp.ts).
  *
- * Exported for testing. Uses `withUnlockedVault` (not the bare `withUnlocked`)
- * so a background Guardian consume that reaches `executeTransaction`'s sign
- * step AFTER an auto-lock nulled the vault throws an explicit locked-classified
- * error instead of an opaque `TypeError: Cannot read properties of null`. The
- * guardian transaction loop classifies that locked error and DEFERS the tx
- * (leaves it Queued for retry after unlock) rather than marking it Failed and
- * losing the note-claim (issue #313).
+ * Exported for testing. `withUnlocked` → `assertUnlocked` refuses to run the
+ * factory at all once the vault is gone, throwing an explicit
+ * locked-classified error, so a background Guardian consume that reaches
+ * `executeTransaction`'s sign step AFTER an auto-lock nulled the vault no longer
+ * produces an opaque `TypeError: Cannot read properties of null`. The guardian
+ * transaction loop classifies that locked error and DEFERS the tx (leaves it
+ * Queued for retry after unlock) rather than marking it Failed and losing the
+ * note-claim (issue #313). This file used to carry a local `withUnlockedVault`
+ * wrapper for that check; the gate now lives in `back/store.ts`, where it covers
+ * every caller — including the dApp private-data readers.
  */
 export async function swSignCallback(publicKey: string, signingInputs: string): Promise<Uint8Array> {
-  return withUnlockedVault(async ({ vault }) => {
+  return withUnlocked(async ({ vault }) => {
     const signatureHex = await vault.signTransaction(publicKey, signingInputs);
     return new Uint8Array(Buffer.from(signatureHex, 'hex'));
-  });
-}
-
-/**
- * Like `withUnlocked`, but additionally guards against a NULL vault.
- *
- * `withUnlocked` → `assertUnlocked` only asserts the store is INITED; it does
- * NOT check that the vault is actually present. A LOCKED wallet has
- * `inited === true` but `vault === null`, so a factory that dereferences the
- * vault throws an opaque `TypeError: Cannot read properties of null`. That
- * TypeError is not recognised as a "locked" failure by the transaction loop,
- * so a background Guardian consume that runs while the wallet is locked gets
- * marked Failed (losing the note-claim) instead of deferred (issue #313).
- *
- * Throwing an explicit locked-classified error (matched by `isLockedError`)
- * lets the loop leave the tx Queued for retry after the wallet unlocks.
- */
-function withUnlockedVault<T>(factory: (ctx: { vault: Vault }) => T): T {
-  return withUnlocked(({ vault }) => {
-    if (!vault) {
-      throw Object.assign(new Error('Wallet is locked: vault unavailable'), { reason: 'locked' as const });
-    }
-    return factory({ vault });
   });
 }
 
@@ -97,22 +76,22 @@ function withUnlockedVault<T>(factory: (ctx: { vault: Vault }) => T): T {
  */
 export const vaultGuardianProvider: GuardianAccountProvider = {
   getAccounts: async () => {
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       return await vault.fetchAccounts();
     });
   },
   getPublicKeyForCommitment: async (commitment: string) => {
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       return await vault.getPublicKeyForCommitment(commitment);
     });
   },
   signWord: async (publicKey: string, wordHex: string) => {
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       return await vault.signWord(publicKey, wordHex);
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       await vault.persistNewHotKey(newHotPubKey, newHotCiphertext);
     });
   },
@@ -128,7 +107,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // intercom-driven path; we don't route through Actions.swapHotKey here
     // because importing actions.ts drags webextension-polyfill into the
     // transaction-processor's init chain.
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
       accountsUpdated(updated);
     });
@@ -137,7 +116,7 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
-    return withUnlockedVault(async ({ vault }) => {
+    return withUnlocked(async ({ vault }) => {
       const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
       accountsUpdated(updated);
     });
@@ -236,11 +215,8 @@ interface StuckTxHealDiagnostic {
  * Escalate a self-heal failure that survived the Dexie re-open + retry.
  *
  * A bare `console.error` is invisible without an open DevTools session, so a
- * silently-wedged heal is undiagnosable in the field. The obvious escalation
- * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
- * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
- * the background Vite build (`vite.background.config.ts`) never defines it, so a
- * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * silently-wedged heal is undiagnosable in the field. The transaction analytics
+ * sink was removed (it was dead Aleo-era code), so no analytics is emitted here.
  * Escalating to a Dexie table is just as self-defeating: the heal usually fails
  * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
  * instead — it works in the MV3 service worker and survives a broken IndexedDB —

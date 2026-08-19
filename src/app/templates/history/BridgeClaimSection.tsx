@@ -89,12 +89,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
   // Poll the bridge indexer for a claimable deposit to the destination. Stateless
-  // / indexer-driven, so it surfaces deposits from a previous session too.
+  // / indexer-driven, so it surfaces deposits from a previous session too. The
+  // lookup is bound to THIS row's Miden transaction id, so a second bridge-out to
+  // the same address can't hand this row the sibling deposit — which would claim
+  // the wrong amount on L1 and mark this row claimed for a claim it never made.
   useBridgeTracker({
     active: isAgglayer && !transactionFailed && status !== 'claimed' && !!destination,
     intervalMs: 8000,
     poll: async () => {
-      const deposit = await findClaimableMidenToEvmDeposit(destination);
+      const deposit = await findClaimableMidenToEvmDeposit(destination, entry.externalTxId);
       if (!deposit) return false;
       setClaimable(deposit);
       if (status === 'pending' && entry.txId) {
@@ -180,7 +183,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
     setReclaiming(true);
     try {
       // Reclaim = the sender consuming their own recallable P2IDE note by id.
-      const txId = await initiateConsumeTransactionFromId(account.publicKey, reclaimNoteId, isDelegateProofEnabled());
+      // `manualRetry` because this only runs on an explicit tap: without it an
+      // earlier failed reclaim puts the note behind auto-consume's exponential
+      // backoff, so the tap queues nothing and navigates to the old failed receipt.
+      const txId = await initiateConsumeTransactionFromId(
+        account.publicKey,
+        reclaimNoteId,
+        isDelegateProofEnabled(),
+        true
+      );
       if (isExtension()) requestSWTransactionProcessing();
       navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
     } catch (err) {

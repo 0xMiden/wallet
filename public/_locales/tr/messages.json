@@ -4,7 +4,7 @@
     "englishSource": "Payload"
   },
   "bridgeDepositTitle": {
-    "message": "Miden Köprüsü",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "bridgeDepositHeading": {
@@ -12,11 +12,11 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Cüzdanınız tam tutarı onaylamak ve Sepolia'da oturum açmak için açılacaktır.",
+    "message": "Cüzdanınız, tam tutarı onaylamak ve Sepolia’da imzalamak üzere açılacaktır.",
     "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
   },
   "bridgeDepositYouReceive": {
-    "message": "Alırsın",
+    "message": "Şunları alırsınız:",
     "englishSource": "You receive"
   },
   "bridgeDepositBridgeOption": {
@@ -24,11 +24,11 @@
     "englishSource": "Bridge option"
   },
   "bridgeDepositApprovingTitle": {
-    "message": "Neyi onaylıyorsunuz",
+    "message": "Onayladığınız şey",
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Cüzdanınız onay isteyecek $tokenSymbol$ ve Sepolia'daki depozitoyu imzalayın. Fonlar onaylandıktan sonra Miden'e ulaşıyor.",
+    "message": "Cüzdanınız, $tokenSymbol$ adresini onaylamanızı ve Sepolia'da para yatırma işlemini imzalamanızı isteyecektir. Onaylandıktan sonra para Miden'e aktarılacaktır.",
     "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
@@ -53,8 +53,8 @@
     }
   },
   "balanceCardAccount": {
-    "message": "Hesap #: $number$ ",
-    "englishSource": "Account #: $number$",
+    "message": "Adres: $number$",
+    "englishSource": "Address: $number$",
     "placeholders": {
       "number": {
         "content": "$1"
@@ -70,7 +70,7 @@
     "englishSource": "Loading…"
   },
   "dappSwitcherCardActivate": {
-    "message": "$name$. Activate to switch to this dApp.",
+    "message": "$name$. Bu dApp’e geçmek için etkinleştirin.",
     "englishSource": "$name$. Activate to switch to this dApp.",
     "placeholders": {
       "name": {
@@ -79,7 +79,7 @@
     }
   },
   "dappSwitcherCloseCard": {
-    "message": "Kapalı $name$ ",
+    "message": "$name$'i kapat",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -88,7 +88,7 @@
     }
   },
   "promptCardDismiss": {
-    "message": "Azletmek",
+    "message": "Kapat",
     "englishSource": "Dismiss"
   },
   "promptCardLoading": {
@@ -105,7 +105,7 @@
     }
   },
   "priceChangeAmountPositive": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -114,7 +114,7 @@
     }
   },
   "priceChangeAmountNegative": {
-    "message": "- $amount$ ",
+    "message": "-$amount$",
     "englishSource": "-$amount$",
     "placeholders": {
       "amount": {
@@ -123,7 +123,7 @@
     }
   },
   "priceChangePercent": {
-    "message": "$value$%",
+    "message": "$value$",
     "englishSource": "$value$%",
     "placeholders": {
       "value": {
@@ -132,7 +132,7 @@
     }
   },
   "pendingTabApproxUsd": {
-    "message": "≈  $value$ ",
+    "message": "≈ $value$",
     "englishSource": "≈ $value$",
     "placeholders": {
       "value": {
@@ -140,8 +140,17 @@
       }
     }
   },
+  "noteReturnsToSenderBy": {
+    "message": "$date$ tarafından talep edilmezse gönderene iade edilir.",
+    "englishSource": "Returns to the sender if unclaimed by $date$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
   "tokenDetailChange24h": {
-    "message": "$change$%",
+    "message": "$change$",
     "englishSource": "$change$%",
     "placeholders": {
       "change": {
@@ -150,7 +159,7 @@
     }
   },
   "historyDetailsIdLabel": {
-    "message": "İD: $id$ ",
+    "message": "ID: $id$",
     "englishSource": "ID: $id$",
     "placeholders": {
       "id": {
@@ -178,7 +187,7 @@
     "englishSource": "Failed to load transaction"
   },
   "historyDetailsFiatApprox": {
-    "message": "≈  $amount$ Amerikan Doları",
+    "message": "≈ $amount$ ABD doları",
     "englishSource": "≈ $amount$ USD",
     "placeholders": {
       "amount": {
@@ -196,7 +205,7 @@
     }
   },
   "dappPeekCardOverflowBadge": {
-    "message": "+ $count$ ",
+    "message": "+$count$",
     "englishSource": "+$count$",
     "placeholders": {
       "count": {
@@ -205,7 +214,7 @@
     }
   },
   "settingsVersion": {
-    "message": "Sürüm $version$ ",
+    "message": "Sürüm$version$",
     "englishSource": "Version $version$",
     "placeholders": {
       "version": {
@@ -218,7 +227,7 @@
     "englishSource": "Bread"
   },
   "earnPositionHeaderTitle": {
-    "message": "Benim $protocol$  •  $asset$ konum",
+    "message": "$protocol$'im • $asset$ pozisyonum",
     "englishSource": "My $protocol$ • $asset$ position",
     "placeholders": {
       "protocol": {
@@ -230,7 +239,7 @@
     }
   },
   "earnAssetOnNetwork": {
-    "message": "$network$ üzerinde $asset$",
+    "message": "$asset$ $network$ adresinde",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -242,7 +251,7 @@
     }
   },
   "earnMetricDeposited": {
-    "message": "Yatırılan",
+    "message": "Yatırıldı",
     "englishSource": "Deposited"
   },
   "earnMetricTotalEarned": {
@@ -254,15 +263,15 @@
     "englishSource": "Daily Avg"
   },
   "earnMetricTimeActive": {
-    "message": "Aktif Zaman",
+    "message": "Etkinlik Süresi",
     "englishSource": "Time Active"
   },
   "earnMetricStarted": {
-    "message": "Başlatıldı",
+    "message": "Başladı",
     "englishSource": "Started"
   },
   "earnProjectedEarnings": {
-    "message": "~  $estimate$ · en $apy$ APY",
+    "message": "~ $estimate$ · $apy$ adresinde yıllık yüzde getiri (APY)",
     "englishSource": "~ $estimate$ · at $apy$ APY",
     "placeholders": {
       "estimate": {
@@ -278,11 +287,11 @@
     "englishSource": "Protocol"
   },
   "position": {
-    "message": "Konum",
+    "message": "Pozisyon",
     "englishSource": "Position"
   },
   "withdraw": {
-    "message": "Geri çekilmek",
+    "message": "Para Çekme",
     "englishSource": "Withdraw"
   },
   "earnDepositMore": {
@@ -294,11 +303,11 @@
     "englishSource": "Withdraw Amount"
   },
   "earnWithdrawalLabel": {
-    "message": "Para çekme",
+    "message": "Para Çekme",
     "englishSource": "Withdrawal"
   },
   "earnFullPositionGasless": {
-    "message": "Tam konum (gazsız)",
+    "message": "Tam pozisyon (gaz ücreti gerektirmez)",
     "englishSource": "Full position (gasless)"
   },
   "earnEstimatedTimeLabel": {
@@ -314,19 +323,19 @@
     "englishSource": "Withdrawing…"
   },
   "earnWithdrawNotOwned": {
-    "message": "Bu pozisyon mevcut cüzdandan türetilen EVM hesabına ait değildir.",
+    "message": "Bu pozisyon, mevcut cüzdandan türetilen EVM hesabına ait değildir.",
     "englishSource": "This position is not owned by the current wallet-derived EVM account."
   },
   "earnGaslessWithdrawalFailed": {
-    "message": "Gazsız çekilme başarısız oldu.",
+    "message": "Gaz ücreti gerektirmeyen para çekme işlemi başarısız oldu.",
     "englishSource": "Gasless withdrawal failed."
   },
   "earnCurrentApy": {
-    "message": "Mevcut APY",
+    "message": "Güncel Yıllık Getiri Oranı (APY)",
     "englishSource": "Current APY"
   },
   "earnDeposit": {
-    "message": "Mevduat",
+    "message": "Para yatırma",
     "englishSource": "Deposit"
   },
   "earnTvlLabel": {
@@ -338,11 +347,11 @@
     "englishSource": "Risk"
   },
   "earnAuditedLabel": {
-    "message": "Denetlendi",
+    "message": "Denetlenmiş",
     "englishSource": "Audited"
   },
   "earnDepositAmountTitle": {
-    "message": "Yatırma Tutarı",
+    "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
   },
   "earnOpenPosition": {
@@ -358,7 +367,7 @@
     "englishSource": "6 Months"
   },
   "earnProjection1Year": {
-    "message": "1 Yıl",
+    "message": "1 yıl",
     "englishSource": "1 Year"
   },
   "earnProjectionNow": {
@@ -366,7 +375,7 @@
     "englishSource": "Now"
   },
   "earnProjectedRewardAmount": {
-    "message": "+ $amount$ ",
+    "message": "+$amount$",
     "englishSource": "+$amount$",
     "placeholders": {
       "amount": {
@@ -383,7 +392,7 @@
     "englishSource": "Miden P2IDE (gasless)"
   },
   "earnDepositRoute": {
-    "message": "Miden -> $protocol$  ( $network$ )",
+    "message": "Miden -> $protocol$ ($network$)",
     "englishSource": "Miden -> $protocol$ ($network$)",
     "placeholders": {
       "protocol": {
@@ -403,7 +412,7 @@
     "englishSource": "~30 seconds"
   },
   "earnNoEvmAddress": {
-    "message": "Bu hesap için EVM adresi yok.",
+    "message": "Bu hesap için EVM adresi mevcut değil.",
     "englishSource": "No EVM address available for this account."
   },
   "earnFailedToOpenPosition": {
@@ -411,11 +420,11 @@
     "englishSource": "Failed to open position"
   },
   "earnTotalEarnedRewards": {
-    "message": "Kazanılan Toplam Ödüller",
+    "message": "Toplam Kazanılan Ödüller",
     "englishSource": "Total Earned Rewards"
   },
   "earnEarningBlendedApy": {
-    "message": "kazanç $apy$ harmanlanmış APY",
+    "message": "$apy$'lık karma APY elde etmek",
     "englishSource": "Earning $apy$ blended APY",
     "placeholders": {
       "apy": {
@@ -424,7 +433,7 @@
     }
   },
   "earnTotalDeposited": {
-    "message": "Toplam Yatırılan",
+    "message": "Toplam Yatırılan Tutar",
     "englishSource": "Total Deposited"
   },
   "earnEstimatedRewards": {
@@ -439,6 +448,10 @@
     "message": "Pozisyonlar",
     "englishSource": "Positions"
   },
+  "earnPositionsLoadError": {
+    "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Couldn't load your positions. Check your connection and try again."
+  },
   "earnPositionsApy": {
     "message": "$apy$ APY",
     "englishSource": "$apy$ APY",
@@ -449,15 +462,15 @@
     }
   },
   "earnDeposited": {
-    "message": "Yatırılan",
+    "message": "Yatırıldı",
     "englishSource": "Deposited"
   },
   "earnDepositAmountLabel": {
-    "message": "Yatırma Tutarı",
+    "message": "Para Yatırma Tutarı",
     "englishSource": "Deposit Amount"
   },
   "earnSeeAll": {
-    "message": "Tümünü Gör",
+    "message": "Tümünü Göster",
     "englishSource": "See All"
   },
   "earnVaultsTitle": {
@@ -469,7 +482,7 @@
     "englishSource": "APY"
   },
   "earnVaultAssetOnNetwork": {
-    "message": "$network$ üzerinde $asset$",
+    "message": "$asset$ $network$ adresinde",
     "englishSource": "$asset$ on $network$",
     "placeholders": {
       "asset": {
@@ -485,19 +498,19 @@
     "englishSource": "Current Positions"
   },
   "advanced": {
-    "message": "Gelişmiş",
+    "message": "İleri Düzey",
     "englishSource": "Advanced"
   },
   "appName": {
-    "message": "Miden - Bread",
+    "message": "Ekmek",
     "englishSource": "Bread"
   },
   "appDesc": {
-    "message": "Miden blok zinciri için bir tarayıcı cüzdanı",
+    "message": "Miden için bir tarayıcı cüzdanı blockchain",
     "englishSource": "A browser wallet for the Miden blockchain"
   },
   "createAccount": {
-    "message": "Hesap oluşturmak",
+    "message": "Hesap Oluştur",
     "englishSource": "Create Account"
   },
   "importAccount": {
@@ -509,12 +522,11 @@
     "englishSource": "Settings"
   },
   "authorizedDApps": {
-    "message": "İzin Verilen DApps",
-    "description": "DApps = Decentralized Applications",
+    "message": "Yetkili DApp'ler",
     "englishSource": "Authorized DApps"
   },
   "versionLabel": {
-    "message": "sürüm: $version$ ",
+    "message": "sürüm: $version$",
     "englishSource": "version: $version$",
     "placeholders": {
       "version": {
@@ -523,7 +535,7 @@
     }
   },
   "resetPermissionsConfirmation": {
-    "message": "İzinlerini sıfırlamak istediğinizden emin misiniz? $origin$ ?",
+    "message": "\n $origin$için izinleri sıfırlamak istediğinizden emin misiniz?",
     "englishSource": "Are you sure you want to reset permissions for\n $origin$?",
     "placeholders": {
       "origin": {
@@ -532,11 +544,11 @@
     }
   },
   "clickToRevealField": {
-    "message": "Bu alanı ortaya çıkarmak için tıklayın",
+    "message": "Bu alanı görüntülemek için tıklayın",
     "englishSource": "Click to reveal this field"
   },
   "clickToReveal": {
-    "message": "ortaya çıkarmak için tıklayın",
+    "message": "Görüntülemek için tıklayın",
     "englishSource": "Click to reveal"
   },
   "copiedHash": {
@@ -556,11 +568,11 @@
     "englishSource": "Card Color"
   },
   "lock": {
-    "message": "Engellemek",
+    "message": "Kilit",
     "englishSource": "Lock"
   },
   "importedAccount": {
-    "message": "İçe aktarıldı",
+    "message": "İthal",
     "englishSource": "Imported"
   },
   "networks": {
@@ -572,7 +584,7 @@
     "englishSource": "Back"
   },
   "skip": {
-    "message": "Atlamak",
+    "message": "Atla",
     "englishSource": "Skip"
   },
   "okGotIt": {
@@ -580,7 +592,7 @@
     "englishSource": "Got it"
   },
   "changelogTitle": {
-    "message": "Miden Cüzdan güncellendi",
+    "message": "Ekmek güncellendi",
     "englishSource": "Bread updated"
   },
   "update": {
@@ -588,30 +600,15 @@
     "englishSource": "Update"
   },
   "originLabel": {
-    "message": "Köken: $origin$",
-    "placeholders": {
-      "origin": {
-        "content": "$1"
-      }
-    },
+    "message": "Kaynak:",
     "englishSource": "Origin:"
   },
   "networkLabel": {
-    "message": "Ağ: $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    },
+    "message": "Ağ:",
     "englishSource": "Network:"
   },
   "pkhLabel": {
-    "message": "Hesap: $pkh$",
-    "placeholders": {
-      "pkh": {
-        "content": "$1"
-      }
-    },
+    "message": "Hesap:",
     "englishSource": "Account:"
   },
   "analytics": {
@@ -619,7 +616,7 @@
     "englishSource": "Analytics"
   },
   "cancel": {
-    "message": "İptal",
+    "message": "İptal et",
     "englishSource": "Cancel"
   },
   "cancelled": {
@@ -627,11 +624,11 @@
     "englishSource": "Cancelled"
   },
   "showFullError": {
-    "message": "Tam hatayı göster",
+    "message": "Hatanın tamamını göster",
     "englishSource": "Show full error"
   },
   "hideFullError": {
-    "message": "Tam hatayı gizle",
+    "message": "Hatanın tamamını gizle",
     "englishSource": "Hide full error"
   },
   "faucet": {
@@ -643,7 +640,7 @@
     "englishSource": "Error"
   },
   "required": {
-    "message": "Gerekli",
+    "message": "Zorunlu",
     "englishSource": "Required"
   },
   "address": {
@@ -663,7 +660,7 @@
     "englishSource": "Alert"
   },
   "defaultAccountName": {
-    "message": "Hesap $accountNumber$ ",
+    "message": "Hesap $accountNumber$",
     "englishSource": "Account $accountNumber$",
     "placeholders": {
       "accountnumber": {
@@ -672,15 +669,15 @@
     }
   },
   "doNotSharePrivateKey1": {
-    "message": "Kimseyle PAYLAŞMAYIN!",
+    "message": "Bunu kimseyle PAYLAŞMAYIN!",
     "englishSource": "DO NOT share with anyone!"
   },
   "doNotSharePrivateKey2": {
-    "message": "Mevcut hesabınızı çalmak için kullanılabilir.",
+    "message": "Bu, cari hesabınızı ele geçirmek için kullanılabilir.",
     "englishSource": "It can be used to steal your current account."
   },
   "transactionAction": {
-    "message": "işlem",
+    "message": "İşlem",
     "englishSource": "Transaction"
   },
   "account": {
@@ -688,19 +685,19 @@
     "englishSource": "Account"
   },
   "noPreview": {
-    "message": "Önizleme yok",
+    "message": "Önizleme mevcut değil",
     "englishSource": "No preview is available"
   },
   "mnemonicWordsAmountConstraint": {
-    "message": "12, 15, 18, 21 veya 24 İngilizce sözcük",
+    "message": "İngilizce’de 12, 15, 18, 21 veya 24 kelime",
     "englishSource": "12, 15, 18, 21 or 24 words in English"
   },
   "mnemonicSpacingConstraint": {
-    "message": "Her sözcük tek bir boşlukla ayrılır",
+    "message": "Her kelime tek bir boşlukla ayrılmıştır",
     "englishSource": "Each word separated with a single space"
   },
   "seedInputNumberOfWords": {
-    "message": "Benim Seed phrase'ım: $num$ kelimeler",
+    "message": "“Seed phrase” adlı kitabım $num$ kelimeden oluşuyor",
     "englishSource": "My Seed phrase is $num$ words",
     "placeholders": {
       "num": {
@@ -709,23 +706,23 @@
     }
   },
   "justValidPreGeneratedMnemonic": {
-    "message": "Yalnızca daha önceden oluşturulmuş geçerli anımsatıcı ifade",
+    "message": "Yalnızca geçerli, önceden oluşturulmuş mnemonik",
     "englishSource": "Just valid pre-generated mnemonic"
   },
   "seedPasteFailedTooManyWords": {
-    "message": "24'ten fazla kelime içerdiğinden yapıştırma başarısız oldu.",
+    "message": "Yapıştırma işlemi, metinde 24 kelimeden fazla olduğu için başarısız oldu.",
     "englishSource": "Paste failed because it contained over 24 words."
   },
   "seedPhraseTip": {
-    "message": "Gizli Seed ifadenizin tamamını herhangi bir alana yapıştırabilirsiniz",
+    "message": "Gizli Seed phrase adresinizi herhangi bir alana olduğu gibi yapıştırabilirsiniz",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
   "oops": {
-    "message": "Hay aksi!",
+    "message": "Oops!",
     "englishSource": "Oops!"
   },
   "smthWentWrongWhile": {
-    "message": "Bu sırada bir şeyler ters gitti $action$ ",
+    "message": "$action$ komutu sırasında bir hata oluştu",
     "englishSource": "Something went wrong while $action$",
     "placeholders": {
       "action": {
@@ -734,11 +731,11 @@
     }
   },
   "mayHappenBecauseYouAreOffline": {
-    "message": "Bunun nedeni şu anda çevrimdışı olmanız olabilir",
+    "message": "Bu durum, şu anda çevrimdışı olmanızdan kaynaklanıyor olabilir",
     "englishSource": "This may happen because you are currently offline"
   },
   "tryAgain": {
-    "message": "Yeniden dene",
+    "message": "Tekrar deneyin",
     "englishSource": "Try again"
   },
   "resetExtension": {
@@ -746,15 +743,15 @@
     "englishSource": "Reset Extension"
   },
   "resetExtensionConfirmation": {
-    "message": "Miden Cüzdanını sıfırlamak istediğinizden emin misiniz?\nSonuç olarak tüm verileriniz silinecektir.",
+    "message": "Bread’i sıfırlamak istediğinizden emin misiniz?\nBu işlem sonucunda tüm verileriniz silinecektir.",
     "englishSource": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted."
   },
   "retry": {
-    "message": "Yeniden dene",
+    "message": "Tekrar dene",
     "englishSource": "Retry"
   },
   "maximalAmount": {
-    "message": "Maksimum: $amount$ ",
+    "message": "Maximal: $amount$",
     "englishSource": "Maximal: $amount$",
     "placeholders": {
       "amount": {
@@ -767,15 +764,15 @@
     "englishSource": "Before you continue"
   },
   "privateKeyRevealWarningBody": {
-    "message": "Özel anahtarınız bu hesabın tam kontrolünü, onu elinde bulunduran kişiye verir. Miden hesapları anahtarları değiştiremez, bu nedenle sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
+    "message": "Özel anahtarınız, bu hesabın tam kontrolünü elinde bulunduran kişiye verir. Miden hesaplarında anahtar değiştirme özelliği bulunmadığından, sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
     "englishSource": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently."
   },
   "privateKeyRevealAcknowledge": {
-    "message": "Bu anahtarın değiştirilemeyeceğini veya iptal edilemeyeceğini anlıyorum.",
+    "message": "Anladığım kadarıyla bu anahtarın değiştirilmesi veya iptal edilmesi mümkün değil.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "İçe aktarılan hesaplar ( $importedCount$ ) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her özel anahtarı ayrı ayrı Ayarlar → Özel Anahtarı Göster bölümünden dışa aktarın.",
+    "message": "İçe aktarılan hesaplar ($importedCount$) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her bir özel anahtarı Ayarlar → Özel Anahtarı Göster seçeneğinden tek tek dışa aktarın.",
     "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
     "placeholders": {
       "importedcount": {
@@ -788,7 +785,7 @@
     "englishSource": "Edit Account Name"
   },
   "delegate": {
-    "message": "Devret",
+    "message": "Temsilci",
     "englishSource": "Delegate"
   },
   "receive": {
@@ -800,7 +797,7 @@
     "englishSource": "Send"
   },
   "searchByNameOrSymbol": {
-    "message": "İsme veya sembole göre arayın",
+    "message": "Ad veya sembole göre arama yapın",
     "englishSource": "Search by name or symbol"
   },
   "transactionInitiated": {
@@ -808,11 +805,11 @@
     "englishSource": "Transaction initiated"
   },
   "transactionBackground": {
-    "message": "İşlem arka planda devam edecek.",
+    "message": "İşlem arka planda devam edecektir.",
     "englishSource": "Transaction will proceed in the background."
   },
   "transactionDelegated": {
-    "message": "İşlem kanıt oluşturmak için gönderildi.",
+    "message": "İşlem, kanıt oluşturulması için gönderildi.",
     "englishSource": "Transaction has been sent for proof generation."
   },
   "openedNewTab": {
@@ -820,7 +817,7 @@
     "englishSource": "The wallet opened a new tab to speed up the transaction. That tab will auto-close."
   },
   "fastTransactionDescription": {
-    "message": "İşlem otomatik olarak yayınlanacak ve sonuçlandırılacaktır.",
+    "message": "İşlem otomatik olarak yayınlanacak ve tamamlanacaktır.",
     "englishSource": "The transaction will automatically be broadcasted and finalized."
   },
   "speedUpTransaction": {
@@ -832,11 +829,11 @@
     "englishSource": "Transaction Speed"
   },
   "generatingTransaction": {
-    "message": "Oluşturma İşlemi",
+    "message": "İşlem Oluşturma",
     "englishSource": "Generating Transaction"
   },
   "generatingTransactionDescription": {
-    "message": "Ağ trafiğine bağlı olarak bu işlem biraz zaman alabilir. Bunu kapatabilirsiniz; bittiğinde sizi bilgilendireceğiz.",
+    "message": "Ağ trafiğine bağlı olarak bu işlem bir süre alabilir. Bu pencereyi kapatabilirsiniz; işlem tamamlandığında size bildirimde bulunacağız.",
     "englishSource": "This may take a moment depending on network traffic. You can close this — we'll notify you when it's done."
   },
   "transactionProcessingHeader": {
@@ -844,15 +841,15 @@
     "englishSource": "Processing"
   },
   "transactionTitleSend": {
-    "message": "Ödeme Gönderiliyor",
+    "message": "Ödeme Gönderme",
     "englishSource": "Sending Payment"
   },
   "transactionTitleSwap": {
-    "message": "Takas Oluşturuluyor",
+    "message": "Takas Oluşturma",
     "englishSource": "Generating Swap"
   },
   "transactionStepGuardianApproved": {
-    "message": "Guardian onaylı",
+    "message": "Guardian onaylandı",
     "englishSource": "Guardian approved"
   },
   "transactionStepProofGenerated": {
@@ -860,7 +857,7 @@
     "englishSource": "Proof generated"
   },
   "transactionStepSubmitting": {
-    "message": "Gönderiliyor",
+    "message": "Gönderme",
     "englishSource": "Submitting"
   },
   "transactionStepSyncingGuardian": {
@@ -868,7 +865,7 @@
     "englishSource": "Syncing with Guardian"
   },
   "transactionStepDurationSec": {
-    "message": "$seconds$ sec",
+    "message": "$seconds$ sn",
     "englishSource": "$seconds$ sec",
     "placeholders": {
       "seconds": {
@@ -877,11 +874,11 @@
     }
   },
   "transactionStageSyncing": {
-    "message": "Hesap senkronize ediliyor",
+    "message": "Hesap senkronizasyonu",
     "englishSource": "Syncing account"
   },
   "transactionStageSyncingDescription": {
-    "message": "En son hesap durumunuz getiriliyor.",
+    "message": "En son hesap durumunuz alınıyor.",
     "englishSource": "Fetching your latest account state."
   },
   "transactionStageSending": {
@@ -889,59 +886,59 @@
     "englishSource": "Sending transaction"
   },
   "transactionStageSendingDescription": {
-    "message": "İşleminizi oluşturmak ve kanıtlamak.",
+    "message": "İşleminizi oluşturma ve doğrulama.",
     "englishSource": "Building and proving your transaction."
   },
   "transactionStageClaiming": {
-    "message": "note için hak talebinde bulunuluyor",
+    "message": "note'i Talep Etme",
     "englishSource": "Claiming note"
   },
   "transactionStageExecuting": {
-    "message": "İşlem yürütülüyor",
+    "message": "İşlemin gerçekleştirilmesi",
     "englishSource": "Executing transaction"
   },
   "transactionStageExecutingDescription": {
-    "message": "İşlemin kanıtlanması için hazırlanması.",
+    "message": "İşlemi doğrulama için hazırlama.",
     "englishSource": "Preparing the transaction for proving."
   },
   "transactionStageProving": {
-    "message": "Kanıt oluşturuluyor",
+    "message": "Kanıt oluşturma",
     "englishSource": "Generating proof"
   },
   "transactionStageProvingDescription": {
-    "message": "İşleminizin kanıtını oluşturmak.",
+    "message": "İşleminizin onay belgesi oluşturuluyor.",
     "englishSource": "Creating the proof for your transaction."
   },
   "transactionStageSwitching": {
-    "message": "Vasi değiştiriliyor",
+    "message": "guardian'e geçiş",
     "englishSource": "Switching guardian"
   },
   "transactionStageSwapping": {
-    "message": "Jetonları değiştirme",
+    "message": "Jetonların takası",
     "englishSource": "Swapping tokens"
   },
   "transactionStageCreatingProposal": {
-    "message": "Teklif oluşturuluyor",
+    "message": "Teklif hazırlama",
     "englishSource": "Creating proposal"
   },
   "transactionStageCreatingProposalDescription": {
-    "message": "Vasiniz için işlem teklifini oluşturmak.",
+    "message": "guardian'ınız için işlem teklifini oluşturma.",
     "englishSource": "Building the transaction proposal for your guardian."
   },
   "transactionStageSigningProposal": {
-    "message": "Vasi ile imza atmak",
+    "message": "guardian ile İmza Atma",
     "englishSource": "Signing with guardian"
   },
   "transactionStageSigningProposalDescription": {
-    "message": "Vasiniz teklifi imzalıyor.",
+    "message": "guardian'ınız teklifi imzalamaktadır.",
     "englishSource": "Your guardian is signing the proposal."
   },
   "transactionStageSubmitting": {
-    "message": "İşlem gönderiliyor",
+    "message": "İşlemi gönderme",
     "englishSource": "Submitting transaction"
   },
   "transactionStageSubmittingDescription": {
-    "message": "İmzalı işleminiz ağa gönderiliyor.",
+    "message": "İmzalanmış işleminizi ağa gönderiliyor.",
     "englishSource": "Sending your signed transaction to the network."
   },
   "transactionStageGuardianSyncing": {
@@ -949,7 +946,7 @@
     "englishSource": "Syncing with Guardian"
   },
   "transactionStageGuardianSyncingDescription": {
-    "message": "Güncellenen hesap durumunuz vasinizle senkronize ediliyor.",
+    "message": "Güncellenmiş hesap durumunuzu guardian adresiyle senkronize edin.",
     "englishSource": "Syncing your updated account state with your guardian."
   },
   "transactionStageComplete": {
@@ -957,11 +954,11 @@
     "englishSource": "Transaction complete"
   },
   "transactionStageCompleteDescription": {
-    "message": "İşlem ayrıntılarının sonuçlandırılması.",
+    "message": "İşlem ayrıntılarını sonlandırılıyor.",
     "englishSource": "Finalizing transaction details."
   },
   "transactionStageConfirming": {
-    "message": "Zincirde onaylanıyor",
+    "message": "Zincir üzerinde doğrulama",
     "englishSource": "Confirming on chain"
   },
   "transactionStageConfirmingDescription": {
@@ -969,19 +966,19 @@
     "englishSource": "Waiting for network confirmation."
   },
   "transactionStageRegisteringGuardian": {
-    "message": "Vasiye kaydolmak",
+    "message": "guardian'a kayıt olma",
     "englishSource": "Registering with guardian"
   },
   "transactionStageRegisteringGuardianDescription": {
-    "message": "Hesap durumunuz yeni vasiye kaydediliyor.",
+    "message": "Hesap durumunuzu yeni guardian adresine kaydedin.",
     "englishSource": "Registering your account state with the new guardian."
   },
   "transactionStageDelivering": {
-    "message": "note teslim ediliyor",
+    "message": "note’in Teslimatı",
     "englishSource": "Delivering note"
   },
   "transactionStageDeliveringDescription": {
-    "message": "note alıcıya güvenli bir şekilde gönderiliyor.",
+    "message": "note'i alıcıya güvenli bir şekilde gönderme.",
     "englishSource": "Securely sending the note to the recipient."
   },
   "status": {
@@ -993,19 +990,19 @@
     "englishSource": "Private Key"
   },
   "mnemonic": {
-    "message": "Anımsatıcı ifade",
+    "message": "Anımsatıcı",
     "englishSource": "Mnemonic"
   },
   "password": {
-    "message": "Parola",
+    "message": "Şifre",
     "englishSource": "Password"
   },
   "success": {
-    "message": "Başarılı",
+    "message": "Başarı",
     "englishSource": "Success"
   },
   "smthWentWrong": {
-    "message": "Bir hata oluştu",
+    "message": "Bir sorun oluştu",
     "englishSource": "Something went wrong"
   },
   "processing": {
@@ -1013,7 +1010,7 @@
     "englishSource": "Processing..."
   },
   "importWallet": {
-    "message": "Cüzdanınızı İçe Aktarın",
+    "message": "Cüzdanı İçe Aktar",
     "englishSource": "Import Wallet"
   },
   "revealPrivateKey": {
@@ -1025,7 +1022,7 @@
     "englishSource": "Advanced Settings"
   },
   "resync": {
-    "message": "Yeniden eşitle",
+    "message": "Yeniden senkronize et",
     "englishSource": "Resync"
   },
   "about": {
@@ -1049,15 +1046,15 @@
     "englishSource": "Info"
   },
   "unlockPasswordErrorDelay": {
-    "message": "Üç kez yanlış şifre girdiniz. Cüzdanınız şu nedenle bloke ediliyor:",
+    "message": "Yanlış şifreyi üç kez girdiniz. Cüzdanınız şu süre boyunca engelleniyor:",
     "englishSource": "You have entered the wrong password three times. Your wallet is being blocked for"
   },
   "unlock": {
-    "message": "Kilidi Aç",
+    "message": "Kilidi aç",
     "englishSource": "Unlock"
   },
   "website": {
-    "message": "Web Sitesi",
+    "message": "Web sitesi",
     "englishSource": "Website"
   },
   "privacyPolicy": {
@@ -1065,31 +1062,35 @@
     "englishSource": "Privacy Policy"
   },
   "termsOfService": {
-    "message": "Hizmet Şartları",
+    "message": "Kullanım Koşulları",
     "englishSource": "Terms of Service"
+  },
+  "sendFeedback": {
+    "message": "Geri bildirim gönder",
+    "englishSource": "Send feedback"
   },
   "termsOfUse": {
     "message": "Kullanım Koşulları",
     "englishSource": "Terms of Use"
   },
   "recoveryPhrase": {
-    "message": "Kurtarma İfadesi",
+    "message": "Geri Yükleme İfadesi",
     "englishSource": "Recovery Phrase"
   },
   "viewThisInPrivatePlace": {
-    "message": "Bunu özel bir yerde görüntüle",
+    "message": "Bunu gözlerden uzak bir yerde görüntüle",
     "englishSource": "View this in a private place"
   },
   "anyoneWithRecoveryPhrase": {
-    "message": "Kurtarma ifadenizi bilen herkes cüzdanınıza ve paranıza erişebilir.",
+    "message": "Geri alma ifadenizi bilen herkes cüzdanınıza ve paranıza erişebilir.",
     "englishSource": "Anyone who knows your recovery phrase can access your wallet and funds."
   },
   "pleaseWriteDownRecoveryPhrase": {
-    "message": "Lütfen gizli kurtarma ifadenizi yazın ve güvenli bir yerde saklayın.",
+    "message": "Lütfen gizli kurtarma ifadenizi bir yere yazın ve güvenli bir yerde saklayın.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place."
   },
   "view": {
-    "message": "Görüş",
+    "message": "Görüntüle",
     "englishSource": "View"
   },
   "hideRecoveryPhrase": {
@@ -1097,15 +1098,15 @@
     "englishSource": "Hide Recovery Phrase"
   },
   "dAppsInteraction": {
-    "message": "DApp Etkileşimi",
+    "message": "DApps Arasındaki Etkileşim",
     "englishSource": "DApps Interaction"
   },
   "none": {
-    "message": "Hiçbiri",
+    "message": "Yok",
     "englishSource": "None"
   },
   "popupEnabled": {
-    "message": "Etkinleştirildi",
+    "message": "Etkin",
     "englishSource": "Enabled"
   },
   "delete": {
@@ -1117,7 +1118,7 @@
     "englishSource": "Not enough funds"
   },
   "notEnoughCurrencyFunds": {
-    "message": "Yeterli değil $currency$ fonlar",
+    "message": "$currency$'ın fonları yetersiz",
     "englishSource": "Not enough $currency$ funds",
     "placeholders": {
       "currency": {
@@ -1130,15 +1131,15 @@
     "englishSource": "Failed"
   },
   "yourBalanceIsZero": {
-    "message": "Bakiyeniz sıfır.",
+    "message": "Bakiyeniz sıfırdır.",
     "englishSource": "Your Balance is zero."
   },
   "thisMayHappenBecause": {
-    "message": "Bunun nedeni şunlar olabilir:",
+    "message": "Bunun nedenleri şunlar olabilir:",
     "englishSource": "This may happen because:"
   },
   "minimalFeeGreaterThanBalanceVerbose": {
-    "message": "Bu işlemin minimum ücreti bakiyenizden daha fazla. Boş bir Yönetici hesabına para göndermeniz nedeniyle büyük bir ücret gerekebilir. Bu bir kerelik 0,06425 gerektirir $gasTokenSymbol$ yanık ücreti;",
+    "message": "Bu işlem için minimum ücret, bakiyenizden daha yüksektir. Boş bir Yönetici hesabına para gönderdiğiniz için yüksek bir ücret talep edilebilir. Bu durum, tek seferlik 0,06425 $gasTokenSymbol$ yakma ücreti gerektirir;",
     "englishSource": "Minimal fee for this transaction is greater than your balance. A large fee may be required because of you sending funds to an empty Manager account. That requires a one-time 0.06425 $gasTokenSymbol$ burn fee;",
     "placeholders": {
       "gastokensymbol": {
@@ -1147,11 +1148,11 @@
     }
   },
   "networkOrOtherIssue": {
-    "message": "Ağ sorunu veya başka bir teknik sorun.",
+    "message": "Ağ veya başka bir teknik sorun.",
     "englishSource": "Network or other technical issue."
   },
   "confirmAction": {
-    "message": "Onaylamak $action$ ",
+    "message": "$action$ adresini onaylayın",
     "englishSource": "Confirm $action$",
     "placeholders": {
       "action": {
@@ -1164,7 +1165,7 @@
     "englishSource": "Confirm"
   },
   "confirmRisk": {
-    "message": "Riski anlıyorum ve devam etmek istiyorum.",
+    "message": "Riski anladım ve devam etmek istiyorum.",
     "englishSource": "I understand the risk and wish to proceed."
   },
   "confirmError": {
@@ -1180,7 +1181,7 @@
     "englishSource": "File"
   },
   "filePassword": {
-    "message": "Dosya Parolası",
+    "message": "Dosya Şifresi",
     "englishSource": "File Password"
   },
   "create": {
@@ -1188,23 +1189,23 @@
     "englishSource": "Create"
   },
   "import": {
-    "message": "İçe aktar",
+    "message": "İthalat",
     "englishSource": "Import"
   },
   "seedPhraseDescription": {
-    "message": "Lütfen gizli kurtarma ifadenizi yazın ve güvenli bir yerde saklayın. Bu ifade, hesabınızı kurtarmanın tek yoludur.",
+    "message": "Lütfen gizli kurtarma ifadenizi bir yere yazın ve güvenli bir yerde saklayın. Bu ifade, hesabınızı kurtarmanın tek yoludur.",
     "englishSource": "Please write down your secret recovery phrase and keep it in a safe place. This phrase is the only way to recover your account."
   },
   "doNotShareWithAnyone": {
-    "message": "Kimseyle paylaşmayın.",
+    "message": "Bunu kimseyle paylaşma.",
     "englishSource": "Do not share it with anyone."
   },
   "anyoneCanTakeAssets": {
-    "message": "Bu ifadeyi kullanan herkes varlıklarınızı sonsuza kadar alabilir.",
+    "message": "Bu ifadeye sahip olan herhangi bir kişi, varlıklarınızı sonsuza dek elinden alabilir.",
     "englishSource": "Anyone with this phrase can take your assets forever."
   },
   "continue": {
-    "message": "Devam",
+    "message": "Devam et",
     "englishSource": "Continue"
   },
   "noOperationsFound": {
@@ -1216,11 +1217,11 @@
     "englishSource": "Remove"
   },
   "ifYouWantToRevealPrivateKeyFromOtherAccount": {
-    "message": "Başka bir hesaptaki bir görüntüleme anahtarını ortaya çıkarmak istiyorsanız bunu sağ üstteki açılır menüden seçmelisiniz.",
+    "message": "Başka bir hesaba ait bir görüntüleme anahtarını göstermek istiyorsanız, sağ üstteki açılır menüden o hesabı seçmelisiniz.",
     "englishSource": "If you want to reveal a view key from another account - you should select it in the top-right dropdown."
   },
   "privateKeyFieldDescription": {
-    "message": "Mevcut hesap anahtarı. Kimseyle paylaşmayın.",
+    "message": "Cari hesap anahtarı. Bunu gizli tutun.",
     "englishSource": "Current account key. Keep it in secret."
   },
   "seedPhrase": {
@@ -1232,7 +1233,7 @@
     "englishSource": "Keep it in secret."
   },
   "revealSecretPasswordInputDescription": {
-    "message": "ortaya çıkarmak için şifreyi girin $secretName$ .",
+    "message": "$secretName$'i görüntülemek için şifreyi girin.",
     "englishSource": "Enter password to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1241,7 +1242,7 @@
     }
   },
   "revealSecretPasscodeInputDescription": {
-    "message": "ortaya çıkarmak için şifrenizi girin $secretName$ .",
+    "message": "$secretName$'i ortaya çıkarmak için şifrenizi girin.",
     "englishSource": "Enter your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1250,7 +1251,7 @@
     }
   },
   "revealSecretUnlockDescription": {
-    "message": "Ortaya çıkarmak için şifrenizle kilidi açın $secretName$ .",
+    "message": "Şifrenizle kilidi açarak “$secretName$” yazısını görün.",
     "englishSource": "Unlock with your passcode to reveal the $secretName$.",
     "placeholders": {
       "secretname": {
@@ -1271,15 +1272,15 @@
     "englishSource": "Amount"
   },
   "mainAssetBalanceIsZero": {
-    "message": "Miden kredileri (ana varlık) bakiyeniz sıfırdır. Ücret için Miden kredisi gereklidir.",
+    "message": "Miden kredilerinizin (ana varlık) bakiyesi sıfırdır. Ücretin ödenmesi için Miden kredileri gereklidir.",
     "englishSource": "Your Miden credits (main asset) balance is zero. Miden credits are required for the fee."
   },
   "unableToSendTransactionAction": {
-    "message": "İşlem sağlanan Alıcıya gönderilemiyor.",
+    "message": "İşlem, belirtilen alıcıya gönderilemedi.",
     "englishSource": "Unable to send transaction to provided Recipient."
   },
   "unableToEstimateTransactionAction": {
-    "message": "Sağlanan Alıcıya işlem tahmin edilemiyor.",
+    "message": "Belirtilen alıcıya yapılan işlemin tutarı hesaplanamıyor.",
     "englishSource": "Unable to estimate transaction to provided Recipient."
   },
   "raw": {
@@ -1287,7 +1288,7 @@
     "englishSource": "Raw"
   },
   "fetchingConfirmationDetails": {
-    "message": "konfirmasyon bilgileri alınıyor",
+    "message": "onay bilgilerini alınıyor",
     "englishSource": "fetching confirmation details"
   },
   "notIdentified": {
@@ -1315,11 +1316,11 @@
     "englishSource": "Assets"
   },
   "tokens": {
-    "message": "Jetonları keşfedin",
+    "message": "Token'ları keşfedin",
     "englishSource": "Explore tokens"
   },
   "history": {
-    "message": "Tarih",
+    "message": "Tarihçe",
     "englishSource": "History"
   },
   "proofGenerationTab": {
@@ -1338,12 +1339,16 @@
     "message": "Delege Kanıtı Oluşturma",
     "englishSource": "Delegate Proof Generation"
   },
+  "delegateProofSettingsDescription": {
+    "message": "Açık konumdayken, işlem kanıtları uzak sunucularda oluşturulur — bu işlem daha hızlıdır, cihazınıza büyük bir indirme gerektirmez ve anahtarlarınız cihazınızdan asla dışarı çıkmaz. Kapalı konumdayken veya hizmet kullanılamadığında, cüzdan kanıtlamayı yerel olarak gerçekleştirir: bu daha gizlidir, ancak daha yavaştır ve tek seferlik büyük bir indirme gerektirir.",
+    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+  },
   "transfer": {
-    "message": "Aktarım",
+    "message": "Transfer",
     "englishSource": "Transfer"
   },
   "clean": {
-    "message": "Temizle",
+    "message": "Temiz",
     "englishSource": "Clean"
   },
   "ok": {
@@ -1359,7 +1364,7 @@
     "englishSource": "No"
   },
   "actionConfirmation": {
-    "message": "İşlemi onayla",
+    "message": "Eylemi onaylayın",
     "englishSource": "Confirm the action"
   },
   "submit": {
@@ -1367,19 +1372,19 @@
     "englishSource": "Submit"
   },
   "max": {
-    "message": "Maks.",
+    "message": "Max",
     "englishSource": "Max"
   },
   "from": {
-    "message": "Gönderen",
+    "message": "Kaynak:",
     "englishSource": "From"
   },
   "to": {
-    "message": "İle",
+    "message": "Şuna",
     "englishSource": "To"
   },
   "received": {
-    "message": "Kabul edilmiş",
+    "message": "Alındı",
     "englishSource": "Received"
   },
   "other": {
@@ -1387,7 +1392,7 @@
     "englishSource": "Other"
   },
   "thousandFormat": {
-    "message": "$thousand$k",
+    "message": "$thousand$ k",
     "englishSource": "$thousand$k",
     "placeholders": {
       "thousand": {
@@ -1396,7 +1401,7 @@
     }
   },
   "millionFormat": {
-    "message": "$million$M",
+    "message": "$million$ M",
     "englishSource": "$million$M",
     "placeholders": {
       "million": {
@@ -1405,7 +1410,7 @@
     }
   },
   "billionFormat": {
-    "message": "$billion$B",
+    "message": "$billion$ B",
     "englishSource": "$billion$B",
     "placeholders": {
       "billion": {
@@ -1414,12 +1419,11 @@
     }
   },
   "download": {
-    "message": "İndirmek",
+    "message": "İndir",
     "englishSource": "Download"
   },
   "more": {
     "message": "daha fazla",
-    "description": "Show more",
     "englishSource": "more"
   },
   "addressBook": {
@@ -1431,15 +1435,15 @@
     "englishSource": "Choose recipient"
   },
   "selectAmount": {
-    "message": "Tutar Seçin",
+    "message": "Tutar Seç",
     "englishSource": "Select Amount"
   },
   "selectAToken": {
-    "message": "Bir belirteç seçin",
+    "message": "Bir jeton seçin",
     "englishSource": "Select a token"
   },
   "searchForTokens": {
-    "message": "Jeton ara",
+    "message": "Jetonları ara",
     "englishSource": "Search for tokens"
   },
   "available": {
@@ -1447,7 +1451,7 @@
     "englishSource": "Available"
   },
   "approxFiatValue": {
-    "message": "≈  $value$ Amerikan Doları",
+    "message": "≈ $value$ ABD doları",
     "englishSource": "≈ $value$ USD",
     "placeholders": {
       "value": {
@@ -1456,35 +1460,35 @@
     }
   },
   "reviewDetails": {
-    "message": "Ayrıntıları İncele",
+    "message": "İnceleme Ayrıntıları",
     "englishSource": "Review Details"
   },
   "swap": {
-    "message": "Takas",
+    "message": "Değiştir",
     "englishSource": "Swap"
   },
   "viaInProtocolDex": {
-    "message": "Protokol Dex aracılığıyla",
+    "message": "In Protocol Dex aracılığıyla",
     "englishSource": "Via In Protocol Dex"
   },
   "reviewSwap": {
-    "message": "Takas'ı İncele",
+    "message": "Değişim İncelemesi",
     "englishSource": "Review Swap"
   },
   "youPay": {
-    "message": "Sen Öde",
+    "message": "Ödemeyi Siz Yaparsınız",
     "englishSource": "You Pay"
   },
   "youReceive": {
-    "message": "Aldığınız",
+    "message": "Aldığınız Şeyler",
     "englishSource": "You Receive"
   },
   "youSend": {
-    "message": "Sen Gönder",
+    "message": "Sen Gönderirsin",
     "englishSource": "You Send"
   },
   "youAreSending": {
-    "message": "gönderiyorsun",
+    "message": "Şu anda gönderiyorsunuz",
     "englishSource": "You are sending"
   },
   "swapDirection": {
@@ -1496,7 +1500,7 @@
     "englishSource": "Rate"
   },
   "swapSolverFeeNote": {
-    "message": "Aldığınız tutar zaten bir $percent$ çözücü ücreti.",
+    "message": "Alacağınız tutara, $percent$ çözümleme ücreti zaten dahildir.",
     "englishSource": "Your receive amount already includes a $percent$ solver fee.",
     "placeholders": {
       "percent": {
@@ -1505,11 +1509,11 @@
     }
   },
   "usuallyFillsIn": {
-    "message": "Genellikle doldurur",
+    "message": "Genellikle doldurulur",
     "englishSource": "Usually fills in"
   },
   "swapEtaSeconds": {
-    "message": "~ $seconds$ S",
+    "message": "~$seconds$'ler",
     "englishSource": "~$seconds$s",
     "placeholders": {
       "seconds": {
@@ -1518,7 +1522,7 @@
     }
   },
   "swapEtaMinutes": {
-    "message": "~ $minutes$ dk.",
+    "message": "~$minutes$ dakika",
     "englishSource": "~$minutes$ min",
     "placeholders": {
       "minutes": {
@@ -1527,31 +1531,31 @@
     }
   },
   "swapEtaFallback": {
-    "message": "~30s",
+    "message": "~30'lar",
     "englishSource": "~30s"
   },
   "expires": {
-    "message": "Süresi doluyor",
+    "message": "Son kullanma tarihi",
     "englishSource": "Expires"
   },
   "swapAutoConsume": {
-    "message": "Otomatik tüketme",
+    "message": "Otomatik tüketim",
     "englishSource": "Auto consume"
   },
   "swapSameToken": {
-    "message": "Takas etmek için iki farklı jeton seçin.",
+    "message": "Değiştirmek için iki farklı jeton seçin.",
     "englishSource": "Pick two different tokens to swap."
   },
   "swapInvalidAmounts": {
-    "message": "Takas yapmak için geçerli bir tutar girin.",
+    "message": "Takas edilecek geçerli bir tutar girin.",
     "englishSource": "Enter a valid amount to swap."
   },
   "swapPriceUnavailable": {
-    "message": "Fiyat mevcut değil. Kısa süre sonra tekrar deneyin.",
+    "message": "Fiyat mevcut değil. Bir süre sonra tekrar deneyin.",
     "englishSource": "Price unavailable. Try again shortly."
   },
   "swapOrderReservedNote": {
-    "message": "Senin $amount$ dolduruluncaya kadar bu sipariş için ayrılmış olarak kalır.",
+    "message": "$amount$'iniz, siparişiniz tamamlanana kadar bu sipariş için rezerve edilmiş olarak kalır.",
     "englishSource": "Your $amount$ stays reserved for this order until it's filled.",
     "placeholders": {
       "amount": {
@@ -1560,20 +1564,20 @@
     }
   },
   "swapSuccessSourcingLiquidity": {
-    "message": "Takasınız için likidite sağlıyoruz. Genellikle yaklaşık 30 saniyede dolar.",
+    "message": "Swap işleminiz için likidite temin ediyoruz. İşlem genellikle yaklaşık 30 saniye içinde tamamlanır.",
     "englishSource": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds."
   },
   "swapSuccessTrackProgress": {
-    "message": "İlerleme durumunu Etkinlikler'den takip edebilirsiniz.",
+    "message": "İlerleme durumunu “Etkinlikler” bölümünden takip edebilirsiniz.",
     "englishSource": "You can track its progress in Activities."
   },
   "expirationDate": {
-    "message": "Son kullanma tarihi",
+    "message": "Son Kullanım Tarihi",
     "englishSource": "Expiration Date"
   },
   "recallReturnsNote": {
-    "message": "O zamana kadar talepte bulunulmaması durumunda, $amount$ otomatik olarak cüzdanınıza geri döner. Hiçbir fon kaybolmaz.",
-    "englishSource": "If unclaimed by then, the $amount$ returns to your wallet automatically. No funds are lost.",
+    "message": "O zamana kadar talep edilmezse, $amount$ adresinden cüzdanınıza geri alabilirsiniz. Hiçbir fon kaybolmaz.",
+    "englishSource": "If unclaimed by then, you can claim the $amount$ back into your wallet. No funds are lost.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -1581,11 +1585,11 @@
     }
   },
   "recallTimeInPast": {
-    "message": "Bu süre çoktan geçti; gelecek bir zaman seçin",
+    "message": "Bu zaman çoktan geçti — gelecekte bir zaman seçin",
     "englishSource": "This time has already passed — pick a future time"
   },
   "expiresInSeconds": {
-    "message": "İçinde $seconds$ saniye",
+    "message": "$seconds$ saniye içinde",
     "englishSource": "In $seconds$ seconds",
     "placeholders": {
       "seconds": {
@@ -1594,7 +1598,7 @@
     }
   },
   "expiresInMinutes": {
-    "message": "İçinde $minutes$ dakika",
+    "message": "$minutes$. dakikada",
     "englishSource": "In $minutes$ minutes",
     "placeholders": {
       "minutes": {
@@ -1603,7 +1607,7 @@
     }
   },
   "edit": {
-    "message": "Düzenlemek",
+    "message": "Düzenle",
     "englishSource": "Edit"
   },
   "miden": {
@@ -1618,12 +1622,20 @@
     "message": "Kişi Ekle",
     "englishSource": "Add Contact"
   },
+  "addToContactsPrompt": {
+    "message": "Kişilere eklemek ister misiniz?",
+    "englishSource": "Add to contacts?"
+  },
+  "recent": {
+    "message": "Son",
+    "englishSource": "Recent"
+  },
   "newContactPlaceholder": {
-    "message": "ör. Alice Bob",
+    "message": "örn. Alice Bob",
     "englishSource": "e.g. Alice Bob"
   },
   "contactWithTheSameAddressAlreadyExists": {
-    "message": "Aynı adrese sahip kişi zaten var",
+    "message": "Aynı adresle zaten bir kayıt mevcut",
     "englishSource": "Contact with the same address already exists"
   },
   "currentContacts": {
@@ -1631,7 +1643,7 @@
     "englishSource": "Current Contacts"
   },
   "searchContacts": {
-    "message": "Aramak",
+    "message": "Arama",
     "englishSource": "Search"
   },
   "deleteContactConfirm": {
@@ -1639,19 +1651,19 @@
     "englishSource": "Are you sure you want to delete this contact?"
   },
   "ownAccount": {
-    "message": "Kendisinin",
+    "message": "Kendi",
     "englishSource": "Own"
   },
   "noContactsFound": {
-    "message": "Kişi bulunamadı",
+    "message": "Hiçbir kişi bulunamadı",
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Başlangıç ​​İfadesini Doğrulayın",
+    "message": "Seed Phrase adresini doğrulayın",
     "englishSource": "Verify Seed Phrase"
   },
   "faucetPromptTitle": {
-    "message": "Cüzdanınıza fon sağlayın",
+    "message": "Cüzdanınıza para yatırın",
     "englishSource": "Fund your wallet"
   },
   "faucetPromptBody": {
@@ -1659,15 +1671,39 @@
     "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptAction": {
-    "message": "Şimdi fonla",
+    "message": "Şimdi para yatırın",
     "englishSource": "Fund now"
   },
+  "fundWalletLoadingTitle": {
+    "message": "Cüzdanınıza para yatırma",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet'dan token talep ediliyor…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Cüzdan ile finanse edildi",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Jetonlarınız yolda ve kısa süre içinde görünmeye başlayacak.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansman başarısız oldu",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
   "pendingNotesPromptTitle": {
-    "message": "Bekleyen Notes kimliğiniz var",
+    "message": "Bekleyen Notes'unuz var",
     "englishSource": "You have Pending Notes"
   },
   "pendingNotesPromptBody": {
-    "message": "Bekleyen notes değeriniz var $amount$ .",
+    "message": "$amount$ değerinde bekleyen notes'nuz bulunmaktadır.",
     "englishSource": "You have pending notes worth $amount$.",
     "placeholders": {
       "amount": {
@@ -1676,31 +1712,43 @@
     }
   },
   "pendingNotesPromptAction": {
-    "message": "Şimdi Gör",
+    "message": "Şimdi Bak",
     "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
-    "message": "Kurtarma ifadenizi doğrulayın",
+    "message": "Geri alma ifadesini doğrulayın",
     "englishSource": "Verify your recovery phrase"
   },
   "verifySeedPhrasePromptBody": {
-    "message": "Kurtarma ifadenizi yazın ve ilk ve son kelimelerine ilişkin bilginizi doğrulayın, böylece bu cüzdanı daha sonra geri yükleyebilirsiniz.",
+    "message": "Bu cüzdanı daha sonra geri yükleyebilmeniz için kurtarma ifadesini bir yere yazın ve ilk ve son kelimelerini ezberlediğinizden emin olun.",
     "englishSource": "Write down your recovery phrase and verify your knowledge of its first and last words so you can restore this wallet later."
   },
   "hotKeyHardwareErrorPromptTitle": {
-    "message": "Güvenli imzalama kullanılamıyor",
+    "message": "Güvenli imzalama özelliği kullanılamıyor",
     "englishSource": "Secure signing unavailable"
   },
   "hotKeyHardwareErrorPromptBody": {
-    "message": "Bu cihaz, işlemleri imzalamak için güvenli donanımını kullanamadı. Hatayı kopyalayıp Miden ekibine gönderin.",
-    "englishSource": "This device couldn't use its secure hardware to sign transactions. Copy the error and send it to the Miden team."
+    "message": "Bu cihazın güvenli donanımı, işlem imzalamayı kurarken bir hata bildirdi. Hatayı kopyalayıp Miden ekibine gönderin.",
+    "englishSource": "This device's secure hardware reported an error while setting up transaction signing. Copy the error and send it to the Miden team."
   },
   "hotKeyHardwareErrorPromptAction": {
     "message": "Kopyalama hatası",
     "englishSource": "Copy error"
   },
+  "hotKeyRotationPromptTitle": {
+    "message": "Aygıt anahtarının yenilenmesi gerekiyor",
+    "englishSource": "Device key needs rotation"
+  },
+  "hotKeyRotationPromptBody": {
+    "message": "Bu cihaz artık cihazınızın (hızlı erişim) tuşunu kullanamaz. İmzalama işlevini geri yüklemek için tuşu çevirin — bakiyeniz bundan etkilenmez.",
+    "englishSource": "This device can no longer use your device (hot) key. Rotate it to restore signing — your funds are unaffected."
+  },
+  "hotKeyRotationPromptAction": {
+    "message": "Döndür tuşu",
+    "englishSource": "Rotate key"
+  },
   "bridgePromptTitle": {
-    "message": "Köprü yapılıyor",
+    "message": "Köprü kuruluyor",
     "englishSource": "Bridge in progress"
   },
   "bridgePromptBody": {
@@ -1708,19 +1756,19 @@
     "englishSource": "We’ll keep tracking your bridge in the background."
   },
   "verifySeedPhraseWarningBody": {
-    "message": "Kurtarma ifadenizi yazacak, ardından ilk ve son kelimelerini seçerek bilginizi doğrulayacaksınız. Kimsenin ekranınızı göremediğinden emin olun.",
+    "message": "Geri alma ifadesini yazacaksınız, ardından ilk ve son kelimelerini seçerek bilgilerinizi doğrulayacaksınız. Ekranınızı kimsenin görememesine dikkat edin.",
     "englishSource": "You will write down your recovery phrase, then verify your knowledge by selecting its first and last words. Make sure no one can see your screen."
   },
   "verifySeedPhrasePasswordBody": {
-    "message": "Kurtarma ifadenizi ortaya çıkarmak ve doğrulamayı başlatmak için cüzdanınızın kilidini açın.",
+    "message": "Cüzdanınızın kilidini açarak kurtarma ifadesini görüntüleyin ve doğrulama işlemini başlatın.",
     "englishSource": "Unlock your wallet to reveal your recovery phrase and start verification."
   },
   "verifySeedPhraseReviewBody": {
-    "message": "Bu kelimeleri sırasıyla yazın.",
+    "message": "Bu kelimeleri sırayla yazın.",
     "englishSource": "Write down these words in order."
   },
   "word": {
-    "message": "Kelime $number$ ",
+    "message": "Word $number$",
     "englishSource": "Word $number$",
     "placeholders": {
       "number": {
@@ -1733,7 +1781,7 @@
     "englishSource": "Finish"
   },
   "onboarding": {
-    "message": "İlk Katılım",
+    "message": "İşe Alım Süreci",
     "englishSource": "Onboarding"
   },
   "next": {
@@ -1741,11 +1789,11 @@
     "englishSource": "Next"
   },
   "done": {
-    "message": "Tamamlandı!",
+    "message": "Tamam",
     "englishSource": "Done"
   },
   "start": {
-    "message": "Başlama",
+    "message": "Başla",
     "englishSource": "Start"
   },
   "transactionId": {
@@ -1753,7 +1801,7 @@
     "englishSource": "Transaction ID:"
   },
   "recipientAddress": {
-    "message": "Alıcı adresi:",
+    "message": "Alıcının adresi",
     "englishSource": "Recipient address"
   },
   "completed": {
@@ -1761,23 +1809,23 @@
     "englishSource": "Completed"
   },
   "confirmation": {
-    "message": "Konfirmasyon",
+    "message": "Onay",
     "englishSource": "Confirmation"
   },
   "collectibles": {
-    "message": "Koleksiyonluklar",
+    "message": "Koleksiyon Ürünleri",
     "englishSource": "Collectibles"
   },
   "id": {
-    "message": "Kimlik No.",
+    "message": "Kimlik",
     "englishSource": "ID"
   },
   "convert": {
-    "message": "Dönüştürmek",
+    "message": "Dönüştür",
     "englishSource": "Convert"
   },
   "public": {
-    "message": "Halk",
+    "message": "Genel",
     "englishSource": "Public"
   },
   "private": {
@@ -1785,12 +1833,16 @@
     "englishSource": "Private"
   },
   "external": {
-    "message": "Harici",
+    "message": "Dış",
     "englishSource": "External"
   },
   "claim": {
-    "message": "İddia",
+    "message": "Talep",
     "englishSource": "Claim"
+  },
+  "clear": {
+    "message": "Temizle",
+    "englishSource": "Clear"
   },
   "midenWallet": {
     "message": "Ekmek!",
@@ -1801,19 +1853,19 @@
     "englishSource": "Anywhere."
   },
   "welcome": {
-    "message": "Hoş geldin",
+    "message": "Hoş geldiniz",
     "englishSource": "Welcome"
   },
   "toLowercase": {
-    "message": "ile",
+    "message": "...'ye",
     "englishSource": "to"
   },
   "breadWalletDescription": {
-    "message": "Bread Wallet, dijital paranızı özel olarak yönetmenin basit ve güvenli bir yoludur.",
+    "message": "Bread Wallet, dijital paranızı gizlilik içinde yönetmenin basit ve güvenli bir yoludur.",
     "englishSource": "Bread Wallet is a simple and secure way to manage your digital money privately."
   },
   "recoverYourAccount": {
-    "message": "Hesabınızı kurtarın",
+    "message": "Hesabınızı geri alın",
     "englishSource": "Recover your account"
   },
   "chooseHowToProtect": {
@@ -1821,7 +1873,7 @@
     "englishSource": "Choose how you want to protect your wallet"
   },
   "useFaceIdOrBiometric": {
-    "message": "FaceID veya Biyometrik kullanın",
+    "message": "Face ID veya Biyometrik Kimlik Doğrulama'yı kullanın",
     "englishSource": "Use FaceID or Biometric"
   },
   "setUpYourPasscode": {
@@ -1841,7 +1893,7 @@
     "englishSource": "Enter your 6-digit code"
   },
   "incorrectPasscode": {
-    "message": "Yanlış şifre. Tekrar deneyin.",
+    "message": "Şifre yanlış. Lütfen tekrar deneyin.",
     "englishSource": "Incorrect passcode. Try again."
   },
   "forgotPasscode": {
@@ -1853,7 +1905,7 @@
     "englishSource": "Enter your password"
   },
   "incorrectPassword": {
-    "message": "Yanlış şifre. Tekrar deneyin.",
+    "message": "Şifre yanlış. Lütfen tekrar deneyin.",
     "englishSource": "Incorrect password. Try again."
   },
   "createA6DigitCode": {
@@ -1861,7 +1913,7 @@
     "englishSource": "Create a 6 digit code"
   },
   "reEnterTheSame6Digits": {
-    "message": "Aynı 6 haneyi tekrar girin",
+    "message": "Aynı 6 haneli rakamı tekrar girin",
     "englishSource": "Re-enter the same 6 digits"
   },
   "faceIdSetUp": {
@@ -1869,11 +1921,11 @@
     "englishSource": "Face ID set up"
   },
   "biometricSetUp": {
-    "message": "Biyometrik kurulum",
+    "message": "Biyometrik ayarlar",
     "englishSource": "Biometric set up"
   },
   "usePasscodeInstead": {
-    "message": "Bunun yerine şifreyi kullanın",
+    "message": "Bunun yerine şifre kullanın",
     "englishSource": "Use passcode instead"
   },
   "biometricConfirmed": {
@@ -1881,23 +1933,23 @@
     "englishSource": "Confirmed!"
   },
   "onlyOneMoreStep": {
-    "message": "Sadece bir adım daha!",
+    "message": "Artık sadece bir adım kaldı!",
     "englishSource": "Only one more step!"
   },
   "biometricSetupReason": {
-    "message": "Cüzdanınız için biyometrik kilit açmayı ayarlayın",
+    "message": "Cüzdanınız için biyometrik kilit açma özelliğini ayarlayın",
     "englishSource": "Set up biometric unlock for your wallet"
   },
   "biometricUnavailable": {
-    "message": "Biyometrik kilit açma bu cihazda kullanılamıyor.",
+    "message": "Bu cihazda biyometrik kilit açma özelliği mevcut değildir.",
     "englishSource": "Biometric unlock isn't available on this device."
   },
   "chooseYourGuardian": {
-    "message": "Vasinizi seçin",
+    "message": "Guardian'ınızı seçin",
     "englishSource": "Choose your Guardian"
   },
   "chooseGuardianDescription": {
-    "message": "Aşağıdan bir seçenek seçin",
+    "message": "Aşağıdaki seçeneklerden birini seçin",
     "englishSource": "Select an option below"
   },
   "learnMoreAboutGuardian": {
@@ -1913,7 +1965,7 @@
     "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
-    "message": "Tarafından işletilmektedir:",
+    "message": "İşletmeci:",
     "englishSource": "Operated by:"
   },
   "guardianLocation": {
@@ -1921,36 +1973,36 @@
     "englishSource": "Location:"
   },
   "whatIsAGuardian": {
-    "message": "Koruyucu nedir?",
+    "message": "Guardian nedir?",
     "englishSource": "What is a Guardian?"
   },
   "guardianInfoDescription": {
-    "message": "Guardian, cüzdanınızdaki <b>her işlemi birlikte imzalayan</b> bağımsız bir hizmettir ve kişisel gözetimden vazgeçmeden bir güvenlik ağı ekler.",
+    "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
     "englishSource": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody."
   },
   "guardianInfoWhatItDoesTitle": {
-    "message": "Ne işe yarar",
+    "message": "Ne işe yarar?",
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Güvenlik politikanıza göre işlemleri onaylar veya reddeder. Cihazınızı kaybederseniz kurtarmanıza yardımcı olur.",
-    "englishSource": "Approves or rejects transactions based on your security policy. Helps you recover if you lose your device."
+    "message": "Her işlemi birlikte imzalar — ne cihazınız ne de Guardian tek başına fon transferi yapamaz. Cihazınızı kaybederseniz hesabınızı geri kazanmanıza yardımcı olur.",
+    "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
-    "message": "Ne yapamaz",
+    "message": "Neleri yapamaz?",
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "Paranızı kendi başına taşıyın. Özel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görün.",
+    "message": "Paranızı kendi başınıza aktarın. Kişisel durumunuza erişin. Paylaşmadığınız sürece bakiyelerinizi görüntüleyin.",
     "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
   },
   "guardianInfoSwitchingIsEasyTitle": {
-    "message": "Geçiş yapmak kolaydır",
+    "message": "Geçiş yapmak çok kolay",
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizi kullanarak istediğiniz zaman farklı bir Gözetmen'e geçebilir veya birini tamamen kaldırabilirsiniz.",
-    "englishSource": "You can rotate to a different Guardian — or remove one entirely — at any time using your recovery phrase."
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian adresine geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
+    "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
     "message": "Anladım",
@@ -1958,22 +2010,18 @@
   },
   "backUpYourWallet": {
     "message": "Cüzdanınızı yedekleyin",
-    "noteeee": "Onboarding",
     "englishSource": "Back up your wallet"
   },
   "show": {
     "message": "Göster",
-    "noteeee": "Onboarding",
     "englishSource": "Show"
   },
   "hide": {
     "message": "Gizle",
-    "noteeee": "Onboarding",
     "englishSource": "Hide"
   },
   "copied": {
     "message": "Kopyalandı",
-    "noteeee": "Onboarding",
     "englishSource": "Copied"
   },
   "copyToClipboard": {
@@ -1982,26 +2030,22 @@
   },
   "createsProofsOnYourComputer": {
     "message": "Bilgisayarınızda kanıtlar oluşturur",
-    "noteeee": "Onboarding",
     "englishSource": "Creates proofs on your computer"
   },
   "yourKeysStayPrivate": {
-    "message": "Anahtarlarınız özel kalır",
-    "noteeee": "Onboarding",
+    "message": "Anahtarlarınız gizli kalır",
     "englishSource": "Your keys stay private"
   },
   "selectTheDefaultTransactionType": {
     "message": "Varsayılan İşlem Türünü Seçin",
-    "noteeee": "Onboarding",
     "englishSource": "Select the Default Transaction Type"
   },
   "popular": {
     "message": "Popüler",
-    "noteeee": "Onboarding",
     "englishSource": "Popular"
   },
   "verifyMessagePrefix": {
-    "message": "Kurtarma ifadenizi kaydettiğinizi onaylayın.",
+    "message": "Kurtarma ifadesini kaydettiğinizi doğrulayın.",
     "englishSource": "Confirm you've saved your recovery phrase."
   },
   "verifyMessageSuffix": {
@@ -2009,27 +2053,27 @@
     "englishSource": "Select the <b>first</b> and <b>last</b> words from your phrase"
   },
   "verifyStepSelectFirst": {
-    "message": "Kurtarma ifadenizin <b>ilk</b> kelimesine dokunun",
+    "message": "Kurtarma ifadesinizin <b>ilk</b> kelimesine dokunun",
     "englishSource": "Tap the <b>first</b> word of your recovery phrase"
   },
   "verifyStepSelectLast": {
-    "message": "Şimdi kurtarma ifadenizin <b>son</b> kelimesine dokunun",
+    "message": "Şimdi kurtarma ifadesinin <b>son</b> kelimesine dokunun",
     "englishSource": "Now tap the <b>last</b> word of your recovery phrase"
   },
   "verifyStepCorrect": {
-    "message": "Bu ilk ve son kelimedir; Devam'a dokunun",
+    "message": "İşte tek ve son söz — “Devam Et”e dokunun",
     "englishSource": "That's the first and last word — tap Continue"
   },
   "verifyStepWrong": {
-    "message": "Bu ilk ve son kelime değil; onlara tekrar dokunun",
+    "message": "Bu, konunun ilk ve son sözü değil — onlara tekrar dokunun",
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Cüzdanınızın 12 kelimelik Seed ifadesini girin.",
+    "message": "Cüzdanınızın 12 kelimelik “Seed phrase”sini girin.",
     "englishSource": "Enter your wallet's 12-word Seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Yalnızca Miden Seed ifadeleri desteklenir.",
+    "message": "Yalnızca Miden Seed ifadeleri desteklenmektedir.",
     "englishSource": "Only Miden Seed phrases are supported."
   },
   "yourWalletIsReady": {
@@ -2037,11 +2081,11 @@
     "englishSource": "Your <highlight>Wallet</highlight> is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
-    "message": "Cüzdanınızı tamamen güvence altına almak için kurtarma ifadenizi 7 gün içinde yazın.",
+    "message": "Cüzdanınızı tam anlamıyla güvence altına almak için kurtarma ifadesini 7 gün içinde bir yere yazın.",
     "englishSource": "Write down your recovery phrase within 7 days to fully secure your wallet."
   },
   "recoveryPhraseDailyReminder": {
-    "message": "Size her gün ana ekranda hatırlatacağız.",
+    "message": "Ana ekranda size her gün hatırlatma göndereceğiz.",
     "englishSource": "We'll remind you daily on the home screen."
   },
   "openWallet": {
@@ -2049,8 +2093,7 @@
     "englishSource": "Open wallet"
   },
   "getStarted": {
-    "message": "Başla",
-    "noteeee": "Onboarding",
+    "message": "Başlayın",
     "englishSource": "Get started"
   },
   "creatingYourWallet": {
@@ -2058,36 +2101,31 @@
     "englishSource": "Creating your wallet…"
   },
   "enterPassword": {
-    "message": "Şifre girin",
-    "noteeee": "Onboarding",
+    "message": "Şifreyi girin",
     "englishSource": "Enter password"
   },
   "verifyPassword": {
     "message": "Şifreyi doğrula",
-    "noteeee": "Onboarding",
     "englishSource": "Verify password"
   },
   "enterPasswordAgain": {
     "message": "Şifreyi tekrar girin",
-    "noteeee": "Onboarding",
     "englishSource": "Enter password again"
   },
   "itsAMatch": {
-    "message": "Eşleşti!",
-    "noteeee": "Onboarding",
+    "message": "Eşleşme var!",
     "englishSource": "It's a match!"
   },
   "passwordsDoNotMatch": {
-    "message": "Şifreler eşleşmiyor",
+    "message": "Şifreler uyuşmuyor",
     "englishSource": "Passwords do not match"
   },
   "passcodesDoNotMatch": {
-    "message": "Şifre kodları eşleşmiyor. Tekrar deneyin.",
+    "message": "Şifreler uyuşmuyor. Lütfen tekrar deneyin.",
     "englishSource": "Passcodes don't match. Try again."
   },
   "createPassword": {
     "message": "Şifre oluştur",
-    "noteeee": "Onboarding",
     "englishSource": "Create password"
   },
   "createPasswordDescription": {
@@ -2096,84 +2134,70 @@
   },
   "veryStrong": {
     "message": "Çok güçlü!",
-    "noteeee": "Onboarding",
     "englishSource": "Very strong!"
   },
   "medium": {
     "message": "Orta",
-    "noteeee": "Onboarding",
     "englishSource": "Medium"
   },
   "low": {
     "message": "Düşük",
-    "noteeee": "Onboarding",
     "englishSource": "Low"
   },
   "8chars1number": {
-    "message": "8 karakter, 1 numara",
-    "noteeee": "Onboarding",
+    "message": "8 harf, 1 rakam",
     "englishSource": "8 characters, 1 number"
   },
   "minimumCharsWithAtLeast": {
-    "message": "En az 1 numara ile minimum 8 karakter",
-    "noteeee": "Onboarding",
+    "message": "En az 8 karakter ve en az 1 rakam içermelidir",
     "englishSource": "Minimum 8 characters with at least 1 number"
   },
   "backUpWalletInstructions": {
-    "message": "Bu 12 kelimeyi saklayın ve güvenli bir yerde saklayın.",
+    "message": "Bu 12 kelimeyi not alın ve güvenli bir yerde saklayın.",
     "englishSource": "Save these 12 words and store in a secure place."
   },
   "doNotShareWithAnywone": {
-    "message": "Kimseyle paylaşmayın.",
+    "message": "Bunu kimseyle paylaşmayın.",
     "englishSource": "Do not share with anyone."
   },
   "seedPhraseRecoveryCaption": {
-    "message": "seed phrase kurtarma anahtarınızdır; günlük işlemler için değil, cihaz anahtarlarını döndürmek için kullanılır.",
+    "message": "seed phrase'ınız, kurtarma anahtarınızdır — bu anahtar, cihaz anahtarlarını değiştirmek için kullanılır; günlük işlemler için değildir.",
     "englishSource": "Your seed phrase is your recovery key — used to rotate device keys, not for everyday transactions."
   },
   "select": {
     "message": "Seç",
-    "noteeee": "Onboarding",
     "englishSource": "Select"
   },
   "selected": {
-    "message": "Seçildi",
-    "noteeee": "Onboarding",
+    "message": "Seçilen",
     "englishSource": "Selected"
   },
   "additionalDownloads": {
-    "message": "Ek İndirmeler",
-    "noteeee": "Onboarding",
+    "message": "Diğer İndirmeler",
     "englishSource": "Additional Downloads"
   },
   "600megabytes": {
     "message": "600+ megabayt",
-    "noteeee": "Onboarding",
     "englishSource": "600+ megabytes"
   },
   "transactionSpeed": {
     "message": "İşlem Hızı",
-    "noteeee": "Onboarding",
     "englishSource": "Transaction Speed"
   },
   "transactionSpeedMins": {
     "message": "1-10 dakika",
-    "noteeee": "Onboarding",
     "englishSource": "1-10 minutes"
   },
   "maximumPrivacy": {
     "message": "Maksimum Gizlilik",
-    "noteeee": "Onboarding",
     "englishSource": "Maximum Privacy"
   },
   "vpnLevelPrivacy": {
-    "message": "VPN seviyesi gizlilik",
-    "noteeee": "Onboarding",
+    "message": "VPN düzeyinde gizlilik",
     "englishSource": "VPN level privacy"
   },
   "transactionSpeed2Sec": {
     "message": "2 saniye",
-    "noteeee": "Onboarding",
     "englishSource": "2 seconds"
   },
   "additionalDownloads0mb": {
@@ -2181,30 +2205,27 @@
     "englishSource": "0 MB"
   },
   "delegateProofsToSecureServers": {
-    "message": "Kanıtları güvenli sunuculara delege et",
-    "noteeee": "Onboarding",
+    "message": "Kanıtları güvenli sunuculara aktarın",
     "englishSource": "Delegate proofs to secure servers"
   },
   "delegateTransactions": {
-    "message": "İşlemleri Delege Et",
-    "noteeee": "Onboarding",
+    "message": "Delege Et\nİşlemler",
     "englishSource": "Delegate\nTransactions"
   },
   "generateTransactionsLocally": {
-    "message": "İşlemleri Yerel olarak Oluştur",
-    "noteeee": "Onboarding",
+    "message": "İşlem Oluştur\nYerel Olarak",
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
-    "message": "Cüzdan Sıfırlaması Gerekli",
+    "message": "Cüzdanın Sıfırlanması Gerekiyor",
     "englishSource": "Wallet Reset Required"
   },
   "resetRequiredDescription": {
-    "message": "Miden Testnet, deneyiminizi geliştirmek için bech32 hesap kimliklerine yükseltildi. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya Seed Phrasenden geri yükleyin veya yeni bir tane oluşturun.",
+    "message": "Miden Testnet, kullanıcı deneyiminizi iyileştirmek amacıyla bech32 hesap kimliklerine geçiş yapmıştır. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya seed phrase adresinden geri yükleme yapın ya da yeni bir cüzdan oluşturun.",
     "englishSource": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one."
   },
   "resetRequiredSecondDescription": {
-    "message": "Bu rahatsızlıktan dolayı özür dileriz.",
+    "message": "Yaşadığınız rahatsızlıktan dolayı özür dileriz.",
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
@@ -2212,15 +2233,15 @@
     "englishSource": "Reset Wallet"
   },
   "forgotPassword": {
-    "message": "Parolanızı mı unuttunuz?",
+    "message": "Şifrenizi mi unuttunuz?",
     "englishSource": "Forgot Password?"
   },
   "forgotPasswordDescription": {
-    "message": "Şifrenizi unuttuysanız oturumu kapatmanız ve hesabınızı yeniden içe aktarmanız gerekir. Bundan sonra yeni bir şifre oluşturabilirsiniz.",
+    "message": "Şifrenizi unuttuysanız, oturumunuzu kapatıp hesabınızı yeniden içe aktarmanız gerekir. Ardından yeni bir şifre oluşturabilirsiniz.",
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12 kelimelik Seed ifadenizi bilmediğiniz veya şifrelenmiş bir yedekleme dosyanız olmadığı sürece oturumunuzu kapatmayın.",
+    "message": "12 kelimelik “Seed phrase”’ınızı bilmiyorsanız veya şifrelenmiş bir yedekleme dosyanız yoksa oturumunuzu kapatmayın.",
     "englishSource": "Do not sign out unless you know your 12-word Seed phrase or have an encrypted backup file."
   },
   "biometricUnlockRequired": {
@@ -2228,7 +2249,7 @@
     "englishSource": "Biometric Unlock Required"
   },
   "biometricUnlockRequiredDescription": {
-    "message": "Bu cüzdan yalnızca biyometrik kimlik doğrulamayı kullanır. Kilidi açmak için Face ID'yi, Touch ID'yi veya cihazınızın şifresini kullanın. Cüzdanınıza başka bir cihazdan erişmek için 12 kelimelik Seed phrase kodunuzu kullanın.",
+    "message": "Bu cüzdan yalnızca biyometrik kimlik doğrulama özelliğini kullanır. Kilidi açmak için Face ID, Touch ID veya cihazınızın şifresini kullanın. Başka bir cihazdan cüzdanınıza erişmek için 12 kelimelik “Seed phrase”ınızı kullanın.",
     "englishSource": "This wallet uses biometric authentication only. Use Face ID, Touch ID, or your device passcode to unlock. To access your wallet on another device, use your 12-word Seed phrase."
   },
   "resetWallet": {
@@ -2244,19 +2265,19 @@
     "englishSource": "X (Twitter)"
   },
   "encryptedWalletFile": {
-    "message": "Şifreli Cüzdan Dosyası",
+    "message": "Şifrelenmiş Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
   "guardianBadge": {
-    "message": "Gardiyan",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianSettings": {
-    "message": "Gözetmen Ayarları",
+    "message": "Guardian Ayarlar",
     "englishSource": "Guardian Settings"
   },
   "currentLabel": {
-    "message": "Akım",
+    "message": "Mevcut",
     "englishSource": "Current"
   },
   "newGuardianEndpoint": {
@@ -2264,11 +2285,11 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Bu zaten sizin şu anki vasiniz.",
+    "message": "Bu zaten şu anki \"guardian\"unuzdur.",
     "englishSource": "That's already your current guardian."
   },
   "rotateGuardian": {
-    "message": "Gözetmen'i Döndür",
+    "message": "Guardian'i Dönüştür",
     "englishSource": "Rotate Guardian"
   },
   "keys": {
@@ -2276,83 +2297,123 @@
     "englishSource": "Keys"
   },
   "customGuardian": {
-    "message": "Özel Muhafız",
+    "message": "Özel Guardian",
     "englishSource": "Custom Guardian"
   },
   "guardianProvider": {
-    "message": "sağlayıcı",
+    "message": "Sağlayıcı",
     "englishSource": "Provider"
   },
+  "guardianEndpointLabel": {
+    "message": "Uç nokta",
+    "englishSource": "Endpoint"
+  },
+  "guardianRegion": {
+    "message": "Bölge",
+    "englishSource": "Region"
+  },
+  "guardianLastSync": {
+    "message": "Son senkronizasyon",
+    "englishSource": "Last sync"
+  },
+  "guardianProviderRegion": {
+    "message": "$provider$ · $region$",
+    "englishSource": "$provider$ · $region$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "region": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianRotationComplete": {
+    "message": "Guardian Güncellendi!",
+    "englishSource": "Guardian Updated!"
+  },
+  "online": {
+    "message": "Çevrimiçi",
+    "englishSource": "Online"
+  },
   "reviewRotation": {
-    "message": "Rotasyonu inceleyin",
+    "message": "İnceleme rotasyonu",
     "englishSource": "Review rotation"
   },
   "newLabel": {
     "message": "Yeni",
     "englishSource": "New"
   },
+  "guardianSwitchAuthenticationDescription": {
+    "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
+    "englishSource": "Authenticate to approve this Guardian switch."
+  },
+  "guardianAuthenticationUnavailable": {
+    "message": "Kimlik doğrulama kullanılamıyor. Guardian adresine geçmeden önce lütfen tekrar deneyin.",
+    "englishSource": "Authentication is unavailable. Try again before switching Guardian."
+  },
   "walletKeyHot": {
-    "message": "Cüzdan anahtarı (sıcak)",
+    "message": "Cüzdan anahtarı (aktif)",
     "englishSource": "Wallet key (hot)"
   },
   "recoveryPhraseCold": {
-    "message": "Kurtarma ifadesi (soğuk)",
+    "message": "Geri yükleme ifadesi (soğuk)",
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Eski Guardian'ınız bunu engelleyemez",
+    "message": "Eski Guardian adresiniz bunu engelleyemez",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Döndürme, cihazdaki iki anahtarınız tarafından onaylanır. Yalnızca eski Muhafıza bilgi verilir.",
+    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian adresine yalnızca bildirim gönderilir.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
-    "message": "Cihaz anahtarını döndür",
+    "message": "Cihaz tuşunu döndür",
     "englishSource": "Rotate device key"
   },
   "replaceHotKeyDescription": {
-    "message": "Yeni bir cihaz (geçiş) anahtarı oluşturun ve zincirdeki mevcut olanı değiştirin. Cihazınızın güvenliğinin ihlal edildiğinden şüpheleniyorsanız kullanışlıdır.",
+    "message": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."
   },
   "replaceHotKeyConfirmation": {
-    "message": "Bu, kurtarma (soğuk) anahtarınızla imzalanır. seed phrase kodunuz gerekli değildir ve paranız ve hesabınız aynı kalır. Devam etmek?",
+    "message": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanmıştır. seed phrase adresiniz gerekmemektedir; bakiyeniz ve hesabınız değişmez. Devam etmek istiyor musunuz?",
     "englishSource": "This is signed with your recovery (cold) key. Your seed phrase is not required, and your funds and account stay the same. Continue?"
   },
   "confirmReplaceHotKey": {
-    "message": "Döndürmeyi onayla",
+    "message": "Dönüşü onayla",
     "englishSource": "Confirm rotation"
   },
   "hotKeyRotationOverlayTitle": {
-    "message": "Cihazınızın anahtarını döndürme",
+    "message": "Cihaz anahtarınızı döndürme",
     "englishSource": "Rotating your device key"
   },
   "hotKeyRotationOverlayBody": {
-    "message": "Cihazınızın (kısayol) tuşu döndürülüyor. Bu, kurtarılan bir hesabın senkronize edilebilmesi ve işlem yapabilmesi için ayarlarken gereklidir.",
+    "message": "Cihazınızın (hızlı erişim) tuşu döndürülüyor. Bu işlem, kurtarılan bir hesabın senkronize olabilmesi ve işlem yapabilmesi için gerekli bir adımdır.",
     "englishSource": "Your device (hot) key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
   "hotKeyRotationFailedTitle": {
-    "message": "Cihaz anahtarı rotasyonu başarısız oldu",
+    "message": "Aygıt anahtarının döndürülmesi başarısız oldu",
     "englishSource": "Device key rotation failed"
   },
   "hotKeyRotationFailedGeneric": {
-    "message": "Cihazınızın anahtarı döndürülürken bir şeyler ters gitti.",
+    "message": "Cihaz anahtarınızı döndürürken bir hata oluştu.",
     "englishSource": "Something went wrong while rotating your device key."
   },
   "hotKeyRotationRetry": {
-    "message": "Yeniden dene",
+    "message": "Tekrar dene",
     "englishSource": "Retry"
   },
   "guardianChangedTitle": {
-    "message": "Gardiyan değişti",
+    "message": "Guardian değiştirildi",
     "englishSource": "Guardian changed"
   },
   "guardianChangedBody": {
-    "message": "Vasiniz değiştirildi ve yeni operatörü belirleyemedik. Yeniden bağlanmak için URL'sini girin.",
+    "message": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
   "guardianUrlMismatch": {
-    "message": "Bu operatör, hesabınızın zincirdeki koruyucusuyla eşleşmiyor.",
+    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "revealHotKey": {
@@ -2360,7 +2421,7 @@
     "englishSource": "Reveal device key"
   },
   "revealHotKeyDescription": {
-    "message": "Cihaz (geçiş) anahtarınız, Ayarlar → Cihaz Anahtarını Döndür seçeneğinden döndürülebilir; bu nedenle, bunun açığa çıkarılması seed phrase anahtarınızdan daha düşük risklidir; ancak onu tutan herkes, siz rotasyon yapana kadar işlemleri imzalayabilir.",
+    "message": "Cihazınızın (hızlı erişim) tuşu, Ayarlar → Cihaz Tuşunu Döndür seçeneğinden döndürülebilir; bu nedenle, bu tuşun görünür olması, “seed phrase” tuşuna kıyasla daha az risk taşır — ancak siz tuşu döndürene kadar, elinde tutan herhangi bir kişi işlemleri imzalayabilir.",
     "englishSource": "Your device (hot) key is rotatable from Settings → Rotate Device Key, so revealing it is lower-stakes than your seed phrase — but anyone who holds it can sign transactions until you rotate."
   },
   "hotPrivateKey": {
@@ -2368,19 +2429,19 @@
     "englishSource": "Device Private Key"
   },
   "hotPublicKeyLabel": {
-    "message": "Cihaz Genel Anahtarı",
+    "message": "Cihazın Açık Anahtarı",
     "englishSource": "Device Public Key"
   },
   "coldPrivateKey": {
-    "message": "Kurtarma (Soğuk) Özel Anahtar",
+    "message": "Geri Yükleme (Soğuk) Özel Anahtarı",
     "englishSource": "Recovery (Cold) Private Key"
   },
   "coldPublicKeyLabel": {
-    "message": "Kurtarma (Soğuk) Genel Anahtar",
+    "message": "Kurtarma (Soğuk) Açık Anahtarı",
     "englishSource": "Recovery (Cold) Public Key"
   },
   "guardianKeysRevealDescription": {
-    "message": "Guardian hesabınız üç anahtarla korunur: rutin imzalama için bir cihaz (geçici) anahtar, hesap yönetimi işlemleri için seed phrase hesabınızdan türetilen bir kurtarma (soğuk) anahtar ve harici bir veli ortak imzalayan. Aşağıda soğuk özel anahtarınız ve her iki genel anahtarınız bulunmaktadır. Cihazın özel anahtarını ortaya çıkarmak için Ayarlar → Cihaz Anahtarını Göster seçeneğini kullanın.",
+    "message": "Guardian hesabınız üç anahtarla korunmaktadır: rutin imzalamalar için bir cihaz (sıcak) anahtarı, hesap yönetimi işlemleri için seed phrase adresinizden türetilen bir kurtarma (soğuk) anahtarı ve harici bir guardian ortak imzalayıcısı. Aşağıda soğuk özel anahtarınız ve her iki açık anahtarınız yer almaktadır. Cihaz özel anahtarını görüntülemek için Ayarlar → Cihaz Anahtarını Göster seçeneğini kullanın.",
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
@@ -2388,7 +2449,7 @@
     "englishSource": "Before you reveal your device key"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Bu anahtara sahip olan herkes, siz onu değiştirene kadar işlemleri imzalayabilir. Anahtar sızdırılmışsa, Ayarlar → Cihaz Anahtarını Döndür seçeneğini kullanarak onu döndürün.",
+    "message": "Bu anahtara sahip olan herkes, siz anahtarı değiştirene kadar işlemleri imzalayabilir. Anahtar sızdırılırsa, Ayarlar → Cihaz Anahtarını Değiştir seçeneğinden anahtarı değiştirin.",
     "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
   },
   "invalidUrl": {
@@ -2396,23 +2457,23 @@
     "englishSource": "Enter a valid URL starting with http:// or https://"
   },
   "encryptedWalletFileDescription": {
-    "message": "Şifreli Cüzdan Dosyanıza erişmek için şifrenizi girin.",
+    "message": "Şifrelenmiş Cüzdan Dosyanıza erişmek için şifrenizi girin.",
     "englishSource": "Enter your password to access your Encrypted Wallet File."
   },
   "encryptedWalletFileDescriptionHardware": {
-    "message": "Şifreli Cüzdan Dosyanıza erişmek için şifrenizle kilidi açın.",
+    "message": "Şifrelenmiş Cüzdan Dosyanıza erişmek için şifrenizle kilidi açın.",
     "englishSource": "Unlock with your passcode to access your Encrypted Wallet File."
   },
   "encryptedWalletFileConfirmation": {
-    "message": "Şifreli Cüzdan Dosyamı Miden Cüzdan dahil hiç kimseyle paylaşmayacağım.",
+    "message": "Şifrelenmiş Cüzdan Dosyamı, Bread dahil olmak üzere kimseyle paylaşmayacağım.",
     "englishSource": "I will not share my Encrypted Wallet File with anyone, including Bread."
   },
   "enterPasswordToEncrypt": {
-    "message": "M-cüzdan dosyanızı şifrelemek için bir şifre girin.",
+    "message": "Cüzdan dosyanızı şifrelemek için bir şifre girin.",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
   "contacts": {
-    "message": "Kişiler",
+    "message": "İletişim Bilgileri",
     "englishSource": "Contacts"
   },
   "noOtherAccounts": {
@@ -2420,35 +2481,39 @@
     "englishSource": "No other accounts"
   },
   "noOtherAccountsDescription": {
-    "message": "Henüz başka hesap oluşturmadınız",
+    "message": "Henüz başka bir hesap oluşturmadınız",
     "englishSource": "You have not created any other accounts yet"
   },
   "invalidMidenAccountId": {
     "message": "Geçersiz Miden hesap kimliği",
     "englishSource": "Invalid Miden account ID"
   },
+  "midenAddressWrongNetwork": {
+    "message": "Bu adres, başka bir Miden ağına aittir",
+    "englishSource": "This address belongs to a different Miden network"
+  },
   "cannotSendToSelf": {
-    "message": "Kendi adresinize gönderemezsiniz",
+    "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
   "amountMustBeLessThanBalance": {
-    "message": "Tutar bakiyeden az olmalıdır",
+    "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN notlarını Otomatik Tüketim",
+    "message": "Auto Consume MIDEN notes",
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "notes'yi Miden Faucet'den otomatik olarak tüket",
-    "englishSource": "Automatically consume notes from Miden Faucet"
+    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
   "encryptedWalletFileExportedTitle1": {
-    "message": "Şifreli Cüzdan Dosyası",
+    "message": "Şifrelenmiş Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
   },
   "encryptedWalletFileExportedTitle2": {
-    "message": "İhraç edildi!",
+    "message": "Dışa aktarıldı!",
     "englishSource": "Exported!"
   },
   "encryptedWalletFileExportedDesc1": {
@@ -2456,64 +2521,59 @@
     "englishSource": "Your encrypted wallet file has been downloaded."
   },
   "encryptedWalletFileExportedDesc2": {
-    "message": "Onu ve şifrenizi güvende tutun.",
+    "message": "Bunu ve şifrenizi güvenli bir yerde saklayın.",
     "englishSource": "Keep it and your password safe."
   },
   "encryptedWalletFileExportedDesc3": {
-    "message": "Bunları kaybederseniz cüzdanınıza erişimi kaybetme riskiyle karşı karşıya kalırsınız",
+    "message": "Bunları kaybederseniz, cüzdanınıza erişiminizi kaybetme riskiyle karşı karşıya kalırsınız",
     "englishSource": "If you lose them you risk losing access to your wallet"
   },
   "saveEncryptedWalletFile": {
-    "message": "Şifreli Cüzdan Dosyasını Kaydet",
+    "message": "Şifrelenmiş Cüzdan Dosyasını Kaydet",
     "englishSource": "Save Encrypted Wallet File"
   },
   "permissionLabel": {
-    "message": "Şifre Çözme İzni: $decryptPermission$ ",
-    "placeholders": {
-      "decryptPermission": {
-        "content": "$1"
-      }
-    },
+    "message": "Özel Veriler İzni",
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Bu, hesap verilerinize kalıcı erişim sağlayacaktır ve iptal edilemez.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Bu, siteye tekrar sormadan hesap verilerinize sürekli erişim hakkı verir. Bunu Ayarlar → Yetkilendirilmiş DApp’ler bölümünden istediğiniz zaman iptal edebilirsiniz.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
-    "message": "Bu site özel hesabınıza erişim istiyor.",
+    "message": "Bu site, özel hesabınıza erişim izni istiyor.",
     "englishSource": "This site is requesting access to your private account."
   },
   "publicAccountAccessRequest": {
-    "message": "Bu site genel hesabınıza erişim istiyor.",
+    "message": "Bu site, herkese açık hesabınıza erişim izni istiyor.",
     "englishSource": "This site is requesting access to your public account."
   },
   "balanceAccess": {
-    "message": "Cüzdan bakiyenizi ve geçmişinizi görmesine izin verin",
+    "message": "Cüzdan bakiyenizi ve geçmişinizi görüntülemesine izin verin",
     "englishSource": "Let it see your wallet balance and history"
   },
   "sendTransactionRequests": {
-    "message": "Size işlem istekleri göndermesine izin verin",
+    "message": "Bırakın size işlem talepleri göndersin",
     "englishSource": "Let it send you requests for transactions"
   },
   "fundsStayInWallet": {
-    "message": "Siz bir işlem gerçekleştirene kadar fonlar cüzdanınızdan çıkmayacak",
+    "message": "Bir işlem gerçekleştirene kadar para cüzdanınızdan çıkmayacaktır",
     "englishSource": "Funds will not leave your wallet until you execute a transaction"
   },
   "privateDataAccessAuto": {
-    "message": "Özel Veri Erişimi: Otomatik",
+    "message": "Özel Verilere Erişim: Otomatik",
     "englishSource": "Private Data Access: Automatic"
   },
   "privateDataAccessUponRequest": {
-    "message": "Özel Veri Erişimi: Talep Üzerine",
+    "message": "Özel Verilere Erişim: Talep Üzerine",
     "englishSource": "Private Data Access: Upon Request"
   },
   "accessWillBeGranted": {
-    "message": "Aşağıdaki verilere erişim izni verilecek",
+    "message": "Aşağıdaki verilere erişim izni verilecektir",
     "englishSource": "Access to the following data will be granted"
   },
   "confirmationRequired": {
-    "message": "Hesap verileri her istendiğinde onay gereklidir",
+    "message": "Hesap verileri her talep edildiğinde onaylanması gerekmektedir",
     "englishSource": "Confirmation is required every time account data is requested"
   },
   "transactionCompleted": {
@@ -2525,27 +2585,27 @@
     "englishSource": "Transaction Failed"
   },
   "doNotCloseWindowNavigateHome": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra ana sayfaya geri yönlendirileceksiniz",
-    "englishSource": "Do not close this window. You will be navigated back to the home page after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "doNotCloseWindowAutoClose": {
-    "message": "Bu pencereyi kapatmayın. İşlem oluşturulduktan sonra pencere otomatik olarak kapanacak",
-    "englishSource": "Do not close this window. Window will auto-close after the transaction is generated"
+    "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
+    "englishSource": "Do not close this window until the transaction is generated"
   },
   "transactionSuccessDescription": {
-    "message": "İşleminiz başarıyla işlendi ve ağda onaylandı.",
+    "message": "İşleminiz başarıyla işleme alındı ve ağ üzerinde onaylandı.",
     "englishSource": "Your transaction was successfully processed and confirmed on the network."
   },
   "transactionErrorDescription": {
-    "message": "İşleminiz gerçekleştirilirken bir hata oluştu. Lütfen tekrar deneyin.",
+    "message": "İşleminiz işlenirken bir hata oluştu. Lütfen tekrar deneyin.",
     "englishSource": "There was an error processing your transaction. Please try again."
   },
   "transactionRoute": {
-    "message": "Rota",
+    "message": "Güzergâh",
     "englishSource": "Route"
   },
   "paymentSent": {
-    "message": "Ödeme Gönderildi!",
+    "message": "Ödeme Yapıldı!",
     "englishSource": "Payment Sent!"
   },
   "bridgeRouteViaEpoch": {
@@ -2565,35 +2625,39 @@
     "englishSource": "Slow"
   },
   "swapOrderCreated": {
-    "message": "Takas Siparişi Oluşturuldu!",
+    "message": "Takas Emri Oluşturuldu!",
     "englishSource": "Swap Order Created!"
   },
   "youreEarning": {
-    "message": "Kazanıyorsun!",
+    "message": "Para kazanıyorsunuz!",
     "englishSource": "You're Earning!"
   },
   "viewInActivities": {
-    "message": "Etkinliklerde Görüntüle",
+    "message": "Etkinlikler'de görüntüle",
     "englishSource": "View in Activities"
+  },
+  "viewActivity": {
+    "message": "Etkinliği görüntüle",
+    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",
     "englishSource": "View Details"
   },
   "chooseRecoveryMethod": {
-    "message": "Hesap Kurtarmayı Ayarlayın",
+    "message": "Hesap Kurtarma İşlemini Ayarla",
     "englishSource": "Set Up Account Recovery"
   },
   "chooseRecoveryMethodDescription": {
-    "message": "Erişiminizi kaybederseniz hesabınızı nasıl kurtarmak istediğinizi seçin.",
+    "message": "Erişiminizi kaybederseniz, hesabınızı nasıl kurtarmak istediğinizi seçin.",
     "englishSource": "Choose how you want to recover your account if you lose access."
   },
   "guardianRecovery": {
-    "message": "Gardiyan",
+    "message": "Guardian",
     "englishSource": "Guardian"
   },
   "guardianRecoveryDescription": {
-    "message": "Tavsiye edilen. Hesabınız için koruyucu tabanlı kurtarma, ancak koruyucu operatör durumunuzu görebilir.",
+    "message": "Önerilir. Hesabınız için Guardian tabanlı kurtarma işlemi, ancak guardian operatörü durumunuzu görebilir.",
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
@@ -2601,43 +2665,43 @@
     "englishSource": "Fully Private"
   },
   "fullyPrivateRecoveryDescription": {
-    "message": "Yalnızca yerel, durumunuzu sizden başka kimse göremez ancak iyileşme olmaz, cihazınızı kaybetmek, paranızın kalıcı olarak kaybolmasına neden olur.",
+    "message": "Yalnızca yerel kullanım içindir; eyaletinizi sizden başka kimse göremez, ancak geri alma imkânı yoktur; cihazınızı kaybetmeniz durumunda paranız kalıcı olarak kaybedilir.",
     "englishSource": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds."
   },
   "importRecoveryMethodTitle": {
-    "message": "Bu cüzdanı nasıl kurtarmak istersiniz?",
+    "message": "Bu cüzdanı geri almak ister misiniz?",
     "englishSource": "How would you like to recover this wallet?"
   },
   "importViaGuardian": {
-    "message": "Guardian aracılığıyla içe aktar",
+    "message": "Guardian üzerinden içe aktarın",
     "englishSource": "Import via Guardian"
   },
   "importViaGuardianDescription": {
-    "message": "Bu hesabı kurtarmak ve birlikte imza atmak için bir veli kullanın.",
+    "message": "Bu hesabı kurtarmak ve ortak imza atmak için guardian adresini kullanın.",
     "englishSource": "Use a guardian to recover and co-sign for this account."
   },
   "importPublicAccount": {
-    "message": "Herkese açık hesabı içe aktar",
+    "message": "Genel hesabı içe aktar",
     "englishSource": "Import public account"
   },
   "importPublicAccountDescription": {
-    "message": "seed phrase hesabınızdan türetilen genel hesabı içe aktarın.",
+    "message": "seed phrase'tan elde ettiğiniz genel hesabı içe aktarın.",
     "englishSource": "Import the public account derived from your seed phrase."
   },
   "guardianEndpoint": {
-    "message": "Veli URL'si",
+    "message": "Guardian URL",
     "englishSource": "Guardian URL"
   },
   "useDifferentGuardian": {
-    "message": "Farklı bir veli kullan",
+    "message": "Farklı bir guardian adresi kullanın",
     "englishSource": "Use a different guardian"
   },
   "detectingGuardian": {
-    "message": "Vasinizi arıyorsunuz…",
+    "message": "guardian'ınızı arıyoruz…",
     "englishSource": "Looking for your guardian…"
   },
   "guardianDetectedTitle": {
-    "message": "Vasinizi buldum: $name$ ",
+    "message": "guardian'ınızı buldunuz: $name$",
     "englishSource": "Found your guardian: $name$",
     "placeholders": {
       "name": {
@@ -2646,19 +2710,19 @@
     }
   },
   "guardianDetectedMultiple": {
-    "message": "Bu hesabı birden fazla veli biliyor. En son durumunuzu tutanı seçtik.",
+    "message": "Bu hesabı birden fazla guardian adresi tanıyor. En son durumunuzu barındıran adresi seçtik.",
     "englishSource": "More than one guardian knows this account. We picked the one holding your most recent state."
   },
   "useCustomGuardianInstead": {
-    "message": "Bunun yerine farklı bir tane mi kullanıyorsunuz?",
+    "message": "Onun yerine başka bir tane mi kullanasın?",
     "englishSource": "Use a different one instead?"
   },
   "guardianNotDetected": {
-    "message": "Vasinizi otomatik olarak tespit edemedik. Kullandığınızı seçin veya URL'sini girin.",
+    "message": "guardian'ınızı otomatik olarak algılayamadık. Kullandığınız adresi seçin veya URL'sini girin.",
     "englishSource": "We couldn't detect your guardian automatically. Pick the one you used, or enter its URL."
   },
   "guardianProbePartialFailure": {
-    "message": "$count$ veliye/vasilere ulaşılamadı, dolayısıyla algılama eksik olabilir.",
+    "message": "$count$ guardian(s) adreslerine ulaşılamadı, bu nedenle tespit işlemi eksik olabilir.",
     "englishSource": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
     "placeholders": {
       "count": {
@@ -2667,15 +2731,15 @@
     }
   },
   "retryGuardianDetection": {
-    "message": "Tekrar tespit etmeyi deneyin",
+    "message": "Tekrar algılamayı deneyin",
     "englishSource": "Try detecting again"
   },
   "guardianAccountNotFound": {
-    "message": "Bu velide hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine herkese açık bir hesap olarak içe aktarın.",
+    "message": "guardian adresinde hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine genel hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
   "useCustomGuardianUrl": {
-    "message": "Özel bir Veli URL'si kullanın",
+    "message": "Guardian'da özel bir URL kullanın",
     "englishSource": "Use a custom Guardian URL"
   },
   "default": {
@@ -2683,19 +2747,19 @@
     "englishSource": "Default"
   },
   "home": {
-    "message": "Ev",
+    "message": "Ana Sayfa",
     "englishSource": "Home"
   },
   "noteId": {
-    "message": "Not Kimliği",
+    "message": "Note Kimlik",
     "englishSource": "Note ID"
   },
   "viewOnMidenscan": {
-    "message": "Midenscan'de görüntüle",
+    "message": "Midenscan'da görüntüle",
     "englishSource": "View on Midenscan"
   },
   "inProgress": {
-    "message": "Devam etmekte",
+    "message": "Devam Ediyor",
     "englishSource": "In Progress"
   },
   "you": {
@@ -2703,15 +2767,15 @@
     "englishSource": "You"
   },
   "invalidPayload": {
-    "message": "(geçersiz yük)",
+    "message": "(geçersiz veri yükü)",
     "englishSource": "(invalid payload)"
   },
   "sharePrivateNoteDataForAccount": {
-    "message": "Hesap için tüm özel not verilerini paylaş",
+    "message": "Hesaba ait tüm özel note verilerini paylaş",
     "englishSource": "Share all private note data for account"
   },
   "downloadPrivateNoteData": {
-    "message": "Özel Not Verilerini İndirin",
+    "message": "Note'ın Özel Verilerini İndir",
     "englishSource": "Download Private Note Data"
   },
   "failedToParseSigningPayload": {
@@ -2727,15 +2791,15 @@
     "englishSource": "Unknown"
   },
   "inputNotesConsumed": {
-    "message": "Tüketilen giriş notları",
+    "message": "notes'lık girdi tüketildi",
     "englishSource": "Input notes consumed"
   },
   "outputNotesCreated": {
-    "message": "Çıktı notları oluşturuldu",
+    "message": "Çıktınotes dosyası oluşturuldu",
     "englishSource": "Output notes created"
   },
   "storageChanged": {
-    "message": "Depolama değiştirildi",
+    "message": "Depolama alanı değiştirildi",
     "englishSource": "Storage changed"
   },
   "downloadFullSummary": {
@@ -2743,35 +2807,35 @@
     "englishSource": "Download full summary (bytes)"
   },
   "signArbitraryPayload": {
-    "message": "Keyfi yükü imzala?",
+    "message": "\"Arbitrary\" yükünü imzalamak mı?",
     "englishSource": "Sign the Arbitrary payload?"
   },
   "signBlindCommitment": {
-    "message": "Kör taahhüdünü imzala?",
+    "message": "“Blind” taahhütnamesini imzalamak mı?",
     "englishSource": "Sign the Blind commitment?"
   },
   "connectToWebsite": {
-    "message": "Web sitesine bağlanın",
+    "message": "Web sitesine bağlan",
     "englishSource": "Connect to website"
   },
   "deny": {
-    "message": "Reddetmek",
+    "message": "Reddet",
     "englishSource": "Deny"
   },
   "requestsATransaction": {
-    "message": "Bir işlem talep ediyor",
+    "message": "Bir işlem talebinde bulunur",
     "englishSource": "Requests a transaction"
   },
   "requestsToConsumeNote": {
-    "message": "Not tüketme istekleri",
+    "message": "note dosyasını kullanma istekleri",
     "englishSource": "Requests to consume a note"
   },
   "requestPrivateNotes": {
-    "message": "Özel Notlar İste",
+    "message": "Özel Mesaj İsteği Notes",
     "englishSource": "Request Private Notes"
   },
   "requestsPrivateNotes": {
-    "message": "Özel notlar ister",
+    "message": "notes adresine özel istekler",
     "englishSource": "Requests private notes"
   },
   "confirmSignature": {
@@ -2779,51 +2843,51 @@
     "englishSource": "Confirm Signature"
   },
   "requestsYourSignature": {
-    "message": "İmzanızı istiyor",
+    "message": "İmzanızı rica eder",
     "englishSource": "Requests your signature"
   },
   "requestAssets": {
-    "message": "Varlık Talep Et",
+    "message": "Varlıkları İste",
     "englishSource": "Request Assets"
   },
   "requestsAssets": {
-    "message": "Varlık istekleri",
+    "message": "Varlıkları ister",
     "englishSource": "Requests assets"
   },
   "requestImportPrivateNote": {
-    "message": "Özel Notu İçe Aktarma İste",
+    "message": "Özel Note dosyasını içe aktarma isteği",
     "englishSource": "Request Import Private Note"
   },
   "importPrivateNote": {
-    "message": "Özel notu içe aktar",
+    "message": "note dosyasını özel olarak içe aktar",
     "englishSource": "Import private note"
   },
   "requestConsumableNotes": {
-    "message": "Sarf Malzemesi Notlarını Talep Edin",
+    "message": "Sarf Malzemesi Talebi Notes",
     "englishSource": "Request Consumable Notes"
   },
   "requestsConsumableNotes": {
-    "message": "Sarf malzemesi notları isteyin",
+    "message": "Sarf malzemesi talebi notes",
     "englishSource": "Request consumable notes"
   },
   "review": {
-    "message": "Gözden geçirmek",
+    "message": "İnceleme",
     "englishSource": "Review"
   },
   "close": {
-    "message": "Kapalı",
+    "message": "Kapat",
     "englishSource": "Close"
   },
   "recallBlocks": {
-    "message": "Blokları geri çağırma",
+    "message": "Geri çağırma blokları",
     "englishSource": "Recall blocks"
   },
   "delegateTransaction": {
-    "message": "Delege işlemi",
+    "message": "İşlemi devret",
     "englishSource": "Delegate transaction"
   },
   "arrives": {
-    "message": "Vardı",
+    "message": "Geldi",
     "englishSource": "Arrives"
   },
   "ethereum": {
@@ -2843,7 +2907,7 @@
     "englishSource": "Seconds"
   },
   "minutes": {
-    "message": "dakika",
+    "message": "Tutanak",
     "englishSource": "Minutes"
   },
   "invalidEthereumAddress": {
@@ -2851,7 +2915,7 @@
     "englishSource": "Invalid Ethereum address"
   },
   "sendPayment": {
-    "message": "Ödeme Gönder",
+    "message": "Ödemeyi Gönder",
     "englishSource": "Send Payment"
   },
   "claimAll": {
@@ -2859,7 +2923,7 @@
     "englishSource": "Claim All"
   },
   "claimAllProgress": {
-    "message": "Tümü Talep Edilsin mi? ( $unclaimed$ / $total$ )",
+    "message": "Hepsini Talep Et? ($unclaimed$ / $total$)",
     "englishSource": "Claim All? ($unclaimed$/$total$)",
     "placeholders": {
       "unclaimed": {
@@ -2871,7 +2935,7 @@
     }
   },
   "totalPending": {
-    "message": "Toplam Beklemede",
+    "message": "Toplam Beklemede Olan",
     "englishSource": "Total Pending"
   },
   "pendingNotesCount": {
@@ -2892,11 +2956,11 @@
     }
   },
   "pendingNotesInfo": {
-    "message": "Miden, notes adı verilen benzersiz bir sistem kullanıyor. Gelen parayı manuel olarak talep edeceğiniz yer burasıdır. Bu, cüzdanınızı kötü niyetli aktörlerden korumanın bir yoludur",
+    "message": "Miden, \"notes\" (Gelen Ödemeleri Talep Etme) adlı benzersiz bir sistem kullanır. Bu sistemde, gelen parayı manuel olarak talep edersiniz. Bu, cüzdanınızı kötü niyetli kişilerden korumanın bir yoludur.",
     "englishSource": "Miden uses a unique system called notes. This is where you manually claim incoming money. It's a way for you to keep your wallet safe from malicious actors"
   },
   "notesPendingAcrossAssets": {
-    "message": "$notes$ notes $assets$ öğelerinde beklemede",
+    "message": "$notes$ notes $assets$’ın tüm varlıklarında beklemede olan",
     "englishSource": "$notes$ notes pending across $assets$ assets",
     "placeholders": {
       "notes": {
@@ -2908,7 +2972,7 @@
     }
   },
   "incomingTransfersCount": {
-    "message": "$count$ gelen transferler",
+    "message": "$count$ gelen havaleler",
     "englishSource": "$count$ incoming transfers",
     "placeholders": {
       "count": {
@@ -2916,12 +2980,78 @@
       }
     }
   },
+  "notesUnresolved": {
+    "message": "$count$ çözülmemiş",
+    "englishSource": "$count$ unresolved",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "noteClaimFailedRetry": {
+    "message": "Talep başarısız oldu — Yeniden Dene düğmesine dokunarak tekrar deneyin",
+    "englishSource": "Claim failed — tap Retry to try again"
+  },
+  "noteUnavailable": {
+    "message": "Bu note adresi artık kullanılamıyor",
+    "englishSource": "This note is no longer available"
+  },
   "pendingNotes": {
-    "message": "Beklemede notes",
+    "message": "Bekleyen notes",
     "englishSource": "Pending notes"
   },
+  "whatArePendingNotes": {
+    "message": "Bekleyen \"notes\" nedir?",
+    "englishSource": "What are pending notes?"
+  },
+  "consumeYourNotes": {
+    "message": "notes'ınızı kullanın",
+    "englishSource": "Consume your notes"
+  },
+  "consumeYourNotesDescription": {
+    "message": "Harcamaya başlamak için bu bekleyen fonları bakiyenize ekleyin.",
+    "englishSource": "Add these pending funds to your balance to start spending."
+  },
+  "pendingNotesDrawerP1a": {
+    "message": "Birisi size para gönderdiğinde, bu para \"private\" olarak gelir",
+    "englishSource": "When someone sends you funds, they arrive as private"
+  },
+  "pendingNotesDrawerP1Bold": {
+    "message": "notes",
+    "englishSource": "notes"
+  },
+  "pendingNotesDrawerP1b": {
+    "message": "— Yalnızca sizin açabileceğiniz mühürlü paketler.",
+    "englishSource": "— sealed packages only you can open."
+  },
+  "pendingNotesDrawerP2Bold": {
+    "message": "Tüketim",
+    "englishSource": "Consuming"
+  },
+  "pendingNotesDrawerP2": {
+    "message": "Bir \"note\" işlemi, bu tutarı harcayabileceğiniz bakiyenize aktarır. Bu işlemi gerçekleştirene kadar fonlar size aittir ancak henüz harcanamaz.",
+    "englishSource": "a note unpacks it into your spendable balance. Until you do, the funds are yours but can't be spent yet."
+  },
+  "pendingNotesDrawerP3a": {
+    "message": "Elinizde",
+    "englishSource": "You have"
+  },
+  "pendingNotesDrawerP3Bold": {
+    "message": "$count$ notes",
+    "englishSource": "$count$ notes",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "pendingNotesDrawerP3b": {
+    "message": "Bekliyor. Bunları istediğiniz zaman kullanabilirsiniz — aceleye gerek yok ve hiçbir zaman fonlarınız risk altında olmaz.",
+    "englishSource": "waiting. Consume them anytime — there's no rush, and no funds are ever at risk."
+  },
   "getTokens": {
-    "message": "Jeton alın",
+    "message": "Jetonları al",
     "englishSource": "Get tokens"
   },
   "midenFaucet": {
@@ -2929,7 +3059,7 @@
     "englishSource": "Miden Faucet"
   },
   "accountPublicKey": {
-    "message": "Hesap Genel Anahtarı",
+    "message": "Hesap Açık Anahtarı",
     "englishSource": "Account Public Key"
   },
   "editMidenFaucetId": {
@@ -2937,15 +3067,15 @@
     "englishSource": "Edit Miden Faucet ID"
   },
   "faucetId": {
-    "message": "Faucet Kimliği",
+    "message": "Faucet Kimlik",
     "englishSource": "Faucet ID"
   },
   "setNewFaucetId": {
-    "message": "Yeni Faucet Kimliğini ayarlayın",
+    "message": "Faucet'ın yeni kimliğini belirle",
     "englishSource": "Set new Faucet ID"
   },
   "setNewFaucetIdDescription": {
-    "message": "Orta Faucetn kimliğini girin",
+    "message": "Bir midenin kimlik numarasını girin: faucet",
     "englishSource": "Enter the ID of a miden faucet"
   },
   "addAccount": {
@@ -2953,11 +3083,11 @@
     "englishSource": "Add Account"
   },
   "addAccountComingSoon": {
-    "message": "Hesap Ekle (Çok Yakında)",
+    "message": "Hesap Ekle (Yakında)",
     "englishSource": "Add Account (Coming Soon)"
   },
   "faucetIdUpdated": {
-    "message": "Faucet Kimliği Güncellendi",
+    "message": "Faucet Kimlik Güncellendi",
     "englishSource": "Faucet ID Updated"
   },
   "connectivityNetworkTitle": {
@@ -2965,7 +3095,7 @@
     "englishSource": "You appear to be offline"
   },
   "connectivityNetworkBody": {
-    "message": "İnternet bağlantınızı kontrol edip tekrar deneyin.",
+    "message": "İnternet bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Check your internet connection and try again."
   },
   "connectivityNodeTitle": {
@@ -2973,27 +3103,27 @@
     "englishSource": "Cannot reach the Miden node"
   },
   "connectivityNodeBody": {
-    "message": "Düğüm kapalı veya ağır yük altında olabilir. Bakiyeniz güncel olmayabilir.",
+    "message": "Sunucu çalışmıyor olabilir veya aşırı yük altında olabilir. Bakiyeniz güncel olmayabilir.",
     "englishSource": "The node may be down or under heavy load. Your balance may be out of date."
   },
   "connectivityProverTitle": {
-    "message": "Hizmetin kullanılamadığını kanıtlama",
+    "message": "Hizmetin kullanılamadığının doğrulanması",
     "englishSource": "Proving service unavailable"
   },
   "connectivityProverBody": {
-    "message": "Hizmet geri dönene kadar işlemlerde yerel kanıtlama kullanılacaktır.",
+    "message": "Hizmet yeniden devreye girene kadar işlemlerde yerel doğrulama yöntemi kullanılacaktır.",
     "englishSource": "Transactions will use local proving until the service is back."
   },
   "connectivityResolvingTitle": {
-    "message": "Yeniden bağlanılıyor",
+    "message": "Yeniden Bağlantı Kurma",
     "englishSource": "Reconnecting"
   },
   "connectivityResolvingBody": {
-    "message": "Bağlantınız yeniden kurulmaya çalışılıyor.",
+    "message": "Bağlantınızı yeniden kurmaya çalışılıyor.",
     "englishSource": "Trying to restore your connection."
   },
   "connectivityRetry": {
-    "message": "Tekrar deneyin",
+    "message": "Tekrar dene",
     "englishSource": "Try again"
   },
   "connectivityRetrySync": {
@@ -3037,15 +3167,15 @@
     "englishSource": "avatar"
   },
   "byProceeding": {
-    "message": "Devam ederek şunları kabul etmiş olursunuz:",
+    "message": "Devam ederek, aşağıdakileri kabul etmiş olursunuz:",
     "englishSource": "By proceeding, you agree to the"
   },
   "andWord": {
-    "message": "Ve",
+    "message": "ve",
     "englishSource": "and"
   },
   "first": {
-    "message": "Birinci",
+    "message": "İlk olarak",
     "englishSource": "First"
   },
   "last": {
@@ -3057,7 +3187,7 @@
     "englishSource": "DApp Browser"
   },
   "go": {
-    "message": "Gitmek",
+    "message": "Git",
     "englishSource": "Go"
   },
   "loading": {
@@ -3065,11 +3195,11 @@
     "englishSource": "Loading..."
   },
   "searchDapps": {
-    "message": "DApp'lerde arama yapın veya URL'yi yapıştırın",
+    "message": "dApp'leri ara veya URL'yi yapıştır",
     "englishSource": "Search dApps or paste URL"
   },
   "recents": {
-    "message": "Son Kullanılanlar",
+    "message": "Son Eklenenler",
     "englishSource": "Recents"
   },
   "categoryDefi": {
@@ -3081,7 +3211,7 @@
     "englishSource": "NFT"
   },
   "categoryTools": {
-    "message": "Aletler",
+    "message": "Araçlar",
     "englishSource": "Tools"
   },
   "categorySocial": {
@@ -3093,15 +3223,15 @@
     "englishSource": "Minimize"
   },
   "switchDapps": {
-    "message": "DApp'leri değiştirin",
+    "message": "dApp'ler arasında geçiş yap",
     "englishSource": "Switch dApps"
   },
   "reload": {
-    "message": "Yeniden yükle",
+    "message": "Yeniden Yükle",
     "englishSource": "Reload"
   },
   "dappActionsSheet": {
-    "message": "dApp eylemleri",
+    "message": "dApp işlemleri",
     "englishSource": "dApp actions"
   },
   "dappActionCopyLink": {
@@ -3109,11 +3239,11 @@
     "englishSource": "Copy link"
   },
   "dappActionAddToMyDapps": {
-    "message": "Dapps'lerime ekle",
+    "message": "\"Benim Dapp'lerime Ekle\"",
     "englishSource": "Add to My Dapps"
   },
   "dappActionRemoveFromMyDapps": {
-    "message": "Dapps'imden kaldır",
+    "message": "\"My Dapps\" listesinden kaldır",
     "englishSource": "Remove from My Dapps"
   },
   "dappActionReopen": {
@@ -3121,7 +3251,7 @@
     "englishSource": "Reopen"
   },
   "restoreDappCard": {
-    "message": "Eski haline getirmek $name$ ",
+    "message": "$name$ dosyasını geri yükle",
     "englishSource": "Restore $name$",
     "placeholders": {
       "name": {
@@ -3130,7 +3260,7 @@
     }
   },
   "closeDappCard": {
-    "message": "Kapalı $name$ ",
+    "message": "$name$’i kapat",
     "englishSource": "Close $name$",
     "placeholders": {
       "name": {
@@ -3139,7 +3269,7 @@
     }
   },
   "showAllDapps": {
-    "message": "+ $count$ daha fazla park edilmiş dApp",
+    "message": "+$count$ ve diğer park edilmiş dApp’ler",
     "englishSource": "+$count$ more parked dApps",
     "placeholders": {
       "count": {
@@ -3152,11 +3282,11 @@
     "englishSource": "Can't load this dApp"
   },
   "dappLoadFailedHint": {
-    "message": "Bağlantınızı kontrol edip tekrar deneyin.",
+    "message": "Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Check your connection and try again."
   },
   "dappBrowserCapsule": {
-    "message": "dApp tarayıcı başlığı",
+    "message": "dApp tarayıcısı başlığı",
     "englishSource": "dApp browser header"
   },
   "dragToMinimize": {
@@ -3168,7 +3298,7 @@
     "englishSource": "dApp switcher"
   },
   "closeDappSwitcher": {
-    "message": "DApp değiştiriciyi kapat",
+    "message": "dApp değiştiriciyi kapat",
     "englishSource": "Close dApp switcher"
   },
   "openDappCountOne": {
@@ -3176,11 +3306,11 @@
     "englishSource": "1 open dApp"
   },
   "openDappCountPlural": {
-    "message": "{count} açık dApp'ler",
+    "message": "{count} açık dApp",
     "englishSource": "{count} open dApps"
   },
   "approve": {
-    "message": "Onaylamak",
+    "message": "Onayla",
     "englishSource": "Approve"
   },
   "dappConnectionRequest": {
@@ -3188,11 +3318,23 @@
     "englishSource": "This app wants to connect to your wallet"
   },
   "dappTransactionRequest": {
-    "message": "Bu uygulama bir işlem istiyor",
+    "message": "Bu uygulama bir işlem talep ediyor",
     "englishSource": "This app is requesting a transaction"
   },
+  "dappSignRequest": {
+    "message": "Bu uygulama, verileri cüzdanınızla imzalamanızı istemektedir",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Bu uygulama, özel bir note adresini cüzdanınıza aktarmak istiyor",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Bu uygulama, özel cüzdan verilerinize erişim izni istemektedir",
+    "englishSource": "This app is requesting access to your private wallet data"
+  },
   "noAccountSelected": {
-    "message": "Hesap seçilmedi",
+    "message": "Seçili bir hesap yok",
     "englishSource": "No account selected"
   },
   "biometricFailed": {
@@ -3200,7 +3342,7 @@
     "englishSource": "Biometric authentication failed"
   },
   "biometricAttemptsRemaining": {
-    "message": "$count$ deneme kaldı",
+    "message": "$count$ kalan deneme sayısı",
     "englishSource": "$count$ attempt(s) remaining",
     "placeholders": {
       "count": {
@@ -3209,11 +3351,11 @@
     }
   },
   "continueWithPassword": {
-    "message": "Şifreyle Devam Et",
+    "message": "Şifre ile devam et",
     "englishSource": "Continue with Password"
   },
   "tryBiometricAgain": {
-    "message": "Biyometriyi Tekrar Deneyin",
+    "message": "Biyometrik Kimlik Doğrulamasını Tekrar Deneyin",
     "englishSource": "Try Biometric Again"
   },
   "fingerprint": {
@@ -3236,6 +3378,22 @@
     "message": "Tarama iptal edildi",
     "englishSource": "Scan cancelled"
   },
+  "scanQrTitle": {
+    "message": "QR kodunu tarayın",
+    "englishSource": "Scan QR code"
+  },
+  "pointCameraAtQr": {
+    "message": "Kameranızı bir QR koduna doğrultun",
+    "englishSource": "Point your camera at a QR code"
+  },
+  "noCameraFound": {
+    "message": "Kamera bulunamadı",
+    "englishSource": "No camera found"
+  },
+  "requestingCamera": {
+    "message": "Kamera erişimi isteniyor…",
+    "englishSource": "Requesting camera access…"
+  },
   "scan": {
     "message": "Tara",
     "englishSource": "Scan"
@@ -3257,28 +3415,36 @@
     "englishSource": "Dark"
   },
   "hapticFeedback": {
-    "message": "Dokunsal Geribildirim",
+    "message": "Dokunsal Geri Bildirim",
     "englishSource": "Haptic Feedback"
   },
   "noNotesToClaim": {
-    "message": "Şu anda talep edebileceğiniz notes hakkınız yok.",
+    "message": "Şu anda talep edebileceğiniz bir notes'ınız bulunmamaktadır.",
     "englishSource": "You don't currently have notes to claim."
   },
   "noteReceivedTitle": {
-    "message": "Bir note aldınız",
+    "message": "note'i aldınız",
     "englishSource": "You have received a note"
   },
+  "transactionFailedNotificationTitle": {
+    "message": "İşlem başarısız oldu",
+    "englishSource": "Transaction failed"
+  },
+  "transactionFailedNotificationBody": {
+    "message": "Bir işlem tamamlanamadı. İncelemek için cüzdanı açın.",
+    "englishSource": "A transaction couldn't be completed. Open the wallet to review."
+  },
   "noteReceivedTapToClaim": {
-    "message": "Hak talebinde bulunmak için buraya dokunun",
+    "message": "Almak için buraya dokunun",
     "englishSource": "Tap here to claim it"
   },
   "noteReceivedClickToClaim": {
-    "message": "Click to view and claim it",
+    "message": "Görüntülemek ve talepte bulunmak için tıklayın",
     "englishSource": "Click to view and claim it"
   },
   "noteReceivedMultiple": {
-    "message": "You have $count$ new notes to claim",
-    "englishSource": "You have $count$ new notes to claim",
+    "message": "$count$ notes talep etmek",
+    "englishSource": "$count$ notes to claim",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -3286,7 +3452,7 @@
     }
   },
   "passwordsCanBeInsecure": {
-    "message": "Şifreler güvensiz olabilir. Bunun yerine biyometrik kimlik doğrulamayı kullanın.",
+    "message": "Şifreler güvenli olmayabilir. Bunun yerine biyometrik kimlik doğrulamayı kullanın.",
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
   },
   "unlockWallet": {
@@ -3294,11 +3460,11 @@
     "englishSource": "Unlock Wallet"
   },
   "unlockWalletDescription": {
-    "message": "seed phrase ile herkese açık hesabınızı istediğiniz zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini nasıl hızlı bir şekilde açacağınızı aşağıdan seçin.",
+    "message": "seed phrase ile genel hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",
     "englishSource": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet."
   },
   "faucetRequest": {
-    "message": "Faucet İstek",
+    "message": "Faucet Talep",
     "englishSource": "Faucet Request"
   },
   "activity": {
@@ -3306,7 +3472,7 @@
     "englishSource": "Activity"
   },
   "explore": {
-    "message": "Keşfetmek",
+    "message": "Keşfet",
     "englishSource": "Explore"
   },
   "permissions": {
@@ -3322,15 +3488,15 @@
     "englishSource": "Automatic"
   },
   "dAppsToggleDescription": {
-    "message": "DApp bağlantılarını etkinleştirmek veya devre dışı bırakmak ve görünürlüğü dengelemek için geçiş yapın.",
+    "message": "DApp bağlantılarını ve bakiye görünürlüğünü etkinleştirmek veya devre dışı bırakmak için bu düğmeyi değiştirin.",
     "englishSource": "Toggle to enable or disable DApp connections and balance visibility."
   },
   "seeConnected": {
-    "message": "Bağlantılı olanı görün",
+    "message": "İlgili bölümlere bakınız",
     "englishSource": "See connected"
   },
   "transferDetails": {
-    "message": "Transfer Detayları",
+    "message": "Transfer Ayrıntıları",
     "englishSource": "Transfer Details"
   },
   "advancedDetails": {
@@ -3342,7 +3508,7 @@
     "englishSource": "Options"
   },
   "on": {
-    "message": "Açık",
+    "message": "Tarih:",
     "englishSource": "On"
   },
   "off": {
@@ -3358,7 +3524,7 @@
     "englishSource": "Enter Address"
   },
   "failedToClaimNote": {
-    "message": "note talebinde bulunulamadı",
+    "message": "note'i talep edemedi",
     "englishSource": "Failed to claim note"
   },
   "testnet": {
@@ -3374,11 +3540,11 @@
     "englishSource": "Invalid amount"
   },
   "tokenPrice": {
-    "message": "Jeton Fiyatı",
+    "message": "Token Fiyatı",
     "englishSource": "Token Price"
   },
   "tokenInfo": {
-    "message": "Jeton Bilgisi",
+    "message": "Token Bilgileri",
     "englishSource": "Token Info"
   },
   "fungible": {
@@ -3390,11 +3556,11 @@
     "englishSource": "Network"
   },
   "recentActivity": {
-    "message": "Son Etkinlik",
+    "message": "Son Etkinlikler",
     "englishSource": "Recent Activity"
   },
   "type": {
-    "message": "Tip",
+    "message": "Tür",
     "englishSource": "Type"
   },
   "txIdLabel": {
@@ -3414,27 +3580,27 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Açık",
+    "message": "Aç",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Dolu",
+    "message": "Doldurulmuş",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Geri alındı",
+    "message": "Geri kazanılmış",
     "englishSource": "Reclaimed"
   },
   "fillRounds": {
-    "message": "Turları doldurun",
+    "message": "Yuvarlakları doldur",
     "englishSource": "Fill rounds"
   },
   "amountFilled": {
-    "message": "Dolu",
+    "message": "Dolduruldu",
     "englishSource": "Filled"
   },
   "trackingUnavailable": {
-    "message": "Müsait değil",
+    "message": "Mevcut değil",
     "englishSource": "Not available"
   },
   "created": {
@@ -3450,39 +3616,39 @@
     "englishSource": "Date"
   },
   "details": {
-    "message": "Detaylar",
+    "message": "Ayrıntılar",
     "englishSource": "Details"
   },
   "pinExtensionTitle": {
-    "message": "Miden Cüzdanını Pinle",
+    "message": "Ekmek iğnesi",
     "englishSource": "Pin Bread"
   },
   "pinExtensionDescription": {
-    "message": "Araç çubuğunuzdan hızlı erişim için bulmaca simgesine tıklayın ve Miden Cüzdanını sabitleyin.",
+    "message": "Yapboz simgesine tıklayın ve “Bread” uygulamasını araç çubuğunuza sabitleyerek hızlı erişim sağlayın.",
     "englishSource": "Click the puzzle icon and pin Bread for quick access from your toolbar."
   },
   "all": {
-    "message": "Tüm",
+    "message": "Tümü",
     "englishSource": "All"
   },
   "sent": {
-    "message": "Gönderilmiş",
+    "message": "Gönderildi",
     "englishSource": "Sent"
   },
   "pending": {
-    "message": "Askıda olması",
+    "message": "Beklemede",
     "englishSource": "Pending"
   },
   "reclaimed": {
-    "message": "Geri kazanıldı",
+    "message": "Geri kazanılmış",
     "englishSource": "Reclaimed"
   },
   "faucetRequestTitle": {
-    "message": "Faucet İstek",
+    "message": "Faucet Talep",
     "englishSource": "Faucet Request"
   },
   "share": {
-    "message": "Paylaşmak",
+    "message": "Paylaş",
     "englishSource": "Share"
   },
   "copy": {
@@ -3490,7 +3656,7 @@
     "englishSource": "Copy"
   },
   "crossChain": {
-    "message": "Çapraz zincir",
+    "message": "Zincirler arası",
     "englishSource": "Cross-chain"
   },
   "evmWalletConnected": {
@@ -3498,7 +3664,7 @@
     "englishSource": "EVM wallet connected"
   },
   "connectedWallet": {
-    "message": "Bağlı cüzdan",
+    "message": "Bağlantılı cüzdan",
     "englishSource": "Connected wallet"
   },
   "switchWallet": {
@@ -3506,27 +3672,27 @@
     "englishSource": "Switch wallet"
   },
   "current": {
-    "message": "Akım",
+    "message": "Mevcut",
     "englishSource": "Current"
   },
   "connectAnotherWallet": {
-    "message": "Başka bir cüzdan bağlayın",
+    "message": "Başka bir cüzdanı bağla",
     "englishSource": "Connect another wallet"
   },
   "midenBridge": {
-    "message": "Miden Köprüsü",
+    "message": "Miden Bridge",
     "englishSource": "Miden Bridge"
   },
   "connectEvmWallet": {
-    "message": "EVM cüzdanını bağlayın",
+    "message": "Bir EVM cüzdanını bağlayın",
     "englishSource": "Connect an EVM wallet"
   },
   "connectEvmWalletDescription": {
-    "message": "Varlıkları Miden ile Miden arasında köprülemek için bir cüzdan bağlayın.",
+    "message": "Miden'e ve Miden'den varlık aktarmak için bir cüzdan bağlayın.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
   "onlyBridgeableTokenSupported": {
-    "message": "Yavaş (Agglayer) rotası yalnızca köprülenebilir jetonu destekler. Diğer belirteçleri göndermek için Hızlı'yı kullanın.",
+    "message": "Yavaş (Agglayer) yolu yalnızca köprülenebilir token’ları destekler. Diğer token’ları göndermek için Hızlı seçeneğini kullanın.",
     "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
   },
   "connectDestinationWalletToClaim": {
@@ -3538,15 +3704,15 @@
     "englishSource": "Bridge details"
   },
   "route": {
-    "message": "Rota",
+    "message": "Güzergâh",
     "englishSource": "Route"
   },
   "selectNetwork": {
-    "message": "Ağ seçin",
+    "message": "Ağı seçin",
     "englishSource": "Select network"
   },
   "receiveOnArrivesAs": {
-    "message": "Şu tarihte alın: $network$ · olarak gelir $symbol$ ",
+    "message": "$network$'da al · $symbol$ adresine gönderilir",
     "englishSource": "Receive on $network$ · arrives as $symbol$",
     "placeholders": {
       "network": {
@@ -3558,11 +3724,11 @@
     }
   },
   "noFee": {
-    "message": "Ücret yok",
+    "message": "Ücret alınmaz",
     "englishSource": "No fee"
   },
   "fastArrival": {
-    "message": "~30 saniye",
+    "message": "~30 sn",
     "englishSource": "~30 sec"
   },
   "slowArrival": {
@@ -3570,7 +3736,7 @@
     "englishSource": "~6 hours"
   },
   "youAreDepositing": {
-    "message": "Para yatırıyorsun",
+    "message": "Para yatırıyorsunuz",
     "englishSource": "You are depositing"
   },
   "confirmDeposit": {
@@ -3578,15 +3744,15 @@
     "englishSource": "Confirm Deposit"
   },
   "bridgeDepositProcessing": {
-    "message": "Köprü depozitosu onaylanıyor",
+    "message": "Köprü yatırımı onayı",
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızdaki isteği onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
+    "message": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
     "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
   },
   "bridgeDepositFailed": {
-    "message": "Köprü yatırma işlemi başarısız oldu",
+    "message": "Köprü yatırımı başarısız oldu",
     "englishSource": "Bridge deposit failed"
   },
   "bridgeDepositSubmitted": {
@@ -3594,11 +3760,11 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia işlemi onaylandı. Köprü teslimatı tamamlandığında paranız Miden'de görünecek.",
+    "message": "Sepolia işlemi onaylandı. Köprü aktarımı tamamlandığında fonlarınız Miden'de görünecektir.",
     "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
-    "message": "Etherscan'de görüntüle",
+    "message": "Etherscan'da görüntüle",
     "englishSource": "View on Etherscan"
   },
   "delivering": {
@@ -3606,15 +3772,15 @@
     "englishSource": "Delivering"
   },
   "slowNeedsNativeEth": {
-    "message": "Yavaş (Agglayer) rotası yalnızca test ağında yerel ETH'yi destekler. Kullanmak için ETH'yi seçin.",
+    "message": "Slow (Agglayer) rotası, test ağında yalnızca yerel ETH’yi desteklemektedir. Kullanmak için ETH’yi seçin.",
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "ETH'yi Hızlı rotada köprülemek onu önce WETH'e sarar, ardından WETH'i köprüler. Bu rota henüz kullanılamıyor.",
+    "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
   },
   "destinationNetwork": {
-    "message": "Hedef ağı",
+    "message": "Hedef ağ",
     "englishSource": "Destination network"
   },
   "claimStatus": {
@@ -3622,23 +3788,23 @@
     "englishSource": "Claim status"
   },
   "claimAsset": {
-    "message": "Varlık Talebi",
+    "message": "Varlığı Talep Et",
     "englishSource": "Claim Asset"
   },
   "claimAssetSubmitted": {
-    "message": "Talep gönderildi — fonlar bağlı EVM cüzdanında.",
+    "message": "Talep gönderildi — fonlar bağlı EVM cüzdanında bulunmaktadır.",
     "englishSource": "Claim submitted — funds are on the connected EVM wallet."
   },
   "claimable": {
-    "message": "Hak talebinde bulunmaya hazır",
+    "message": "Talep etmeye hazır mısınız?",
     "englishSource": "Ready to claim"
   },
   "claiming": {
-    "message": "Hak talebinde bulunuluyor…",
+    "message": "Talep ediliyor…",
     "englishSource": "Claiming…"
   },
   "claimed": {
-    "message": "Hak talebinde bulunuldu",
+    "message": "Talep Edildi",
     "englishSource": "Claimed"
   },
   "claimPending": {
@@ -3646,15 +3812,15 @@
     "englishSource": "Bridging — claim not ready yet"
   },
   "claimFailedStatus": {
-    "message": "Hak talebi başarısız oldu",
+    "message": "Talep başarısız oldu",
     "englishSource": "Claim failed"
   },
   "noManualClaimRequired": {
-    "message": "Fonlar otomatik olarak gelir; herhangi bir talepte bulunulmasına gerek yoktur.",
+    "message": "Fonlar otomatik olarak gelir — talep edilmesine gerek yoktur.",
     "englishSource": "Funds arrive automatically — no claim needed."
   },
   "fastRouteLabel": {
-    "message": "Hızlı (Dönem)",
+    "message": "Hızlı (Epoch)",
     "englishSource": "Fast (Epoch)"
   },
   "slowRouteLabel": {
@@ -3662,7 +3828,7 @@
     "englishSource": "Slow (Agglayer)"
   },
   "bridgeRowTitle": {
-    "message": "Köprü $from$  →  $to$ ",
+    "message": "Köprü $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
     "placeholders": {
       "from": {
@@ -3674,7 +3840,7 @@
     }
   },
   "bridgeRowVia": {
-    "message": "Aracılığıyla $provider$  →  $network$ ",
+    "message": "$provider$ üzerinden → $network$",
     "englishSource": "Via $provider$ → $network$",
     "placeholders": {
       "provider": {
@@ -3686,27 +3852,27 @@
     }
   },
   "bridgeInProgress": {
-    "message": "Devam etmekte",
+    "message": "Devam ediyor",
     "englishSource": "In progress"
   },
   "bridgeFailed": {
-    "message": "Arızalı",
+    "message": "Başarısız",
     "englishSource": "Failed"
   },
   "reclaimFunds": {
-    "message": "Fonları geri alın",
+    "message": "Fonları geri almak",
     "englishSource": "Reclaim funds"
   },
   "reclaiming": {
-    "message": "Geri alınıyor…",
+    "message": "Geri kazanma…",
     "englishSource": "Reclaiming…"
   },
   "reclaimableAfterBlock": {
-    "message": "Blokajdan sonra geri alınabilecek fonlar",
+    "message": "Bloktan sonra geri alınabilecek fonlar",
     "englishSource": "Funds reclaimable after block"
   },
   "receivingTx": {
-    "message": "Tx alma",
+    "message": "Alım Tx",
     "englishSource": "Receiving Tx"
   },
   "preparing": {
@@ -3718,7 +3884,7 @@
     "englishSource": "Disconnect"
   },
   "declaredBySiteVerifying": {
-    "message": "Tesis tarafından beyan edildi — simülasyonla doğrulanıyor…",
+    "message": "Tesis tarafından beyan edildi — simülasyon yoluyla doğrulanıyor…",
     "englishSource": "Declared by site — verifying by simulation…"
   },
   "unverified": {
@@ -3726,11 +3892,11 @@
     "englishSource": "unverified"
   },
   "couldNotVerifyBySimulation": {
-    "message": "Simülasyonla doğrulanamadı. Aşağıdaki tutarlar site tarafından beyan edilen tutarlardır.",
+    "message": "Simülasyon yoluyla doğrulanamadı. Aşağıdaki tutarlar, site tarafından beyan edilen tutarlardır.",
     "englishSource": "Could not verify by simulation. Amounts below are as declared by the site."
   },
   "couldNotDecodeTransaction": {
-    "message": "Bu dApp özel bir işlem talep ediyor. M-cüzdan ayrıntılarının şifresini çözemedi; ancak tam olarak ne yaptığını biliyorsanız devam edin.",
+    "message": "Bu dApp, özel bir işlem talep ediyor. Cüzdan, işlemin ayrıntılarını çözemedi — ne işe yaradığını tam olarak biliyorsanız devam edin.",
     "englishSource": "This dApp is requesting a custom transaction. The wallet could not decode its details — only continue if you know exactly what it does."
   },
   "rawValue": {
@@ -3738,11 +3904,11 @@
     "englishSource": "Raw value"
   },
   "opaqueSignatureTitle": {
-    "message": "Şeffaf imza isteği",
+    "message": "Gizli imza talebi",
     "englishSource": "Opaque signature request"
   },
   "opaqueSignatureWarning": {
-    "message": "Bu site sizden ham bir değer imzalamanızı istedi. M-cüzdan neye yetki verdiğini gösteremez. Yalnızca bu siteye tamamen güveniyorsanız devam edin.",
+    "message": "Bu site sizden bir ham değeri imzalamanızı istedi. Cüzdan, neye yetki verdiğini gösteremiyor. Yalnızca bu siteye tam olarak güveniyorsanız devam edin.",
     "englishSource": "This site asked you to sign a raw value. The wallet cannot show what it authorizes. Only continue if you fully trust this site."
   },
   "note": {
@@ -3750,76 +3916,88 @@
     "englishSource": "Note"
   },
   "earnMarketLabel": {
-    "message": "Market",
+    "message": "Pazar",
     "englishSource": "Market"
   },
   "positionOwnerLabel": {
-    "message": "Position owner",
+    "message": "Pozisyon sahibi",
     "englishSource": "Position owner"
   },
   "earnDepositDetailsTitle": {
-    "message": "Deposit details",
+    "message": "Para yatırma bilgileri",
     "englishSource": "Deposit details"
   },
   "earnWithdrawDetailsTitle": {
-    "message": "Withdrawal details",
+    "message": "Para çekme ayrıntıları",
     "englishSource": "Withdrawal details"
   },
   "depositIntentLabel": {
-    "message": "Deposit intent",
+    "message": "Mevduat taahhüdü",
     "englishSource": "Deposit intent"
   },
   "redeemIntentLabel": {
-    "message": "Redeem intent",
+    "message": "Kullanım niyeti",
     "englishSource": "Redeem intent"
   },
   "earnWithdrawRowTitle": {
-    "message": "Withdraw from Earn",
+    "message": "Earn'den Para Çekme",
     "englishSource": "Withdraw from Earn"
   },
   "earnWithdrawRowVia": {
-    "message": "Via Epoch → Miden",
+    "message": "Epoch üzerinden → Miden",
     "englishSource": "Via Epoch → Miden"
   },
   "earnWithdrawStatusRedeeming": {
-    "message": "Redeeming",
+    "message": "Kullanma",
     "englishSource": "Redeeming"
   },
   "earnWithdrawStatusDelivering": {
-    "message": "Delivering",
+    "message": "Teslimat",
     "englishSource": "Delivering"
   },
   "withdrawalStarted": {
-    "message": "Withdrawal Started!",
+    "message": "Para Çekme İşlemi Başladı!",
     "englishSource": "Withdrawal Started!"
   },
   "withdrawalStartedDescription": {
-    "message": "Your funds are being bridged back to Miden. Track delivery in Activity.",
+    "message": "Fonlarınız Miden’e geri aktarılmaktadır. Aktarımı \"Etkinlik\" bölümünden takip edebilirsiniz.",
     "englishSource": "Your funds are being bridged back to Miden. Track delivery in Activity."
   },
   "withdrawalProcessing": {
-    "message": "Processing Withdrawal",
+    "message": "Para Çekme İşlemi",
     "englishSource": "Processing Withdrawal"
   },
   "withdrawalProcessingDescription": {
-    "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
+    "message": "Gaz ücreti gerektirmeyen para çekme niyetini imzalamak ve Epoch’a göndermek. Bu işlem genellikle birkaç saniye sürer.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
   },
   "withdrawalFailed": {
-    "message": "Withdrawal Failed",
+    "message": "Para Çekme İşlemi Başarısız",
     "englishSource": "Withdrawal Failed"
   },
   "transactionComplete": {
-    "message": "Transaction Complete!",
+    "message": "İşlem Tamamlandı!",
     "englishSource": "Transaction Complete!"
   },
   "totalPaid": {
-    "message": "Total Paid",
+    "message": "Ödenen Toplam Tutar",
     "englishSource": "Total Paid"
   },
+  "totalConsumed": {
+    "message": "Toplam Tüketim",
+    "englishSource": "Total Consumed"
+  },
+  "notesConsumed": {
+    "message": "Notes Tüketilen",
+    "englishSource": "Notes Consumed"
+  },
+  "consumed": {
+    "message": "Tüketilen",
+    "englishSource": "Consumed"
+  },
   "sourceTx": {
-    "message": "Source TX",
-    "englishSource": "Source TX"
+    "message": "İşlem Kimliği",
+    "englishSource": "Transaction ID"
   },
   "developerSettingsTitle": {
     "message": "Geliştirici Ayarları",
@@ -3830,7 +4008,7 @@
     "englishSource": "For advanced users"
   },
   "developerSettingsWarning": {
-    "message": "Çoğu insan bunları asla değiştirmemelidir. Yanlış değerler cüzdanınızı kırar.",
+    "message": "Çoğu kişi bunları asla değiştirmemelidir. Yanlış değerler cüzdanınızı boşaltır.",
     "englishSource": "Most people should never change these. Wrong values will break your wallet."
   },
   "devEndpointPreset": {
@@ -3838,7 +4016,7 @@
     "englishSource": "Network preset"
   },
   "devEndpointCustom": {
-    "message": "Gelenek",
+    "message": "Özel",
     "englishSource": "Custom"
   },
   "devEndpointNetworkId": {
@@ -3850,7 +4028,7 @@
     "englishSource": "RPC node URL"
   },
   "devEndpointProver": {
-    "message": "İşlem kanıtlayıcı URL'si",
+    "message": "İşlem doğrulayıcı URL'si",
     "englishSource": "Transaction prover URL"
   },
   "devEndpointNoteTransport": {
@@ -3866,11 +4044,11 @@
     "englishSource": "Faucet API URL"
   },
   "devEndpointExplorer": {
-    "message": "Gezgin URL'si",
+    "message": "Explorer URL'si",
     "englishSource": "Explorer URL"
   },
   "devEndpointGuardian": {
-    "message": "Özel veli URL'si",
+    "message": "guardian'a özel URL",
     "englishSource": "Custom guardian URL"
   },
   "devAllowNoGuardian": {
@@ -3882,7 +4060,7 @@
     "englishSource": "Checking…"
   },
   "devEndpointReachable": {
-    "message": "Sunucuya ulaşılabilir",
+    "message": "Sunucuya erişim sağlanıyor",
     "englishSource": "Host reachable"
   },
   "devEndpointNoResponse": {
@@ -3894,11 +4072,11 @@
     "englishSource": "Save & continue"
   },
   "devEndpointResetDefaults": {
-    "message": "Varsayılanlara sıfırla",
+    "message": "Varsayılan ayarlara sıfırla",
     "englishSource": "Reset to defaults"
   },
   "devEndpointResetAndReonboard": {
-    "message": "Varsayılanlara sıfırla ve yeniden katıl",
+    "message": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
     "englishSource": "Reset to defaults & re-onboard"
   },
   "devEndpointsRow": {
@@ -3906,7 +4084,7 @@
     "englishSource": "Network endpoints"
   },
   "devEndpointResetConfirm": {
-    "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz de dahil olmak üzere bu cüzdanı kalıcı olarak siler. Geri yüklemek için kurtarma ifadenize ihtiyacınız olacak.",
+    "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   }
 }

@@ -1,11 +1,11 @@
 name: Start local 0.16 test node
 description: >
-  Build (cached) and start the 0.16 test node via rust-sdk's scripts/start-test-node.sh at the
-  rev pinned in playwright/e2e/local-stack/versions.env. The script cargo-installs the four node
-  binaries (at the node rev its Cargo.lock pins), generates genesis, seeds each component's DB,
-  and starts validator + sequencer + ntx-builder + prover, leaving them running (--background).
-  The published ghcr node images lag the encrypted-tx node the SDK is built against, so the node
-  is compiled from source rather than pulled.
+  Build (cached) and start the 0.16 test node via miden-client's scripts/start-test-node.sh at
+  the rev pinned in playwright/e2e/local-stack/versions.env. The script cargo-installs the four
+  node binaries (at the node rev its Cargo.lock pins), generates genesis, seeds each component's
+  DB, and starts validator + sequencer + ntx-builder + prover, leaving them running
+  (--background). The published ghcr node images lag the node the SDK is built against, so the
+  node is compiled from source rather than pulled.
 runs:
   using: composite
   steps:
@@ -19,17 +19,17 @@ runs:
     - name: Install node build deps
       shell: bash
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler clang cmake
-    - name: Checkout rust-sdk (test-node infra)
+    - name: Checkout miden-client (test-node infra)
       shell: bash
       run: |
         set -euo pipefail
-        rm -rf "${{ runner.temp }}/rust-sdk"
-        git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/rust-sdk"
-        git -C "${{ runner.temp }}/rust-sdk" checkout "${{ steps.pins.outputs.rev }}"
+        rm -rf "${{ runner.temp }}/miden-client"
+        git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
+        git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
     - name: Cache node build
       uses: actions/cache@v4
       with:
-        path: ${{ runner.temp }}/rust-sdk/target/test-node
+        path: ${{ runner.temp }}/miden-client/target/test-node
         key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
     - name: Patch prover port 50051 -> 50052
       shell: bash
@@ -37,7 +37,7 @@ runs:
       # start-test-node.sh defaults the prover to :50051, so retarget it (and the ntx-builder's
       # tx-prover.url, which reads the same PROVER_PORT).
       run: |
-        f="${{ runner.temp }}/rust-sdk/scripts/start-test-node.sh"
+        f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
         # prover -> :50052 (guardian binds :50051); bind the sequencer RPC on 0.0.0.0 so the
         # bridge-networked guardian containers can reach it via host.docker.internal.
         sed -i 's/^PROVER_PORT=50051$/PROVER_PORT=50052/' "$f"
@@ -45,5 +45,23 @@ runs:
     - name: Build + start node
       shell: bash
       run: |
-        cd "${{ runner.temp }}/rust-sdk"
+        cd "${{ runner.temp }}/miden-client"
         ./scripts/start-test-node.sh --background
+    # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
+    # exits, so the logs it points at are discarded with the runner. That turns any
+    # bring-up failure into an unactionable red X — dump them here instead.
+    - name: Node bring-up logs (on failure)
+      if: failure()
+      shell: bash
+      run: |
+        logs="${{ runner.temp }}/miden-client/target/test-node/data/logs"
+        if [ ! -d "$logs" ]; then
+          echo "No log directory at $logs — the node never got as far as starting a service."
+          exit 0
+        fi
+        for f in "$logs"/*; do
+          [ -f "$f" ] || continue
+          echo "::group::$(basename "$f") (last 200 lines)"
+          tail -200 "$f"
+          echo "::endgroup::"
+        done

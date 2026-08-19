@@ -308,7 +308,28 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es' // Workers need ESM for top-level await support
+    format: 'es', // Workers need ESM for top-level await support
+    // Emit worker ASSETS under the same names the main pass uses (above).
+    // Vite bundles workers in a SEPARATE pass with its own defaults, so this
+    // one config wrote the SDK's 19.5 MB wasm into the package twice — the main
+    // pass as `static/wasm/miden_client_web.<hash>.wasm`, the worker pass as
+    // `assets/miden_client_web-<hash>.wasm`. Byte-identical (same SHA-256, and
+    // Vite derives the same content hash for both), both genuinely referenced,
+    // and worth ~5 MB of the shipped zip for the redundant copy.
+    //
+    // Verified this config is the source: a `build:bg` alone into an empty
+    // dist produces BOTH files. With one naming scheme both passes resolve to
+    // the same path, the second write is the same bytes, and the package
+    // carries one wasm; Vite rewrites the worker's URL to wherever the asset
+    // lands, so it still resolves.
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {
@@ -353,9 +374,21 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
+    // document. DEFAULT ON for the service-worker bundle — this is the only bundle
+    // that can open an offscreen document, so it is the only one where the flag can
+    // mean anything. Every other config defaults it `'false'` (mobile hardcodes it).
+    // Off is a strict no-op vs. the inline client.
+    // See lib/miden/back/miden-client-proxy.ts.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+    // E2E behaviour opt-outs — see vite.extension.config.ts. Default 'false'.
+    'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+    'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+      process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+    ),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
     'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
       process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
@@ -367,6 +400,12 @@ export default defineConfig({
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
@@ -377,11 +416,12 @@ export default defineConfig({
     // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
     // the prove with "Client not initialized".
     //
-    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
-    // runtime value is undefined and the `=== 'true'` check fails — mobile
-    // always uses the bundled SDK path. Even if it somehow were true, the
-    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
-    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
+    // Mobile (vite.mobile.config.ts) PINS this to `'false'` at build time, so a
+    // stray shell env can never opt mobile into a code path it cannot run and
+    // dead-code elimination drops the offscreen import entirely — mobile always
+    // uses the bundled SDK path. The runtime `isOffscreenAvailable()` guard would
+    // return false in WKWebView / Capacitor anyway (no chrome.offscreen API), so
+    // the fallback fires regardless.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
     // Speculative pre-prove: when the user reaches the review screen, the
     // popup tells the SW to start proving with the form params so the proof
@@ -389,6 +429,14 @@ export default defineConfig({
     // (gated further on !delegateEnabled at runtime). Mobile config pins
     // this false — speculation has nothing to dispatch to without
     // chrome.offscreen anyway, but the explicit pin makes intent clear.
+    //
+    // Left ON even though `initSpeculationManager` (lib/miden/back/speculation-manager.ts)
+    // now returns null whenever MIDEN_USE_OFFSCREEN_CLIENT is on and chrome.offscreen
+    // is present — i.e. on this build's own default. The flag stays a BUILD switch for
+    // the feature, and the realm gate is a RUNTIME fact only the service worker can
+    // evaluate; folding the two together here would also silently disable the flag-off
+    // and non-Chrome paths, which are unaffected by the realm split. See that
+    // function's TRADEOFF block.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
   }

@@ -73,7 +73,7 @@ const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecov
 
 const continueButton = () => screen.getByTestId('continue-button') as HTMLButtonElement;
 const guardianInput = () => screen.getByTestId('guardian-input') as HTMLInputElement;
-const ozPreset = () => screen.getByRole('button', { name: /Open-Zeppelin/ });
+const ozPreset = () => screen.getByRole('button', { name: /OpenZeppelin/ });
 const gatewayPreset = () => screen.getByRole('button', { name: /Gateway Operator/ });
 const customToggle = () => screen.getByRole('button', { name: /useDifferentGuardian/ });
 const selectGuardian = () => fireEvent.click(screen.getByText('importViaGuardian'));
@@ -109,7 +109,7 @@ describe('ImportRecoveryMethodScreen', () => {
     // All testnet Guardian providers are offered as presets.
     expect(ozPreset()).toBeInTheDocument();
     expect(gatewayPreset()).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Lambda Class/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /LambdaClass/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Koda/ })).toBeInTheDocument();
 
     // The seeded OpenZeppelin preset is active; the others are not.
@@ -236,7 +236,7 @@ describe('ImportRecoveryMethodScreen', () => {
 
     // Guardian-only UI is gone.
     expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open-Zeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
     // On-chain never needs an endpoint, so Continue is enabled.
     expect(continueButton()).toBeEnabled();
@@ -304,7 +304,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(continueButton()).toBeDisabled();
 
     // No picker while we're still deciding what to preselect.
-    expect(screen.queryByRole('button', { name: /Open-Zeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
   });
 
@@ -330,7 +330,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
       });
 
       fireEvent.click(customToggleAfterDetection());
-      expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
       expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
@@ -355,7 +355,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
       expect(continueButton()).toBeEnabled();
 
       // A preset pick still works and wins over the in-flight probe.
-      fireEvent.click(screen.getByRole('button', { name: /Open-Zeppelin/ }));
+      fireEvent.click(screen.getByRole('button', { name: /OpenZeppelin/ }));
       fireEvent.click(continueButton());
       expect(onSubmit).toHaveBeenCalledWith({
         walletType: WalletType.Guardian,
@@ -429,11 +429,11 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
   it('keeps the preset grid behind a disclosure once a guardian is detected', () => {
     renderScreen({ probe: detected() });
 
-    expect(screen.queryByRole('button', { name: /Open-Zeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
 
     fireEvent.click(customToggleAfterDetection());
 
-    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(screen.getByTestId('guardian-input')).toBeInTheDocument();
   });
 
@@ -473,7 +473,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
     expect(screen.getByText('guardianNotDetected')).toBeInTheDocument();
     // Exactly today's screen underneath.
-    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
 
@@ -505,7 +505,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     renderScreen({ probe: { status: 'error', message: 'network down' } });
 
     expect(screen.getByTestId('guardian-not-detected')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Open-Zeppelin/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /OpenZeppelin/ })).toBeInTheDocument();
     expect(continueButton()).toBeEnabled();
   });
 

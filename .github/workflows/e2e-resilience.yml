@@ -1,0 +1,145 @@
+name: Infra Resilience E2E (Chrome)
+# Fault-injection suite: stands up the hermetic localnet stack and runs
+# playwright/e2e/tests/resilience, each spec arming a network/guardian fault
+# (harness/network-faults.ts) and asserting the wallet degrades / recovers
+# gracefully. The node + prover come from .github/actions/run-local-node and the
+# note-transport from run-note-transport.sh (both HOST processes on 0.16); only
+# the two guardians come from docker-compose.local.yml.
+#
+# Trigger: push to main (post-merge signal), manual dispatch, and a nightly cron.
+# This is NOT a required pre-merge PR gate (spec decision) — a full docker stack
+# per PR is too costly; it runs after merge and nightly to catch resilience
+# regressions over time.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Nightly at 05:00 UTC (after the stress suite's 04:00).
+    - cron: '0 5 * * *'
+concurrency:
+  group: e2e-resilience-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  resilience-chrome:
+    name: infra-resilience-e2e (chrome)
+    runs-on: ubuntu-latest
+    # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
+    # warm-cache runs are ~20m. The fault suite adds guardian bring-up + more
+    # specs, so 60m gives headroom over pr-e2e-local's 45m.
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: localhost
+      MIDEN_NTX_AUTH: e2e-ntx-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+      # Pinned exact (NOT @stable): a binary built with a newer rustc can reject
+      # the pinned older CLI/transport crates. Bump deliberately (and the cache
+      # key). Mirrors pr-e2e-local.yml.
+      - uses: dtolnay/rust-toolchain@1.96.1
+      # The cargo cache is SHARED by every E2E workflow and warmed on main
+      # (.github/workflows/warm-e2e-cargo-cache.yml), so this suite restores it
+      # instead of spending ~12 min rebuilding binaries that are byte-identical
+      # across jobs. Keyed on what actually determines those binaries — the rustc
+      # pin, the note-transport ref and the pinned miden-client-cli rev — NOT on
+      # all of package.json (which changes for unrelated reasons and used to bust
+      # the cache). Keep this step identical to pr-e2e-local.yml.
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli + note-transport)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: ${{ steps.cargo_cache_key.outputs.key }}
+      - run: yarn install --frozen-lockfile
+      - name: Pre-install miden-client-cli (off the per-test clock)
+        run: |
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
+            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+      - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
+        uses: ./.github/actions/run-local-node
+      - name: Wait for node RPC + prover
+        working-directory: playwright/e2e/local-stack
+        run: |
+          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          for _ in $(seq 1 90); do
+            probe 57291 && probe 50052 && echo "node(57291)+prover(50052) ready" && exit 0
+            sleep 2
+          done
+          echo "node RPC (57291) / prover (50052) not ready in time" >&2
+          docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -120
+          exit 1
+      - name: Bring up guardians (Tier-2 + Tier-3)
+        working-directory: playwright/e2e/local-stack
+        run: |
+          # Guardian resilience specs (17-19) need BOTH operators; the
+          # guardian-switch profile implies Tier-2, so this starts guardian (:3000)
+          # + guardian-b (:3001) and their postgres backends.
+          # Those three specs are currently quarantined on SDK 0.16
+          # (playwright.resilience.config.ts testIgnore, #522) — the bring-up stays
+          # so the suite is whole again the moment the quarantine is lifted.
+          docker compose --env-file versions.env -f docker-compose.local.yml \
+            --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
+      - name: Wait for guardians
+        working-directory: playwright/e2e/local-stack
+        run: |
+          probe() { timeout 2 bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" 2>/dev/null; }
+          for _ in $(seq 1 90); do
+            probe 3000 && probe 3001 && echo "guardian(3000)+guardian-b(3001) ready" && exit 0
+            sleep 2
+          done
+          echo "guardians (3000/3001) not ready in time" >&2
+          docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color guardian guardian-b | tail -120
+          exit 1
+      - name: Start note-transport
+        run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Build extension (localnet)
+        run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Run resilience specs
+        # No --retries override: use the config's retries=2. The resilience
+        # ASSERTIONS are deterministic (armed fault → a non-graceful regression
+        # fails on every attempt, so a retry can't mask it), but wallet-onboarding
+        # SETUP drives real proofs through the single serial prover and flakes
+        # under back-to-back load — the prover-timing flake pr-e2e-local absorbs
+        # with --retries=1. See the config comment. The "Report flaky" step below
+        # surfaces any retried-then-passed spec so a creeping flake stays visible
+        # instead of silent.
+        run: xvfb-run -a yarn test:e2e:resilience:run
+      - name: Report flaky (retried-then-passed) specs
+        if: always()
+        run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color | tail -400
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-resilience-report
+          path: test-results/
+          retention-days: 7
+      - name: Tear down
+        if: always()
+        working-directory: playwright/e2e/local-stack
+        run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian-switch down -v || true

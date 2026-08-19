@@ -16,7 +16,7 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 
@@ -31,9 +31,9 @@ export async function createB2AggNote(
   const asset = new FungibleAsset(AccountId.fromHex(getAgglayerFaucetId()), amount);
   // The callback flag is intrinsic to the issuing faucet's account id (not a per-asset value):
   // the real bridge faucet id encodes Enabled-callback assets; the plain CLI test faucet (E2E
-  // override) id encodes Disabled ones, which live in a different vault slot. Since
-  // getAgglayerFaucetId() already returns the override id under E2E, the asset carries the
-  // correct flag automatically — no explicit per-asset flag needed.
+  // override) id encodes Disabled ones. Since getAgglayerFaucetId() already returns the
+  // override id under E2E, the asset carries the correct flag automatically — no explicit
+  // per-asset flag needed.
   return Note.createB2AggNote(
     accountIdStringToSdk(senderAddress),
     AccountId.fromHex(MIDEN_BRIDGE_ID),
@@ -80,7 +80,17 @@ export async function initiateB2AggBridge(args: {
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.
-  const requestBytes = await withWasmClientLock(async () => {
+  //
+  // The faucet id is converted to bech32 in the same block, because the
+  // conversion needs the SDK loaded too. `getAgglayerFaucetId()` is a HEX
+  // account id (that is the form `AccountId.fromHex` above needs), but every
+  // other producer of a transaction row writes the BECH32 id and every consumer
+  // matches on it: `getTokenMetadata` looks the row's `faucetId` up in a cache
+  // keyed by the bech32 ids `fetchBalances` produces, and `matchesTokenId`
+  // compares it verbatim against the bech32 id of the token whose history is
+  // open. Storing hex here made the row render as "Unknown" with the 6-decimal
+  // metadata fallback and dropped it out of that token's history entirely.
+  const { requestBytes, faucetBech32 } = await withWasmClientLock(async () => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
     const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
     const serialisedReq = request.serialize();
@@ -92,7 +102,10 @@ export async function initiateB2AggBridge(args: {
       console.log('Basic deser ser failed', err);
       throw err;
     }
-    return serialisedReq;
+    return {
+      requestBytes: serialisedReq,
+      faucetBech32: getBech32AddressFromAccountId(AccountId.fromHex(getAgglayerFaucetId()))
+    };
   });
 
   // Delegate to the remote prover (mobile always delegates anyway) to avoid
@@ -100,7 +113,7 @@ export async function initiateB2AggBridge(args: {
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,
-    getAgglayerFaucetId(),
+    faucetBech32,
     destinationAddress,
     destinationNetwork,
     'agglayer',

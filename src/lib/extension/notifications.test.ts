@@ -120,7 +120,7 @@ describe('showExtensionNotification', () => {
     errSpy.mockRestore();
   });
 
-  it('Notification onclick opens the receive page and closes the notification', async () => {
+  it('Notification onclick opens the pending-notes page and closes the notification', async () => {
     FakeNotification.permission = 'granted';
     let createdNotif: FakeNotification | null = null;
     const OrigNotif = FakeNotification;
@@ -136,7 +136,9 @@ describe('showExtensionNotification', () => {
     expect(createdNotif).not.toBeNull();
     // Trigger the click handler
     createdNotif!.onclick!();
-    expect(mockTabsCreate).toHaveBeenCalledWith({ url: expect.stringContaining('fullpage.html') });
+    // A received-note notification should land on the incoming-notes list (claim
+    // actions), not the generic wallet QR/receive page (#467).
+    expect(mockTabsCreate).toHaveBeenCalledWith({ url: expect.stringContaining('fullpage.html#/pending-notes') });
     expect(createdNotif!.close).toHaveBeenCalled();
   });
 });

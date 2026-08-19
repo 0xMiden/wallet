@@ -1,7 +1,7 @@
 import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
-import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
@@ -134,7 +134,13 @@ export async function isDAppEnabled() {
   return bools.every(Boolean);
 }
 
-export function registerNewWallet(walletType: WalletType, password?: string, mnemonic?: string, ownMnemonic?: boolean) {
+export function registerNewWallet(
+  walletType: WalletType,
+  password?: string,
+  mnemonic?: string,
+  ownMnemonic?: boolean,
+  guardianEndpoint?: string
+) {
   console.log(
     '[Actions.registerNewWallet] Called with walletType:',
     walletType,
@@ -146,7 +152,7 @@ export function registerNewWallet(walletType: WalletType, password?: string, mne
   return withInited(async () => {
     console.log('[Actions.registerNewWallet] Starting...');
     try {
-      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic);
+      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
       console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
@@ -204,6 +210,16 @@ export function unlock(password?: string) {
       const currentAccount = await vault.getCurrentAccount();
       const ownMnemonic = await vault.isOwnMnemonic();
       unlocked({ vault, accounts, settings, currentAccount, ownMnemonic });
+      // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
+      // predate the field, by resolving their on-chain guardian commitment to a
+      // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
+      // unlike the local-only migrations above it makes external guardian HTTP,
+      // which must never gate the unlock UI transition. Best-effort +
+      // idempotent; resolveGuardianDrift and the next unlock reconcile anything
+      // left unresolved.
+      void vault
+        .backfillGuardianEndpoints()
+        .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
     })
   );
 }
@@ -261,7 +277,7 @@ export function revealGuardianKeys(accountPublicKey: string, password?: string) 
 
 export function revealPublicKey(_accPublicKey: string) {}
 
-// NOTE: account removal is not implemented (no-op since the aleo port). The
+// NOTE: account removal is not implemented (no-op). The
 // "Remove Account" UI therefore currently does nothing. When this is wired up,
 // it MUST, for Guardian accounts, release the hardware-backed hot key via
 // `secureHotKey.deleteHotKey(<hot ciphertext>)` and remove the cold-key blob
@@ -471,6 +487,17 @@ export function removeDAppSession(origin: string) {
  * `dappConfirmationStore` requests by it. Single-session callers
  * (extension popup, faucet-webview, native-notifications) omit the
  * argument and the legacy "default" slot is used.
+ *
+ * Enforces the Settings → "DApps Interaction" kill switch HERE, at the single
+ * point every transport funnels through, rather than at each entry point. The
+ * `MidenMessageType.PageRequest` arms in `back/main.ts` and
+ * `intercom/in-process-request-handler.ts` keep their own check because they
+ * additionally gate the PING availability probe (which never reaches this
+ * function); the mobile in-app browser and the desktop Tauri dApp window do NOT
+ * go through PageRequest at all — `handleWebViewMessage` calls this directly —
+ * so before this gate existed the toggle was inert on three of the four shipped
+ * platforms. Throwing (rather than returning void) surfaces to the dApp as a
+ * rejected request instead of a silent `null`.
  */
 export async function processDApp(
   origin: string,
@@ -478,6 +505,9 @@ export async function processDApp(
   sessionId?: string
 ): Promise<MidenDAppResponse | void> {
   dappDebug('[processDApp] Called with origin:', origin, 'sessionId:', sessionId, 'req type:', req?.type);
+  if (!(await isDAppEnabled())) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
   // This dumps the full request payload (addresses, amounts, note ids,
   // transaction payload). Gated behind DEBUG_DAPP_BRIDGE so release
   // builds don't leak transaction data to os_log / logcat.
@@ -502,22 +532,22 @@ export async function processDApp(
       return withInited(() => getDappQueue().add(() => requestConsumeTransaction(origin, req, sessionId)));
 
     case MidenDAppMessageType.PrivateNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestPrivateNotes(origin, req, sessionId)));
 
     case MidenDAppMessageType.SignRequest:
-      return withInited(() => getDappQueue().add(() => requestSign(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestSign(origin, req, sessionId)));
 
     case MidenDAppMessageType.AssetsRequest:
-      return withInited(() => getDappQueue().add(() => requestAssets(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestAssets(origin, req, sessionId)));
 
     case MidenDAppMessageType.GuardianInfoRequest:
       return withInited(() => getDappQueue().add(() => requestGuardianInfo(origin, req)));
 
     case MidenDAppMessageType.ImportPrivateNoteRequest:
-      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestImportPrivateNote(origin, req, sessionId)));
 
     case MidenDAppMessageType.ConsumableNotesRequest:
-      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req)));
+      return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req, sessionId)));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
       return withInited(() => waitForTransaction(req));

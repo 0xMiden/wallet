@@ -71,7 +71,8 @@ export async function waitForUsdcAbove(
   const deadline = Date.now() + timeoutMs;
   let last = from;
   for (;;) {
-    last = await usdcBalanceOf(client, address).catch(() => last);
+    const prev = last;
+    last = await usdcBalanceOf(client, address).catch(() => prev);
     if (last > from) return last;
     if (Date.now() > deadline) {
       throw new Error(

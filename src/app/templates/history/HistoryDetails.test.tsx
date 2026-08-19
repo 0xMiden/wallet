@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
 
@@ -68,6 +70,17 @@ jest.mock('lib/prices', () => ({
   getTokenPrice: () => ({ price: mockPrice })
 }));
 
+// The earn detail pages start their own Epoch pollers through a dynamic
+// `import('lib/epoch')`; stub it so the test never loads the real (ESM,
+// network-bound) intent SDK.
+const mockPollEarnWithdrawDelivery = jest.fn();
+const mockPollEarnIntentStatus = jest.fn();
+
+jest.mock('lib/epoch', () => ({
+  pollEarnWithdrawDelivery: (...args: unknown[]) => mockPollEarnWithdrawDelivery(...args),
+  pollEarnIntentStatus: (...args: unknown[]) => mockPollEarnIntentStatus(...args)
+}));
+
 // Deterministic formatter so amount assertions are exact (real formatAmount
 // pulls in lib/i18n/numbers + MIDEN_METADATA from lib/miden/front).
 jest.mock('lib/shared/format', () => ({
@@ -96,6 +109,28 @@ jest.mock('app/atoms/ActivitySpinner', () => ({
 jest.mock('app/layouts/PageLayout', () => ({
   __esModule: true,
   default: ({ children }: { children: React.ReactNode }) => <div data-testid="page-layout">{children}</div>
+}));
+
+jest.mock('components/GuardianTransitionHero', () => ({
+  GuardianTransitionHero: ({
+    previousEndpoint,
+    newEndpoint,
+    previousLabel,
+    newLabel
+  }: {
+    previousEndpoint?: string;
+    newEndpoint?: string;
+    previousLabel: string;
+    newLabel: string;
+  }) => (
+    <div
+      data-testid="guardian-transition-hero"
+      data-previous={previousEndpoint ?? 'unknown'}
+      data-new={newEndpoint ?? 'unknown'}
+      data-previous-label={previousLabel}
+      data-new-label={newLabel}
+    />
+  )
 }));
 
 jest.mock('components/ScreenHeader', () => ({
@@ -262,6 +297,56 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  describe('Guardian switch details', () => {
+    it('renders the From/To hero, status, generic details, and no wallet destination rows', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switched',
+        displayIcon: 'DEFAULT',
+        secondaryAccountId: 'misleading-wallet-address',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: {
+          previousGuardianEndpoint: 'https://old.example',
+          newGuardianEndpoint: 'https://new.example'
+        }
+      });
+      await renderAndLoad();
+
+      const hero = screen.getByTestId('guardian-transition-hero');
+      expect(hero).toHaveAttribute('data-previous', 'https://old.example');
+      expect(hero).toHaveAttribute('data-new', 'https://new.example');
+      expect(hero).toHaveAttribute('data-previous-label', 'from');
+      expect(hero).toHaveAttribute('data-new-label', 'to');
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+      expect(screen.queryByTestId('tx-icon')).toBeNull();
+      expect(screen.getByTestId('detail-card')).toHaveAttribute('data-title', 'details');
+      expect(rowByLabel('date')).toBeDefined();
+      expect(rowByLabel('txIdLabel')).toBeDefined();
+      expect(rowByLabel('from')).toBeUndefined();
+      expect(rowByLabel('to')).toBeUndefined();
+    });
+
+    it('keeps legacy metadata readable with an unknown source', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        transactionId: undefined,
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-previous', 'unknown');
+      expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new.example');
+      expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
+    });
+  });
+
   describe('loading & error states', () => {
     it('renders the spinner while the transaction is still loading', () => {
       // Never-resolving fetch keeps entry === null && no error → spinner branch.
@@ -360,9 +445,10 @@ describe('HistoryDetails', () => {
       expect(toChip.textContent).toBe('stranger');
     });
 
-    it('swaps from/to for a non-Sent message and hides optional rows when data is absent', async () => {
+    it('swaps from/to for an inbound transaction and hides optional rows when data is absent', async () => {
       mockGetTransactionById.mockResolvedValue({
         ...baseSendTx,
+        type: 'consume',
         displayMessage: 'Received',
         transactionId: undefined, // no external tx id row
         amount: 0n, // falsy → amount undefined → no amount span / no fiat
@@ -371,7 +457,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad();
 
-      // 'Received': from = secondaryAccountId (acct-B), to = accountId (acct-A).
+      // Inbound: from = secondaryAccountId (acct-B, the note sender), to = accountId (acct-A).
       expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
         'data-address',
         'acct-B'
@@ -382,6 +468,23 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('txIdLabel')).toBeUndefined();
       // No amount span (amount undefined) → fiat also absent.
       expect(screen.queryByText('historyDetailsFiatApprox_$2000.00')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['queued', 'Sending'],
+      ['cancelled', 'Failed']
+    ])('keeps From/To pointing outward on a %s send', async (_label, displayMessage) => {
+      // `cancelTransaction` overwrites `displayMessage` with 'Failed', and a send
+      // reads 'Sending' until it completes. Direction must come from the type, or
+      // both of those render "From: <recipient> / To: <your own account>".
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, displayMessage });
+      await renderAndLoad();
+
+      expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute(
+        'data-address',
+        'acct-A'
+      );
+      expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
     });
 
     it('hides the notes section entirely when there is no note data', async () => {
@@ -528,7 +631,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-status')).not.toBeInTheDocument();
     });
 
-    it('shows a polling indicator while refreshing an active order', async () => {
+    it('shows a steady tracking indicator while the order is active', async () => {
       let resolveRefresh!: (tracking: {
         orderId: string;
         state: string;
@@ -554,13 +657,15 @@ describe('HistoryDetails', () => {
       );
       await renderAndLoad();
 
-      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+      // The order is active, so the tracking indicator shows steadily — not only
+      // while a poll is momentarily in flight (that per-poll flicker was #486).
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
+      expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
+      // It stays put across the next background poll rather than blinking off/on.
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
-
-      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusActive');
       expect(screen.getByTestId('swap-order-polling')).toHaveTextContent('loading');
 
       await act(async () => {
@@ -576,6 +681,73 @@ describe('HistoryDetails', () => {
 
       expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
       expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+    });
+
+    it('reconciles to Filled once settlement notes are seen locally, even if the lineage still reports active (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      // The on-chain lineage lags — it keeps reporting the order as still active...
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '10',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // ...but this wallet has already observed the settlement consume note.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-x'], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      // Local settlement is the source of truth: show Filled and drop the spinner
+      // instead of sitting on "Active" with a flickering loader.
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
+    it('reconciles to Reclaimed when the local settlement is a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '11',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusReclaimed');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
+    });
+
+    it('treats a mixed settle+reclaim order as Filled — a settle consume outranks a reclaim (#486)', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '12',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 700n
+      });
+      // Paybacks settled in one consume tick, the tip reclaimed in another — both
+      // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
+      // so this row must agree rather than showing "Reclaimed".
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-s'], reclaimed: ['note-r'] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.queryByTestId('swap-order-polling')).not.toBeInTheDocument();
     });
 
     it('backs off on unresolved polls and gives up after the cap', async () => {
@@ -734,7 +906,7 @@ describe('HistoryDetails', () => {
       status: STATUS_FAILED,
       displayMessage: 'Failed',
       displayIcon: 'FAILED',
-      error: 'Remote prover failed — this is most often caused by a timeout. Please try again.',
+      error: REMOTE_PROVER_FAILED_ERROR,
       rawError: 'Error: fetch timeout after 30000ms',
       ...overrides
     });
@@ -747,7 +919,7 @@ describe('HistoryDetails', () => {
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
-      expect(errorCard.textContent).toContain('Remote prover failed');
+      expect(errorCard.textContent).toContain(REMOTE_PROVER_FAILED_ERROR);
 
       // Raw error hidden until the disclosure is toggled.
       expect(errorCard.textContent).not.toContain('fetch timeout');
@@ -877,6 +1049,20 @@ describe('HistoryDetails', () => {
       }
     };
 
+    // A bridge row created before the amount/quote were stamped still has to
+    // render a hero rather than blanking out.
+    it('falls back to an em dash on both sides when no amount is known', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...bridgedSendTx,
+        amount: undefined,
+        extraInputs: { provider: 'epoch', destinationAddress: '0xdest', claimStatus: 'not-applicable' }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+
+      // Both the "in" amount and the (absent) "out" amount collapse to the dash.
+      expect(document.body.textContent?.match(/—/g)?.length).toBeGreaterThanOrEqual(2);
+    });
+
     it('shows the claim section and bridge status pill for an outbound bridge', async () => {
       mockGetTransactionById.mockResolvedValue(bridgedSendTx);
       await renderAndLoad({ transactionId: 'bridge-out' });
@@ -965,6 +1151,8 @@ describe('HistoryDetails earn-withdraw', () => {
   beforeEach(() => {
     mockRetryEarnWithdrawReceive.mockClear();
     mockRetryEarnWithdrawReceive.mockResolvedValue(undefined);
+    mockPollEarnWithdrawDelivery.mockClear();
+    mockPollEarnWithdrawDelivery.mockResolvedValue(undefined);
   });
 
   it('shows the redeemed source side while the withdrawal is still in flight', async () => {
@@ -1029,5 +1217,243 @@ describe('HistoryDetails earn-withdraw', () => {
     await flush();
 
     expect(screen.getByText('epoch is down')).toBeInTheDocument();
+  });
+
+  it('renders the full withdraw detail card once the intent, settlement tx and note are known', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx(
+        {
+          phase: 'delivering',
+          withdrawIntentNonce: 'NONCE-1',
+          evmTxHash: '0xfeed',
+          midenNoteId: 'note-delivered'
+        },
+        // No Miden tx id, so `txIdLabel` unambiguously belongs to the Sepolia row.
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    // Market shows only the protocol segment of the `PROTOCOL:chainId:token` uid.
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('positionOwnerLabel')?.textContent).toContain('0x1111111111111111111111111111111111111111');
+    expect(rowByLabel('redeemIntentLabel')?.textContent).toContain('NONCE-1');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/tx/0xfeed'
+    );
+    expect(rowByLabel('note')?.textContent).toContain('note-delivered');
+  });
+
+  it('falls back to the raw market uid when it has no protocol segment', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'redeeming', marketUid: ':11155111:0xabc' }));
+    await renderAndLoad();
+
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe(':11155111:0xabc');
+  });
+
+  it('shows the note row as pending until the bridged note lands', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'redeeming' }));
+    await renderAndLoad();
+
+    expect(rowByLabel('note')?.textContent).toBe('pending');
+    expect(rowByLabel('redeemIntentLabel')).toBeUndefined();
+  });
+
+  // The initiating context's poller dies with its popup, so an in-flight detail
+  // page restarts one — exactly once per nonce — and reloads the row on a timer.
+  it('restarts the delivery poller once per nonce and reloads the row on the interval', async () => {
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering', withdrawIntentNonce: 'NONCE-1' }));
+    await renderAndLoad();
+
+    expect(mockPollEarnWithdrawDelivery).toHaveBeenCalledWith({
+      sponsorAddress: '0x1111111111111111111111111111111111111111',
+      nonce: 'NONCE-1',
+      txId: 'tx-1'
+    });
+
+    const loadsAfterMount = mockGetTransactionById.mock.calls.length;
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    await flush();
+
+    expect(mockGetTransactionById.mock.calls.length).toBeGreaterThan(loadsAfterMount);
+    // Still one poller — the nonce ref suppresses a restart on every reload.
+    expect(mockPollEarnWithdrawDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a poller for a non-EVM owner', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx({ phase: 'delivering', withdrawIntentNonce: 'NONCE-1', evmOwner: 'not-an-address' })
+    );
+    await renderAndLoad();
+
+    expect(mockPollEarnWithdrawDelivery).not.toHaveBeenCalled();
+  });
+
+  it('does not poll once the withdrawal is delivered', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      earnWithdrawTx({ phase: 'received', withdrawIntentNonce: 'NONCE-1' }, { amount: 999n })
+    );
+    await renderAndLoad();
+
+    expect(mockPollEarnWithdrawDelivery).not.toHaveBeenCalled();
+  });
+
+  it('reports a poller that fails to start without breaking the page', async () => {
+    mockPollEarnWithdrawDelivery.mockRejectedValue(new Error('poller down'));
+    mockGetTransactionById.mockResolvedValue(earnWithdrawTx({ phase: 'delivering', withdrawIntentNonce: 'NONCE-1' }));
+    await renderAndLoad();
+
+    expect(console.warn).toHaveBeenCalledWith('[earn-withdraw] detail-page poll start failed', expect.any(Error));
+    expect(rowByLabel('earnMarketLabel')).toBeDefined();
+  });
+});
+
+// Smart Deposit detail: the row goes database-Completed as soon as the Miden
+// collateral note lands, so the pill and the poller both track the separate,
+// solver-fulfilled lending leg (`extraInputs.epochStatus`) instead.
+describe('HistoryDetails earn-deposit', () => {
+  const earnDepositTx = (extraInputs: Record<string, unknown> = {}, overrides: Tx = {}): Tx => ({
+    ...baseSendTx,
+    id: 'tx-1',
+    type: 'earn-deposit',
+    faucetId: 'faucet-1',
+    displayMessage: 'Depositing',
+    displayIcon: 'DEFAULT',
+    status: STATUS_COMPLETED,
+    extraInputs: {
+      evmRecipient: '0x2222222222222222222222222222222222222222',
+      marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
+      sourceFaucetId: 'faucet-1',
+      ...extraInputs
+    },
+    ...overrides
+  });
+
+  beforeEach(() => {
+    mockPollEarnIntentStatus.mockClear();
+    mockPollEarnIntentStatus.mockResolvedValue(undefined);
+  });
+
+  it('renders the deposit detail card with the intent nonce and Sepolia settlement tx', async () => {
+    mockGetTransactionById.mockResolvedValue(
+      // No Miden tx id, so `txIdLabel` unambiguously belongs to the Sepolia row.
+      earnDepositTx(
+        { intentNonce: 'DEP-1', evmTxHash: '0xbeef', epochStatus: 'confirmed' },
+        { transactionId: undefined }
+      )
+    );
+    await renderAndLoad();
+
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe('DUMMY_LENDING');
+    expect(rowByLabel('positionOwnerLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/address/0x2222222222222222222222222222222222222222'
+    );
+    expect(rowByLabel('depositIntentLabel')?.textContent).toContain('DEP-1');
+    expect(rowByLabel('txIdLabel')?.querySelector('a')).toHaveAttribute(
+      'href',
+      'https://sepolia.etherscan.io/tx/0xbeef'
+    );
+  });
+
+  it.each([
+    ['while depositing', 'Depositing', 1],
+    ['once deposited', 'Deposited to lending', STATUS_COMPLETED],
+    ['after a failure', 'Failed', 3]
+  ])('points From/To outward %s', async (_label, displayMessage, status) => {
+    // The collateral leaves the user's account (`accountId`) for the Epoch
+    // allocator (`secondaryAccountId` = sendParams.recipientId). None of the
+    // deposit's display messages is ever 'Sent', so a direction rule keyed on
+    // `txType === 'send' || message === 'Sent'` rendered this exactly backwards.
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({}, { displayMessage, status }));
+    await renderAndLoad();
+
+    expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-A');
+    expect(rowByLabel('to')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-address', 'acct-B');
+  });
+
+  it('falls back to the raw market uid when it has no protocol segment', async () => {
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({ marketUid: ':11155111:0xabc' }));
+    await renderAndLoad();
+
+    expect(rowByLabel('earnMarketLabel')?.textContent).toBe(':11155111:0xabc');
+  });
+
+  it('omits the intent and settlement rows before the lending leg reports them', async () => {
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({}, { transactionId: undefined }));
+    await renderAndLoad();
+
+    expect(rowByLabel('depositIntentLabel')).toBeUndefined();
+    expect(rowByLabel('txIdLabel')).toBeUndefined();
+    // Position owner is then the card's last row.
+    expect(rowByLabel('positionOwnerLabel')).toHaveAttribute('data-islast', 'true');
+  });
+
+  // The generic StatusPill would read "Completed" the moment the Miden note
+  // lands, which is misleading while the lending leg is still unsettled.
+  it.each([
+    ['pending', undefined],
+    ['pending', 'pending'],
+    ['confirmed', 'confirmed'],
+    ['failed', 'failed']
+  ])('shows the lending-leg pill as %s', async (label, epochStatus) => {
+    mockGetTransactionById.mockResolvedValue(earnDepositTx(epochStatus ? { epochStatus } : {}));
+    await renderAndLoad();
+
+    expect(screen.queryByTestId('status-pill')).toBeNull();
+    expect(document.body.textContent).toContain(label);
+  });
+
+  it('falls back to the Miden status pill until the collateral note lands', async () => {
+    // Status 1 === GeneratingTransaction: the deposit hasn't reached Miden yet.
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({ epochStatus: 'pending' }, { status: 1 }));
+    await renderAndLoad();
+
+    expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', '1');
+  });
+
+  it('restarts the lending-leg poller once per nonce and reloads the row on the interval', async () => {
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({ intentNonce: 'DEP-1' }));
+    await renderAndLoad();
+
+    expect(mockPollEarnIntentStatus).toHaveBeenCalledWith({
+      sponsorAddress: '0x2222222222222222222222222222222222222222',
+      nonce: 'DEP-1',
+      txId: 'tx-1'
+    });
+
+    const loadsAfterMount = mockGetTransactionById.mock.calls.length;
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    await flush();
+
+    expect(mockGetTransactionById.mock.calls.length).toBeGreaterThan(loadsAfterMount);
+    expect(mockPollEarnIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['the lending leg already settled', { intentNonce: 'DEP-1', epochStatus: 'confirmed' }, {}],
+    ['the lending leg already failed', { intentNonce: 'DEP-1', epochStatus: 'failed' }, {}],
+    ['no intent nonce was recorded', {}, {}],
+    ['the recipient is not an EVM address', { intentNonce: 'DEP-1', evmRecipient: 'nope' }, {}],
+    ['the Miden note has not landed', { intentNonce: 'DEP-1' }, { status: 1 }]
+  ])('does not poll when %s', async (_label, extraInputs, overrides) => {
+    mockGetTransactionById.mockResolvedValue(earnDepositTx(extraInputs, overrides));
+    await renderAndLoad();
+
+    expect(mockPollEarnIntentStatus).not.toHaveBeenCalled();
+  });
+
+  it('reports a poller that fails to start without breaking the page', async () => {
+    mockPollEarnIntentStatus.mockRejectedValue(new Error('poller down'));
+    mockGetTransactionById.mockResolvedValue(earnDepositTx({ intentNonce: 'DEP-1' }));
+    await renderAndLoad();
+
+    expect(console.warn).toHaveBeenCalledWith('[earn-deposit] detail-page poll start failed', expect.any(Error));
+    expect(rowByLabel('earnMarketLabel')).toBeDefined();
   });
 });

@@ -9,7 +9,9 @@ import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
+import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
   getSwapSettlementNotes,
@@ -31,7 +33,9 @@ import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
-  ITransactionStatus
+  ITransactionStatus,
+  ITransactionType,
+  ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -89,6 +93,19 @@ interface RequestedTokenInfo {
   decimals?: number;
   symbol?: string;
 }
+
+/**
+ * Transaction types that move value OUT of the wallet's own account, i.e. whose
+ * Transfer Details read "From: this account / To: `secondaryAccountId`".
+ *
+ *  - `send` — `secondaryAccountId` is the recipient.
+ *  - `earn-deposit` — `secondaryAccountId` is the Epoch allocator the P2IDE
+ *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
+ *  - `bridged-send` — normally short-circuited by `isBridgeOut` (which hides the
+ *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
+ *    bridge falls through to this rule and is still outbound.
+ */
+const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
@@ -177,7 +194,8 @@ function formatDisplayAmount(amount: string | number | bigint): string {
     return amountString;
   }
 
-  return displayAmount.decimalPlaces(DISPLAY_DECIMAL_PLACES, BigNumber.ROUND_DOWN).toFixed();
+  const decimalPlaces = getAdaptiveDecimalPlaces(displayAmount, DISPLAY_DECIMAL_PLACES);
+  return displayAmount.decimalPlaces(decimalPlaces, BigNumber.ROUND_DOWN).toFixed();
 }
 
 function formatFiatDisplayAmount(
@@ -195,7 +213,7 @@ function formatFiatDisplayAmount(
   const { price } = getTokenPrice(tokenPrices, tokenSymbol);
   const fiatAmount = displayAmount.abs().times(price);
 
-  return t('historyDetailsFiatApprox', { amount: `$${fiatAmount.toFixed(2)}` });
+  return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
 /** Right-aligned stack of trimmed, copyable note ids. */
@@ -287,6 +305,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
       const earnDepositExtra: IEarnDepositExtraInputs | undefined =
         tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+      const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
+        tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
       // Source side (USDC) while in flight, destination side once the bridged
       // note was consumed — identical rule to the activity row.
       const earnWithdrawFields = earnWithdrawExtra
@@ -308,6 +328,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         earnWithdrawPhase: earnWithdrawExtra?.phase,
         earnDepositStatus: earnDepositExtra?.epochStatus,
         secondaryAddress: tx.secondaryAccountId,
+        // Read by the Retry gate's double-send guard: its ABSENCE proves the row
+        // never left the queue, so its failure is unambiguously pre-submit.
+        processingStartedAt: tx.processingStartedAt,
         txId: tx.id,
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
@@ -315,6 +338,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
         txType: tx.type,
+        previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
+        newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
         errorMessage: tx.error,
         rawErrorMessage: tx.rawError,
         isCancelled: isUserCancelledTransaction(tx.error),
@@ -620,6 +645,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     }
   };
 
+  // Reconcile the (potentially lagging) on-chain order lineage with settlement
+  // this wallet has already observed: once the settlement/reclaim consume notes
+  // are seen locally, the order is terminal regardless of what the lineage poll
+  // still reports. Otherwise the status sits on "Active" with a per-poll
+  // flickering spinner after the swap has actually settled (#486).
+  // A settle consume outranks a reclaim one — funds were received — matching
+  // `repairSettlementStamp`'s precedence so this row agrees with the swap-row
+  // chip when an order carries both kinds (e.g. paybacks settled one tick, tip
+  // reclaimed another).
+  const settledOrderState: SwapOrderState | null = settlementFound
+    ? settlementNotes && settlementNotes.settled.length > 0
+      ? 'filled'
+      : 'reclaimed'
+    : null;
+  const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
+  const orderStillResolving = displayOrderState === 'active';
+
   // How much of the requested amount has been filled so far, derived from the
   // original requested amount and the lineage's still-outstanding remainder.
   const filledRequested =
@@ -637,20 +679,42 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
+  const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // Which way the money moved is a property of the transaction TYPE, not of its
+  // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
+  // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
+  // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
+  // message therefore reversed From/To on every send that had not completed — a
+  // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
+  //
+  // Every outbound type has to be listed here, not just `send`. An `earn-deposit`
+  // moves collateral OUT of the account and into the Epoch allocator
+  // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
+  // 'Depositing' / 'Deposited to lending' — never 'Sent' — so keying only on `send`
+  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
+  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
+  // stays hidden) and lands here too, still outbound. The message check is kept as a
+  // fallback for rows persisted before `txType` existed.
+  const isOutboundTransfer =
+    (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isBridgeIn
+    : isGuardianSwitch
       ? undefined
-      : entry?.message === 'Sent'
-        ? entry?.address
-        : entry?.secondaryAddress;
+      : isBridgeIn
+        ? undefined
+        : isOutboundTransfer
+          ? entry?.address
+          : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isBridgeIn
-      ? entry?.address
-      : entry?.message === 'Sent'
-        ? entry?.secondaryAddress
-        : entry?.address;
+    : isGuardianSwitch
+      ? undefined
+      : isBridgeIn
+        ? entry?.address
+        : isOutboundTransfer
+          ? entry?.secondaryAddress
+          : entry?.address;
   const settledNoteIds = settlementNotes?.settled ?? [];
   const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
   const hasNoteData =
@@ -689,7 +753,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     !entry.isCancelled &&
     (entry.txType === 'earn-withdraw'
       ? earnWithdraw?.phase === 'failed'
-      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
+      : isRequeueableTransaction({
+          status: entry.status,
+          type: entry.txType,
+          // Epoch (Fast) bridged sends are not replayable — their Epoch intent is
+          // already gone, so a requeue would mint a second orphan collateral note.
+          bridgeProvider: entry.bridgeProvider,
+          // Feed the double-send guard: a send/swap that left the queue but has
+          // no captured transaction id to ask the node about is not safely
+          // replayable — its submit may already have landed.
+          transactionId: entry.externalTxId,
+          processingStartedAt: entry.processingStartedAt
+        }));
 
   return (
     <PageLayout hideToolbar>
@@ -708,22 +783,33 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <ActivitySpinner />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">
-            {/* Top Section — a bridge reads "IN → OUT" across the two chains. */}
+            {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
-              <TransactionIcon entry={entry} size="lg" />
-              {historySummaryBadgeContent ? (
-                <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
-              ) : isBridge ? (
-                <BridgeHeroAmounts entry={entry} />
+              {isGuardianSwitch ? (
+                <GuardianTransitionHero
+                  previousEndpoint={entry.previousGuardianEndpoint}
+                  newEndpoint={entry.newGuardianEndpoint}
+                  previousLabel={t('from')}
+                  newLabel={t('to')}
+                />
               ) : (
-                <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-                  {entry.amount !== undefined && (
-                    <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                <>
+                  <TransactionIcon entry={entry} size="lg" />
+                  {historySummaryBadgeContent ? (
+                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
+                  ) : isBridge ? (
+                    <BridgeHeroAmounts entry={entry} />
+                  ) : (
+                    <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
+                      {entry.amount !== undefined && (
+                        <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                      )}
+                      {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                    </div>
                   )}
-                  {entry.token && <span className="text-text-muted">{entry.token}</span>}
-                </div>
+                  {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
+                </>
               )}
-              {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
               <div className="mt-2">
                 {isBridge ? (
                   <BridgeStatusPill entry={entry} />
@@ -734,7 +820,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   // lending leg instead of the (long-settled) Miden tx status.
                   <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} />
+                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}
               </div>
             </div>
@@ -743,7 +829,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailCard title={t('transferDetails')}>
+                <DetailCard title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>
                     <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
                   </DetailRow>
@@ -766,7 +852,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {entry.externalTxId && (
-                    <DetailRow label={t('txIdLabel')}>
+                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
                       <ExternalLinkValue
                         displayValue={
                           <HashChip
@@ -782,6 +868,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
+                  {isGuardianSwitch && !entry.externalTxId && entry.txId && (
+                    <DetailRow label={t('txIdLabel')} isLast>
+                      <HashChip hash={entry.txId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
+                    </DetailRow>
+                  )}
+
                   {fromAddress && (
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
@@ -794,7 +886,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {toAddress && (
-                    <DetailRow label={t('to')} isLast>
+                    <DetailRow label={t('to')} isLast testId="history-detail-to">
                       <ExternalLinkValue
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
@@ -954,6 +1046,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   <div className="mt-5">
                     <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
                       <p
+                        data-testid="history-failure-reason"
                         className={clsx(
                           'px-4 py-3 text-sm font-medium wrap-break-word select-text',
                           entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
@@ -1046,12 +1139,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-5">
                   <DetailCard title={t('orderTracking')}>
                     <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                      {swapTracking ? (
+                      {displayOrderState ? (
                         <div className="flex items-center gap-2">
                           <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                            {orderStatusLabel(swapTracking.state)}
+                            {orderStatusLabel(displayOrderState)}
                           </span>
-                          {trackingLoading && (
+                          {orderStillResolving && (
                             <span
                               data-testid="swap-order-polling"
                               className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
@@ -1129,6 +1222,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="shrink-0 pt-3 pb-4">
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
             <Button
+              data-testid="history-cancel-button"
               variant={ButtonVariant.Primary}
               title={t('cancel')}
               isLoading={isCancelling}

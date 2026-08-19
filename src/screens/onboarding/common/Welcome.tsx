@@ -58,9 +58,15 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           </p>
         </div>
         <div className={clsx('w-full flex flex-col items-center gap-3 pb-6 shrink-0', isMobile() ? 'pt-8' : 'pt-6')}>
-          <Button tabIndex={0} title={t('getStarted')} onClick={() => onSubmit?.('select-wallet-type')} />
+          <Button
+            tabIndex={0}
+            data-testid="onboarding-get-started"
+            title={t('getStarted')}
+            onClick={() => onSubmit?.('select-wallet-type')}
+          />
           <button
             id="import-link"
+            data-testid="onboarding-recover-account"
             type="button"
             className="flex items-center justify-center gap-1 py-3 text-sm font-medium text-text-tertiary-token"
             onClick={() => {

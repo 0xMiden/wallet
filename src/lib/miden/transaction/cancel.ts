@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
+import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
 import {
@@ -16,8 +17,10 @@ import {
 } from './constants';
 import { getTransactionsInProgress } from './get';
 import { updateTransactionStatus } from './helper';
+import { notifyBackgroundTransactionFailed } from '../back/background-notification';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -57,6 +60,18 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
   });
+
+  // Gap 6: a transaction that terminally failed while the user wasn't watching
+  // used to be silent — the row went to Failed and nothing told them. Notify,
+  // but NEVER for a user-initiated cancel or a startup/teardown interruption
+  // (those aren't failures the user needs alerting to). The notifier itself
+  // no-ops off the extension and when a wallet popup is already open, so this is
+  // a safe unconditional call for a genuine failure.
+  const isGenuineFailure =
+    error !== USER_CANCELLED_TRANSACTION_REASON &&
+    error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
+    error !== TRANSACTION_INTERRUPTED_ERROR;
+  if (isGenuineFailure) notifyBackgroundTransactionFailed();
 };
 
 export const cancelTransactionById = async (id: string, error: any) => {
@@ -65,16 +80,51 @@ export const cancelTransactionById = async (id: string, error: any) => {
 };
 
 /**
+ * Seconds the app spent backgrounded since `processingStartedAt` that must NOT
+ * count as processing time. On mobile the WebView main thread is frozen while
+ * backgrounded, so frozen time is not real processing time (issue #473).
+ * Desktop keeps running in background tabs, so there is nothing to discount —
+ * the single `isMobile()` guard for the whole feature lives here.
+ */
+const hiddenSecondsForTx = (processingStartedAt: number): number =>
+  isMobile() ? hiddenSecondsSince(processingStartedAt) : 0;
+
+/**
+ * Whole seconds a transaction has spent ACTIVELY processing since
+ * `processingStartedAt`, i.e. wall-clock elapsed minus backgrounded time.
+ */
+const activeProcessingSeconds = (processingStartedAt: number, nowSeconds: number): number =>
+  nowSeconds - processingStartedAt - hiddenSecondsForTx(processingStartedAt);
+
+/**
+ * Pure stuck-decision: a tx is stuck if it never started processing (crashed
+ * mid-transition → `processingStartedAt` undefined) or its ACTIVE (foreground)
+ * processing time has exceeded `maxWaitSeconds`. `hiddenSeconds` is the
+ * backgrounded time to discount (0 on desktop).
+ */
+export function isTransactionStuck(
+  processingStartedAt: number | undefined,
+  nowSeconds: number,
+  hiddenSeconds: number,
+  maxWaitSeconds: number
+): boolean {
+  // Crashed before processing started — processingStartedAt is set atomically
+  // with the status change, so undefined means the app crashed mid-transition.
+  if (!processingStartedAt) return true;
+  const activeElapsed = nowSeconds - processingStartedAt - hiddenSeconds;
+  return activeElapsed > maxWaitSeconds;
+}
+
+/**
  * Cancel all of the transactions (& their transitions) that are taking too long to process
  */
 export const cancelStuckTransactions = async () => {
   const transactions = await getTransactionsInProgress();
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const cancelTransactionUpdates = transactions
     .filter(tx => {
-      // Crashed before processing started — processingStartedAt is set atomically
-      // with the status change, so undefined means the app crashed mid-transition
-      if (!tx.processingStartedAt) return true;
-      return Math.floor(Date.now() / 1000) - tx.processingStartedAt > MAX_WAIT_BEFORE_CANCEL;
+      const hidden = tx.processingStartedAt ? hiddenSecondsForTx(tx.processingStartedAt) : 0;
+      return isTransactionStuck(tx.processingStartedAt, nowSeconds, hidden, MAX_WAIT_BEFORE_CANCEL);
     })
     .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
 
@@ -133,27 +183,227 @@ export const forceCaneclAllInProgressTransactions = async () => {
 };
 
 /**
- * InputNoteState values that indicate a note has been consumed
+ * InputNoteState values that indicate a note was consumed by THIS client's own
+ * tracked transaction — provably "my consume landed": the local consuming tx is
+ * recorded in the store, so the nullifier on chain is unambiguously ours.
+ *
+ * Deliberately EXCLUDES `ConsumedExternal`: there the nullifier is on chain but
+ * the consuming tx was NOT submitted by this client, so it is NOT provably mine
+ * (a reclaimable P2IDE the sender reclaimed lands in exactly that state). A killed
+ * consume must never be shown as 'Received' on an external-consumed note, or the
+ * user would be told they received funds a third party actually took.
  */
-const CONSUMED_NOTE_STATES = [
+const LOCAL_CONSUMED_NOTE_STATES = [
   InputNoteState.ConsumedAuthenticatedLocal,
-  InputNoteState.ConsumedUnauthenticatedLocal,
-  InputNoteState.ConsumedExternal
+  InputNoteState.ConsumedUnauthenticatedLocal
 ];
+
+/**
+ * The two states miden-client writes in `apply_transaction`, i.e. AFTER a
+ * consuming transaction of ours was submitted and applied locally but before its
+ * block is committed. They mean the OPPOSITE of "not consumed", so they must
+ * never reach the `'not-landed'` catch-all — a caller that terminal-fails on
+ * `'not-landed'` would fail a claim whose submit already reached the node.
+ */
+const PROCESSING_NOTE_STATES = [InputNoteState.ProcessingAuthenticated, InputNoteState.ProcessingUnauthenticated];
 
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
 const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
 
 /**
+ * The verdict of a node-authoritative check of whether a consume's input note
+ * landed on chain as consumed:
+ *   - `'landed-local'`    the note is in a LOCAL consumed state
+ *                         (`ConsumedAuthenticatedLocal` / `ConsumedUnauthenticatedLocal`) —
+ *                         provably consumed by THIS client's own tracked tx. The
+ *                         ONLY verdict on which a killed consume may be marked
+ *                         Completed / 'Received' (funds-visibility safe).
+ *   - `'landed-external'` the note is `ConsumedExternal` — its nullifier is on
+ *                         chain but the consuming tx was NOT submitted by this
+ *                         client, so it is consumed by *someone* yet NOT provably
+ *                         mine (a reclaimable P2IDE could have been reclaimed by
+ *                         its sender). Ambiguous for funds-visibility.
+ *   - `'invalid'`         the note is `Invalid` (e.g. nullifier reused / never
+ *                         committed) — the consume can never land; fail fast.
+ *   - `'processing'`      the note is `ProcessingAuthenticated` /
+ *                         `ProcessingUnauthenticated` — a consuming transaction of
+ *                         OURS was submitted and applied locally, and its block is
+ *                         not committed yet. In flight, not failed: within a few
+ *                         blocks it becomes a consumed state or reverts to
+ *                         `Committed`, so the caller must leave the row alone and
+ *                         re-ask, never terminal-fail it.
+ *   - `'not-landed'`      the note still exists and is not consumed or in flight
+ *                         (Committed / Expected / Unverified) — the consume did
+ *                         NOT land.
+ *   - `'unknown'`         no note row for the id, or the node query errored —
+ *                         indeterminate (never treated as landed).
+ */
+export type ConsumeLandedVerdict =
+  | 'landed-local'
+  | 'landed-external'
+  | 'invalid'
+  | 'processing'
+  | 'not-landed'
+  | 'unknown';
+
+/**
+ * Node-authoritative check of whether a consume's input note landed on chain.
+ *
+ * A consume's input `noteId` is known BEFORE the write executes (it is stamped on
+ * the tx row), and the note's on-chain consumed-state is the source of truth for
+ * whether the consume actually landed — so this stays authoritative even when a
+ * local `TransactionResult` was lost (e.g. an offscreen write deadline-killed with
+ * `OperationAbortedError`, issue #260 follow-up #3a).
+ *
+ * When `sync` is true, best-effort syncs first so the note state reflects the
+ * latest chain head (a sync failure falls back to the last-synced state, which is
+ * still authoritative for a consumed note — a consumed note never reverts). The
+ * immediate killed-consume path passes `true` because it resolves ONE tx and wants
+ * the freshest state before deciding; the background reaper passes `false` because
+ * it runs alongside AutoSync and must NOT fire one sync per stuck consume (that
+ * would be N syncs/cycle where the pre-#3a reaper did 0).
+ *
+ * Maps the node-backed note state to a {@link ConsumeLandedVerdict}. FUNDS-SAFETY:
+ * only a LOCAL consumed state (provably this client's own tracked consume) yields
+ * `'landed-local'`, the sole verdict a caller may treat as "my consume landed" and
+ * surface as Completed / 'Received'. `ConsumedExternal` is reported separately as
+ * `'landed-external'` (consumed, but not provably mine) so the caller decides; no
+ * caller marks it Received — neither the killed-consume path nor the stuck-consume
+ * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
+ * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
+ */
+export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
+  try {
+    if (sync) {
+      // Best-effort fresh sync so the note state reflects the latest chain head. A
+      // sync failure must not block the check: the last-synced state is still
+      // authoritative for a consumed note (it cannot un-consume), and for a
+      // not-yet-consumed note it can only under-report "landed" → a safe Fail.
+      try {
+        await withWasmClientLock(async () => midenClientProxy.syncState());
+      } catch (syncError) {
+        console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
+      }
+    }
+
+    const noteDetails = await withWasmClientLock(async () =>
+      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
+    );
+    const note = noteDetails[0];
+    if (!note) return 'unknown';
+    if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
+    if (note.state === InputNoteState.ConsumedExternal) return 'landed-external';
+    if (note.state === InputNoteState.Invalid) return 'invalid';
+    // Checked BEFORE the catch-all: a Processing* note is mid-flight, not unspent.
+    if (PROCESSING_NOTE_STATES.includes(note.state)) return 'processing';
+    return 'not-landed';
+  } catch (error) {
+    console.error('[verifyConsumeLanded] error checking note state for tx', tx.id, error);
+    return 'unknown';
+  }
+};
+
+/**
+ * The verdict of a node-authoritative check of whether a send/swap/execute
+ * already landed on chain:
+ *   - `'landed'`  the tx's captured `transactionId` is committed OR pending
+ *                 (submitted) on the node — its effect already happened, so a
+ *                 Retry must NOT resubmit it (that would be a double-send).
+ *   - `'unknown'` no captured `transactionId`, or the node/client has no record
+ *                 of it — INDETERMINATE. We cannot prove it landed, so the caller
+ *                 keeps the funds-safe default (surface it, don't auto-complete).
+ */
+export type SendLandedVerdict = 'landed' | 'unknown';
+
+/**
+ * Node-authoritative idempotency check for the value-moving, output-producing
+ * types (send / swap / bridged-send / execute), so a manual Retry never
+ * resubmits a transaction whose original submit actually landed (double-send —
+ * a real fund-loss). Keyed on the tx row's captured `transactionId` (stamped by
+ * the completion path). A committed OR pending record → `'landed'` (the tx is on
+ * chain or in the mempool; resending would duplicate it). No id, or an id the
+ * client has no record of, → `'unknown'` (never treated as landed, but also
+ * never proven not-landed — the caller must not silently complete it).
+ *
+ * Mirrors {@link verifyConsumeLanded} (which checks the INPUT note's consumed
+ * state) but for the OUTPUT side, via the tx id. Best-effort syncs first for the
+ * freshest node state; a sync failure falls back to the last-synced record.
+ *
+ * COVERAGE LIMIT — read before relying on this as the only double-send guard.
+ * `ITransaction.transactionId` is written ONLY by the completion handlers in
+ * `complete.ts` (the success path) and by `updateBridgedReceivePhase`. A row
+ * failed by a route that killed it from OUTSIDE its own write pipeline — the
+ * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
+ * mid-flight — therefore arrives here with no id at all and short-circuits to
+ * `'unknown'`, i.e. this check is INERT on exactly the rows whose submit outcome
+ * is in doubt. Stamping the id pre-submit is not currently possible under
+ * `MIDEN_USE_OFFSCREEN_CLIENT`: the write runs in the offscreen realm and its
+ * DTOs carry no row id. `isSubmitOutcomeUnknown` (constants.ts) is what closes
+ * that gap, by refusing the retry outright for the rebuilt-request types.
+ */
+export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
+  if (!tx.transactionId) return 'unknown';
+  const txId = tx.transactionId;
+  try {
+    try {
+      await withWasmClientLock(async () => midenClientProxy.syncState());
+    } catch (syncError) {
+      console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
+    }
+    const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(txId));
+    return state === 'committed' || state === 'pending' ? 'landed' : 'unknown';
+  } catch (error) {
+    console.error('[verifySendLanded] error checking tx state for', tx.id, error);
+    return 'unknown';
+  }
+};
+
+/**
  * Verify stuck transactions by checking note state from the node.
  * For consume transactions:
  * - If the note has been consumed on-chain, mark the transaction as completed
- * - If the note is invalid, mark as failed
+ * - If the note is invalid, mark as failed immediately
  * - If the note is still claimable AND the tx has been processing for > 1 minute, mark as failed
  *
  * IMPORTANT: Only checks GeneratingTransaction status, NOT Queued.
  * Queued transactions haven't started processing yet, so the note being claimable is expected.
+ *
+ * Delegates the per-tx node check to {@link verifyConsumeLanded} (the same
+ * authority the killed-consume requeue uses, issue #260 follow-up #3a). Passes
+ * `sync: false`: this reaper runs alongside AutoSync (which keeps note state
+ * fresh), so it must NOT fire one sync per stuck consume — matching its pre-#3a
+ * behavior of 0 syncs/cycle.
+ *   - `'landed-local'` → mark Completed. FUNDS-SAFETY: this is the ONLY verdict that
+ *                      may become a 'Received' row, exactly as on the killed-consume
+ *                      path (see tryCompleteKilledConsume). This reaper is the sole
+ *                      consume reconciler on mobile and desktop — its one caller
+ *                      returns early on `isExtension()` and `tryCompleteKilledConsume`
+ *                      fires only on the Chrome-offscreen `OperationAbortedError` — so
+ *                      a lenient rule here would be the ONLY rule those platforms run.
+ *   - `'landed-external'` → the note is consumed on chain but NOT provably by us (a
+ *                      recallable P2IDE the sender recalled, or another consumer of
+ *                      the same public note, lands in that state). Treated exactly
+ *                      like `'not-landed'`: failed after the processing grace window,
+ *                      never Completed. The residual is a SAFE false-Failed — a
+ *                      re-consume harmlessly collides on the spent nullifier and the
+ *                      next sync reconciles — instead of a false 'Received' telling
+ *                      the user they got funds a third party actually took.
+ *   - `'invalid'`    → fail IMMEDIATELY with INVALID_NOTE_ERROR: an Invalid note can
+ *                      never be consumed, so there is no reason to wait out the grace
+ *                      window and surface the generic interrupted error instead.
+ *   - `'processing'` → a consuming tx of ours is submitted and applied locally but
+ *                      not committed yet → skip (leave for a later cycle). Failing
+ *                      it would terminal-fail a claim that already reached the
+ *                      node — and on a Guardian account that is the COMMON path,
+ *                      because `runGuardianPipeline` releases the WASM lock after
+ *                      `submit()`/`apply()` and only then runs a multi-second
+ *                      `service.sync()`, leaving the row `GeneratingTransaction`
+ *                      and this reaper free to read the note mid-window.
+ *   - `'not-landed'` → the note exists but is not consumed; fail only after the
+ *                      processing grace window so an actively-processing consume
+ *                      isn't reaped mid-flight.
+ *   - `'unknown'`    → no note / query error → skip (leave for a later cycle).
  *
  * Returns the number of transactions that were resolved.
  */
@@ -172,46 +422,45 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
 
   let resolvedCount = 0;
 
-  // Check each stuck consume transaction (AutoSync handles syncState separately)
   for (const tx of consumeTransactions) {
-    try {
-      const noteDetails = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        return await midenClient.getInputNoteDetails({ ids: [tx.noteId] });
+    // sync: false — this reaper rides AutoSync; syncing per stuck consume would be
+    // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
+    const verdict = await verifyConsumeLanded(tx, false);
+
+    if (verdict === 'landed-local') {
+      // The node confirms the note is consumed on chain by THIS client's own tracked
+      // tx - mark the transaction completed. 'landed-external' deliberately does NOT
+      // reach here (see the funds-safety note above).
+      await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+        displayMessage: 'Received',
+        completedAt: Math.floor(Date.now() / 1000)
       });
-
-      const note = noteDetails[0];
-      if (!note) {
-        continue;
-      }
-
-      if (CONSUMED_NOTE_STATES.includes(note.state)) {
-        // Note has been consumed on-chain - mark transaction as completed
-        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: 'Received',
-          completedAt: Math.floor(Date.now() / 1000)
-        });
+      resolvedCount++;
+    } else if (verdict === 'invalid') {
+      // Note is invalid - it can never be consumed, so fail immediately with the
+      // specific reason instead of waiting out the grace window (restores the
+      // fast-fail the #3a refactor accidentally collapsed into 'not-landed').
+      await cancelTransaction(tx, INVALID_NOTE_ERROR);
+      resolvedCount++;
+    } else if (verdict === 'not-landed' || verdict === 'landed-external') {
+      // Either the note is not consumed at all, or it is consumed by someone who is
+      // not provably us ('landed-external'). Both mean this consume did not
+      // demonstrably land, so only cancel once the tx has been processing for a
+      // while, so we don't reap one that is actively processing.
+      // Use ACTIVE (foreground) processing time so a consume that merely sat
+      // backgrounded on mobile isn't reaped on resume (issue #473).
+      const processingTime = tx.processingStartedAt
+        ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
+        : 0;
+      if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
+        await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
         resolvedCount++;
-      } else if (note.state === InputNoteState.Invalid) {
-        // Note is invalid - mark transaction as failed
-        await cancelTransaction(tx, INVALID_NOTE_ERROR);
-        resolvedCount++;
-      } else if (
-        note.state === InputNoteState.Committed ||
-        note.state === InputNoteState.Expected ||
-        note.state === InputNoteState.Unverified
-      ) {
-        // Note is still claimable - only cancel if tx has been processing for a while
-        // This prevents cancelling transactions that are actively being processed
-        const processingTime = tx.processingStartedAt ? Math.floor(Date.now() / 1000) - tx.processingStartedAt : 0;
-        if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-          await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
-          resolvedCount++;
-        }
       }
-    } catch (err) {
-      console.error('[verifyStuckTransactionsFromNode] Error checking tx:', tx.id, err);
     }
+    // 'unknown' (no note row / node query error) and 'processing' (our own consume
+    // is submitted and applied locally, awaiting commit) both fall through here →
+    // leave for a later cycle. Do NOT fold 'processing' into the 'not-landed' arm:
+    // that note IS spent by a transaction of ours that reached the node.
   }
 
   return resolvedCount;

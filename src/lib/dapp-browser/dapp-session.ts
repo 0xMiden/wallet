@@ -16,9 +16,14 @@ export type DappSessionStatus = 'opening' | 'active' | 'parked' | 'restoring' | 
 export interface DappSession {
   /** Stable identifier; used as the InAppBrowser instance id once PR-4 lands */
   id: string;
-  /** Full URL the session was opened with (may differ from the live url after navigation) */
+  /**
+   * Full URL of the document currently loaded in this session. Set by `open()`
+   * and kept live by the provider's `urlChangeEvent` handler, which rewrites it
+   * together with the live origin — the two must never disagree, or a cold
+   * restore loads one page while the wallet attributes its requests to another.
+   */
   url: string;
-  /** Origin (scheme + host) — derived from url */
+  /** Origin (scheme + host + port) — always `parseOrigin(url)` of the field above. */
   origin: string;
   /** Page title once browserPageLoaded fires; falls back to origin until then */
   title: string;

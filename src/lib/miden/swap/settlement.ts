@@ -7,9 +7,10 @@ import {
   orderIdString,
   type SwapOrder
 } from './classification';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
@@ -109,27 +110,47 @@ export async function reconcileSwapOrderNotes(
     // (localStorage-backed), so fall back to the preference captured on the
     // swap row at initiate time.
     const delegate = delegateTransaction ?? order.delegateTransaction;
-    const txId = await initiateConsumeNotesTransaction(accountId, settleable, delegate);
-    // An expired batch that still carries payback notes delivered funds — it
-    // settles (Confirmed), it doesn't reclaim. Only a fund-less batch (tip
-    // alone) is a reclaim. Partial fills stay lineage-'active' until expiry,
-    // so this same-tick bundle is their normal settlement path.
-    const hasPayback = settleable.some(note => note.swapOrder?.role === 'payback');
-    // Link the consume row back to its swap order so history renders the
-    // order as a single swap row (the linked consume is suppressed) and
-    // `completeConsumeTransaction` can stamp the settlement on the swap row.
-    // The id may be a dedup winner from an earlier tick — re-tagging is
-    // idempotent. Swap-managed notes never reach manual claim paths, so a
-    // consume covering them is always a settlement consume.
-    await Repo.transactions.where({ id: txId }).modify(tx => {
-      if (tx.type !== 'consume') return;
-      tx.extraInputs = {
-        ...(tx.extraInputs ?? {}),
-        swapOrderTxId: order.id,
-        swapSettleKind: hasPayback ? 'settle' : 'reclaim'
-      };
-    });
-    queuedTransactionIds.push(txId);
+    // ONE consume per ROLE, never one covering both. A Miden transaction is
+    // atomic and an expired order's remainder tip is still publicly fillable, so
+    // a solver that fills it between this queueing and the submit nullifies a
+    // note in the batch and fails the whole transaction — including the payback
+    // notes, which carry funds already delivered to this account and which the
+    // chain cannot take away. Worse, the #215 auto-consume backoff gate counts a
+    // note's failures through the SHARED batch row (`where('noteIds')` in
+    // initiate.ts), so the lost tip race would throttle the payback claim for
+    // 5, then 10, then 20 minutes. Splitting isolates the race to the note that
+    // can actually lose it — the same rule native auto-consume follows in
+    // `back/sync-manager.ts`. It also stops the tip from being bucketed as
+    // `settled` by `getSwapSettlementNotes`, since each row now carries the
+    // `swapSettleKind` of the notes it really covers.
+    const paybackNotes = settleable.filter(note => note.swapOrder?.role === 'payback');
+    const reclaimNotes = settleable.filter(note => note.swapOrder?.role !== 'payback');
+    // Paybacks first: they are the funds the user is owed, the tip reclaim is
+    // the leftover.
+    for (const batch of [paybackNotes, reclaimNotes]) {
+      if (batch.length === 0) continue;
+      const txId = await initiateConsumeNotesTransaction(accountId, batch, delegate);
+      // A batch of payback notes delivered funds — it settles (Confirmed), it
+      // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
+      // Partial fills stay lineage-'active' until expiry, so this same-tick pair
+      // of consumes is their normal settlement path.
+      const hasPayback = batch.some(note => note.swapOrder?.role === 'payback');
+      // Link the consume row back to its swap order so history renders the
+      // order as a single swap row (the linked consume is suppressed) and
+      // `completeConsumeTransaction` can stamp the settlement on the swap row.
+      // The id may be a dedup winner from an earlier tick — re-tagging is
+      // idempotent. Swap-managed notes never reach manual claim paths, so a
+      // consume covering them is always a settlement consume.
+      await Repo.transactions.where({ id: txId }).modify(tx => {
+        if (tx.type !== 'consume') return;
+        tx.extraInputs = {
+          ...(tx.extraInputs ?? {}),
+          swapOrderTxId: order.id,
+          swapSettleKind: hasPayback ? 'settle' : 'reclaim'
+        };
+      });
+      queuedTransactionIds.push(txId);
+    }
   }
 
   return { queuedTransactionIds, managedNoteIds };
@@ -150,15 +171,17 @@ export async function settleSwapOrders(
   }
 
   const managedNotes = await withWasmClientLock(async () => {
-    const client = await getMidenClient();
-    const rawNotes = await client.getConsumableNotes(accountId);
-    const classified = await classifySwapOrderNotes(rawNotes, accountId, client, orders);
-    return rawNotes.flatMap(note => {
-      const id = note.id()?.toString();
+    // Both the consumable-note read (slice 4) and the per-order PSWAP lineage inside
+    // classifySwapOrderNotes (slice 7a) now route through the proxy, so flag-ON they
+    // read the offscreen client's canonical state; no live client is threaded here.
+    // The caller lock still serializes the flag-OFF inline reads (byte-identical).
+    const rawNotes = await midenClientProxy.getConsumableNotes(accountId);
+    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders);
+    return rawNotes.flatMap<ConsumableNote>(note => {
+      const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
       if (!id || !swapOrder) return [];
-      const metadata = note.metadata();
-      const type: ConsumableNote['type'] = metadata ? toNoteTypeString(metadata.noteType()) : 'unknown';
+      const type: ConsumableNote['type'] = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
       return [
         {
           id,

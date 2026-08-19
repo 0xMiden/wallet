@@ -20,8 +20,21 @@ _g.__dappConfInternals = {
     getAccount: jest.fn(async () => ({
       getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1]) }]
     })),
-    getInputNoteDetails: jest.fn(async () => []),
+    // The consume approval preview is derived from the note the wallet resolves
+    // (not the dApp's declared faucet/amount/type), so the consume tests here need
+    // the note to exist in the store.
+    getInputNoteDetails: jest.fn(async () => [
+      {
+        noteId: 'note-1',
+        noteType: 0,
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 0,
+        assets: [{ faucetId: 'faucet-1', amount: '50' }]
+      }
+    ]),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'n1' })),
     on: jest.fn()
@@ -100,7 +113,10 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-jest.mock('lib/miden/sdk/helpers', () => ({ getBech32AddressFromAccountId: () => 'bech32' }));
+jest.mock('lib/miden/sdk/helpers', () => ({
+  getBech32AddressFromAccountId: () => 'bech32',
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+}));
 
 jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))

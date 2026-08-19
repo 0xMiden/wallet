@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
-import { fetchFromStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage, searchAssets, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
@@ -91,8 +91,13 @@ export async function getFaucetIdSetting(): Promise<string | null> {
   }
 }
 
-export function setFaucetIdSetting(faucetId: string) {
-  localStorage.setItem(FAUCET_ID_STORAGE_KEY, faucetId);
+export async function setFaucetIdSetting(faucetId: string): Promise<void> {
+  // Persist through the SAME platform storage adapter `getFaucetIdSetting`
+  // reads from (`fetchFromStorage`). The previous `localStorage.setItem` wrote
+  // to raw localStorage, which the extension's `fetchFromStorage` (chrome /
+  // prefixed store) never reads — so the Settings write reported success but
+  // never took effect (#590).
+  await putToStorage(FAUCET_ID_STORAGE_KEY, faucetId);
 }
 
 export const getTokenId = async (faucetId: string) => {

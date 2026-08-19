@@ -130,6 +130,19 @@ export class IntercomClient implements IIntercomClient {
   private port: any; // Runtime.Port - typed as any to avoid import
   private reqId: number;
   private portReady: Promise<void>;
+  /**
+   * Broadcast subscribers, held on the INSTANCE rather than on a port.
+   *
+   * A `Runtime.Port` dies whenever the MV3 service worker is evicted, restarted
+   * or reloaded, and `buildPort`'s `onDisconnect` handler replaces `this.port`
+   * with a brand-new one. A listener attached directly to the old port object is
+   * gone at that moment and nothing re-attaches it — `request()` survives only
+   * because it re-reads `this.port` per call, which is exactly what made the loss
+   * invisible. Keeping the callbacks here (mirroring the mobile/desktop adapters,
+   * which hold a plain `Set` no transport can drop) lets `buildPort` re-attach one
+   * dispatching listener to every port it creates.
+   */
+  private readonly subscribers = new Set<(data: any) => void>();
 
   constructor() {
     this.reqId = 0;
@@ -192,31 +205,45 @@ export class IntercomClient implements IIntercomClient {
   }
 
   /**
-   * Allows to subscribe to notifications channel from background process
+   * Allows to subscribe to notifications channel from background process.
+   *
+   * Registration is against the instance-level {@link subscribers} set, not
+   * against whichever port happens to be live — see that field for why. Safe to
+   * call before the first port exists: every port `buildPort` creates gets the
+   * dispatching listener, so a callback registered at any time receives every
+   * later broadcast.
    */
   subscribe(callback: (data: any) => void) {
-    // Note: This is sync but port might not be ready yet
-    // In practice, this is called after the app is loaded
-    const listener = (msg: any) => {
-      if (msg?.type === MessageType.Sub) {
-        callback(msg.data);
-      }
-    };
-
-    // Wait for port to be ready before subscribing
-    this.portReady.then(() => {
-      this.port.onMessage.addListener(listener);
-    });
-
+    this.subscribers.add(callback);
     return () => {
-      if (this.port) {
-        this.port.onMessage.removeListener(listener);
-      }
+      this.subscribers.delete(callback);
     };
+  }
+
+  /**
+   * Attach the single dispatching `Sub` listener to a freshly-created port. One
+   * throwing subscriber must not stop the others from being notified, nor bubble
+   * into the extension's message plumbing.
+   */
+  private attachSubscriptionListener(port: any) {
+    port.onMessage.addListener((msg: any) => {
+      if (msg?.type !== MessageType.Sub) return;
+      for (const callback of this.subscribers) {
+        try {
+          callback(msg.data);
+        } catch (err) {
+          console.error('[intercom] subscriber threw while handling a broadcast', err);
+        }
+      }
+    });
   }
 
   private buildPort(browser: any) {
     const port = browser.runtime.connect({ name: 'INTERCOM' });
+    // Re-attach on EVERY port, including the ones built by the reconnect below —
+    // otherwise the first service-worker restart silently ends all broadcasts
+    // (lock/StateUpdated, SyncCompleted, NoteClaimStarted) for this page.
+    this.attachSubscriptionListener(port);
     port.onDisconnect.addListener(() => {
       setTimeout(async () => {
         const browser = await getBrowser();

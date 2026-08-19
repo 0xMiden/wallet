@@ -16,5 +16,6 @@ export enum SettingsSelectors {
   FileSettingsButton = 'Settings/FileSettingsButton',
   AdvancedSettingsButton = 'Settings/AdvancedSettingsButton',
   EditMidenFaucetButton = 'Settings/EditMidenFaucetButton',
-  EncryptedWalletFile = 'Settings/EncryptedWalletFile'
+  EncryptedWalletFile = 'Settings/EncryptedWalletFile',
+  SendFeedbackButton = 'Settings/SendFeedbackButton'
 }

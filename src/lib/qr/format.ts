@@ -6,7 +6,7 @@
  *
  * Follows BIP21/EIP-681 industry convention for URI schemes.
  */
-import { isValidMidenAddress as isValidMidenBech32Address } from 'utils/miden';
+import { isValidMidenAddress as strictMidenAddressCheck, MidenAddressError } from 'utils/miden';
 
 const MIDEN_URI_PREFIX = 'miden:';
 
@@ -41,26 +41,25 @@ export function decodeAddress(payload: string): string {
 }
 
 /**
- * Validates if a string looks like a Miden address for QR-scan purposes: a
- * recognized network bech32 prefix plus a reasonable length.
- *
- * The set of network prefixes (mm1 / mtst1 / mdev1 / mlcl1) is delegated to the
- * canonical `utils/miden` validator so this QR copy can never drift from it
- * again. The previous local copy hard-coded only `mtst1`/`m1`, so it rejected
- * devnet (`mdev1`), localnet (`mlcl1`), and even real mainnet (`mm1`) — a
- * localnet address scanned via QR came back "invalid". The SDK's
- * `Address.fromBech32` remains the authoritative decoder downstream.
+ * Validates if a string is a decodable Miden address (strict bech32 decode).
+ * Delegated to the canonical `utils/miden` validator so this QR copy can never
+ * drift from the recognized network prefixes (mm1 / mtst1 / mdev1 / mlcl1)
+ * again — the old local copy hard-coded `mtst1`/`m1`, so a devnet, localnet or
+ * even real mainnet address scanned via QR came back "invalid". A wrong-network
+ * address still passes here — the send screen surfaces its specific
+ * wrong-network message once the scanned address lands in the field.
  *
  * @param address The address to validate
- * @returns true if the address appears to be a valid Miden address
+ * @returns true if the address decodes as a Miden address
  */
 export function isValidMidenAddress(address: string): boolean {
   if (!address || typeof address !== 'string') {
     return false;
   }
 
-  const trimmed = address.trim();
-
-  // Bech32 addresses have a reasonable length; the SDK does the real decode.
-  return isValidMidenBech32Address(trimmed) && trimmed.length >= 30 && trimmed.length <= 100;
+  try {
+    return strictMidenAddressCheck(address);
+  } catch (error) {
+    return error instanceof MidenAddressError && error.reason === 'wrong-network';
+  }
 }

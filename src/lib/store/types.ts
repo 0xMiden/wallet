@@ -1,6 +1,6 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 
-import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-curency';
+import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
@@ -128,7 +128,8 @@ export interface WalletActions {
     walletType: WalletType,
     password: string | undefined,
     mnemonic: string,
-    ownMnemonic: boolean
+    ownMnemonic: boolean,
+    guardianEndpoint?: string
   ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,
@@ -170,7 +171,7 @@ export interface WalletActions {
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
-  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; error?: string }>;
+  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,

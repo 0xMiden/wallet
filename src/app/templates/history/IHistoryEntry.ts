@@ -6,7 +6,8 @@ import {
   IEarnWithdrawPhase,
   ITransactionIcon,
   ITransactionStatus,
-  ITransactionType
+  ITransactionType,
+  ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 
 export interface IHistoryEntry {
@@ -26,6 +27,13 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /**
+   * `tx.processingStartedAt` — stamped atomically with the Queued →
+   * GeneratingTransaction transition. The detail page's Retry gate reads it as
+   * the double-send guard's "did this row ever execute?" signal: absent means the
+   * failure is unambiguously pre-submit. Set by the detail page only.
+   */
+  processingStartedAt?: number;
   token?: string;
   amount?: bigint;
   /** Swap only: formatted requested-side amount, shown on the row's right. */
@@ -56,6 +64,10 @@ export interface IHistoryEntry {
   faucetId?: string;
   blockNumber?: number;
   outputNoteIds?: string[];
+
+  // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
+  previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
+  newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;

@@ -12,6 +12,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -50,6 +51,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
+  // Block screenshots / screen recordings while raw key material is on screen
+  // (#417) — the same protection `RevealSeedPhrase` already has, for material of
+  // equal sensitivity: a private key, a Guardian COLD private key (the account's
+  // recovery material) or a hot key all confer spending authority. `FormField`'s
+  // `secret` prop only blurs the value while the field is unfocused; once tapped
+  // the plaintext sits in an ordinary DOM textarea, which is exactly what a
+  // screenshot, an Android task-switcher thumbnail or a live screen recording
+  // captures. The hook withholds `true` until the native guard is actually
+  // enabled, so the unprotected first frames are never rendered.
+  const isGuardReady = useScreenshotGuard(secret !== null || guardianBundle !== null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
@@ -199,6 +210,9 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const mainContent = useMemo(() => {
     if (guardianBundle) {
+      // Withhold until the native guard reports the screen is protected — an
+      // in-progress screen recording would otherwise capture the first frames.
+      if (!isGuardReady) return null;
       return (
         <div className="pt-8 flex flex-col gap-6">
           <FormField
@@ -244,6 +258,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     }
 
     if (secret) {
+      if (!isGuardReady) return null;
       return (
         <div className="pt-8">
           <FormField
@@ -311,6 +326,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     );
   }, [
     errors,
+    isGuardReady,
     onSubmit,
     register,
     secret,

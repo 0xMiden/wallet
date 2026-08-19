@@ -119,6 +119,11 @@ jest.mock('dexie', () => ({
 
 const mockGetInputNoteDetails = jest.fn();
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
+// The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
+// the `lib/...` alias of miden-client, which jest mocks separately from the
+// relative specifier below; delegate the alias to the same mock so the proxy's
+// flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     syncState: mockSyncState,
@@ -259,19 +264,26 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
   });
 
-  it('marks consume transaction as failed when note is invalid', async () => {
+  it('marks consume transaction as failed IMMEDIATELY when note is invalid (fast-fail, ignores grace window)', async () => {
+    const { INVALID_NOTE_ERROR } = require('./constants');
     txStore.push({
       id: 'tx-1',
       type: 'consume',
       noteId: 'note-1',
       status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: 100
+      initiatedAt: 100,
+      // FRESH — inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid note can
+      // never be consumed, so verifyConsumeLanded reports 'invalid' and the reaper
+      // fails it immediately with the specific reason, NOT after the grace window
+      // like a 'not-landed' note (W1: restores the fast-fail the #3a refactor lost).
+      processingStartedAt: Math.floor(Date.now() / 1000)
     });
     const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.Invalid }]);
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(1);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.error).toBe(INVALID_NOTE_ERROR);
   });
 
   it('marks consume transaction as failed when note is still claimable AND processing is over the threshold', async () => {
@@ -290,6 +302,36 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(resolved).toBe(1);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
   });
+
+  // FUNDS-2: `ProcessingAuthenticated` / `ProcessingUnauthenticated` used to fall
+  // through verifyConsumeLanded's catch-all to 'not-landed', so this reaper
+  // terminal-failed a claim whose submit had already reached the node. On a
+  // Guardian account (the default) that window is routine: runGuardianPipeline
+  // releases the WASM lock after submit()/apply() and only then runs a
+  // multi-second service.sync(), during which the row is still
+  // GeneratingTransaction and this reaper is free to read the note.
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'leaves a %s consume in progress even past the grace window (its submit already landed)',
+    async noteState => {
+      const longAgo = Math.floor(Date.now() / 1000) - 120;
+      txStore.push({
+        id: 'tx-1',
+        type: 'consume',
+        noteId: 'note-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: longAgo
+      });
+      const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+      mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState[noteState] }]);
+
+      const resolved = await verifyStuckTransactionsFromNode();
+
+      expect(resolved).toBe(0);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.error).toBeUndefined();
+    }
+  );
 
   it('skips claimable notes that are still inside the processing grace window', async () => {
     txStore.push({
@@ -318,6 +360,79 @@ describe('verifyStuckTransactionsFromNode', () => {
     mockGetInputNoteDetails.mockRejectedValueOnce(new Error('rpc down'));
     const resolved = await verifyStuckTransactionsFromNode();
     expect(resolved).toBe(0);
+  });
+
+  // FUNDS-B: `ConsumedExternal` means the note's nullifier is on chain but the
+  // consuming transaction was NOT this client's — a recallable P2IDE the SENDER
+  // recalled lands in exactly that state, as does losing a race to another consumer
+  // of the same public note. The reaper used to accept it alongside 'landed-local'
+  // and write Completed / 'Received', so Bob's history claimed he received funds
+  // Alice took back. It must never do that, and this is not a low-exposure path: it
+  // is the ONLY consume reconciler that runs on mobile and desktop (useClaimNotes
+  // polls it every 3s and returns early on isExtension(), while
+  // tryCompleteKilledConsume fires only on the Chrome-offscreen abort error).
+  it('never marks a ConsumedExternal note Received — it is consumed by someone, not provably us', async () => {
+    txStore.push({
+      id: 'tx-ext',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      // FRESH — inside the grace window, so the funds-safe outcome is "leave it".
+      processingStartedAt: Math.floor(Date.now() / 1000)
+    });
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedExternal }]);
+
+    const resolved = await verifyStuckTransactionsFromNode();
+
+    expect(resolved).toBe(0);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).not.toBe('Received');
+  });
+
+  it('fails a ConsumedExternal consume past the grace window instead of completing it', async () => {
+    // A false-Failed is the safe residual: a re-consume harmlessly collides on the
+    // spent nullifier and the next sync reconciles the row. A false 'Received' is not.
+    const { TRANSACTION_INTERRUPTED_ERROR } = require('./constants');
+    const longAgo = Math.floor(Date.now() / 1000) - 120;
+    txStore.push({
+      id: 'tx-ext-stale',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      processingStartedAt: longAgo
+    });
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedExternal }]);
+
+    const resolved = await verifyStuckTransactionsFromNode();
+
+    expect(resolved).toBe(1);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.error).toBe(TRANSACTION_INTERRUPTED_ERROR);
+    expect(txStore[0]!.displayMessage).not.toBe('Received');
+  });
+
+  it('does NOT sync once per stuck consume — at most one sync per cycle (rides AutoSync)', async () => {
+    // W2: verifyConsumeLanded syncs only when its caller asks (sync=true). The reaper
+    // passes sync=false, so N stuck consumes must NOT trigger N syncs/cycle.
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    for (const id of ['s-1', 's-2', 's-3']) {
+      txStore.push({
+        id,
+        type: 'consume',
+        noteId: `note-${id}`,
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: Math.floor(Date.now() / 1000)
+      });
+    }
+    // Committed-and-fresh → nothing resolves; the only thing under test is sync count.
+    mockGetInputNoteDetails.mockResolvedValue([{ state: InputNoteState.Committed }]);
+    await verifyStuckTransactionsFromNode();
+    expect(mockSyncState.mock.calls.length).toBeLessThanOrEqual(1);
   });
 });
 
@@ -661,6 +776,65 @@ describe('initiateConsumeTransactionFromId', () => {
     const id = await initiateConsumeTransactionFromId('acc-1', 'note-exists');
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;
+  });
+});
+
+/**
+ * The bounded-retry gate (#215) exists to throttle auto-consume's background
+ * polling. `initiateConsumeTransactionFromId` is reached only from paths that run
+ * AFTER an explicit user approval — the dApp consume sheet and the failed-bridge
+ * "Reclaim funds" button — so it must forward `manualRetry` and never be
+ * throttled by it.
+ */
+describe('initiateConsumeTransactionFromId manual-retry gate', () => {
+  const seedFailedConsume = () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    txStore.push({
+      id: 'failed-consume-1',
+      type: 'consume',
+      noteId: 'note-approved',
+      noteIds: ['note-approved'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Failed,
+      initiatedAt: nowSec - 120,
+      // 60s ago — well inside the 5-minute base backoff.
+      completedAt: nowSec - 60
+    });
+  };
+
+  const withResolvableNote = async <T>(run: () => Promise<T>): Promise<T> => {
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      getInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 0 }) }))
+    });
+    try {
+      return await run();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  };
+
+  it('queues a fresh consume for a user-approved claim inside the backoff window', async () => {
+    seedFailedConsume();
+    const { initiateConsumeTransactionFromId } = require('./index');
+
+    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false, true));
+
+    expect(id).not.toBe('failed-consume-1');
+    const queued = txStore.find(row => row.id === id);
+    expect(queued?.status).toBe(ITransactionStatus.Queued);
+    expect(queued?.noteIds).toEqual(['note-approved']);
+  });
+
+  it('still throttles background auto-consume, answering with the most recent Failed row', async () => {
+    seedFailedConsume();
+    const { initiateConsumeTransactionFromId } = require('./index');
+
+    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false));
+
+    expect(id).toBe('failed-consume-1');
+    expect(txStore).toHaveLength(1);
   });
 });
 

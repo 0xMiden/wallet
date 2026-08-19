@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "#594 \u2014 documented SAFE drifts between the native prover and the wallet's",
+    "@miden-sdk/miden-sdk. Two things are compared, both by",
+    "scripts/check-native-prover-pin.mjs:",
+    "",
+    "  1. the prover's miden-client pin",
+    "     (packages/native-prover/android/rust-bridge/Cargo.toml) vs the miden-client",
+    "     version behind the SDK; and",
+    "  2. the transaction-kernel crates \u2014 miden-protocol, miden-tx, miden-core-lib,",
+    "     miden-assembly, miden-core, miden-mast-package, miden-prover \u2014 as RESOLVED",
+    "     in packages/native-prover/android/rust-bridge/Cargo.lock vs the web-sdk",
+    "     tag's Cargo.lock. `miden-client = \"=x.y.z\"` does not pin its transitive",
+    "     deps, so a matching client version is NOT evidence the procedure roots",
+    "     agree.",
+    "",
+    "A drift is safe ONLY when no transaction-kernel crate meaningfully moved. A",
+    "miden-client(-web/-store)-only bump keeps the same procedure set, so the pinned",
+    "prover still produces matching MAST procedure roots. Verify by diffing the two",
+    "web-sdk tags' Cargo.lock, and \u2014 for a kernel-crate drift \u2014 by diffing the two",
+    "crate sources themselves.",
+    "",
+    "Prefer bumping the pin / regenerating the prover lockfile AND rebuilding the",
+    "committed prover binaries. Add an exemption only when the rebuild is deferred",
+    "and the drift is verified safe by the argument above; remove the entry once the",
+    "rebuild lands.",
+    "",
+    "Each entry is keyed on (pin, sdkVersion), so it auto-expires on ANY",
+    "@miden-sdk/miden-sdk bump. sdkMidenClient is the client version that",
+    "sdkVersion's Cargo.lock is expected to resolve; a mismatch fails as stale.",
+    "`kernelDrift` must enumerate EXACTLY the kernel crates that differ, with both",
+    "versions \u2014 an unlisted crate or a changed version pair still fails."
+  ],
+  "exemptions": [
+    {
+      "pin": "0.15.4",
+      "sdkVersion": "0.15.9",
+      "sdkMidenClient": "0.15.5",
+      "reason": "web-sdk 0.15.9 bumped miden-client 0.15.4->0.15.5 (and miden-client-web/-sqlite-store/-idxdb-store) only; every transaction-kernel crate (miden-protocol/tx/core-lib/assembly/core/mast-package/prover) is unchanged, so the =0.15.4 prover produces the same procedure set as SDK 0.15.9. Verified by diffing the web-sdk 0.15.8/0.15.9 Cargo.lock in #594."
+    }
+  ]
+}

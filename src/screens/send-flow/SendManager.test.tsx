@@ -45,6 +45,7 @@ const useAllAccountsMock = jest.fn(() => [] as any[]);
 const useAllBalancesMock = jest.fn(() => ({ data: undefined as any }));
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
+const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
 const useHideNavbarWhileOpenMock = jest.fn();
 const useMobileBackHandlerMock = jest.fn();
 
@@ -56,6 +57,11 @@ const requestSpeculateSendMock = jest.fn();
 const requestSpeculateInvalidateMock = jest.fn();
 const isScanAvailableMock = jest.fn(() => false);
 const scanQRCodeMock = jest.fn();
+// `isMobile` now selects the scan path: mobile keeps the native plugin
+// (`scanQRCode`), the extension opens the webcam ScanQrDrawer. Defaults to true
+// so the existing native-scan tests below exercise `scanQRCode` unchanged; the
+// extension drawer tests flip it to false.
+const isMobileMock = jest.fn(() => true);
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -86,9 +92,27 @@ jest.mock('./SelectRecipient', () => ({
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
+      <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
+      <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
       <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
+      <button data-testid="sr-addcontact" onClick={props.onAddContact} />
+      <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
+    </div>
+  )
+}));
+
+jest.mock('./ScanQrDrawer', () => ({
+  ScanQrDrawer: (props: any) => (
+    <div data-testid="scan-qr-drawer">
+      <span data-testid="scan-open">{String(props.open)}</span>
+      <button
+        data-testid="scan-detected"
+        onClick={() => props.onDetected('mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph')}
+      />
+      <button data-testid="scan-error" onClick={() => props.onError('cameraPermissionDenied')} />
+      <button data-testid="scan-close" onClick={() => props.onOpenChange(false)} />
     </div>
   )
 }));
@@ -130,6 +154,23 @@ jest.mock('./AccountsList', () => ({
   )
 }));
 
+// The add-contact sheet reuses the Settings form, which reaches FormField ->
+// useTippy -> lib/platform at module scope. Stub it to its observable props.
+jest.mock('./AddContactDrawer', () => ({
+  AddContactDrawer: (props: any) => (
+    <div data-testid="add-contact-drawer">
+      <span data-testid="acd-open">{String(props.open)}</span>
+      <span data-testid="acd-address">{props.address ?? ''}</span>
+      <button data-testid="acd-close" onClick={() => props.onOpenChange(false)} />
+    </div>
+  )
+}));
+
+// Recents come from Dexie; drive them from the test instead of the real DB.
+jest.mock('./useRecentRecipients', () => ({
+  useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
+}));
+
 jest.mock('./bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
   BRIDGE_NETWORKS: [],
@@ -159,7 +200,7 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: (cb: any, deps: any) => useMobileBackHandlerMock(cb, deps)
 }));
-jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => false }));
+jest.mock('lib/platform', () => ({ isExtension: () => isExtensionMock(), isMobile: () => isMobileMock() }));
 jest.mock('lib/qr', () => ({
   isScanAvailable: () => isScanAvailableMock(),
   scanQRCode: () => scanQRCodeMock()
@@ -170,12 +211,26 @@ jest.mock('lib/woozie', () => ({
   navigate: (...a: any[]) => navigateMock(...a),
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
-jest.mock('utils/miden', () => ({
-  isValidMidenAddress: (a: string) => isValidMidenAddressMock(a),
-  isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
-  isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
-  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
-}));
+jest.mock('utils/miden', () => {
+  class MidenAddressError extends Error {
+    reason: 'invalid' | 'wrong-network';
+
+    constructor(reason: 'invalid' | 'wrong-network') {
+      super(reason);
+      this.reason = reason;
+    }
+  }
+  return {
+    MidenAddressError,
+    isValidMidenAddress: (a: string) => {
+      if (!isValidMidenAddressMock(a)) throw new MidenAddressError('invalid');
+      return true;
+    },
+    isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
+    isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
+    detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+  };
+});
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
@@ -208,6 +263,7 @@ beforeEach(() => {
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
   isScanAvailableMock.mockReturnValue(false);
+  isMobileMock.mockReturnValue(true);
   isValidMidenAddressMock.mockImplementation((addr: string) => !!addr && addr.startsWith('0x'));
   stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.floor(parseFloat(s || '0'))));
 
@@ -247,7 +303,9 @@ describe('SendManager rendering', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('sa-footer')).toHaveTextContent('pt-4 pb-6');
+    expect(screen.getByTestId('sa-footer')).toHaveTextContent(
+      'pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]'
+    );
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
   });
 
@@ -346,6 +404,23 @@ describe('mobile back handler', () => {
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
+  it('closes the add-contact drawer before anything else', () => {
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addcontact'));
+    });
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
+
+    let result: boolean | undefined;
+    act(() => {
+      result = capturedBackHandler!();
+    });
+    expect(result).toBe(true);
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('false');
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
   it('closes the token drawer when it is open (and no contacts drawer)', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
@@ -385,6 +460,83 @@ describe('mobile back handler', () => {
     expect(result).toBe(true);
     expect(goBackMock).not.toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recent recipients + saving a new contact.
+// ---------------------------------------------------------------------------
+describe('recent recipients', () => {
+  it('resolves recent addresses against the contact list and fills the recipient on tap', () => {
+    useAllAccountsMock.mockReturnValue([
+      { publicKey: '0xalice', name: 'Alice', isPublic: true, type: 'standard' },
+      { publicKey: 'me', name: 'Me', isPublic: true, type: 'standard' }
+    ]);
+    useRecentRecipientsMock.mockReturnValue([
+      { address: '0xAlice', chain: 'ethereum', networkName: 'Sepolia' },
+      { address: '0xstranger', chain: 'ethereum' }
+    ]);
+    renderFlow();
+
+    // The first recent matches a wallet account (case-insensitively) and picks
+    // up its name; the unknown one stays nameless.
+    const recents = JSON.parse(screen.getByTestId('sr-recents').textContent!);
+    expect(recents[0]).toMatchObject({ address: '0xAlice', name: 'Alice', networkName: 'Sepolia' });
+    expect(recents[1].name).toBeUndefined();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-selectrecent'));
+    });
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xAlice');
+  });
+
+  it('queries recents for the active account', () => {
+    renderFlow();
+    expect(useRecentRecipientsMock).toHaveBeenCalledWith('me-pk');
+  });
+});
+
+describe('adding an unknown recipient to contacts', () => {
+  it('offers to save a valid address that is not a known contact, and forwards it to the sheet', () => {
+    renderFlow();
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xstranger' } });
+    });
+
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('true');
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addcontact'));
+    });
+    expect(screen.getByTestId('acd-open')).toHaveTextContent('true');
+    expect(screen.getByTestId('acd-address')).toHaveTextContent('0xstranger');
+  });
+
+  it('does not offer to save an address that is already a contact', () => {
+    useAllAccountsMock.mockReturnValue([
+      { publicKey: '0xalice', name: 'Alice', isPublic: true, type: 'standard' },
+      { publicKey: 'me', name: 'Me', isPublic: true, type: 'standard' }
+    ]);
+    renderFlow();
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xalice' } });
+    });
+
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+  });
+
+  it('does not offer to save an invalid address', () => {
+    renderFlow();
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
+    });
+
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
   });
 });
 
@@ -528,6 +680,54 @@ describe('recipient address entry', () => {
       fireEvent.click(screen.getByTestId('ad-close'));
     });
     expect(screen.getByTestId('ad-open')).toHaveTextContent('false');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extension webcam QR scan (non-mobile scan path -> ScanQrDrawer).
+// ---------------------------------------------------------------------------
+describe('extension webcam QR scan', () => {
+  beforeEach(() => {
+    // Extension context: not mobile, but scanning is available via the webcam.
+    isMobileMock.mockReturnValue(false);
+    isScanAvailableMock.mockReturnValue(true);
+  });
+
+  it('opens the webcam scan drawer instead of invoking the native plugin', () => {
+    renderFlow();
+    expect(screen.getByTestId('scan-open')).toHaveTextContent('false');
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-scan'));
+    });
+
+    expect(screen.getByTestId('scan-open')).toHaveTextContent('true');
+    // The native mobile scanner must never run on the extension path.
+    expect(scanQRCodeMock).not.toHaveBeenCalled();
+  });
+
+  it('populates the recipient input and runs validation on a drawer-detected address', () => {
+    // Accept the scanned mtst1 address so a cleared error proves validation ran.
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr.startsWith('0x'));
+    renderFlow();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-detected'));
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('surfaces a drawer scan error on the recipient field', () => {
+    renderFlow();
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('scan-error'));
+    });
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cameraPermissionDenied');
   });
 });
 

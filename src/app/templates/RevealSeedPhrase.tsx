@@ -197,7 +197,11 @@ const RevealSeedPhrase: FC = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
       <NavigationHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
 
-      <Drawer open={showPasswordDrawer} onOpenChange={open => !open && handlePasswordDrawerClose()}>
+      <Drawer
+        open={showPasswordDrawer}
+        onOpenChange={open => !open && handlePasswordDrawerClose()}
+        screenKey="reveal-seed"
+      >
         <DrawerContent>
           <DrawerHeader>
             <DrawerTitle>{t(usePasscodeEntry ? 'enterYourPasscode' : 'password')}</DrawerTitle>

@@ -63,6 +63,18 @@ jest.mock('./store', () => ({
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
 
+/**
+ * A `withUnlocked` mock that behaves like the real one for a LOCKED wallet:
+ * `assertUnlocked` refuses to run the factory and throws a `reason: 'locked'`
+ * error (see `back/store.ts`). Used instead of handing the factory `{vault: null}`
+ * — that shape is unreachable in production now that the gate exists.
+ */
+const lockedWithUnlocked = () => {
+  mockWithUnlocked.mockImplementation(() => {
+    throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' as const });
+  });
+};
+
 const mockIntercomBroadcast = jest.fn();
 jest.mock('./defaults', () => ({
   getIntercom: () => ({ broadcast: mockIntercomBroadcast })
@@ -260,11 +272,10 @@ describe('setupTransactionProcessor', () => {
   });
 
   it('persists a diagnostic to chrome.storage.local when the heal keeps failing after re-open (issue #254)', async () => {
-    // The Segment escalation the PR originally used is dead in the shipped SW
-    // build (`back/analytics.ts` throws without ALEO_WALLET_SEGMENT_WRITE_KEY,
-    // which the background Vite build never defines), so a persistently-wedged
-    // heal must be recorded to `chrome.storage.local` — a sink that actually
-    // works in the MV3 SW and survives a broken IndexedDB.
+    // The transaction analytics sink the PR originally escalated to was removed
+    // (it was dead Aleo-era code), so a persistently-wedged heal must be recorded
+    // to `chrome.storage.local` — a sink that actually works in the MV3 SW and
+    // survives a broken IndexedDB.
     const mod = await import('./transaction-processor');
     mod.setupTransactionProcessor();
     await flushAsync();
@@ -402,11 +413,10 @@ describe('setupTransactionProcessor', () => {
 
 describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
   it('getAccounts throws a locked-classified error (not a raw null-deref) when the vault is locked', async () => {
-    // Simulate a LOCKED wallet: `inited === true` but `vault === null`.
-    // The real `withUnlocked` only asserts `inited`, so it invokes the
-    // factory with a null vault — the exact state a background Guardian
-    // consume hits when the wallet is locked.
-    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    // A LOCKED wallet: `inited === true` but `vault === null`. `assertUnlocked`
+    // rejects that state outright — the exact situation a background Guardian
+    // consume hits when the wallet auto-locks mid-run.
+    lockedWithUnlocked();
     const mod = await import('./transaction-processor');
 
     let caught: unknown;
@@ -430,12 +440,12 @@ describe('vaultGuardianProvider — locked-vault guard (#313)', () => {
   it('swSignCallback throws a locked-classified error (not a raw null-deref) when the vault is locked at sign time', async () => {
     // The sign step of a background Guardian consume: `getAccounts` already
     // passed (live vault) but an auto-lock nulled the vault before
-    // `executeTransaction` invoked the sign callback. `withUnlocked` only
-    // asserts `inited`, so it hands the factory a null vault. An unguarded
-    // `vault.signTransaction(...)` would throw the opaque
-    // `TypeError: Cannot read properties of null` — which the guardian catch
-    // cannot classify as locked, so the tx is Failed and the note-claim lost.
-    mockWithUnlocked.mockImplementation((fn: (ctx: { vault: unknown }) => unknown) => fn({ vault: null }));
+    // `executeTransaction` invoked the sign callback. `assertUnlocked` stops the
+    // factory before it can dereference the null vault; the callback must let
+    // that locked-classified error through rather than wrapping it into
+    // something the guardian catch cannot classify (which would Fail the tx and
+    // lose the note-claim).
+    lockedWithUnlocked();
     const mod = await import('./transaction-processor');
 
     let caught: unknown;

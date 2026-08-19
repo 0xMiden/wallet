@@ -9,9 +9,10 @@ import {
   requestSWTransactionProcessing,
   verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
@@ -24,7 +25,10 @@ export interface ClaimNotesState {
   unclaimedNotes: NoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
-  failedNoteIds: Set<string>;
+  /** Notes that failed but where a retry can still help (local failed consume / claim error). */
+  retriableNoteIds: Set<string>;
+  /** Notes the node/client reports as terminally Invalid — a retry cannot help. */
+  invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   handleClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   handleClaimAll: () => Promise<void>;
@@ -33,8 +37,9 @@ export interface ClaimNotesState {
 
 /**
  * Claim plumbing for PendingTab: claimable-notes fetching, batch claiming
- * (Claim All / per-asset group), per-note claiming state, and a one-shot
- * failed-notes check against local IndexedDB + node state.
+ * (Claim All / per-asset group), per-note claiming state, and a re-running
+ * failed/unavailable-notes check against local IndexedDB + node state that
+ * keeps failed notes visible until the user can act (#456).
  *
  * Extracted from Receive.tsx so any page can host the pending-notes UI.
  */
@@ -52,9 +57,17 @@ export function useClaimNotes(): ClaimNotesState {
 
   const [claimingNoteIds, setClaimingNoteIds] = useState<Set<string>>(new Set());
   const [individualClaimingIds, setIndividualClaimingIds] = useState<Set<string>>(new Set());
-  const [failedNoteIds, setFailedNoteIds] = useState<Set<string>>(new Set());
+  const [retriableNoteIds, setRetriableNoteIds] = useState<Set<string>>(new Set());
+  const [invalidNoteIds, setInvalidNoteIds] = useState<Set<string>>(new Set());
   const [checkingNoteIds, setCheckingNoteIds] = useState<Set<string>>(new Set());
   const claimAllAbortRef = useRef<AbortController | null>(null);
+  // Ids that failed synchronously at claim-queue time. `initiateConsumeNotesTransaction`
+  // queues inside a Dexie rw-transaction, so a throw rolls back without persisting a
+  // Failed row — `getFailedTransactions` can never re-surface them. Held additively in
+  // memory so the REPLACE-based recheck below doesn't wipe them on a tab-return, which
+  // would silently revert the note to a neutral Claim button (#456). Pruned to
+  // still-claimable, non-terminal ids on every check so recovered/removed notes clear.
+  const locallyFailedNoteIdsRef = useRef<Set<string>>(new Set());
 
   const handleClaimingStateChange = useCallback((noteId: string, isClaiming: boolean) => {
     setIndividualClaimingIds(prev => {
@@ -101,71 +114,125 @@ export function useClaimNotes(): ClaimNotesState {
     return () => clearInterval(interval);
   }, [mutateClaimableNotes]);
 
-  // Check for failed notes: both from local IndexedDB and node state (only once on mount).
-  const hasCheckedFailedNotes = useRef(false);
-  useEffect(() => {
-    const checkFailedNotes = async () => {
-      if (safeClaimableNotes.length === 0) return;
-      if (hasCheckedFailedNotes.current) return;
-      hasCheckedFailedNotes.current = true;
+  // Keep the latest claimable notes reachable from the stable check callback
+  // (focus / visibility handlers) without re-subscribing them every render.
+  const safeClaimableNotesRef = useRef(safeClaimableNotes);
+  safeClaimableNotesRef.current = safeClaimableNotes;
 
-      const noteIdsToCheck = new Set(safeClaimableNotes.map(n => n.id));
-      setCheckingNoteIds(noteIdsToCheck);
+  // Check for failed/unavailable notes from both local IndexedDB (retriable —
+  // a failed consume that a retry can recover) and node/client state (terminal
+  // Invalid — a retry cannot help). Splitting the two lets the UI keep a Retry
+  // affordance for the former and suppress it for the latter.
+  //
+  // Each run REPLACES both sets, scoped to the ids still claimable right now, so
+  // a note that recovered — or left the list — clears instead of latching (#456).
+  // Only the first check with notes present shows the checking spinner; every
+  // background re-run stays silent. No polling interval is added.
+  const runFailedNotesCheck = useCallback(async (showSpinner: boolean) => {
+    const notes = safeClaimableNotesRef.current;
+    if (notes.length === 0) {
+      // Nothing claimable: drop any stale flags so old badges don't linger.
+      locallyFailedNoteIdsRef.current = new Set();
+      setRetriableNoteIds(new Set());
+      setInvalidNoteIds(new Set());
+      return;
+    }
 
-      const failedIds = new Set<string>();
+    const claimableNoteIds = new Set(notes.map(n => n.id));
+    if (showSpinner) setCheckingNoteIds(new Set(claimableNoteIds));
+
+    const retriableIds = new Set<string>();
+    const invalidIds = new Set<string>();
+
+    try {
+      const failedTxs = await getFailedTransactions();
+      for (const tx of failedTxs) {
+        if (tx.type !== 'consume') continue;
+        for (const failedNoteId of tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) {
+          retriableIds.add(failedNoteId);
+        }
+      }
 
       try {
-        const failedTxs = await getFailedTransactions();
-        for (const tx of failedTxs) {
-          if (tx.type !== 'consume') continue;
-          for (const failedNoteId of tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) {
-            failedIds.add(failedNoteId);
-          }
-        }
-
-        try {
-          if (isExtension()) {
-            const res = await getIntercom().request({
-              type: WalletMessageType.GetInputNoteDetailsRequest,
-              noteIds: safeClaimableNotes.map(n => n.id)
-            });
-            if (res && 'type' in res && res.type === WalletMessageType.GetInputNoteDetailsResponse) {
-              for (const note of res.notes) {
-                if (note.state === 'Invalid') {
-                  failedIds.add(note.noteId);
-                }
-              }
-            }
-          } else {
-            const noteIds = safeClaimableNotes.map(n => n.id);
-            const noteDetails = await withWasmClientLock(async () => {
-              const midenClient = await getMidenClient();
-              return await midenClient.getInputNoteDetails({ ids: noteIds });
-            });
-
-            for (const note of noteDetails) {
-              if (note.state === InputNoteState.Invalid) {
-                failedIds.add(note.noteId);
+        if (isExtension()) {
+          const res = await getIntercom().request({
+            type: WalletMessageType.GetInputNoteDetailsRequest,
+            noteIds: notes.map(n => n.id)
+          });
+          if (res && 'type' in res && res.type === WalletMessageType.GetInputNoteDetailsResponse) {
+            for (const note of res.notes) {
+              if (note.state === 'Invalid') {
+                invalidIds.add(note.noteId);
               }
             }
           }
-        } catch (err) {
-          console.error('[useClaimNotes] Error checking node state for notes:', err);
-        }
+        } else {
+          const noteIds = notes.map(n => n.id);
+          const noteDetails = await withWasmClientLock(async () =>
+            midenClientProxy.getInputNoteDetails({ ids: noteIds })
+          );
 
-        const claimableNoteIds = new Set(safeClaimableNotes.map(n => n.id));
-        const failedClaimableNotes = new Set([...failedIds].filter(id => claimableNoteIds.has(id)));
-
-        if (failedClaimableNotes.size > 0) {
-          setFailedNoteIds(prev => new Set([...prev, ...failedClaimableNotes]));
+          for (const note of noteDetails) {
+            if (note.state === InputNoteState.Invalid) {
+              invalidIds.add(note.noteId);
+            }
+          }
         }
-      } finally {
-        setCheckingNoteIds(new Set());
+      } catch (err) {
+        console.error('[useClaimNotes] Error checking node state for notes:', err);
       }
-    };
 
-    checkFailedNotes();
-  }, [safeClaimableNotes]);
+      // Fold in ids that failed synchronously at queue time (never persisted as a
+      // Failed tx). Prune the memory-only set to still-claimable, non-terminal ids
+      // first so recovered/removed/now-Invalid notes clear, then union what remains.
+      locallyFailedNoteIdsRef.current = new Set(
+        [...locallyFailedNoteIdsRef.current].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))
+      );
+      for (const id of locallyFailedNoteIdsRef.current) retriableIds.add(id);
+
+      // REPLACE (not union), scoped to the ids still claimable right now. A note
+      // reported Invalid is terminal and takes precedence over a retriable flag.
+      setInvalidNoteIds(new Set([...invalidIds].filter(id => claimableNoteIds.has(id))));
+      setRetriableNoteIds(new Set([...retriableIds].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))));
+    } finally {
+      if (showSpinner) setCheckingNoteIds(new Set());
+    }
+  }, []);
+
+  // Primary re-run trigger: the claimable-id signature changing (notes added,
+  // removed, or claimed away). The first check with notes present shows the
+  // spinner; later signature changes re-check silently.
+  const claimableSignature = useMemo(
+    () =>
+      safeClaimableNotes
+        .map(n => n.id)
+        .sort()
+        .join(','),
+    [safeClaimableNotes]
+  );
+  const hasShownInitialSpinner = useRef(false);
+
+  useEffect(() => {
+    const showSpinner = !hasShownInitialSpinner.current && safeClaimableNotesRef.current.length > 0;
+    if (showSpinner) hasShownInitialSpinner.current = true;
+    runFailedNotesCheck(showSpinner);
+  }, [claimableSignature, runFailedNotesCheck]);
+
+  // Also re-check when the user returns to the tab: a consume may have failed
+  // (or a note gone terminal) while the page was backgrounded. Never shows the
+  // spinner.
+  useEffect(() => {
+    const recheck = () => runFailedNotesCheck(false);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') recheck();
+    };
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [runFailedNotesCheck]);
 
   const claimNotesBatch = useCallback(
     async (filter?: (note: NoteWithMetadata) => boolean) => {
@@ -194,30 +261,65 @@ export function useClaimNotes(): ClaimNotesState {
       const noteIds = notesToClaim.map(n => n.id);
       setClaimingNoteIds(prev => new Set([...prev, ...noteIds]));
 
-      setFailedNoteIds(new Set());
+      // Optimistically clear retriable badges for the notes now being retried
+      // (they render as 'consuming' while in flight); a queue-time throw below
+      // re-flags them.
+      setRetriableNoteIds(new Set());
+      for (const id of noteIds) locallyFailedNoteIdsRef.current.delete(id);
 
       try {
         let batchTxId: string | null = null;
-        try {
-          // One consume transaction for the whole batch — both the WASM client
-          // and the Guardian consume proposal take multiple note ids, so this
-          // is a single proof/submit instead of one per note. User tapped
-          // Claim All — bypass the auto-consume backoff gate so failed notes
-          // can be retried on demand.
-          batchTxId = await initiateConsumeNotesTransaction(
-            account.publicKey,
-            notesToClaim,
-            isDelegatedProvingEnabled,
-            true
-          );
-        } catch (err) {
-          console.error('Error queuing notes for claim:', noteIds, err);
-          setFailedNoteIds(new Set(noteIds));
-          setClaimingNoteIds(prev => {
-            const next = new Set(prev);
-            for (const noteId of noteIds) next.delete(noteId);
-            return next;
-          });
+        // One consume transaction PER FAUCET, not one for the whole batch.
+        //
+        // A completed consume row carries a single (faucetId, amount) pair:
+        // `completeConsumeTransaction` takes the faucet from the FIRST input
+        // note and then sums only the assets whose faucet matches it. A
+        // mixed-faucet batch therefore recorded "Received 10 MIDEN" for a
+        // transaction that also delivered 25 USDC, and nothing else ever
+        // creates a row for the dropped asset — it is absent from the activity
+        // list and from the detail screen, and `tx.faucetId` reconciliation
+        // (swap/bridge) never sees it. Grouping makes each row's asset
+        // attribution correct BY CONSTRUCTION, which is the shape
+        // `handleClaimGroup` already produced; the cost is one proof per
+        // distinct asset instead of one for the batch. Notes sharing a faucet
+        // still go out in a single proof/submit.
+        const byFaucet = new Map<string, NoteWithMetadata[]>();
+        for (const note of notesToClaim) {
+          const group = byFaucet.get(note.faucetId);
+          if (group) {
+            group.push(note);
+          } else {
+            byFaucet.set(note.faucetId, [note]);
+          }
+        }
+
+        for (const groupNotes of byFaucet.values()) {
+          const groupNoteIds = groupNotes.map(n => n.id);
+          try {
+            // User tapped Claim All — bypass the auto-consume backoff gate so
+            // failed notes can be retried on demand.
+            const groupTxId = await initiateConsumeNotesTransaction(
+              account.publicKey,
+              groupNotes,
+              isDelegatedProvingEnabled,
+              true
+            );
+            batchTxId = batchTxId ?? groupTxId;
+          } catch (err) {
+            console.error('Error queuing notes for claim:', groupNoteIds, err);
+            // Record the failure in the memory-only set too: this queue-time throw
+            // rolled back its Dexie transaction, so getFailedTransactions can't
+            // re-surface it and the REPLACE-based recheck would otherwise wipe the
+            // flag on the next focus/visibility tick (#456). Scoped to the failing
+            // group so the faucets that DID queue stay marked as claiming.
+            for (const id of groupNoteIds) locallyFailedNoteIdsRef.current.add(id);
+            setRetriableNoteIds(prev => new Set([...prev, ...groupNoteIds]));
+            setClaimingNoteIds(prev => {
+              const next = new Set(prev);
+              for (const noteId of groupNoteIds) next.delete(noteId);
+              return next;
+            });
+          }
         }
 
         if (isExtension()) {
@@ -264,7 +366,8 @@ export function useClaimNotes(): ClaimNotesState {
     unclaimedNotes,
     isDelegatedProvingEnabled,
     claimingNoteIds,
-    failedNoteIds,
+    retriableNoteIds,
+    invalidNoteIds,
     checkingNoteIds,
     handleClaimingStateChange,
     handleClaimAll,

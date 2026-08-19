@@ -43,10 +43,15 @@ const GUARDIAN_KEYS_FIXTURE = {
   hotCiphertext: 'hot-ct',
   coldSecretKeyHex: 'cold-sk'
 };
-const mockCreateGuardianMidenWallet = jest.fn(async (_seed: Uint8Array) => ({
-  accountId: 'guardian-acc-1',
-  keys: GUARDIAN_KEYS_FIXTURE
-}));
+const mockCreateGuardianMidenWallet = jest.fn(
+  async (
+    _seed: Uint8Array,
+    _guardianEndpoint?: string
+  ): Promise<{ accountId: string; keys: typeof GUARDIAN_KEYS_FIXTURE; guardianEndpoint?: string }> => ({
+    accountId: 'guardian-acc-1',
+    keys: GUARDIAN_KEYS_FIXTURE
+  })
+);
 const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _endpoint: string) => [
   {
     accountId: 'guardian-acc-imported',
@@ -81,6 +86,10 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
     keystore: { insert: mockKeystoreInsert }
   }
 }));
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
@@ -103,8 +112,30 @@ jest.mock('lib/secure-hot-key', () => ({
 // on-chain index-0 signer via getSignerDetailsFromAccount. Mock it so tests can
 // drive the match / mismatch branches.
 const mockGetSignerDetailsFromAccount = jest.fn();
+// createHDAccount resolves a second Guardian account's endpoint from the sibling
+// account's per-account field via resolveGuardianEndpoint. Default: echo the
+// account's guardianEndpoint (the real function's first-preference), then a
+// stand-in default — so the per-account field wins over any global key.
+const mockResolveGuardianEndpoint = jest.fn(async (acc: any) => acc?.guardianEndpoint ?? 'https://default.example');
+// backfillGuardianEndpoints reads the on-chain guardian commitment off the SDK
+// account via getGuardianCommitmentFromAccount; mock it so tests drive the
+// resolve / no-commitment branches.
+const mockGetGuardianCommitmentFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
-  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a)
+  getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  getGuardianCommitmentFromAccount: (...a: unknown[]) => mockGetGuardianCommitmentFromAccount(...a),
+  resolveGuardianEndpoint: (...a: unknown[]) => mockResolveGuardianEndpoint(...(a as [any]))
+}));
+
+// backfillGuardianEndpoints builds the operator commitment->option map ONCE via
+// buildOperatorKeyMap, then looks each account's commitment up against it. Mock
+// the map build to drive the match / no-match branches (an empty map or a
+// missing key => custom / self-hosted / rotated / operator down); normalizeHex
+// mirrors the real strip-0x + lowercase so lookups compare equal.
+const mockBuildOperatorKeyMap = jest.fn();
+jest.mock('../guardian/operator-map', () => ({
+  buildOperatorKeyMap: (...a: unknown[]) => mockBuildOperatorKeyMap(...a),
+  normalizeHex: (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase()
 }));
 
 // Unified handle used by tests — matches the old mockMidenClient API.
@@ -880,6 +911,27 @@ describe('Vault.createHDAccount', () => {
 });
 
 describe('Vault.spawn', () => {
+  // Regression: the hardware-only path (`!password`) fell through to the
+  // password branch when the availability probe said the hardware was NOT
+  // available, and encrypted the vault key under the empty string —
+  // `Actions.registerNewWallet` passes `password ?? ''`. That protects the
+  // mnemonic, every account auth key, the guardian cold key and the EVM keys
+  // with no secret at all, AND locks the user out (setup() finds no hardware
+  // protector; Unlock demands a password never chosen). `spawnFromMidenClient`
+  // always had this guard; `spawn` did not.
+  it.each([
+    ['no password at all', undefined],
+    ['the empty string registerNewWallet substitutes', '']
+  ])('refuses to mint an empty-password vault when hardware is unavailable (%s)', async (_label, password) => {
+    // Extension platform mocks → isHardwareSecurityAvailableForVault() === false,
+    // i.e. onboarding chose biometrics but the probe now says unavailable.
+    await expect(Vault.spawn(WalletType.OnChain, password as any)).rejects.toThrow(
+      'Password is required for password-based vault protection'
+    );
+    // Nothing password-shaped was persisted, so no empty-password blob exists.
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
   it('creates a fresh wallet with a generated mnemonic and password protection', async () => {
     const vault = await Vault.spawn(WalletType.OnChain, 'pw');
     expect(vault).toBeInstanceOf(Vault);
@@ -912,6 +964,39 @@ describe('Vault.spawn', () => {
     expect(vault).toBeInstanceOf(Vault);
     expect(await Vault.getCurrentAccountPublicKey()).toBe('fallback-pk');
     // Both schemes were probed (falcon first, ecdsa second).
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
+  });
+
+  it('ABORTS the restore instead of creating a fresh wallet when the node is unreachable', async () => {
+    // The fund-loss-shaped bug: a probe miss and an unreachable node are different
+    // answers. If the RPC is down mid-restore, every scheme "misses", spawn falls
+    // through, and a user who typed a CORRECT seed gets a brand-new EMPTY wallet —
+    // their real account simply doesn't appear. This is the exact error text a real
+    // CI run produced when Miden testnet DNS failed.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(
+      new Error(
+        'client error: RPC error: grpc request failed for submit_proven_transaction: ' +
+          'Miden node is unavailable; check that the node is running and reachable'
+      )
+    );
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(
+      /Could not reach the Miden network/i
+    );
+    // The whole point: NO wallet was created behind the user's back.
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    // It aborts on the FIRST unreachable probe rather than burning the second.
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('still creates a fresh wallet when the probes definitively miss (seed is genuinely new)', async () => {
+    // The legitimate fall-through must survive: "no account on chain" is a real
+    // answer and a first-time seed must still produce a wallet.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('account not found on chain'));
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('fresh-pk');
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(await Vault.getCurrentAccountPublicKey()).toBe('fresh-pk');
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(2);
   });
 
@@ -1416,11 +1501,79 @@ describe('Vault hardware branches', () => {
     (isMobile as jest.Mock).mockReturnValue(false);
     mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('guardian lookup failed'));
 
-    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true)).rejects.toThrow(
-      PublicError
-    );
+    // …and the lookup's OWN reason must survive. `withError('Failed to create
+    // wallet', …)` replaces any non-PublicError with that generic string; on the
+    // forgot-password reset the wallet is already wiped by the time this throws,
+    // so the reason is all the user has left (#630). Asserting the message, not
+    // just the class, is what pins that (a plain `toThrow(PublicError)` passes on
+    // the generic wrapper too).
+    const spawning = Vault.spawn(WalletType.Guardian, 'pw-guardian-fail', VALID_MNEMONIC, true);
+    await expect(spawning).rejects.toThrow(PublicError);
+    await expect(spawning).rejects.toThrow('guardian lookup failed');
 
     // createGuardianMidenWallet must NOT be called as a fallback — Guardian rethrows.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn re-throws a PublicError from the recovery lookup unchanged', async () => {
+    // The lookup may already be raising a user-facing error; promoting it a
+    // second time would be a pointless re-wrap, and `withError` passes
+    // PublicErrors through untouched, so the message must arrive verbatim.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    const original = new PublicError('Could not reach the Miden network');
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(original);
+
+    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-public', VALID_MNEMONIC, true)).rejects.toBe(original);
+  });
+
+  it('Vault.spawn stringifies a non-Error recovery rejection rather than losing it', async () => {
+    // A rejection that is not an Error at all (an SDK that throws a string, or a
+    // WASM trap surfacing as one) must still reach the screen as text — the
+    // alternative is the generic 'Failed to create wallet' after a wipe.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce('guardian endpoint returned 503');
+
+    await expect(Vault.spawn(WalletType.Guardian, 'pw-guardian-string', VALID_MNEMONIC, true)).rejects.toThrow(
+      'guardian endpoint returned 503'
+    );
+  });
+
+  it('Vault.spawn threads the picked guardianEndpoint into createGuardianMidenWallet (create path)', async () => {
+    // Stage 1 of #408: the endpoint the user picked at choose-guardian is passed
+    // explicitly through spawn instead of round-tripping the global storage key.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(
+      WalletType.Guardian,
+      'pw-guardian-create',
+      VALID_MNEMONIC,
+      false,
+      'https://picked-guardian.example'
+    );
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://picked-guardian.example'
+    );
+  });
+
+  it('Vault.spawn threads the probed guardianEndpoint into recoverGuardianAccountsBySeed (recovery path)', async () => {
+    // Stage 1 of #408: the probed endpoint reaches the recovery lookup explicitly.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    await Vault.spawn(
+      WalletType.Guardian,
+      'pw-guardian-recover',
+      VALID_MNEMONIC,
+      true,
+      'https://probed-guardian.example'
+    );
+    expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
+      expect.any(Function),
+      'https://probed-guardian.example'
+    );
+    // createGuardianMidenWallet must NOT run on the recovery path.
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
 
@@ -1435,6 +1588,51 @@ describe('Vault hardware branches', () => {
       keys: GUARDIAN_KEYS_FIXTURE
     });
     await expect(vlt.createHDAccount(WalletType.Guardian, 'Guardian 1')).resolves.toBeTruthy();
+  });
+
+  it('createHDAccount sources a second Guardian account endpoint from the existing account (not the global key)', async () => {
+    // #408 stage 1: onboarding no longer writes the global GUARDIAN_URL_STORAGE_KEY,
+    // so an added Guardian account must take its endpoint from a sibling account's
+    // per-account field. Spawn a wallet whose first Guardian account is on a
+    // non-default operator, then add a second Guardian account.
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-1',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://first-guardian.example'
+    });
+    const vlt = await Vault.spawn(
+      WalletType.Guardian,
+      'pw-add-guardian',
+      VALID_MNEMONIC,
+      false,
+      'https://first-guardian.example'
+    );
+
+    // Isolate the createHDAccount call and make the resolved endpoint a sentinel
+    // that can only have come from resolveGuardianEndpoint(existing account).
+    mockMidenClient.createGuardianMidenWallet.mockClear();
+    mockResolveGuardianEndpoint.mockResolvedValueOnce('https://resolved-from-sibling.example');
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-2',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://resolved-from-sibling.example'
+    });
+
+    await vlt.createHDAccount(WalletType.Guardian, 'Guardian 2');
+
+    // Endpoint was resolved from the existing Guardian account…
+    expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ publicKey: 'guardian-acc-1', guardianEndpoint: 'https://first-guardian.example' })
+    );
+    // …and threaded into the second account's creation. Previously this 2nd arg
+    // was absent, forcing createGuardianAccount to fall back to the (now unwritten)
+    // global key — the regression stage 1 would otherwise introduce.
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'https://resolved-from-sibling.example'
+    );
   });
 
   it('createHDAccount supports WalletType.OffChain (derivation index 1)', async () => {
@@ -1608,5 +1806,133 @@ describe('Vault.migrateLegacyGuardianAccounts', () => {
     const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
     jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
     await expect(vault.migrateLegacyGuardianAccounts()).resolves.toBeUndefined();
+  });
+});
+
+describe('Vault.backfillGuardianEndpoints', () => {
+  const legacyGuardian = {
+    publicKey: 'guardian-legacy',
+    name: 'Guardian 1',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 0
+  };
+  const stampedGuardian = {
+    publicKey: 'guardian-stamped',
+    name: 'Guardian 2',
+    isPublic: true,
+    type: WalletType.Guardian,
+    hdIndex: 1,
+    guardianEndpoint: 'https://already.example'
+  };
+  const normalAcc = { publicKey: 'normal-1', name: 'Acc', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+  const operator = { id: 'open-zeppelin', name: 'OpenZeppelin', endpoint: 'https://oz.example' };
+
+  beforeEach(() => {
+    // On-chain account present; its guardian commitment reads back as 'abc123'.
+    mockGetAccount.mockReset();
+    mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'guardian-legacy' }) });
+    mockGetGuardianCommitmentFromAccount.mockReset();
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
+    // By default the operator map holds the account's commitment, so the legacy
+    // account gets stamped.
+    mockBuildOperatorKeyMap.mockReset();
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', operator]]));
+  });
+
+  it('stamps a matched legacy Guardian account with the operator endpoint + commitment', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, normalAcc] as any });
+    await vault.backfillGuardianEndpoints();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.guardianEndpoint).toBe('https://oz.example');
+    expect(acc.guardianOperatorCommitment).toBe('abc123');
+    // Resolved by looking the on-chain commitment up in the built-in-operator
+    // map — the same commitment -> operator path guardian-drift uses, built once
+    // and (like guardian-drift) without an explicit network argument.
+    expect(mockBuildOperatorKeyMap).toHaveBeenCalledWith();
+    // A non-Guardian account is never touched.
+    const normal = (await vault.fetchAccounts()).find(a => a.publicKey === 'normal-1')!;
+    expect(normal.guardianEndpoint).toBeUndefined();
+  });
+
+  it('builds the operator key map ONCE regardless of how many legacy accounts there are', async () => {
+    const secondLegacy = {
+      publicKey: 'guardian-legacy-2',
+      name: 'Guardian 3',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 2
+    };
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, secondLegacy] as any });
+    await vault.backfillGuardianEndpoints();
+
+    // K accounts => a single operator probe round, not one per account.
+    expect(mockBuildOperatorKeyMap).toHaveBeenCalledTimes(1);
+    const accounts = await vault.fetchAccounts();
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy')!.guardianEndpoint).toBe('https://oz.example');
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy-2')!.guardianEndpoint).toBe('https://oz.example');
+  });
+
+  it('skips a Guardian account that already carries a guardianEndpoint (idempotent, never overwrites)', async () => {
+    const vault = await seedVault('pw', { accounts: [stampedGuardian] as any });
+    await vault.backfillGuardianEndpoints();
+
+    // Already-stamped accounts are filtered out before the map is built or any
+    // on-chain read happens.
+    expect(mockBuildOperatorKeyMap).not.toHaveBeenCalled();
+    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-stamped')!;
+    expect(acc.guardianEndpoint).toBe('https://already.example');
+  });
+
+  it('leaves a NO-MATCH account untouched — never stamps a guessed/default endpoint', async () => {
+    // Operator down / custom / self-hosted / rotated key => commitment absent
+    // from the map (here: empty map, e.g. every operator unreachable).
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map());
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.backfillGuardianEndpoints();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.guardianEndpoint).toBeUndefined();
+    expect(acc.guardianOperatorCommitment).toBeUndefined();
+  });
+
+  it('leaves an account with no on-chain commitment untouched (retries next unlock)', async () => {
+    mockGetGuardianCommitmentFromAccount.mockReturnValue(undefined);
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    await vault.backfillGuardianEndpoints();
+
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.guardianEndpoint).toBeUndefined();
+    expect(acc.guardianOperatorCommitment).toBeUndefined();
+  });
+
+  it("one account's error does not block the others", async () => {
+    const secondLegacy = {
+      publicKey: 'guardian-legacy-2',
+      name: 'Guardian 3',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 2
+    };
+    // First account's on-chain read throws; second resolves fine.
+    mockGetGuardianCommitmentFromAccount
+      .mockImplementationOnce(() => {
+        throw new Error('boom');
+      })
+      .mockReturnValue('abc123');
+    const vault = await seedVault('pw', { accounts: [legacyGuardian, secondLegacy] as any });
+    await vault.backfillGuardianEndpoints();
+
+    const accounts = await vault.fetchAccounts();
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy')!.guardianEndpoint).toBeUndefined();
+    expect(accounts.find(a => a.publicKey === 'guardian-legacy-2')!.guardianEndpoint).toBe('https://oz.example');
+  });
+
+  it('never throws (best-effort) — a failure cannot block unlock', async () => {
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+    jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
+    await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
   });
 });

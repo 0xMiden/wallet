@@ -213,9 +213,32 @@ const sharedDefine = {
   'process.env.VERSION': JSON.stringify(pkg.version),
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+  // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount) through
+  // the chrome.offscreen document. DEFAULT OFF *in this bundle* — the popup/side
+  // panel cannot open an offscreen document at all; the service worker's bundle
+  // (`vite.background.config.ts`) defaults the same flag to `'true'`. Off is a strict
+  // no-op vs. the inline client. See src/lib/miden/back/miden-client-proxy.ts.
+  'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
+  // the __TEST_*__ hooks) so a harness build can keep the hooks while still
+  // exercising the real side panel / endpoint-override paths. Default 'false'
+  // => identical to today in every non-E2E build.
+  //
+  // Both MUST stay defined here AND in every other config that bundles the
+  // reading module. A `process.env.X` read with no matching define does NOT
+  // fail loudly: the bundler rewrites the un-matched `process.env` base to an
+  // empty object literal, so the shipped code is `{}.X === '...'` — always
+  // `undefined`, i.e. the flag is silently OFF in that bundle with no
+  // diagnostic at all. (That is exactly how DEBUG_DAPP_BRIDGE went dead across
+  // all five configs.) Adding a flag to one config and not the others is
+  // therefore a silent behaviour split, not a crash.
+  'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+  'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+  ),
   'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
     process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
@@ -227,11 +250,35 @@ const sharedDefine = {
     process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
   ),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+  // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+  // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+  // every config that bundles either module — an un-defined `process.env.X` read
+  // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+  // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+  'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
   'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
   // Requires the explicit-prover fix from 0xMiden/web-sdk#182
   // (>= 0.15.0-alpha.6); see the rationale block in
   // vite.background.config.ts.
   'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
+  // Popup half of the speculative pre-prove flag: it only decides whether the send
+  // flow SENDS SpeculateSendRequest. Whether anything acts on it is the service
+  // worker's call — `initSpeculationManager` returns null when the offscreen client
+  // owns the send (issue #260), leaving the handler inert. Left ON because the popup
+  // cannot evaluate that gate at all: half of it is `isOffscreenAvailable()`, and
+  // `chrome.offscreen` is exposed only to the service worker (this bundle also
+  // DEFAULTS MIDEN_USE_OFFSCREEN_CLIENT to 'false', but that half is only a default,
+  // so it is not what makes the gate unevaluable here).
+  //
+  // The cost of leaving it on, flag-on Chrome: one debounced SpeculateSendRequest per
+  // 500 ms quiet period while the user edits the amount / recipient / token in
+  // SendManager, plus ONE SpeculateInvalidate per exit from the send flow — the two
+  // unmount invalidates are alternatives, not a pair, since SendManager skips its own
+  // while a send draft is pending, which is exactly the handoff to the review screen
+  // (SendManager.tsx). A straight-through send therefore sends only the review
+  // screen's; abandoning the form before review sends only SendManager's. Each is
+  // answered by a handler that does nothing.
+  // See vite.background.config.ts and speculation-manager's TRADEOFF.
   'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
 };
@@ -387,7 +434,20 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es'
+    format: 'es',
+    // Same reason as vite.background.config.ts: Vite bundles workers in a
+    // separate pass with its own asset naming, so this config also emitted a
+    // second copy of the SDK's 19.5 MB wasm as `assets/miden_client_web-<hash>.wasm`
+    // alongside the main pass's `static/wasm/…`. BOTH configs need this — fixing
+    // only one leaves the other re-adding the duplicate (verified the hard way).
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {

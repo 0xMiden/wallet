@@ -1,16 +1,26 @@
 /**
- * Desktop dApp Confirmation Handler
+ * Desktop dApp confirmation prompt.
  *
- * Instead of showing a modal in the main wallet window, this component
- * injects a confirmation overlay directly into the dApp browser window.
- * This provides a better UX since the user is already looking at the dApp.
+ * SECURITY — the prompt renders in the WALLET's own window, never in the dApp's.
+ * It used to be built as a JS string and handed to `show_dapp_confirmation_overlay`
+ * → `dapp_window.eval(...)`, i.e. injected into the requesting page's main world.
+ * The modal's DOM, its `#miden-btn-approve` click listener and its
+ * standing-private-data checkbox were therefore page-owned: a `MutationObserver` in
+ * the dApp could tick the box and fire a synthetic `.click()` the instant the
+ * overlay appeared, granting standing private-data access and executing sends with
+ * no user interaction beyond having the page open. The verdict then travelled back
+ * over a navigation to a fixed host that any page could perform itself, with no
+ * proof it came from the wallet's overlay.
+ *
+ * Now the request drives `dappConfirmationStore` and the shared
+ * `<DappConfirmationModal>` — the same component mobile renders inside its own React
+ * tree — and the user's click resolves the store directly. Nothing about the
+ * decision is reachable from the requesting origin.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
-import { useTranslation } from 'react-i18next';
-
+import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import {
   dappConfirmationStore,
   DAppConfirmationRequest,
@@ -19,129 +29,56 @@ import {
 import { isDesktop } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
-import {
-  generateDesktopConfirmationOverlay,
-  onDappConfirmationResponse,
-  showDappConfirmationOverlay
-} from './dapp-browser';
+import { focusMainWindow } from './dapp-browser';
 
 /**
- * Desktop confirmation handler component
+ * Renders the pending dApp confirmation, if any, on top of the wallet UI.
  *
- * Listens for dApp confirmation requests and shows an overlay in the dApp webview.
- * This component doesn't render anything - it just manages the overlay lifecycle.
+ * Desktop uses the legacy default slot of the store (`sessionId: undefined`) — the
+ * dApp browser is a single window, so there is only ever one session.
  */
-export function DesktopDappConfirmationModal(): null {
-  const { t } = useTranslation();
-  const pendingRequestRef = useRef<DAppConfirmationRequest | null>(null);
+export function DesktopDappConfirmationModal(): React.ReactElement | null {
+  const [request, setRequest] = useState<DAppConfirmationRequest | null>(null);
+  // Which request we have already raised the window for. A ref, not state, so the
+  // focus call happens once per request without re-running the subscription.
+  const focusedForRef = useRef<DAppConfirmationRequest | null>(null);
 
-  // Get account info
   const currentAccount = useWalletStore(s => s.currentAccount);
   const accounts = useWalletStore(s => s.accounts);
 
-  const accountId = useMemo(() => {
-    if (currentAccount?.publicKey) return currentAccount.publicKey;
-    if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
-    return null;
-  }, [currentAccount, accounts]);
+  const accountId = currentAccount?.publicKey ?? accounts?.[0]?.publicKey ?? null;
 
-  const shortAccountId = useMemo(() => {
-    if (!accountId) return '';
-    return `${accountId.slice(0, 10)}...${accountId.slice(-8)}`;
-  }, [accountId]);
-
-  // Listen for confirmation responses from the overlay
   useEffect(() => {
     if (!isDesktop()) return;
 
-    let unsubscribe: (() => void) | undefined;
-
-    onDappConfirmationResponse(response => {
-      const pendingRequest = pendingRequestRef.current;
-      if (!pendingRequest || pendingRequest.id !== response.requestId) {
-        return;
+    const sync = () => {
+      const pending = dappConfirmationStore.getPendingRequest();
+      // The wallet window sits behind the dApp browser window the user was just
+      // looking at, so raise it whenever a NEW request needs an answer. Any failure
+      // is non-fatal: the prompt is rendered and answerable either way.
+      if (pending && pending !== focusedForRef.current) {
+        focusMainWindow().catch(() => {});
       }
-
-      // Resolve the confirmation store
-      const result: DAppConfirmationResult = response.confirmed
-        ? {
-            confirmed: true,
-            accountPublicKey: accountId || undefined,
-            privateDataPermission: pendingRequest.privateDataPermission || PrivateDataPermission.UponRequest
-          }
-        : {
-            confirmed: false
-          };
-
-      // Use setTimeout to match the original auto-approval timing
-      // This avoids race conditions with the confirmation store setup.
-      // PR-4 chunk 8: pass undefined sessionId so this falls into the
-      // legacy default slot.
-      setTimeout(() => {
-        dappConfirmationStore.resolveConfirmation(undefined, result);
-        pendingRequestRef.current = null;
-      }, 100);
-    }).then(unsub => {
-      unsubscribe = unsub;
-    });
-
-    return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      focusedForRef.current = pending;
+      setRequest(pending);
     };
-  }, [accountId]);
 
-  // Subscribe to confirmation store and show overlay when needed
-  useEffect(() => {
-    if (!isDesktop()) return;
+    sync();
+    return dappConfirmationStore.subscribe(sync);
+  }, []);
 
-    const unsubscribe = dappConfirmationStore.subscribe(() => {
-      const request = dappConfirmationStore.getPendingRequest();
+  if (!request) return null;
 
-      if (request && request !== pendingRequestRef.current) {
-        pendingRequestRef.current = request;
+  const resolve = (result: DAppConfirmationResult) => {
+    // PR-4 chunk 8: desktop is single-session, so it resolves the legacy default
+    // slot. `resolveConfirmation` notifies subscribers, which clears `request` via
+    // `sync`; setting it here too keeps the modal from lingering for a frame.
+    dappConfirmationStore.resolveConfirmation(undefined, result);
+    focusedForRef.current = null;
+    setRequest(null);
+  };
 
-        // Show the overlay in the dApp webview
-        const appName = request.appMeta?.name || request.origin;
-        const isTransaction = request.type === 'transaction' || request.type === 'consume';
-
-        const overlayScript = generateDesktopConfirmationOverlay(
-          request.id,
-          appName,
-          request.origin,
-          request.network,
-          shortAccountId,
-          isTransaction,
-          request.transactionMessages || [],
-          {
-            connectionRequest: t('dappConnectionRequest'),
-            transactionRequest: t('dappTransactionRequest'),
-            account: t('account'),
-            network: t('network'),
-            noAccountSelected: t('noAccountSelected'),
-            deny: t('deny'),
-            approve: t('approve'),
-            confirm: t('confirm')
-          }
-        );
-
-        showDappConfirmationOverlay(overlayScript).catch(() => {
-          // If overlay fails, deny the request. PR-4 chunk 8: legacy
-          // default-slot resolution.
-          dappConfirmationStore.resolveConfirmation(undefined, { confirmed: false });
-          pendingRequestRef.current = null;
-        });
-      } else if (!request) {
-        pendingRequestRef.current = null;
-      }
-    });
-
-    return unsubscribe;
-  }, [shortAccountId, t]);
-
-  // This component doesn't render anything - it just manages the overlay
-  return null;
+  return <DappConfirmationModal request={request} accountId={accountId} onResolve={resolve} />;
 }
 
 export default DesktopDappConfirmationModal;

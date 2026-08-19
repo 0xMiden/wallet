@@ -52,6 +52,13 @@ export interface IBridgedReceiveExtraInputs {
   error?: string;
 }
 
+/** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
+ * is optional so rows created before the audit trail remain readable. */
+export interface ISwitchGuardianExtraInputs {
+  previousGuardianEndpoint?: string;
+  newGuardianEndpoint: string;
+}
+
 /**
  * Lifecycle of the EVM-side claim for a `bridged-send`. Epoch (Fast) auto-settles
  * on the destination chain, so it is `'not-applicable'`. Agglayer (Slow) requires
@@ -238,21 +245,32 @@ export interface IConsumeSwapSettleExtraInputs {
  *   - delivering           : send-private only, during `sendPrivateNote`
  *   - guardian-syncing     : Guardian only, while syncing guardian state after submission
  *   - complete             : final stage marker before/at terminal status
+ *
+ * Declared as a runtime tuple with {@link ITransactionStage} DERIVED from it, so
+ * the list exists at runtime for code that must validate a stage it did not
+ * produce — the SW's reverse-IPC listener takes stage stamps off the extension
+ * message bus, where a `stage: ITransactionStage` field on a message type is a
+ * compile-time claim about a value the compiler never saw. Deriving the union
+ * from the tuple (rather than keeping a hand-copied parallel array) makes that
+ * check impossible to drift from the union.
  */
-export type ITransactionStage =
-  | 'syncing'
-  | 'sending'
-  | 'creating-proposal'
-  | 'signing-proposal'
-  | 'executing'
-  | 'proving'
-  | 'submitting'
-  | 'confirming'
-  | 'registering-guardian'
-  | 'delivering'
-  | 'guardian-syncing'
-  | 'guardian-synced'
-  | 'complete';
+export const TRANSACTION_STAGES = [
+  'syncing',
+  'sending',
+  'creating-proposal',
+  'signing-proposal',
+  'executing',
+  'proving',
+  'submitting',
+  'confirming',
+  'registering-guardian',
+  'delivering',
+  'guardian-syncing',
+  'guardian-synced',
+  'complete'
+] as const;
+
+export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 
 export interface ITransaction {
   id: string;
@@ -784,10 +802,15 @@ export class SwitchGuardianTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { newGuardianEndpoint: string };
+  extraInputs: ISwitchGuardianExtraInputs;
   delegateTransaction?: boolean | undefined;
 
-  constructor(accountId: string, newGuardianEndpoint: string, delegateTransaction?: boolean) {
+  constructor(
+    accountId: string,
+    newGuardianEndpoint: string,
+    delegateTransaction?: boolean,
+    previousGuardianEndpoint?: string
+  ) {
     this.id = uuid();
     this.type = 'switch-guardian';
     this.accountId = accountId;
@@ -795,7 +818,7 @@ export class SwitchGuardianTransaction implements ITransaction {
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Switching guardian';
-    this.extraInputs = { newGuardianEndpoint };
+    this.extraInputs = { previousGuardianEndpoint, newGuardianEndpoint };
     this.delegateTransaction = delegateTransaction;
   }
 }
@@ -818,7 +841,12 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  extraInputs: { newHotPublicKey?: string };
+  // `reRegisterFailed` (#619 gap 1): the on-chain rotation succeeded but the
+  // best-effort post-rotation guardian re-register did not land. Observable-only
+  // — it gates nothing (recovery is owned by the guardian-sync 401 self-heal);
+  // it exists so telemetry/E2E can tell a fully-clean rotation from one whose
+  // allowlist push needs the self-heal to catch up.
+  extraInputs: { newHotPublicKey?: string; reRegisterFailed?: boolean };
   delegateTransaction?: boolean | undefined;
 
   constructor(accountId: string, delegateTransaction?: boolean) {

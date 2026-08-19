@@ -99,27 +99,32 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   const inputNotes = result.executedTransaction().inputNotes().notes();
   const outputNotes = result.executedTransaction().outputNotes().notes();
 
-  const inputFaucetIds: string[] = [];
-  const outputFaucetIds: string[] = [];
+  // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
+  // the whole loop (not per note). A custom (`execute`) transaction can consume or
+  // emit several notes: assigning per note left only the LAST note's total behind,
+  // so a two-note consume recorded half the value that actually moved, and pushing
+  // one faucet id per note made a two-note single-faucet transaction look like two
+  // distinct faucets — failing both single-faucet branches below and degrading the
+  // row to the generic 'Executed' label.
+  const inputFaucetIds = new Set<string>();
+  const outputFaucetIds = new Set<string>();
   let faucetId: string | undefined;
   let inputAmount = BigInt(0);
   let outputAmount = BigInt(0);
   inputNotes.forEach(inputNote => {
     const assets = inputNote.note().assets().fungibleAssets();
-    inputAmount = assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
-    const faucetIds = [...new Set(assets.map(asset => getBech32AddressFromAccountId(asset.faucetId())))];
-    inputFaucetIds.push(...faucetIds);
+    inputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
+    assets.forEach(asset => inputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
   });
   outputNotes.forEach(outputNote => {
     const assets = outputNote.assets()!.fungibleAssets();
-    outputAmount = assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
-    const faucetIds = [...new Set(assets.map(asset => getBech32AddressFromAccountId(asset.faucetId())))];
-    outputFaucetIds.push(...faucetIds);
+    outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
+    assets.forEach(asset => outputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
   });
   const transactionAmount = inputAmount - outputAmount;
   const absoluteTransactionAmount = transactionAmount > 0n ? transactionAmount : -transactionAmount;
 
-  if (inputFaucetIds.length === 1 && outputFaucetIds.length === 0) {
+  if (inputFaucetIds.size === 1 && outputFaucetIds.size === 0) {
     type = 'consume';
     const sender = getBech32AddressFromAccountId(inputNotes[0]!.note().metadata().sender());
     const isReclaimed = compareAccountIds(sender, transaction.accountId);
@@ -128,13 +133,13 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
       secondaryAccountId = sender;
     }
 
-    faucetId = inputFaucetIds[0];
+    faucetId = [...inputFaucetIds][0];
     displayIcon = 'RECEIVE';
-  } else if (outputFaucetIds.length === 1 && inputFaucetIds.length === 0) {
+  } else if (outputFaucetIds.size === 1 && inputFaucetIds.size === 0) {
     type = 'send';
     displayMessage = 'Sent';
     displayIcon = 'SEND';
-    faucetId = outputFaucetIds[0];
+    faucetId = [...outputFaucetIds][0];
   } else {
     displayMessage = 'Executed';
   }

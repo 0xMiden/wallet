@@ -27,7 +27,7 @@ Use Node 22+ and Yarn v1. Copy `.env.example` to `.env`, then run `yarn install`
 - `yarn test` runs Jest; `yarn test:coverage` enforces coverage thresholds.
 - `yarn test:e2e` runs the basic Playwright extension suite serially; `yarn test:e2e:blockchain:{testnet,devnet,localhost}` and `yarn test:e2e:mobile:{devnet,testnet}` run live-network suites.
 - `yarn ts` type-checks; `yarn lint` runs ESLint; `yarn format` applies Prettier. Run lint/format only before committing or when asked — not on every build.
-- `yarn storybook` starts component development on port 6006.
+- There is no Storybook: the Vite migration left the `storybook` / `build:storybook` scripts behind but no `.storybook/` config and no `*.stories.*` file, so both exit with `SB_CORE-SERVER_0006 (MainFileMissingError)`. `yarn build-all` (`run-s build:*`, fail-fast) therefore aborts at `build:storybook` and never reaches `build:desktop` — build the platforms you need explicitly (`yarn build:chrome`, `yarn build:mobile`, `yarn desktop:build`).
 
 ### Version bumps
 
@@ -47,6 +47,10 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 - **Optimistic updates**: snapshot previous state, apply, roll back on catch.
 - **Background auto-ops**: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal), not `openLoadingFullPage`.
 - **Sanitized frontend state**: the frontend receives state via `toFront()`; vault/keys stay backend-only.
+
+## Frontend UI, CSS, and Motion
+
+Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wallet UI, CSS, motion, layout, or interaction changes. Reuse existing wallet components and semantic theme tokens before adding primitives or literal styles. Keep component-specific animation out of `src/main.css`; route nontrivial motion through Framer Motion and the reduced-motion-aware spring helpers. Interactive UI must use accessible semantics, appropriate haptics, localization, and platform isolation, then be verified on every affected surface.
 
 ## Adding a Wallet Action
 

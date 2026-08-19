@@ -144,7 +144,7 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'false');
   });
 
-  it('renders the delegate and auto-consume toggles (auto-consume with a description) and hides haptic on non-mobile', () => {
+  it('renders the delegate and auto-consume toggles (both with descriptions) and hides haptic on non-mobile', () => {
     render(<GeneralSettings />);
 
     const delegate = screen.getByTestId(GeneralSettingsSelectors.DelegateToggle) as HTMLInputElement;
@@ -155,6 +155,11 @@ describe('GeneralSettings', () => {
     expect(delegate).toHaveAttribute('name', 'delegateEnabled');
     expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-title`)).toHaveTextContent(
       'delegateProofSettings'
+    );
+    // The delegate toggle now carries an explanatory description (local vs
+    // delegated proving), not just a bare label (#478).
+    expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-desc`)).toHaveTextContent(
+      'delegateProofSettingsDescription'
     );
 
     expect(consume).toBeInTheDocument();

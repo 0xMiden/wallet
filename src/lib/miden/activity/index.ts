@@ -42,6 +42,12 @@ export function requestSWTransactionProcessing(): void {
  * MIDEN_USE_SPECULATIVE_PROVING, AND there are no per-tx params that
  * speculation can't handle (currently: skip when recallBlocks is set,
  * since reclaim height drifts between speculate-time and commit-time).
+ *
+ * The SW-side handler is INERT whenever the offscreen client owns the send
+ * (issue #260): `initSpeculationManager` returns null in that configuration —
+ * which is the service worker's default — because the realm that executes the
+ * send never consults the cache. See its TRADEOFF block. The request is still
+ * sent because only the SW can evaluate that gate; it just does nothing there.
  */
 export function requestSpeculateSend(params: {
   accountId: string;

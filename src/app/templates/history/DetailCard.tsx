@@ -26,8 +26,16 @@ export const DetailRow: FC<{
   icon?: React.ReactNode;
   isLast?: boolean;
   children?: React.ReactNode;
-}> = ({ label, value, badge, icon, isLast, children }) => (
+  /**
+   * Optional E2E hook on the row root. Scoping to the ROW (not the value) is what
+   * makes the full, untrimmed hash reachable: `HashChip` renders a trimmed
+   * `<button>` next to a sibling `sr-only` `<input>` holding the whole value
+   * (CopyButton), so only a container testid can address both.
+   */
+  testId?: string;
+}> = ({ label, value, badge, icon, isLast, children, testId }) => (
   <div
+    data-testid={testId}
     className={classNames(
       'flex min-h-14 items-center justify-between gap-4 px-2 py-5',
       !isLast && 'border-b border-border-light'
@@ -69,8 +77,8 @@ export const ExternalLinkValue: FC<{
  * `status` (message-string sniffing broke for types whose completion message
  * wasn't in the known list — e.g. a completed swap's "Swapped").
  */
-export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean }> = memo(
-  ({ status, isCancelled }) => {
+export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean; testId?: string }> = memo(
+  ({ status, isCancelled, testId }) => {
     const { t } = useTranslation();
     const isCompleted = status === ITransactionStatus.Completed;
     const isFailed = status === ITransactionStatus.Failed;
@@ -99,6 +107,7 @@ export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean
 
     return (
       <div
+        data-testid={testId}
         className={classNames(
           'flex items-center gap-1 px-4 py-0.5 rounded-full',
           isCancelled ? 'bg-gray-100' : 'bg-green-600/20'

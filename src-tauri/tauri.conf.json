@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Bread",
   "identifier": "com.miden.wallet",
-  "version": "1.13.2",
+  "version": "1.16.0",
   "build": {
     "beforeBuildCommand": "yarn build:desktop",
     "beforeDevCommand": "yarn build:desktop:dev",

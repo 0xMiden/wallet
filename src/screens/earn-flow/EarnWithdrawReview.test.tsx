@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -201,6 +201,22 @@ describe('EarnWithdrawReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'withdraw' }));
 
     expect(await screen.findByText('earnGaslessWithdrawalFailed')).toBeInTheDocument();
+  });
+
+  // Double-tapping the CTA must not submit two redemption intents.
+  it('ignores a second tap while the first withdrawal is in flight', async () => {
+    let release: (value: { txId: string; nonce: string; gaslessUsed: boolean }) => void = () => {};
+    jest.mocked(gaslessEarnWithdrawalToMiden).mockImplementation(() => new Promise(resolve => (release = resolve)));
+    render(<EarnWithdrawReview positionId="position-1" />);
+
+    const cta = screen.getByRole('button', { name: 'withdraw' });
+    fireEvent.click(cta);
+    fireEvent.click(cta);
+
+    expect(gaslessEarnWithdrawalToMiden).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release({ txId: 'tx-1', nonce: 'owner:1', gaslessUsed: true });
+    });
   });
 
   it('uses mobile footer padding in the mobile app', () => {

@@ -16,7 +16,35 @@ import { newEvmDestination, sepoliaPublicClient, usdcBalanceOf, waitForUsdcAbove
  * reachability (Miden testnet + the hosted Epoch allocator/solver + a Sepolia
  * RPC), so this suite is testnet/nightly, not a per-PR gate.
  */
-test.describe('bridge-out Miden to Sepolia (Fast Epoch)', () => {
+// BLOCKED on an external dependency — re-enable when it is resolved (#627).
+//
+// The Epoch solver stopped quoting this pair on 2026-08-12. It answers 200 OK and
+// DECLINES: `{"success":false,"error":"A quote isn't available for this intent",
+// "code":"NO_QUOTE_AVAILABLE"}` from POST /checkIfDepositNeeded.
+//
+// This is NOT a wallet regression, and that was established rather than assumed:
+// re-running the last green commit (8d82252d, passed 2026-08-12 10:20) against
+// today's environment reproduces the identical failure, so the same bytes pass
+// then and fail now.
+//
+// Why: this spec mints a THROWAWAY faucet (`BRDG`) per run, and Epoch's shipped
+// token registry (`testnetGraph` in @epoch-protocol/epoch-commons-sdk, and their
+// "Supported Chains & Tokens" docs) lists only USDC/DAI/USDT/WETH/WBTC/MIDEN on
+// Miden. `BRDG` was never in it. The most consistent reading is that quoting used
+// to accept arbitrary Miden faucets and is now restricted to that set.
+//
+// Un-skipping needs a token the solver actually prices — i.e. a Miden testnet
+// balance of a registry token (e.g. USDC faucet 0xfc90f0f4da30e51168453b60eafed7),
+// sourced from `testnetGraph` rather than hardcoded. Neither Epoch's SDK, their
+// API (/faucet, /mint, /tokens all 404), nor our own faucet-api (single fixed
+// token, no faucet-id parameter) can mint it, so it needs Epoch to fund or drip.
+//
+// Coverage is NOT lost meanwhile: the same bridge-OUT flow runs on every PR
+// against the hermetic FakeEpochAllocator (`pr-e2e-bridge-guardian.yml`,
+// EPOCH_ALLOCATOR_URL=127.0.0.1:8548 → bridge-out-epoch-guardian.spec.ts). What
+// is paused is only the LIVE-solver assertion. `bridge-out-agglayer.spec.ts` is
+// unaffected and still guards the other route on main.
+test.describe.skip('bridge-out Miden to Sepolia (Fast Epoch)', () => {
   test.describe.configure({ mode: 'serial' });
 
   const TOKEN_SYMBOL = 'BRDG';

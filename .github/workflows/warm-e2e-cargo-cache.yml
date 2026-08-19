@@ -1,0 +1,91 @@
+name: Warm E2E cargo cache
+
+# WHY THIS EXISTS
+#
+# Every E2E job needs two compiled Rust binaries: miden-client-cli and
+# note-transport. Building them costs ~12 min (7.8 + 3.9 measured on
+# run 31744132121), and it was being paid on essentially every PR.
+#
+# GitHub scopes a cache to the ref that wrote it: a PR can read caches from its
+# BASE branch and from its own branch, but never from another PR's. Nothing
+# populated this cache on main, so the first run of every new PR missed — six
+# E2E jobs x ~12 min ~= 70 min of recompilation per PR, more than the ~62 min of
+# actual test execution.
+#
+# This job writes that cache in the main scope so every PR restores it instead.
+# The six E2E workflows now share ONE key (they used to have workflow-unique
+# prefixes for byte-identical content, which also meant six large entries
+# competing for the repo's 10 GB cache budget and evicting each other).
+
+on:
+  push:
+    # Both protocol lines, matching warm-node-cache.yml. The cache key follows
+    # package.json + versions.env, so main (0.15) and next (0.16) resolve to
+    # DIFFERENT keys — warming only main left every next-based PR to compile
+    # miden-client-cli and note-transport itself, ~12 min per E2E job.
+    branches: [next, main]
+    # Only when something that changes the binaries changes. Rebuilding on every
+    # push would burn ~12 min a merge for an unchanged artifact.
+    paths:
+      - 'package.json'
+      - 'playwright/e2e/local-stack/versions.env'
+      - '.github/workflows/warm-e2e-cargo-cache.yml'
+  # Caches evict after 7 days without a read. PR traffic normally keeps this
+  # warm; the weekly run covers quiet periods so the first PR back does not eat
+  # the full rebuild.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-e2e-cargo-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Must match the pin in the E2E workflows: a binary built by a different
+      # rustc must not be reused, which is why the version is in the cache key.
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+      - name: Cache cargo (cli + note-transport)
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ${{ runner.temp }}/note-transport/target
+          key: ${{ steps.cargo_cache_key.outputs.key }}
+      - name: Build miden-client-cli
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          if ! command -v miden-client >/dev/null 2>&1; then
+            url=$(node -p "require('./package.json').midenClientCliGit.url")
+            rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
+          fi
+          miden-client --version
+      - name: Build note-transport
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          NOTE_TRANSPORT_BUILD_ONLY: '1'
+        run: playwright/e2e/local-stack/run-note-transport.sh
+      - name: Report
+        run: |
+          echo "cache-hit: ${{ steps.cache.outputs.cache-hit }}"
+          echo "key: ${{ steps.cargo_cache_key.outputs.key }}"
+          ls -la ~/.cargo/bin || true

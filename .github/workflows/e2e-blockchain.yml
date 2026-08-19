@@ -4,22 +4,32 @@ name: E2E Blockchain
 # against the public network that matches the BRANCH'S PROTOCOL LINE.
 #
 #   push to main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
-#   push to next  ->  devnet    (next is on 0.16.x-alpha)
+#   push to next  ->  devnet    (next is on 0.16.0-rc.x)
 #
 # Devnet and testnet run different protocol versions, so a wallet built for one
 # genuinely cannot pass against the other. This used to be handled by running
-# BOTH on every push to main, marking devnet `continue-on-error`, and having each
+# BOTH on every main push, marking devnet `continue-on-error`, and having each
 # per-platform gate pass if EITHER network succeeded.
 #
 # That gate could not fail for the case it mattered most: a real testnet
-# regression was masked whenever devnet passed. On main it hid a guardian
-# rotation bug for at least three consecutive runs.
+# regression on main was masked by devnet passing. "At least one network passed"
+# is not the property anyone wants — the property is "the network this branch
+# targets passed".
+#
+# Measured, not asserted: over the last 14 pushes to main, `Chrome Guardian E2E
+# (testnet)` concluded failure 7 times, success once, and was cancelled 3 times —
+# while the Chrome Guardian gate reported green throughout, because devnet passed
+# alongside it. That is not academic: it hid a real guardian rotation bug on main
+# for at least three consecutive runs.
 #
 # Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
-# any more: on next a DEVNET failure is fatal, because devnet is this branch's
-# line. This is the counterpart of the same change on main (#676) — GitHub runs
-# the workflow file from the PUSHED ref, so `next` needs its own copy for devnet
-# to run here at all.
+# any more: on main a testnet failure is fatal, and on next a devnet failure is
+# fatal, because in each case that network IS the branch's line. GitHub runs the
+# workflow file from the PUSHED ref, so `next` carries its own copy of the split
+# (#678) alongside main's (#676) — otherwise devnet would never run here at all.
+#
+# `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
+# network can be exercised from either branch by hand.
 #
 # KNOWN: devnet guardian is expected to fail until guardian packages are
 # published for the 0.16 line. That is a real gap on this branch, recorded here
@@ -33,9 +43,10 @@ on:
   workflow_dispatch:
     inputs:
       network:
-        # NOT 'both': the gates require every network that ran to pass, and a
-        # wallet built for one protocol line cannot pass against the other.
-        # Dispatching from `next` should select devnet.
+        # Defaults to this branch's line (devnet); flips to testnet when `next`
+        # becomes main. NOT 'both': the gates now require every network that ran
+        # to pass, and a wallet built for one protocol line cannot pass against
+        # the other — so a 'both' default would fail by construction.
         description: 'Network to test against'
         required: false
         default: 'devnet'
@@ -129,8 +140,9 @@ jobs:
 
       - name: Run blockchain E2E (devnet)
         id: e2e
-        # Fatal, deliberately: this job only runs on `next`, whose SDK line IS
-        # devnet's, so a failure here is a real failure of the branch.
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         run: xvfb-run -a yarn test:e2e:blockchain:devnet
 
       - name: Upload artifacts
@@ -235,10 +247,13 @@ jobs:
           TESTNET_RESULT: ${{ needs.chrome-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          # WHITELIST, not blacklist. `result` is one of
-          # success/failure/cancelled/skipped, and `cancelled` is routine because
-          # the concurrency group cancels in-progress runs — a blacklist that only
-          # rejected "failure" would report a cancelled suite as GREEN.
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
           ran=0
           for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
             if [[ "$result" != "skipped" ]]; then
@@ -260,13 +275,16 @@ jobs:
   # client the wallet ships, so these jobs run against OZ's hosted guardian
   # endpoints rather than a locally-spawned container.
   #
-  # TESTNET GUARDIAN WORKS. An earlier version of this comment said it was
-  # "expected red until testnet upgrades", which was wrong — and, paired with a
-  # gate that passed if either network succeeded, it framed real testnet guardian
-  # failures on main as normal.
+  # TESTNET GUARDIAN WORKS. An earlier version of this comment claimed the
+  # opposite — that testnet was "expected red until testnet upgrades" — and that
+  # was wrong. It mattered: paired with a gate that passed if EITHER network
+  # succeeded, it turned real testnet guardian failures on main into something
+  # the workflow described as normal. Over the last 14 pushes to main this job
+  # concluded failure 7 times against 1 success, and the gate stayed green.
   #
-  # On THIS branch the relevant risk is the other direction: devnet guardian is
-  # expected to fail until guardian packages ship for the 0.16 line.
+  # The direction of the version risk is the other way round: DEVNET guardian is
+  # the one expected to break, until guardian packages are published for the
+  # 0.16 line this branch targets — see the KNOWN note at the top of this file.
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
@@ -329,8 +347,9 @@ jobs:
 
       - name: Run Guardian E2E (devnet)
         id: e2e
-        # Fatal, deliberately: this job only runs on `next`, whose SDK line IS
-        # devnet's, so a failure here is a real failure of the branch.
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         run: xvfb-run -a yarn test:e2e:guardian:run
 
       - name: Upload artifacts
@@ -432,10 +451,13 @@ jobs:
           TESTNET_RESULT: ${{ needs.chrome-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          # WHITELIST, not blacklist. `result` is one of
-          # success/failure/cancelled/skipped, and `cancelled` is routine because
-          # the concurrency group cancels in-progress runs — a blacklist that only
-          # rejected "failure" would report a cancelled suite as GREEN.
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
           ran=0
           for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
             if [[ "$result" != "skipped" ]]; then
@@ -617,12 +639,23 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run blockchain E2E (mobile, devnet)
         id: e2e
-        # Fatal, deliberately: this job only runs on `next`, whose SDK line IS
-        # devnet's, so a failure here is a real failure of the branch.
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
         # CoreSimulator sim-setup failures on macos-26 runners. Each fixture
         # retries install → launch → CDP connect from scratch (and restarts the
@@ -791,7 +824,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run blockchain E2E (mobile, testnet)
         # --retries=2 absorbs flaky CDP "no pages found" errors and degraded-
@@ -830,10 +873,13 @@ jobs:
           TESTNET_RESULT: ${{ needs.mobile-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          # WHITELIST, not blacklist. `result` is one of
-          # success/failure/cancelled/skipped, and `cancelled` is routine because
-          # the concurrency group cancels in-progress runs — a blacklist that only
-          # rejected "failure" would report a cancelled suite as GREEN.
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
           ran=0
           for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
             if [[ "$result" != "skipped" ]]; then
@@ -1020,12 +1066,23 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run Guardian E2E (mobile, devnet)
         id: e2e
-        # Fatal, deliberately: this job only runs on `next`, whose SDK line IS
-        # devnet's, so a failure here is a real failure of the branch.
+        # Fatal, deliberately. This job only runs on `next`, whose SDK line IS
+        # devnet's — so a failure here is a real failure of the branch, not the
+        # protocol mismatch that made this non-fatal when it also ran on main.
         # --retries=2 absorbs the residual onboarding flake + flaky CDP on macos-26
         # runners. Each fixture retries install → launch → CDP connect from
         # scratch, so a transient webinspectord hiccup doesn't fail the run.
@@ -1192,7 +1249,17 @@ jobs:
       # reaches them via simctl by UDID, independent of xcodebuild.
 
       - name: Build iOS app
-        run: yarn test:e2e:mobile:build
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
 
       - name: Run Guardian E2E (mobile, testnet)
         # --retries=2 absorbs the residual onboarding flake + flaky CDP on macos-26
@@ -1229,10 +1296,13 @@ jobs:
           TESTNET_RESULT: ${{ needs.mobile-guardian-testnet.result }}
         run: |
           echo "devnet=$DEVNET_RESULT  testnet=$TESTNET_RESULT"
-          # WHITELIST, not blacklist. `result` is one of
-          # success/failure/cancelled/skipped, and `cancelled` is routine because
-          # the concurrency group cancels in-progress runs — a blacklist that only
-          # rejected "failure" would report a cancelled suite as GREEN.
+          # WHITELIST, not blacklist. `needs.<job>.result` is one of
+          # success/failure/cancelled/skipped, and `cancelled` is routine here
+          # because the concurrency group cancels in-progress runs. An earlier
+          # version of this gate failed only on "failure", so a cancelled suite
+          # reported GREEN — the identical hole this split exists to close.
+          # Exactly one network runs per push (devnet on next, testnet on main);
+          # the other is skipped. So: require that the one which ran SUCCEEDED.
           ran=0
           for result in "$DEVNET_RESULT" "$TESTNET_RESULT"; do
             if [[ "$result" != "skipped" ]]; then

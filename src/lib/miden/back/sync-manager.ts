@@ -13,7 +13,9 @@ import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessage
 
 import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
+import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
+import { midenClientProxy } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
@@ -48,7 +50,24 @@ const SYNC_TIMEOUT_MS = 30_000;
 // successful sync resets the counter. Protects both the wasm client and the
 // RPC backend from being hammered when the network (or the node) is flapping.
 const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
-const BACKOFF_MS = 30_000;
+
+// Circuit-breaker backoff: EXPONENTIAL with jitter (gap 14). Each consecutive
+// trip roughly doubles the wait (capped at BACKOFF_MAX_MS) so a sustained outage
+// is probed ever less aggressively instead of hammered every 30s; the jitter
+// de-syncs many wallets from all probing in lockstep. A successful sync resets
+// the trip count back to the base interval.
+const BACKOFF_BASE_MS = 30_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
+
+/**
+ * Backoff (ms) for the Nth consecutive breaker trip (1-based): base for the
+ * first trip, doubling each subsequent trip up to the cap, plus 0–20% jitter.
+ * Pure + injectable RNG so it's unit-testable.
+ */
+export function computeSyncBackoffMs(tripCount: number, rand: () => number = Math.random): number {
+  const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, tripCount - 1), BACKOFF_MAX_MS);
+  return Math.round(exp + exp * 0.2 * rand());
+}
 
 // Concurrent doSync() callers join the in-flight sync instead of being dropped.
 // The previous boolean-guard silently no-op'd concurrent calls, so a single stuck
@@ -60,6 +79,9 @@ let queuedForcedSync: Promise<void> | null = null;
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
 let consecutiveSyncFailures = 0;
 let syncBackoffUntilMs = 0;
+// How many times the breaker has tripped in a row (drives the exponential
+// backoff); reset by any successful sync.
+let breakerTripCount = 0;
 
 // Lazy Vault initialization to prevent service worker cold-start race.
 // See actions.ts:getVault for the full explanation. In Jest, `init_vault`
@@ -122,12 +144,11 @@ async function runSync(): Promise<void> {
     // that clears any active issue, so the steady state is correct.
     try {
       await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client) return;
-        await withTimeout(client.syncState(), SYNC_TIMEOUT_MS);
+        await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = 0;
+      breakerTripCount = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
       // don't touch `prover` — that's a separate service with separate
@@ -157,9 +178,13 @@ async function runSync(): Promise<void> {
         if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
           markConnectivityIssue(classifySyncError(err));
         }
-        syncBackoffUntilMs = Date.now() + BACKOFF_MS;
+        breakerTripCount++;
+        const backoffMs = computeSyncBackoffMs(breakerTripCount);
+        syncBackoffUntilMs = Date.now() + backoffMs;
         consecutiveSyncFailures = 0;
-        console.warn(`[SyncManager] circuit breaker open — skipping syncs for ${BACKOFF_MS}ms`);
+        console.warn(
+          `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`
+        );
       }
       // Continue to the downstream read path: the client may still have
       // cached state from a prior successful sync worth surfacing.
@@ -180,43 +205,42 @@ async function runSync(): Promise<void> {
         if (!client)
           return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
 
-        // Read consumable notes
-        const rawNotes = await client.getConsumableNotes(accountPubKey);
+        // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
+        // + per-note reduction ran inside the client's realm — OFFSCREEN when the
+        // flag is on, so the gate uses the sync-running realm's height instead of
+        // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
+        // now routes through the proxy too (slice 7a), so it no longer needs `client`.
+        const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
         // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
         // custom transaction — hidden from the claimable UI until the user
         // confirms (or forever, if they cancel). See note-quarantine.ts.
         const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes || [], accountPubKey, client, swapOrderRows);
-        const notes: SerializedConsumableNote[] = (rawNotes || [])
-          .map((note: any) => {
-            try {
-              // Partial (metadata-less) notes have no ID yet and cannot be
-              // consumed — skip until sync completes them.
-              const noteId = note.id()?.toString();
-              if (!noteId) return null;
-              if (quarantined.has(noteId)) return null;
-              const noteMeta = note.metadata();
-              const details = note.details();
-              const fungibleAssets = details.assets().fungibleAssets();
-              if (!fungibleAssets || fungibleAssets.length === 0) return null;
-              const firstAsset = fungibleAssets[0];
-              if (!firstAsset) return null;
-              return {
-                id: noteId,
-                faucetId: getBech32AddressFromAccountId(firstAsset.faucetId()),
-                amountBaseUnits: firstAsset.amount().toString(),
-                senderAddress: noteMeta ? getBech32AddressFromAccountId(noteMeta.sender()) : '',
-                noteType: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown',
-                swapOrder: swapOrders.get(noteId)
-              };
-            } catch {
-              return null;
-            }
+        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+        const notes: SerializedConsumableNote[] = rawNotes
+          .map((note): SerializedConsumableNote | null => {
+            // Partial (metadata-less) notes have no ID yet and cannot be
+            // consumed — skip until sync completes them.
+            const noteId = note.noteId;
+            if (!noteId) return null;
+            if (quarantined.has(noteId)) return null;
+            // Only the first fungible asset is surfaced (unchanged); an empty
+            // asset set means the note can't be displayed — skip it.
+            const firstAsset = note.assets[0];
+            if (!firstAsset) return null;
+            return {
+              id: noteId,
+              faucetId: firstAsset.faucetId,
+              amountBaseUnits: firstAsset.amount,
+              senderAddress: note.senderAccountId ?? '',
+              noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+              recallableAtMs: note.recallableAtMs,
+              swapOrder: swapOrders.get(noteId)
+            };
           })
-          .filter(Boolean) as SerializedConsumableNote[];
+          .filter((note): note is SerializedConsumableNote => note !== null);
 
         // Read vault assets
-        const account = await client.getAccount(accountPubKey);
+        const account = await midenClientProxy.getAccount(accountPubKey);
         const assets: SerializedVaultAsset[] = [];
         if (account) {
           const fungibleAssets = account.vault().fungibleAssets();
@@ -320,10 +344,25 @@ async function runSync(): Promise<void> {
         vaultAssets,
         accountPublicKey: accountPubKey
       };
-      chrome.storage.local.set({
-        miden_cached_consumable_notes: parsedNotes,
-        miden_sync_data: syncData
-      });
+      try {
+        // Use the webextension-polyfill `browser` (already imported for alarms)
+        // rather than raw `chrome.*`: on the Firefox/MV2 build `chrome.storage`
+        // is callback-based and would resolve the await immediately without ever
+        // rejecting, so `await chrome.storage…set` there is effectively still
+        // fire-and-forget. `browser` gives promise + error semantics on both.
+        await browser.storage.local.set({
+          miden_cached_consumable_notes: parsedNotes,
+          miden_sync_data: syncData
+        });
+      } catch (err) {
+        // A failed write (quota exceeded, storage unavailable) must not be
+        // swallowed silently: frontends read this cache, so on failure they keep
+        // the previous data until the next sync retries the write. Log it. The
+        // SyncCompleted signal below still fires — it only clears the sync
+        // indicator (the data itself is read from storage), so gating it would
+        // just hang that indicator without making the data any fresher.
+        console.warn('[SyncManager] Failed to persist sync data to local storage:', err);
+      }
 
       // Broadcast bare SyncCompleted as a signal (data is in chrome.storage.local)
       try {
@@ -340,7 +379,7 @@ async function runSync(): Promise<void> {
             ? getMessage('noteReceivedClickToClaim') || 'Click to view and claim it'
             : getMessage('noteReceivedMultiple', { count: String(newIds.length) }) ||
               `You have ${newIds.length} new notes to claim`;
-        showBackgroundNotification(title, message);
+        showBackgroundNotification(title, message, 'miden-note-received');
       }
 
       // Reuse the notes classified above under Lock 2 — re-running
@@ -425,42 +464,6 @@ async function runSync(): Promise<void> {
     } catch {
       // No frontends connected
     }
-  }
-}
-
-function showBackgroundNotification(title: string, message: string): void {
-  // Primary: ServiceWorkerRegistration.showNotification — same underlying system as
-  // Web Notifications API (new Notification()) which works reliably in Brave.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sw = globalThis as any;
-  if (sw.registration?.showNotification) {
-    sw.registration.showNotification(title, {
-      body: message,
-      icon: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-      requireInteraction: true
-    });
-    return;
-  }
-
-  // Fallback: chrome.notifications API
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const chromeNotifications = (globalThis as any).chrome?.notifications;
-  if (chromeNotifications) {
-    chromeNotifications.create(
-      'miden-note-received',
-      {
-        type: 'basic',
-        iconUrl: chrome.runtime.getURL('misc/logo-white-bg-128.png'),
-        title,
-        message,
-        requireInteraction: true
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SyncManager] chrome.notifications error:', chrome.runtime.lastError.message);
-        }
-      }
-    );
   }
 }
 

@@ -65,7 +65,7 @@ const SwapManager: React.FC = () => {
     return true;
   }, [showTokenDrawer, cardStack.length, goBack, onClose]);
 
-  // Dismiss any stale completion modal on flow entry (see SendManager for the
+  // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
   useEffect(() => {
     const state = useWalletStore.getState();

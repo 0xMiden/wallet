@@ -1,6 +1,5 @@
 import type { ITransactionStage } from 'lib/miden/db/types';
 
-export const AUTO_CLOSE_DELAY_MS = 10_000;
 export const SUCCESS_RECEIPT_DELAY_MS = 1_500;
 export const TRANSACTION_LOOP_INTERVAL_MS = 10_000;
 export const EXPLORER_TITLE = 'Midenscan';
@@ -30,7 +29,9 @@ export interface TransactionStepDef {
  * Guardian send: co-sign the proposal → generate proof → submit → sync the new
  * state back to the guardian. Four steps, all with real per-step durations
  * because the guardian pipeline drives execute → prove → submit as distinct
- * stages on every platform.
+ * stages on every platform — including the extension's offscreen realm, which
+ * stamps the same three boundaries and posts each back to the service worker
+ * (`OFFSCREEN_STAGE_EVENT`) to land on the row.
  */
 export const GUARDIAN_TRANSACTION_STEPS = [
   {
@@ -66,8 +67,12 @@ export const GUARDIAN_TRANSACTION_STEPS = [
 /**
  * Standard (non-Guardian) send: generate proof → submit. The guardian-approval
  * and guardian-sync steps don't apply — a non-guardian account has no co-signer
- * — so they're omitted rather than shown blank. Both steps carry real durations
- * because the send now drives execute → prove → submit as distinct stages.
+ * — so they're omitted rather than shown blank. Both steps are timed on every path
+ * that executes and proves live — the inline pipeline, mobile/desktop, and the
+ * extension's offscreen realm (same cross-realm stamp route as the guardian set).
+ * A step whose boundary stamp never arrives renders blank rather than a fabricated
+ * zero, which is what a speculation-cache hit (no live prove) and a dropped
+ * cross-realm stamp both look like.
  */
 export const STANDARD_TRANSACTION_STEPS = [
   {

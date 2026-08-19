@@ -2,6 +2,7 @@ import * as Actions from 'lib/miden/back/actions';
 import { store } from 'lib/miden/back/store';
 import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType } from 'lib/shared/types';
+import { WalletType } from 'screens/onboarding/types';
 
 import { DesktopIntercomAdapter } from './desktop-adapter';
 
@@ -23,6 +24,21 @@ jest.mock('lib/miden/back/actions', () => ({
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
+  signWord: jest.fn().mockResolvedValue('word-signature'),
+  revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
+  revealGuardianKeys: jest.fn().mockResolvedValue({
+    coldPrivateKey: 'cold-priv',
+    coldPublicKey: 'cold-pub',
+    hotPublicKey: 'hot-pub'
+  }),
+  persistNewHotKey: jest.fn().mockResolvedValue(undefined),
+  swapHotKey: jest.fn().mockResolvedValue(undefined),
+  setGuardianEndpoint: jest.fn().mockResolvedValue(undefined),
+  setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
+  setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
+  checkGuardianDrift: jest.fn().mockResolvedValue('in-sync'),
+  applyUserGuardianEndpoint: jest.fn().mockResolvedValue(true),
+  getPublicKeyForCommitment: jest.fn().mockResolvedValue('pub-key'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
   getAllDAppSessions: jest.fn().mockResolvedValue([]),
   removeDAppSession: jest.fn().mockResolvedValue([]),
@@ -96,14 +112,45 @@ describe('DesktopIntercomAdapter', () => {
     it('handles NewWalletRequest', async () => {
       const response = await adapter.request({
         type: WalletMessageType.NewWalletRequest,
+        walletType: WalletType.OffChain,
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        ownMnemonic: false
-      } as any);
+        ownMnemonic: false,
+        guardianEndpoint: undefined
+      });
 
-      // Desktop adapter calls registerNewWallet(password, mnemonic, ownMnemonic) — no walletType.
-      expect(Actions.registerNewWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', false);
+      // Every field of the request must reach `registerNewWallet` in the SAME
+      // positions the target signature declares
+      // (walletType, password, mnemonic, ownMnemonic, guardianEndpoint).
+      // Dropping `walletType` here shifts every later argument by one and
+      // `Vault.spawn` wipes storage and then throws on `walletTypeIndex(<password>)`.
+      expect(Actions.registerNewWallet).toHaveBeenCalledWith(
+        WalletType.OffChain,
+        'test123',
+        'word1 word2 word3',
+        false,
+        undefined
+      );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
+    });
+
+    it('forwards walletType and guardianEndpoint for a Guardian registration', async () => {
+      await adapter.request({
+        type: WalletMessageType.NewWalletRequest,
+        walletType: WalletType.Guardian,
+        password: 'pw',
+        mnemonic: 'a b c',
+        ownMnemonic: true,
+        guardianEndpoint: 'https://guardian.example'
+      });
+
+      expect(Actions.registerNewWallet).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        'pw',
+        'a b c',
+        true,
+        'https://guardian.example'
+      );
     });
 
     it('handles ImportFromClientRequest', async () => {
@@ -369,6 +416,104 @@ describe('DesktopIntercomAdapter', () => {
 
       expect(Actions.processDApp).not.toHaveBeenCalled();
       expect(response).toBeUndefined();
+    });
+
+    // Regression: desktop implemented 16 of the 27 in-process message types and
+    // silently dropped the 11 guardian ones to `default:` → `undefined`. Every
+    // store wrapper then dereferenced that undefined (`res.type`), so guardian
+    // sync, the hot-key rotation gate and "Reveal guardian keys" failed on the
+    // Tauri build with a TypeError that read as a wrong password. Both in-process
+    // adapters now dispatch through one shared switch.
+    it('handles every guardian message type instead of dropping it to the default arm', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+
+      expect(
+        await adapter.request({ type: WalletMessageType.SignWordRequest, publicKey: 'pk', wordHex: '0xabc' } as any)
+      ).toEqual({ type: WalletMessageType.SignWordResponse, signature: 'word-signature' });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.RevealHotKeyRequest,
+          accountPublicKey: 'acc',
+          password: 'pw'
+        } as any)
+      ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, hotPrivateKey: 'hot-private-key' });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.RevealGuardianKeysRequest,
+          accountPublicKey: 'acc',
+          password: 'pw'
+        } as any)
+      ).toEqual({
+        type: WalletMessageType.RevealGuardianKeysResponse,
+        coldPrivateKey: 'cold-priv',
+        coldPublicKey: 'cold-pub',
+        hotPublicKey: 'hot-pub'
+      });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.PersistNewHotKeyRequest,
+          newHotPubKey: 'new-pub',
+          newHotCiphertext: 'ct'
+        } as any)
+      ).toEqual({ type: WalletMessageType.PersistNewHotKeyResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.SwapHotKeyRequest,
+          accountPublicKey: 'acc',
+          newHotPubKey: 'new-pub'
+        } as any)
+      ).toEqual({ type: WalletMessageType.SwapHotKeyResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.SetGuardianEndpointRequest,
+          accountPublicKey: 'acc',
+          guardianEndpoint: 'https://guardian.example'
+        } as any)
+      ).toEqual({ type: WalletMessageType.SetGuardianEndpointResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.SetGuardianOperatorCommitmentRequest,
+          accountPublicKey: 'acc',
+          guardianOperatorCommitment: '0xcommit'
+        } as any)
+      ).toEqual({ type: WalletMessageType.SetGuardianOperatorCommitmentResponse });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.SetGuardianSyncStatusRequest,
+          accountPublicKey: 'acc',
+          guardianSyncStatus: 'in-sync'
+        } as any)
+      ).toEqual({ type: WalletMessageType.SetGuardianSyncStatusResponse });
+
+      expect(
+        await adapter.request({ type: WalletMessageType.CheckGuardianDriftRequest, accountPublicKey: 'acc' } as any)
+      ).toEqual({ type: WalletMessageType.CheckGuardianDriftResponse, guardianSyncStatus: 'in-sync' });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.ApplyUserGuardianEndpointRequest,
+          accountPublicKey: 'acc',
+          guardianEndpoint: 'https://guardian.example'
+        } as any)
+      ).toEqual({ type: WalletMessageType.ApplyUserGuardianEndpointResponse, applied: true });
+
+      expect(
+        await adapter.request({
+          type: WalletMessageType.GetPublicKeyForCommitmentRequest,
+          commitment: '0xcommit'
+        } as any)
+      ).toEqual({ type: WalletMessageType.GetPublicKeyForCommitmentResponse, publicKey: 'pub-key' });
+
+      // None of them may fall through to the unknown-type warning.
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
     });
 
     it('handles unknown request type', async () => {

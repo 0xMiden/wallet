@@ -1,16 +1,47 @@
 /**
  * dApp Browser Injection Script
  *
- * This script is injected into all pages loaded in the dApp browser window.
- * It provides:
+ * Runs at document start in the dApp browser window, and takes effect only in the
+ * TOP-LEVEL document (see the frame check below). It provides:
  * 1. A toolbar with navigation controls (back, forward, refresh, close)
  * 2. window.midenWallet API for dApps to interact with the wallet
  *
- * Communication with Tauri uses window.location.hash changes which are
- * intercepted by the on_navigation handler.
+ * Communication with Tauri is a hidden iframe navigated to
+ * `https://miden-wallet-request/<base64>`, which the `on_navigation` handler
+ * intercepts and cancels; responses arrive by the wallet window calling
+ * `window.__midenWalletResponse` through the `dapp_wallet_response` command.
  */
 (function() {
   'use strict';
+
+  // SECURITY: per-window bridge token, prepended to this script by
+  // `dapp_browser::injection_script_with_token`. Rust drops any wallet request that
+  // does not carry it, which is what stops an embedded third-party frame (an ad
+  // slot, a chat widget, a compromised CDN script) from navigating itself to
+  // `https://miden-wallet-request/…` and having the request attributed to the
+  // TOP-LEVEL dApp's origin and approved session — `on_navigation` fires for
+  // sub-frame navigations and is handed only a URL, so it cannot tell them apart.
+  //
+  // This runs FIRST, before the top-frame check below, because initialization
+  // scripts execute at document-start ahead of every page script: reading the token
+  // into this closure and removing the global here means no script in this document
+  // can ever observe it, in ANY frame. That matters because Tauri injects with
+  // `for_main_frame_only: true` — WebKit-enforced on macOS/WKWebView and
+  // Linux/WebKitGTK — but wry documents that "Windows: scripts are always added to
+  // subframes regardless of the `for_main_frame_only` option", so on WebView2 this
+  // script DOES run in sub-frames and must deny them the token itself.
+  const BRIDGE_TOKEN = globalThis.__MIDEN_BRIDGE_TOKEN__ || '';
+  try {
+    delete globalThis.__MIDEN_BRIDGE_TOKEN__;
+  } catch (e) {
+    globalThis.__MIDEN_BRIDGE_TOKEN__ = undefined;
+  }
+
+  // Only the top-level document gets a wallet bridge (and a toolbar). A sub-frame
+  // that reaches this point on Windows leaves with neither the token nor
+  // `window.midenWallet`. `window.top`/`window.self` are read here, at document
+  // start, before any page script could redefine them.
+  if (window.top !== window.self) return;
 
   // Prevent multiple injections
   if (window.__midenInjected) return;
@@ -84,7 +115,10 @@
       const message = {
         type: 'MIDEN_PAGE_REQUEST',
         payload,
-        reqId
+        reqId,
+        // Authenticates this as a main-frame bridge request; Rust strips it before
+        // the request reaches the wallet window.
+        token: BRIDGE_TOKEN
       };
 
       sendToWallet(message);
@@ -100,7 +134,17 @@
   }
 
   function injectToolbar() {
-    // Create toolbar container
+    // SECURITY: this toolbar is ordinary DOM inside the dApp's own document, and
+    // this script runs in the page's main world — so the page can rewrite, restyle
+    // or remove anything here. It therefore carries NAVIGATION ACTIONS ONLY and
+    // must never display the address the user is on: a `#miden-url` div used to sit
+    // here, and one line of page script (`document.getElementById('miden-url')
+    // .textContent = 'app.uniswap.org'`, re-applied from a MutationObserver) made
+    // the wallet's own chrome vouch for any hostname the page chose. The real
+    // origin is now shown in the OS window title, which Rust sets from
+    // `dapp_request_origin` on every page load (see `dapp_browser.rs`) and the page
+    // cannot reach. Do not "defend" an injected URL element instead — the page runs
+    // in the same realm and wins every such race.
     const toolbar = document.createElement('div');
     toolbar.id = 'miden-dapp-toolbar';
     toolbar.innerHTML = `
@@ -120,7 +164,6 @@
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
         </svg>
       </button>
-      <div id="miden-url">${window.location.hostname}</div>
       <button id="miden-close" title="Close" aria-label="Close browser">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -166,20 +209,6 @@
       #miden-dapp-toolbar button:active {
         background: rgba(255,255,255,0.15);
         transform: scale(0.95);
-      }
-      #miden-url {
-        flex: 1;
-        background: rgba(0,0,0,0.3);
-        border: 1px solid #3a3a3a;
-        border-radius: 6px;
-        padding: 6px 12px;
-        color: #888;
-        font-size: 13px;
-        text-align: center;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin: 0 8px;
       }
       #miden-close {
         margin-left: auto;

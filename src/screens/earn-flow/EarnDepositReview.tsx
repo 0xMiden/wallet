@@ -7,7 +7,7 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
 import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
-import { stringToBigInt } from 'lib/i18n/numbers';
+import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -82,7 +82,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnDepositAmountTitle')}</span>
           <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
-            {amountValue.toFixed(2)}
+            {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={depositSymbol} size="md" />
@@ -162,7 +162,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
               <div key={item.label}>
                 <div className="text-xs font-semibold uppercase leading-none text-gray-secondary">{item.label}</div>
                 <div className="mt-1 font-heading text-sm font-bold leading-none text-status-positive">
-                  {t('earnProjectedRewardAmount', { amount: `$${item.reward.toFixed(2)}` })}
+                  {t('earnProjectedRewardAmount', { amount: `$${toAdaptiveFixed(item.reward)}` })}
                 </div>
               </div>
             ))}

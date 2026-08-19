@@ -3,13 +3,7 @@ import { expect, test } from '../fixtures/two-simulators';
 test.describe('Public Note Send', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('wallet A sends tokens publicly to wallet B', async ({
-    walletA,
-    walletB,
-    midenCli,
-    steps,
-    timeline,
-  }) => {
+  test('wallet A sends tokens publicly to wallet B', async ({ walletA, walletB, midenCli, steps, timeline }) => {
     let addressA: string;
     let addressB: string;
     let faucetId: string;
@@ -36,25 +30,33 @@ test.describe('Public Note Send', () => {
       await walletA.claimAllNotes(180_000, [faucetId!]);
     });
 
-    await steps.step('sync_wallet_a', async () => {
-      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-    }, {
-      captureStateFrom: [{ target: walletA, label: 'A' }],
-    });
+    await steps.step(
+      'sync_wallet_a',
+      async () => {
+        const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
+        expect(balance).toBeGreaterThan(0);
+      },
+      {
+        captureStateFrom: [{ target: walletA, label: 'A' }]
+      }
+    );
 
-    await steps.step('send_public_note_a_to_b', async () => {
-      await walletA.sendTokens({
-        recipientAddress: addressB!,
-        amount: '500',
-        // Target the CLI faucet token explicitly: the 0-balance native MIDEN row
-        // renders above it, so a "first row" pick would choose the wrong token.
-        tokenSymbol: 'TST',
-        isPrivate: false,
-      });
-    }, {
-      screenshotWallets: [{ target: walletA, label: 'A' }],
-    });
+    await steps.step(
+      'send_public_note_a_to_b',
+      async () => {
+        await walletA.sendTokens({
+          recipientAddress: addressB!,
+          amount: '500',
+          // Target the CLI faucet token explicitly: the 0-balance native MIDEN row
+          // renders above it, so a "first row" pick would choose the wrong token.
+          tokenSymbol: 'TST',
+          isPrivate: false
+        });
+      },
+      {
+        screenshotWallets: [{ target: walletA, label: 'A' }]
+      }
+    );
 
     // iOS divergence: claim the received note on wallet B before checking
     // its balance — same reason as claim_notes_wallet_a above.
@@ -62,18 +64,22 @@ test.describe('Public Note Send', () => {
       await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
-    await steps.step('verify_receipt_wallet_b', async () => {
-      const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-    }, {
-      captureStateFrom: [
-        { target: walletA, label: 'A' },
-        { target: walletB, label: 'B' },
-      ],
-      screenshotWallets: [
-        { target: walletA, label: 'A' },
-        { target: walletB, label: 'B' },
-      ],
-    });
+    await steps.step(
+      'verify_receipt_wallet_b',
+      async () => {
+        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
+        expect(balance).toBeGreaterThan(0);
+      },
+      {
+        captureStateFrom: [
+          { target: walletA, label: 'A' },
+          { target: walletB, label: 'B' }
+        ],
+        screenshotWallets: [
+          { target: walletA, label: 'A' },
+          { target: walletB, label: 'B' }
+        ]
+      }
+    );
   });
 });

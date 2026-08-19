@@ -1,5 +1,12 @@
 import { defineConfig } from '@playwright/test';
 
+// This config is the base for every Chrome E2E suite: it runs directly for the
+// blockchain runs (localhost per-PR + devnet/testnet on main) and is spread into
+// playwright.{earn,swap,guardian,bridge,bridge-guardian}.config.ts. Those suites
+// differ in what they cost to run, so `maxFailures` keys off the same
+// `E2E_NETWORK` the harness already uses to pick endpoints.
+const isLocalnet = process.env.E2E_NETWORK === 'localhost';
+
 export default defineConfig({
   testDir: './playwright/e2e/tests',
   // Guardian specs need a locally-spawned guardian backend that only the
@@ -12,7 +19,7 @@ export default defineConfig({
   // dedicated job, not the general blockchain/localhost runs. Earn specs need
   // fake Epoch allocator/positions services + a local Anvil, so they run via
   // playwright.earn.config.ts on the dedicated earn job, not here.
-  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**'],
+  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {
     timeout: 60_000
@@ -20,13 +27,43 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0, // No retries -- fail fast, diagnose from report.json
-  maxFailures: 1, // Stop entire suite on first spec failure
+  // On the hermetic localnet stack the whole point of a ~25-minute run is to
+  // learn the state of EVERY spec: stopping at the first failure reports one
+  // fact and N-1 unknowns, so a PR that breaks two things costs two full runs.
+  // Everything else (devnet/testnet, and the real-testnet bridge suite that
+  // spreads this config) burns a shared faucet and live-network time on each
+  // spec, so those keep failing fast.
+  //
+  // 3, not 0. With 0 the worst case is every spec burning its full 300s timeout:
+  // guardian-lifecycle is 39 specs = 195 min against a 60-min `timeout-minutes`,
+  // and a job killed by that budget skips its remaining steps — including the
+  // `if: failure()` artifact upload and the flaky report. A run that dies with
+  // NO artifacts is strictly worse than fail-fast, which is the outcome this
+  // change exists to prevent. 3 keeps the runtime bounded while still reporting
+  // several independent failures per cycle instead of one.
+  maxFailures: isLocalnet ? 3 : 1,
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
+  // ONE `use` block. It used to be two (timeouts here, browser options at the
+  // bottom); a duplicate key is legal JS — the later literal simply wins — so
+  // the timeouts were silently discarded and Playwright fell back to its
+  // unbounded defaults. Neither gate that would have caught it runs on this
+  // file: `yarn lint` only lints `src`, and `tsconfig.json` now includes the
+  // root playwright configs so TS1117 fires if the split ever comes back.
   use: {
     headless: false, // Extensions require headed mode
     trace: 'on', // Always record traces for debugging
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure'
+    video: 'retain-on-failure',
+    // Playwright defaults BOTH of these to 0 = unbounded. An action whose
+    // actionability check never settles (a button under a modal still animating
+    // in, say) then hangs for the whole per-test budget and fails with
+    // "Target page, context or browser has been closed" — which names neither
+    // the step nor the element, and looks like a crash rather than a stuck
+    // click. That is what `contacts-send` did on main: 10 minutes, no
+    // diagnostic. Bounded here so the failing ACTION reports itself; specs that
+    // legitimately need longer pass an explicit per-call timeout, which wins.
+    actionTimeout: 30_000,
+    navigationTimeout: 90_000
   }
 });

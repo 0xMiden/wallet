@@ -56,6 +56,7 @@ import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } fr
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
+import { MidenDAppErrorType } from 'lib/adapter/types';
 import {
   INJECTION_SCRIPT,
   type DappSession,
@@ -64,6 +65,7 @@ import {
   fromPersisted,
   handleWebViewMessage,
   loadPersistedSessions,
+  parseOrigin,
   readSnapshotFromDisk,
   removePersistedSession,
   removeSnapshotFromDisk,
@@ -109,8 +111,32 @@ export interface DappSessionState {
   /** The native-side multi-instance handle. Null briefly while opening. */
   instance: DappWebViewInstance | null;
   status: DappInstanceStatus;
-  /** Live origin — updated by urlChangeEvent so cross-origin nav is tracked. */
+  /**
+   * Live origin — the SOLE security principal for every dApp request from this
+   * session (`handleWebViewMessage` → `processDApp` → `getDApp`). Seeded from the
+   * URL the webview is told to load and updated by `urlChangeEvent` so cross-origin
+   * nav is tracked.
+   */
   origin: string;
+  /**
+   * True once an `urlChangeEvent` has reported the URL of the load currently in
+   * this session's webview, i.e. `origin` was derived from the document that is
+   * actually there rather than from the URL we asked for.
+   *
+   * The gap matters because the two are not the same after a server-side redirect,
+   * and `origin` decides whether a `PRIVATE_NOTES_REQUEST` is served from a stored
+   * `Auto` grant with no prompt at all. The dApp's document runs in another
+   * process and can post through `window.mobileApp.postMessage` as soon as it
+   * parses, with no ordering guarantee against the plugin's `urlChangeEvent` — so
+   * requests that arrive first are refused rather than attributed to an origin we
+   * have not confirmed. Dropping a request is safe; mis-attributing one is not.
+   *
+   * Cleared ONLY in `openInternal` (a load this provider starts). A soft reload
+   * goes through `InAppBrowser.reload` and never clears it, which matters because
+   * Android's `doUpdateVisitedHistory` deliberately skips `urlChangeEvent` on a
+   * reload — clearing it there would leave the session permanently refused.
+   */
+  originConfirmed: boolean;
   /** True between openWebView and the first browserPageLoaded event. */
   isLoading: boolean;
   /**
@@ -325,6 +351,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             return;
           }
           const walletMessage = parsed as WebViewMessage;
+          // Refuse anything origin-scoped until `urlChangeEvent` has confirmed the
+          // origin of the load this message came from. `state.origin` is the only
+          // thing standing between a page and another page's approved session (an
+          // `Auto` grant serves private notes and balances with no prompt at all),
+          // and it is repaired by a cross-process event with no ordering guarantee
+          // against the dApp's own inline scripts. PING is exempt: it is the bridge's
+          // availability probe, answered locally with PONG and never reaching
+          // `processDApp`, so it carries no origin-derived authority.
+          if (!state.originConfirmed && walletMessage.payload !== 'PING') {
+            await sendResponseToInstance(state.instance, {
+              type: 'MIDEN_PAGE_ERROR_RESPONSE',
+              payload: null,
+              reqId: walletMessage.reqId,
+              error: MidenDAppErrorType.NotGranted
+            });
+            return;
+          }
           // PR-4 chunk 8: pass the session id through to the backend so any
           // confirmation prompt this request triggers is keyed by it and
           // the React modal routes correctly.
@@ -376,7 +419,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         if (!newUrl) return;
         try {
           const origin = new URL(newUrl).origin;
-          updateSession(id, s => ({ ...s, origin }));
+          // url and origin are rewritten together, and only together: `parkInternal`
+          // persists `toPersisted(session).url` next to this live origin, so a pair
+          // that drifts apart makes the next cold restore load one page under
+          // another page's approved session.
+          updateSession(id, s => ({
+            ...s,
+            origin,
+            originConfirmed: true,
+            session: { ...s.session, url: newUrl, origin }
+          }));
         } catch {
           /* ignore */
         }
@@ -468,9 +520,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           session: fromPersisted(p),
           instance: null,
           status: 'parked' as DappInstanceStatus,
+          // Display-only until `openInternal` re-derives it from the URL this
+          // session will actually load — a legacy record can carry an origin from
+          // a page its `url` never pointed at.
           origin: p.origin,
           isLoading: false,
           isCold: true,
+          originConfirmed: false,
           error: null
         }));
 
@@ -510,7 +566,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         updateSession(session.id, s => ({
           ...s,
           instance,
-          status: 'active'
+          status: 'active',
+          // Stamp the principal from the URL this load actually starts at, rather
+          // than carrying over whatever origin the state (or a persisted record)
+          // happened to hold — a cold restore's persisted origin can be from a page
+          // this load is not opening. Unconfirmed until `urlChangeEvent` reports the
+          // document that really committed (a redirect can land elsewhere).
+          origin: parseOrigin(session.url),
+          originConfirmed: false
         }));
       } catch (error) {
         console.error('[DappBrowserProvider] Error opening webview:', error);
@@ -606,6 +669,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           origin: next.origin,
           isLoading: true,
           isCold: false,
+          originConfirmed: false,
           error: null
         }
       ]);
@@ -941,7 +1005,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // pending confirmation stays queued until the user surfaces that
   // session via its bubble. Falling back to undefined when no session is
   // foregrounded means the modal also picks up the legacy default-slot
-  // request from the extension/desktop flow when those code paths run.
+  // request from this platform's non-session callers (faucet-webview,
+  // native notifications). This provider is mounted only on mobile
+  // (`App.tsx`); desktop renders its own `DesktopDappConfirmationModal`
+  // against the same default slot, and the extension uses its popup.
   const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
 
   // CRITICAL: when a confirmation is pending, hide the foreground dApp's

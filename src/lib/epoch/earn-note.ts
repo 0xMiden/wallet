@@ -1,5 +1,3 @@
-import { AccountId, AccountInterface, NetworkId } from '@miden-sdk/miden-sdk';
-
 import {
   initiateEarnDepositTransaction,
   requestSWTransactionProcessing,
@@ -11,14 +9,7 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
-import type { BridgeNoteDeps } from './miden-note';
-
-function ifHextoBech32(addr: string) {
-  if (addr.startsWith('0x')) {
-    return AccountId.fromHex(addr).toBech32(NetworkId.testnet(), AccountInterface.BasicWallet);
-  }
-  return addr;
-}
+import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 
 export interface CreateEarnP2IDNoteArgs {
   senderAccountId: string;

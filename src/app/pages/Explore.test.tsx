@@ -42,8 +42,8 @@ const mockInitiateConsumeTransaction = jest.fn();
 const mockReconcileBridgedReceives = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
-const mockSetFaucetIdSetting = jest.fn();
 const mockNavigate = jest.fn();
+const mockClearNoteReceivedNotification = jest.fn();
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -157,12 +157,15 @@ jest.mock('lib/miden/activity', () => ({
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
 }));
 
+jest.mock('lib/mobile/native-notifications', () => ({
+  clearNoteReceivedNotification: (...args: any[]) => mockClearNoteReceivedNotification(...args)
+}));
+
 jest.mock('lib/epoch', () => ({
   reconcileEarnWithdrawals: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/miden/front', () => ({
-  setFaucetIdSetting: (...args: any[]) => mockSetFaucetIdSetting(...args),
   useAccount: () => mockAccount,
   useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
   useAllTokensBaseMetadata: () => ({}),
@@ -175,11 +178,6 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { name: 'zustand-provider' }
-}));
-
-jest.mock('lib/miden-chain/constants', () => ({
-  MIDEN_NETWORK_NAME: { MAINNET: 'mainnet', TESTNET: 'testnet', DEVNET: 'devnet', LOCALNET: 'localnet' },
-  MIDEN_FAUCET_ENDPOINTS: new Map([['devnet', 'https://faucet.devnet.example']])
 }));
 
 jest.mock('lib/platform', () => ({
@@ -263,6 +261,8 @@ describe('Explore', () => {
         makeToken('t-btc', 'BTC', 'Bitcoin'),
         makeToken('t-eth', 'ETH')
       ];
+      // Prices loaded → the real total renders (the mocked Balance hands 0).
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
 
       await renderExplore();
 
@@ -278,6 +278,15 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockTokenPrices = {}; // price feed unavailable / not yet loaded
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
@@ -537,6 +546,30 @@ describe('Explore', () => {
       expect(mockMutateClaimableNotes).toHaveBeenCalled();
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalledTimes(1);
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
+    it('clears the stale note-received notification once auto-consume takes over (#459)', async () => {
+      mockAutoConsume = true;
+      mockDelegateProof = false;
+      mockIsExtension = false;
+      mockClaimableNotes = [makeNote('n1', 'faucet-native', false)];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
+      // The "click to claim" notification is obsolete once the wallet auto-claims
+      // the note — dismiss it so it doesn't linger and open to "nothing to claim".
+      expect(mockClearNoteReceivedNotification).toHaveBeenCalled();
+    });
+
+    it('does not clear the note notification when there is nothing to auto-consume', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockClearNoteReceivedNotification).not.toHaveBeenCalled();
     });
 
     it('dispatches background processing (with signer + provider) when not an extension', async () => {

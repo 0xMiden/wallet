@@ -7,10 +7,14 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 
 const importNoteBytes = jest.fn(async () => 'noteid');
 const syncState = jest.fn(async () => undefined);
-const fakeClient = {};
+// Provenance lookup: `null` = the wallet does NOT already hold this note, so the
+// dry run is the thing introducing it. Defaults to "not held" for every id.
+const getInputNote = jest.fn(async (_id: string): Promise<unknown> => null);
+const executeRequest = jest.fn(async () => ({ result: { serialize: () => new Uint8Array([9, 9]) } }));
+const fakeClient = { transactions: { executeRequest } };
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  getMidenClient: jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState })),
+  getMidenClient: jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote })),
   withWasmClientLock: jest.fn((fn: any) => fn())
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -32,7 +36,10 @@ jest.mock('lib/shared/helpers', () => ({
 }));
 
 describe('simulateCustomTransaction', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getInputNote.mockImplementation(async () => null);
+  });
 
   it('imports notes, syncs, executes for summary and returns serialized summary', async () => {
     const res = await simulateCustomTransaction({
@@ -69,6 +76,27 @@ describe('simulateCustomTransaction', () => {
     await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(importedNoteIds).toHaveBeenCalledWith(undefined);
     expect(quarantineNoteIds).toHaveBeenCalledWith([]);
+    expect(getInputNote).not.toHaveBeenCalled();
+  });
+
+  it('does NOT quarantine a note the wallet already holds', async () => {
+    // The dApp controls `importNotes` and a decline releases nothing, so
+    // quarantining an already-held note would hide the user's own claimable
+    // funds permanently. Only the ids this dry run introduces may be hidden.
+    getInputNote.mockImplementation(async (id: string) => (id === 'id:noteA' ? { alreadyHere: true } : null));
+    await simulateCustomTransaction({
+      address: 'mtst1abc',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+    expect(getInputNote).toHaveBeenCalledWith('id:noteA');
+    expect(quarantineNoteIds).toHaveBeenCalledWith(['id:noteB']);
+  });
+
+  it('treats a failed provenance lookup as already-held (quarantines nothing)', async () => {
+    getInputNote.mockRejectedValueOnce(new Error('note store unavailable'));
+    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA'] });
+    expect(quarantineNoteIds).toHaveBeenCalledWith([]);
   });
 
   it('tolerates a missing importNotes list', async () => {
@@ -99,6 +127,35 @@ describe('simulateCustomTransaction', () => {
     );
     expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
+  // only exists while authorization is PENDING, and a transaction that executes
+  // successfully now rejects with `TRANSACTION_ALREADY_AUTHORIZED`. That is every
+  // ordinary single-sig account, so the confirm screen's verified (ground-truth)
+  // asset view — the anti-phishing control — was unreachable for all of them and
+  // the UI showed the loss as a transient "could not verify by simulation".
+  it.each([
+    ['an error carrying the SDK code', Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })],
+    ['a Node-style code-prefixed message', new Error('TRANSACTION_ALREADY_AUTHORIZED: no summary produced')],
+    ['the SDK display text', new Error('transaction is already fully authorized, so no transaction summary')]
+  ])('falls back to a local execution when the account is already authorized (%s)', async (_label, err) => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    // Executed locally against the same account — nothing proven or submitted.
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toEqual({ executedBytes: 'b64:9-9' });
+  });
+
+  it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(executeRequest).not.toHaveBeenCalled();
+    expect(res).toEqual({ error: 'note not found' });
   });
 
   it('times out and returns { error: "Simulation timed out" } when the locked work hangs', async () => {

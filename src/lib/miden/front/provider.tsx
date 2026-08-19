@@ -3,7 +3,7 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
-import { FiatCurrencyProvider } from 'lib/fiat-curency';
+import { FiatCurrencyProvider } from 'lib/fiat-currency';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
@@ -21,7 +21,9 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
+import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 import { SwapSettlementManager } from './SwapSettlementManager';
+import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
 
@@ -156,6 +158,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
 
   // On extension: send SyncRequest to service worker every 3s (replaces AutoSync)
   useSyncTrigger();
+  // On mobile: force an immediate sync + note refresh on app foreground so a note
+  // that arrived while backgrounded appears promptly instead of after the poll
+  // intervals elapse (#462). No-op off mobile.
+  useForegroundRefresh();
 
   return useMemo(
     () =>
@@ -166,6 +172,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             {children}
             <SwapSettlementManager />
             <NativeNoteAutoConsumeManager />
+            {/* Startup recovery for transactions orphaned by an app kill. No-op on
+                the extension, where the service worker's `setupTransactionProcessor`
+                already does this. */}
+            <OrphanedTransactionRecovery />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

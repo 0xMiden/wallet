@@ -3,13 +3,7 @@ import { expect, test } from '../fixtures/two-simulators';
 test.describe('Faucet Minting and Balance', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('deploy faucet and mint tokens to both wallets', async ({
-    walletA,
-    walletB,
-    midenCli,
-    steps,
-    timeline,
-  }) => {
+  test('deploy faucet and mint tokens to both wallets', async ({ walletA, walletB, midenCli, steps, timeline }) => {
     let addressA: string;
     let addressB: string;
     let faucetId: string;
@@ -32,7 +26,7 @@ test.describe('Faucet Minting and Balance', () => {
         category: 'blockchain_state',
         severity: 'info',
         message: `Faucet deployed: ${faucetId}`,
-        data: { faucetId },
+        data: { faucetId }
       });
     });
 
@@ -58,12 +52,16 @@ test.describe('Faucet Minting and Balance', () => {
       await walletA.claimAllNotes(180_000, [faucetId!]);
     });
 
-    await steps.step('verify_balance_wallet_a', async () => {
-      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-    }, {
-      captureStateFrom: [{ target: walletA, label: 'A' }],
-    });
+    await steps.step(
+      'verify_balance_wallet_a',
+      async () => {
+        const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
+        expect(balance).toBeGreaterThan(0);
+      },
+      {
+        captureStateFrom: [{ target: walletA, label: 'A' }]
+      }
+    );
 
     await steps.step('mint_tokens_to_wallet_b', async () => {
       const { txId, noteId } = await midenCli.mint(faucetId, addressB!, 100_000_000_000, 'public');
@@ -76,11 +74,15 @@ test.describe('Faucet Minting and Balance', () => {
       await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
-    await steps.step('verify_balance_wallet_b', async () => {
-      const balance = await walletB.waitForBalanceAbove(0, 120_000, timeline);
-      expect(balance).toBeGreaterThan(0);
-    }, {
-      captureStateFrom: [{ target: walletB, label: 'B' }],
-    });
+    await steps.step(
+      'verify_balance_wallet_b',
+      async () => {
+        const balance = await walletB.waitForBalanceAbove(0, 120_000, timeline);
+        expect(balance).toBeGreaterThan(0);
+      },
+      {
+        captureStateFrom: [{ target: walletB, label: 'B' }]
+      }
+    );
   });
 });

@@ -149,6 +149,14 @@ jest.mock('./confirm/decode', () => ({
     inputNotesConsumed: 1,
     outputNotesCreated: 1,
     storageChanged: false
+  })),
+  executedBytesToView: jest.fn(() => ({
+    account: 'mtst1executed',
+    outgoing: [{ faucetId: 'fA', amount: 10n }],
+    incoming: [],
+    inputNotesConsumed: 0,
+    outputNotesCreated: 1,
+    storageChanged: false
   }))
 }));
 
@@ -519,7 +527,9 @@ describe('transaction payload', () => {
     transactionMessages: [
       'Sending funds',
       'to a recipient',
-      'Amount, 1000000',
+      // The backend (`formatSendTransactionPreview` / `formatConsumeTransactionPreview`)
+      // already applies the faucet's real decimals, so the amount arrives display-ready.
+      'Amount, -1.5',
       'Recipient, mtst1abcdef_ghij',
       'Fee, 5',
       'NoComma'
@@ -533,8 +543,10 @@ describe('transaction payload', () => {
     expect(screen.getByText('requestsATransaction')).toBeInTheDocument();
     // account block
     expect(screen.getByText(ACCOUNT.name)).toBeInTheDocument();
-    // Amount 1000000 microcredits / 10^6 => "1"
-    expect(screen.getByText('1')).toBeInTheDocument();
+    // Regression guard: ConfirmPage must NOT re-scale the amount. It used to divide
+    // by a hardcoded 10 ** 6 (MIDEN's decimals), which mis-rendered every faucet with
+    // different decimals and lost precision above 2^53 by routing through Number().
+    expect(screen.getByText('-1.5')).toBeInTheDocument();
     // Plain label passes value through untouched.
     expect(screen.getByText('Fee')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
@@ -962,6 +974,21 @@ describe('ConfirmPage custom transaction', () => {
     await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1acct');
     expect((ctx as any).simulateCustomTransaction).toHaveBeenCalledWith('req-1');
+  });
+
+  // Regression: on web-sdk 0.16 an ordinary single-sig account produces NO
+  // TransactionSummary (executeForSummary rejects TRANSACTION_ALREADY_AUTHORIZED),
+  // so the dry run returns the executed transaction instead. Ignoring it left the
+  // verified asset view unreachable for every such account, with the loss shown as
+  // a transient "could not verify by simulation".
+  it('shows the verified view from the executed transaction when no summary is produced', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ executedBytes: 'execB64' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'verified'));
+    expect(screen.getByTestId('asset-view')).toHaveAttribute('data-account', 'mtst1executed');
+    expect(screen.queryByText('couldNotVerifyBySimulation')).not.toBeInTheDocument();
   });
 
   it('keeps the declared view with a caveat when simulation errors', async () => {

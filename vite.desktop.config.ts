@@ -9,6 +9,8 @@ import { defineConfig, type Plugin } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import wasm from 'vite-plugin-wasm';
 
+import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
+
 const pkg = require('./package.json');
 
 export default defineConfig({
@@ -48,6 +50,22 @@ export default defineConfig({
       }
     } satisfies Plugin,
     wasm(),
+    // Put the SDK WASM where the CLASSIC worker looks for it. Tauri renders in
+    // WKWebView (macOS) / WebKitGTK (Linux), whose user agents carry `AppleWebKit`
+    // without `Chrome/`, so `WebClient._shouldUseClassicWorker()` picks the classic
+    // worker — and that worker resolves a hard-coded relative
+    // `assets/miden_client_web.wasm` against its own /assets/<name>.js URL, i.e.
+    // /assets/assets/miden_client_web.wasm, which `assetFileNames` never emits.
+    // Without this copy the wasm 404s, `__wbg_init` throws, and every SDK call
+    // rejects for the whole session. Windows (WebView2) reports `Chrome/` and takes
+    // the module-worker branch, which imports the hashed wasm — which is why the
+    // break is invisible there and in every Chrome-based test.
+    {
+      name: 'desktop-classic-worker-wasm',
+      closeBundle() {
+        copyClassicWorkerWasm(resolve(__dirname, 'dist/desktop'));
+      }
+    } satisfies Plugin,
     nodePolyfills({
       include: ['buffer', 'stream', 'assert', 'process'],
       globals: { Buffer: true, process: true }
@@ -93,6 +111,9 @@ export default defineConfig({
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('desktop'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+    // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
+    // defined (default OFF) so shared code that reads it resolves cleanly.
+    'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_DEFAULT_NETWORK': JSON.stringify(process.env.MIDEN_DEFAULT_NETWORK ?? ''),
     'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
@@ -106,6 +127,12 @@ export default defineConfig({
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',
