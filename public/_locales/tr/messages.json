@@ -1698,6 +1698,34 @@
     "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Hesap kurtarma algılandı",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Özel notes adresini tarama: note aktarımını boşaltma…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Özel notes adresini tarama: bekleyen tekliflerden notes adresini içe aktarma…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "notes'un halka açık veritabanını senkronize ediyor…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "notes'ın senkronizasyonu: $latest$ adresindeki $current$ bloğu",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes'unuz var",
     "englishSource": "You have Pending Notes"

@@ -1698,6 +1698,34 @@
     "message": "지갑에 자금을 충전할 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "계정 복구 감지됨",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "notes의 비공개 블록 스캔 중: note 전송을 처리 중…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "비공개 notes 스캔 중: 보류 중인 제안서(notes)에서 데이터를 가져오고 있습니다…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "공개 notes 동기화 중…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "공개 notes 동기화: $latest$의 블록 $current$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "귀하의 미결제 노트는 다음과 같습니다Notes",
     "englishSource": "You have Pending Notes"
