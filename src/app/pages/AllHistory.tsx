@@ -3,12 +3,13 @@ import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import History from 'app/templates/history/History';
 import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
 import { SearchInput, TabHeader } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
-import { useAccount } from 'lib/miden/front';
+import { useAccount, useLocalStorage } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
@@ -19,6 +20,40 @@ type AllHistoryProps = {
 
 type FilterId = 'all' | 'sent' | 'received' | 'faucet';
 
+const GuardianRecoveryWarning: FC<{ accountId: string }> = ({ accountId }) => {
+  const { t } = useTranslation();
+  const [dismissed, setDismissed] = useLocalStorage(`guardian-recovery-warning-dismissed:${accountId}`, false);
+  if (dismissed) return null;
+
+  return (
+    <div className="shrink-0 px-4 pt-3">
+      <div
+        role="status"
+        className="flex items-start gap-2 rounded-xl border border-status-pending/30 bg-status-pending/10 p-3 text-text-primary-token"
+      >
+        <Icon
+          name={IconName.WarningFill}
+          size="sm"
+          className="mt-0.5 shrink-0 text-status-pending"
+          fill="currentColor"
+        />
+        <p className="grow font-heading text-sm font-medium leading-5">{t('incompleteTransactionHistory')}</p>
+        <button
+          type="button"
+          aria-label={t('dismissIncompleteTransactionHistory')}
+          onClick={() => {
+            hapticLight();
+            setDismissed(true);
+          }}
+          className="flex shrink-0 items-center justify-center rounded-md text-text-secondary-token focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-primary"
+        >
+          <Icon name={IconName.Close} size="sm" fill="currentColor" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
@@ -28,6 +63,9 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const isRecovering =
+    account.guardianTransactionRecoveryStatus === 'pending' ||
+    account.guardianTransactionRecoveryStatus === 'recovering';
 
   useEffect(() => {
     let cancelled = false;
@@ -69,9 +107,31 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     setFilter(id);
   };
 
+  if (isRecovering) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
+        <TabHeader title={t('activity')} />
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-28 text-center"
+        >
+          <ActivitySpinner height="48px" />
+          <p className="font-heading text-sm font-semibold text-text-secondary-token">
+            {t('recoveringTransactionHistory')}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
       <TabHeader title={t('activity')} />
+
+      {account.guardianTransactionRecoveryStatus === 'partial' && (
+        <GuardianRecoveryWarning key={account.publicKey} accountId={account.publicKey} />
+      )}
 
       <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {filters.map(f => {

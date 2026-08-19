@@ -5,7 +5,13 @@ import BigNumber from 'bignumber.js';
 import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import {
+  fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
+  type GuardianNoteRecoveryProgress,
+  normalizeGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
+import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
@@ -19,6 +25,12 @@ export enum WalletPromptType {
   Faucet = 'faucet',
   PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
+  // Non-dismissible, live-progress card shown while the post-seed-recovery
+  // pending-note scan runs. Driven purely by the progress record the SW
+  // orchestrator writes (lib/guardian-note-recovery-progress), NOT by the
+  // persisted prompt-status map — it appears when a record exists and
+  // disappears when the scan clears it.
+  GuardianNoteRecovery = 'guardianNoteRecovery',
   // Mobile-only: the native hot-key plugin hit a secure-hardware error —
   // either it couldn't use the TEE / Secure Enclave at all (signing falls back
   // to the software key), or a present StrongBox failed and the key degraded
@@ -352,6 +364,39 @@ export async function faucet(address: string): Promise<void> {
 
   // Fully funded — forget the address so a future re-fund isn't skipped.
   succeededFaucetSources.delete(address);
+}
+
+/**
+ * Live progress of the post-seed-recovery pending-note scan, or null when no
+ * scan is running. Extension surfaces get push updates via storage change
+ * events (the SW writes through the same storage area); mobile/desktop have no
+ * storage events, so a light poll keeps the card advancing there too.
+ */
+export function useGuardianNoteRecoveryProgress(): GuardianNoteRecoveryProgress | null {
+  const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      fetchGuardianNoteRecoveryProgress()
+        .then(next => {
+          if (!cancelled) setProgress(next);
+        })
+        .catch(error => console.warn('[wallet-prompts] failed to read note-recovery progress:', error));
+    };
+    refresh();
+    const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value => {
+      if (!cancelled) setProgress(normalizeGuardianNoteRecoveryProgress(value));
+    });
+    const interval = setInterval(refresh, 2000);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, []);
+
+  return progress;
 }
 
 export function useWalletPromptStorage() {

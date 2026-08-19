@@ -6,6 +6,7 @@ import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
 } from 'lib/miden/back/guardian-drift';
+import { maybeStartGuardianRecovery } from 'lib/miden/back/guardian-recovery';
 import {
   toFront,
   store,
@@ -205,6 +206,7 @@ export function unlock(password?: string) {
       // Stamp wallet-derived EVM addresses on pre-existing HD accounts
       // (best-effort, never throws) before the accounts list is read below.
       await vault.backfillEvmAddresses();
+      await vault.finalizeInterruptedGuardianTransactionRecoveries();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();
@@ -380,6 +382,21 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
   return withUnlocked(async ({ vault }) => {
     const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
     accountsUpdated(updated);
+  });
+}
+
+/**
+ * Frontend-triggered kickoff for the detached Guardian recovery sequence
+ * (delta history + pending notes). Fired by GuardianRecoveryProvider once the
+ * hot-key rotation has landed and no transaction is in flight; returns false
+ * (so the provider retries) while the account is still ineligible or busy.
+ */
+export function startGuardianRecovery(accountPublicKey: string) {
+  return withUnlocked(async ({ vault }) => {
+    const accounts = await vault.fetchAccounts();
+    const account = accounts.find(acc => acc.publicKey === accountPublicKey);
+    if (!account) return false;
+    return maybeStartGuardianRecovery(account, vault);
   });
 }
 

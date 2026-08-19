@@ -93,6 +93,7 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   // transaction status must win over the initial route metadata (Agglayer
   // rows are born with `claimStatus: pending`).
   if (entry.status === ITransactionStatus.Failed) return 'failed';
+  if (entry.recoveryDetailsPartial) return 'confirmed';
 
   if (entry.txType === 'bridged-receive') {
     if (entry.bridgeInPhase === 'ready' || entry.bridgeInPhase === 'received') return 'confirmed';
@@ -227,7 +228,7 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  * render as Confirmed. Mirrors `EarnDepositStatusPill` on the detail page.
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
-  entry.earnDepositStatus ?? 'pending';
+  entry.recoveryDetailsPartial ? 'confirmed' : (entry.earnDepositStatus ?? 'pending');
 
 /** i18n key per deposit settlement state (reuses the shared status labels). */
 export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {

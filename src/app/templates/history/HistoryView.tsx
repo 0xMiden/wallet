@@ -78,7 +78,11 @@ function buildRowProps(
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
   // EVM→Miden deposits) reuse the same layout with the direction flipped.
   // A user-cancelled bridge falls through to the plain cancelled row below.
-  if (!entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  if (
+    !entry.recoveryDetailsPartial &&
+    !entry.isCancelled &&
+    (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
+  ) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     const failed = d.status === 'failed';

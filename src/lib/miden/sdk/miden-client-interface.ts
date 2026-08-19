@@ -1,11 +1,14 @@
 import {
   Account,
   AccountFile,
+  Address,
   AuthSecretKey,
+  Endpoint,
   type ConsumableNoteRecord,
   exportStore,
   getWasmOrThrow,
   importStore,
+  InputNote,
   InputNoteRecord,
   InputNoteState,
   MidenClient,
@@ -14,6 +17,8 @@ import {
   NoteExportFormat,
   NoteFile,
   NoteQuery,
+  type NoteInclusionProof,
+  RpcClient,
   NoteType,
   TransactionProver,
   TransactionRequest,
@@ -38,7 +43,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
-import { getBech32AddressFromAccountId } from './helpers';
+import { getBech32AddressFromAccountId, walletAccountIdToSdk } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
@@ -438,6 +443,140 @@ export class MidenClientInterface {
     // alpha.4 resolves a NoteId object, current `next` resolves the hex
     // string directly.
     return String(await this.client.notes.import(noteFile));
+  }
+
+  /**
+   * Recover every pending-note source in the client realm that owns the SDK
+   * store. Callers route this through midenClientProxy so the offscreen client
+   * remains canonical when enabled.
+   */
+  /**
+   * Pending-note recovery source 1 of 3: drain the private-note transport
+   * backlog into the store. Kept a standalone short op (the SW orchestrates
+   * the sources as separate offscreen calls) so nothing holds the WASM mutex
+   * long enough for queued reads to deadline-kill the realm.
+   */
+  async drainPrivateNoteTransport(): Promise<void> {
+    await this.client.notes.fetchPrivate({ mode: 'all' });
+  }
+
+  /**
+   * Pending-note recovery source 2 of 3: import serialized notes recovered
+   * from pending Guardian `consume_notes` proposals, attaching a node-fetched
+   * inclusion proof when one exists.
+   */
+  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    let imported = 0;
+    let failures = 0;
+    for (const noteBytes of proposalNoteBytes) {
+      try {
+        const note = Note.deserialize(noteBytes);
+        let inclusionProof: NoteInclusionProof | undefined;
+        try {
+          const fetched = (await rpc.getNotesById([note.id()]))[0];
+          inclusionProof = fetched?.inclusionProof;
+        } catch (error) {
+          console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
+        }
+        const inputNote = inclusionProof
+          ? InputNote.authenticated(note, inclusionProof)
+          : InputNote.unauthenticated(note);
+        await this.client.notes.import(NoteFile.fromInputNote(inputNote));
+        imported++;
+      } catch (error) {
+        failures++;
+        console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
+      }
+    }
+    return { imported, failures };
+  }
+
+  /**
+   * Resolve the public-backfill scan range for a recovered account: binary
+   * search block headers for the first block minted after the account was
+   * created (Guardian `createdAt`, seconds), with a margin for clock skew.
+   * Scanning from the creation block instead of genesis keeps the backfill
+   * proportional to the account's age.
+   */
+  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    const latestHeader = await rpc.getBlockHeaderByNumber();
+    const latestBlock = latestHeader.blockNum();
+    const clockSkewMarginSeconds = 600;
+    const target = createdAtSeconds - clockSkewMarginSeconds;
+    if (target <= 0) return { startBlock: 0, latestBlock };
+    if (latestHeader.timestamp() <= target) return { startBlock: latestBlock, latestBlock };
+    const genesis = await rpc.getBlockHeaderByNumber(0);
+    if (genesis.timestamp() >= target) return { startBlock: 0, latestBlock };
+    // Invariant: timestamp(lo) < target <= timestamp(hi).
+    let lo = 0;
+    let hi = latestBlock;
+    while (lo + 1 < hi) {
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const header = await rpc.getBlockHeaderByNumber(mid);
+      if (header.timestamp() < target) lo = mid;
+      else hi = mid;
+    }
+    return { startBlock: lo, latestBlock };
+  }
+
+  /**
+   * Pending-note recovery source 3 of 3: import committed public notes whose
+   * tag matches the account, over ONE bounded block range. The SW walks the
+   * full creation-to-tip span in chunks through this method so progress is
+   * reportable and the WASM mutex is released between chunks.
+   */
+  async recoverPublicNotesRange(accountId: string, blockFrom: number, blockTo: number): Promise<number> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    const accountSdkId = walletAccountIdToSdk(accountId);
+    const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
+    return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo);
+  }
+
+  private async recoverPublicNotesInRange(
+    rpc: RpcClient,
+    noteTag: ReturnType<Address['toNoteTag']>,
+    blockFrom: number,
+    blockTo: number
+  ): Promise<number> {
+    try {
+      const syncInfo = await rpc.syncNotes(blockFrom, blockTo, [noteTag]);
+      const committedNotes = syncInfo.notes();
+      console.log(
+        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches`
+      );
+      let imported = 0;
+      const fetchBatchSize = 100;
+      for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
+        const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
+        const fetchedNotes = await rpc.getNotesById(noteIds);
+        for (const fetched of fetchedNotes) {
+          const inputNote = fetched.asInputNote();
+          if (!inputNote) continue;
+          try {
+            await this.client.notes.import(NoteFile.fromInputNote(inputNote));
+            imported++;
+          } catch (error) {
+            console.warn('[GuardianRecovery] Failed to import one public note:', error);
+          }
+        }
+      }
+      return imported;
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const safetyCapReached =
+        message.includes('paginationerror') ||
+        message.includes('blockpagination') ||
+        message.includes('safety cap') ||
+        message.includes('too many') ||
+        message.includes('maximum number');
+      if (!safetyCapReached || blockFrom >= blockTo) throw error;
+      const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
+      const firstHalf = await this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, midpoint);
+      const secondHalf = await this.recoverPublicNotesInRange(rpc, noteTag, midpoint + 1, blockTo);
+      return firstHalf + secondHalf;
+    }
   }
 
   async getAccount(accountId: string) {

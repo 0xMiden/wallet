@@ -30,7 +30,14 @@ import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
-import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
+import {
+  AuthScheme,
+  GuardianSyncStatus,
+  GuardianTransactionRecoveryStatus,
+  SignEvmOperation,
+  WalletAccount,
+  WalletSettings
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -537,24 +544,27 @@ export class Vault {
         evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
       }
 
-      const initialAccounts: WalletAccount[] = createdAccounts.map((c, idx) => ({
-        publicKey: c.accountId,
-        name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
-        isPublic: walletType === WalletType.OnChain,
-        type: walletType,
-        hdIndex: c.hdIndex,
-        authScheme: c.authScheme,
-        evmAddress: evmKeys.get(c.hdIndex)?.address,
-        ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
-        ...(c.guardianKeys && {
-          hotPublicKey: c.guardianKeys.hotPublicKey,
-          coldPublicKey: c.guardianKeys.coldPublicKey
-        }),
-        ...(c.recoveredCold && {
-          coldPublicKey: c.recoveredCold.coldPublicKey,
-          requiresHotKeyRotation: true
+      const initialAccounts: WalletAccount[] = createdAccounts.map(
+        (c, idx): WalletAccount => ({
+          publicKey: c.accountId,
+          name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
+          isPublic: walletType === WalletType.OnChain,
+          type: walletType,
+          hdIndex: c.hdIndex,
+          authScheme: c.authScheme,
+          evmAddress: evmKeys.get(c.hdIndex)?.address,
+          ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
+          ...(c.guardianKeys && {
+            hotPublicKey: c.guardianKeys.hotPublicKey,
+            coldPublicKey: c.guardianKeys.coldPublicKey
+          }),
+          ...(c.recoveredCold && {
+            coldPublicKey: c.recoveredCold.coldPublicKey,
+            requiresHotKeyRotation: true,
+            guardianTransactionRecoveryStatus: 'pending'
+          })
         })
-      }));
+      );
 
       await encryptAndSaveMany(
         [
@@ -1131,6 +1141,61 @@ export class Vault {
       const currentAccount = await this.getCurrentAccount();
       return { accounts: newAllAccounts, currentAccount };
     });
+  }
+
+  /** Persist the one-shot Guardian delta-history recovery state for an account. */
+  async setGuardianTransactionRecoveryStatus(
+    accountPublicKey: string,
+    guardianTransactionRecoveryStatus: GuardianTransactionRecoveryStatus
+  ) {
+    return withError('Failed to set Guardian transaction recovery status', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianTransactionRecoveryStatus } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * A detached recovery cannot survive an extension process termination. A
+   * later unlock exposes the rows committed before termination and records the
+   * attempt as partial instead of leaving Activity on a permanent spinner.
+   *
+   * Only `recovering` marks an actually-interrupted run. `pending` means the
+   * sequence has not started yet — GuardianRecoveryProvider fires it once the
+   * hot-key rotation lands and no transaction is in flight — so it must
+   * survive a lock/unlock cycle untouched.
+   */
+  async finalizeInterruptedGuardianTransactionRecoveries(): Promise<void> {
+    try {
+      const allAccounts = await this.fetchAccounts();
+      const hasInterruptedRecovery = allAccounts.some(
+        account => account.guardianTransactionRecoveryStatus === 'recovering'
+      );
+      if (!hasInterruptedRecovery) return;
+
+      const nextAccounts = allAccounts.map((account): WalletAccount => {
+        switch (account.guardianTransactionRecoveryStatus) {
+          case 'recovering':
+            return { ...account, guardianTransactionRecoveryStatus: 'partial' };
+          case 'pending':
+          case 'complete':
+          case 'partial':
+          default:
+            return account;
+        }
+      });
+      await encryptAndSaveMany([[accountsStrgKey, nextAccounts]], this.vaultKey);
+    } catch (error) {
+      console.warn('[Vault] Failed to finalize an interrupted Guardian transaction recovery:', error);
+    }
   }
 
   /**

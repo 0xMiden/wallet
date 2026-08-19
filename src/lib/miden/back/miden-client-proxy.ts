@@ -82,6 +82,15 @@ const READ_DEADLINE_MS = 15_000;
 const SYNC_DEADLINE_MS = 45_000;
 
 /**
+ * Per-op deadline (ms) for one pending-note recovery chunk (transport drain,
+ * proposal-note import, scan-range resolution, or one bounded public-backfill
+ * range). Recovery is deliberately chunked into ops of this size — a single
+ * long-held op starves queued reads past their dispatch-armed deadlines and
+ * gets the realm killed.
+ */
+const NOTE_RECOVERY_CHUNK_DEADLINE_MS = 60_000;
+
+/**
  * Per-op deadline (ms) for a whole-op offscreen WRITE (`consumeNoteId`).
  *
  * This is the funds-risk knob (design §3.4). It must clear a legitimate
@@ -954,6 +963,58 @@ export const midenClientProxy = {
       throw new Error('importNoteBytes: offscreen document returned no note id');
     }
     return new TextDecoder().decode(b64ToBytes(resultB64));
+  },
+
+  /** Pending-note recovery chunk: drain the private-note transport backlog. */
+  async drainPrivateNoteTransport(): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).drainPrivateNoteTransport());
+    }
+    await this.call('drainPrivateNoteTransport', [], { deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS });
+  },
+
+  /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));
+    }
+    const encodedNotes = proposalNoteBytes.map(bytesToB64);
+    const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    if (resultB64 == null) throw new Error('importRecoveryNoteBytes: offscreen document returned no result');
+    const result: { imported: number; failures: number } = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return result;
+  },
+
+  /** Pending-note recovery chunk: resolve the creation-block scan range. */
+  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).resolveRecoveryScanRange(createdAtSeconds));
+    }
+    const resultB64 = await this.call('resolveRecoveryScanRange', [createdAtSeconds], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    if (resultB64 == null) throw new Error('resolveRecoveryScanRange: offscreen document returned no result');
+    const result: { startBlock: number; latestBlock: number } = JSON.parse(
+      new TextDecoder().decode(b64ToBytes(resultB64))
+    );
+    return result;
+  },
+
+  /** Pending-note recovery chunk: public backfill over ONE bounded block range. */
+  async recoverPublicNotesRange(accountId: string, blockFrom: number, blockTo: number): Promise<number> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo)
+      );
+    }
+    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    if (resultB64 == null) throw new Error('recoverPublicNotesRange: offscreen document returned no result');
+    const imported: number = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return imported;
   },
 
   /**

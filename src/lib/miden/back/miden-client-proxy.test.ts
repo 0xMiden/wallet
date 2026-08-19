@@ -136,6 +136,9 @@ function resetControl() {
     })),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
+    inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
+    inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
+    inlineRecoverPublicNotesRange: jest.fn(async () => 3),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -155,6 +158,9 @@ function resetControl() {
       // height + pswap lineage are reached through the raw `.client`.
       getInputNote: (...a: any[]) => G.__px.inlineGetInputNote(...a),
       importNoteBytes: (...a: any[]) => G.__px.inlineImportNoteBytes(...a),
+      drainPrivateNoteTransport: (...a: any[]) => G.__px.inlineDrainPrivateNoteTransport(...a),
+      importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
+      recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
@@ -272,6 +278,65 @@ describe('MidenClientProxy — flag routing', () => {
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('boom in offscreen');
+  });
+
+  it('routes pending-note recovery chunks inline when the offscreen client is disabled', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const noteBytes = [new Uint8Array([1, 2]), new Uint8Array([3])];
+
+    await midenClientProxy.drainPrivateNoteTransport();
+    const imported = await midenClientProxy.importRecoveryNoteBytes(noteBytes);
+    const publicCount = await midenClientProxy.recoverPublicNotesRange('mtst1guardian', 100, 200);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(3);
+    expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200);
+    expect(imported).toEqual({ imported: 2, failures: 0 });
+    expect(publicCount).toBe(3);
+  });
+
+  it('routes proposal-note import through offscreen and preserves note bytes', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const sdkResult = { imported: 1, failures: 0 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(sdkResult)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.importRecoveryNoteBytes([new Uint8Array([7, 8, 9])]);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('importRecoveryNoteBytes');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual([`s:["${Buffer.from([7, 8, 9]).toString('base64')}"]`]);
+    expect(result).toEqual(sdkResult);
+  });
+
+  it('routes one public-backfill range through offscreen with its bounds', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(5)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('recoverPublicNotesRange');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999']);
+    expect(result).toBe(5);
   });
 });
 

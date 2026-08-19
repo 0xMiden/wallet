@@ -1022,7 +1022,7 @@ const generateGuardianTransaction = async (
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
+        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!, 'agglayer_bridged_send');
       }
       break;
     }
