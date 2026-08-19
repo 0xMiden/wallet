@@ -279,19 +279,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       setLoadError(null);
       const tx = await getTransactionById(transactionId);
       const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-      const recoveryDetailsPartial = tx.recovery?.detail === 'partial';
       console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
       // Bridge metadata (route/provider, EVM destination, per-route status) lives
       // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
       // Slow (Agglayer) and defaults every bridge to the Slow route.
-      const bridge: IBridgedSendExtraInputs | undefined =
-        tx.type === 'bridged-send' && !recoveryDetailsPartial ? tx.extraInputs : undefined;
+      const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
       const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
         tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
       const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
         tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
       const earnDepositExtra: IEarnDepositExtraInputs | undefined =
-        tx.type === 'earn-deposit' && !recoveryDetailsPartial ? tx.extraInputs : undefined;
+        tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
       const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
         tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
       // Source side (USDC) while in flight, destination side once the bridged
@@ -322,7 +320,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
         txType: tx.type,
-        recoveryDetailsPartial,
         previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
         newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
         errorMessage: tx.error,
@@ -349,7 +346,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         bridgeInMidenNoteId: bridgeReceive?.midenNoteId
       } as IHistoryEntry;
 
-      if (tx.type === 'swap' && !recoveryDetailsPartial) {
+      if (tx.type === 'swap') {
         const extra: SwapExtraInputs = tx.extraInputs ?? {};
         if (extra.orderId != null) {
           // The DEX faucets are usually absent from assetsMetadata (where
@@ -367,7 +364,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         }
       }
 
-      if (tx.type === 'swap' && !recoveryDetailsPartial) {
+      if (tx.type === 'swap') {
         setSettlementNotes(await getSwapSettlementNotes(tx.id));
       }
 
@@ -659,7 +656,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled && !entry.recoveryDetailsPartial;
+  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
   const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -674,9 +671,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // `send` is the only outbound type that reaches this branch (bridged-send and
   // switch-guardian are handled above), so type is the whole rule; the message
   // check is kept as a fallback for rows persisted before `txType` existed.
-  const isRecoveredOutbound =
-    entry?.recoveryDetailsPartial && (entry.txType === 'bridged-send' || entry.txType === 'earn-deposit');
-  const isOutboundTransfer = entry?.txType === 'send' || entry?.message === 'Sent' || isRecoveredOutbound;
+  const isOutboundTransfer = entry?.txType === 'send' || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
     : isGuardianSwitch

@@ -17,8 +17,6 @@ export interface IHistoryEntry {
   message: string;
   type: HistoryEntryType;
   txType: ITransactionType;
-  /** Wallet-only fields were unavailable when this row was rebuilt from a Guardian delta. */
-  recoveryDetailsPartial?: boolean;
 
   // Optional properties
   /** Raw transaction status; set by the detail page for the status pill. */

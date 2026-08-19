@@ -4,7 +4,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
-import type { GuardianTransactionRecoveryStatus } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';
@@ -23,13 +22,7 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className }: { name: string; className?: string }) => (
     <span data-testid="icon" data-name={name} className={className} />
   ),
-  IconName: {
-    PendingNotes: 'PendingNotes',
-    Settings: 'Settings',
-    InformationFill: 'InformationFill',
-    WarningFill: 'WarningFill',
-    Close: 'Close'
-  }
+  IconName: { PendingNotes: 'PendingNotes', Settings: 'Settings', InformationFill: 'InformationFill' }
 }));
 
 // The info drawer pulls in vaul + Button; stub it down to its open state.
@@ -102,25 +95,8 @@ jest.mock('lib/miden/activity', () => ({
   reconcileAgglayerBridgedReceives: (...args: unknown[]) => mockReconcile(...args)
 }));
 
-let mockGuardianTransactionRecoveryStatus: GuardianTransactionRecoveryStatus | undefined;
-
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => ({
-    publicKey: 'test-public-key',
-    guardianTransactionRecoveryStatus: mockGuardianTransactionRecoveryStatus
-  }),
-  useLocalStorage: (key: string, initialValue: boolean) => {
-    const react = jest.requireActual('react');
-    const [value, setValue] = react.useState(() => {
-      const stored = localStorage.getItem(key);
-      return stored === null ? initialValue : JSON.parse(stored);
-    });
-    const persist = (next: boolean) => {
-      localStorage.setItem(key, JSON.stringify(next));
-      setValue(next);
-    };
-    return [value, persist];
-  }
+  useAccount: () => ({ publicKey: 'test-public-key' })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -140,8 +116,6 @@ const getFilterButton = (label: string) => screen.getByRole('button', { name: la
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    localStorage.clear();
-    mockGuardianTransactionRecoveryStatus = undefined;
     mockedUseClaimableNotes.mockReturnValue({ data: [] });
     mockReconcile.mockResolvedValue(undefined);
   });
@@ -261,45 +235,6 @@ describe('AllHistory', () => {
 
     expect(getHistory().getAttribute('data-search-query')).toBe('usdc');
     expect((screen.getByTestId('search-input') as HTMLInputElement).value).toBe('usdc');
-  });
-
-  it.each(['pending', 'recovering'] satisfies GuardianTransactionRecoveryStatus[])(
-    'replaces the activity body while transaction recovery is %s',
-    status => {
-      mockGuardianTransactionRecoveryStatus = status;
-      render(<AllHistory />);
-
-      expect(screen.getByRole('status').textContent).toContain('recoveringTransactionHistory');
-      expect(screen.getByRole('heading', { name: 'activity' })).toBeTruthy();
-      expect(screen.queryByTestId('history')).toBeNull();
-      expect(screen.queryByTestId('search-input')).toBeNull();
-      expect(screen.queryByRole('button', { name: 'all' })).toBeNull();
-    }
-  );
-
-  it('shows partial history with a dismissible warning that stays dismissed for the account', () => {
-    mockGuardianTransactionRecoveryStatus = 'partial';
-    const first = render(<AllHistory />);
-
-    expect(screen.getByText('incompleteTransactionHistory')).toBeTruthy();
-    expect(screen.getByTestId('history')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'dismissIncompleteTransactionHistory' }));
-
-    expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('incompleteTransactionHistory')).toBeNull();
-
-    first.unmount();
-    render(<AllHistory />);
-    expect(screen.queryByText('incompleteTransactionHistory')).toBeNull();
-    expect(screen.getByTestId('history')).toBeTruthy();
-  });
-
-  it('renders normal history without a warning after complete recovery', () => {
-    mockGuardianTransactionRecoveryStatus = 'complete';
-    render(<AllHistory />);
-
-    expect(screen.queryByText('incompleteTransactionHistory')).toBeNull();
-    expect(screen.getByTestId('history')).toBeTruthy();
   });
 
   // AggLayer bridge-in rows only become claimable once reconciled, so the page

@@ -167,7 +167,6 @@ export const useTransactionSummaryBadgeContent = (
   const { t } = useTranslation();
 
   return useMemo(() => {
-    if (transaction?.recovery?.detail === 'partial') return undefined;
     if (transaction?.type === 'consume') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
       const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;

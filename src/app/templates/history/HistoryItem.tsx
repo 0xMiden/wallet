@@ -60,7 +60,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (!entry.recoveryDetailsPartial && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 

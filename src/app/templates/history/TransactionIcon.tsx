@@ -45,7 +45,7 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   if (entry.isCancelled) return '#9E9E9E';
   if (entry.transactionIcon === 'FAILED') return '#CC5D5D';
 
-  if (!entry.recoveryDetailsPartial && (entry.txType === 'bridged-send' || entry.bridgeInProvider)) {
+  if (entry.txType === 'bridged-send' || entry.bridgeInProvider) {
     return bridgeStatusOf(entry) === 'failed' ? '#CC5D5D' : BRIDGE_ICON_BG;
   }
 
@@ -80,10 +80,7 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
     );
   }
 
-  if (
-    !entry.recoveryDetailsPartial &&
-    (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider)
-  ) {
+  if (entry.txType === 'bridged-send' || entry.txType === 'bridged-receive' || entry.bridgeInProvider) {
     if (bridgeStatusOf(entry) === 'failed') {
       return (
         <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>

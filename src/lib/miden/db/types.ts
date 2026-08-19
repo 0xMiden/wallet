@@ -15,13 +15,6 @@ export enum ITransactionStatus {
 }
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
-
-export interface ITransactionRecovery {
-  source: 'guardian-delta';
-  guardianNonce: number;
-  detail: 'complete' | 'partial';
-}
-
 export type ITransactionType =
   | 'send'
   | 'consume'
@@ -290,8 +283,6 @@ export interface ITransaction {
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
   outputNoteIds?: string[];
-  /** Present only on rows reconstructed from Guardian's retained canonical deltas. */
-  recovery?: ITransactionRecovery;
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;

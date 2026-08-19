@@ -206,7 +206,6 @@ export function unlock(password?: string) {
       // Stamp wallet-derived EVM addresses on pre-existing HD accounts
       // (best-effort, never throws) before the accounts list is read below.
       await vault.backfillEvmAddresses();
-      await vault.finalizeInterruptedGuardianTransactionRecoveries();
       const accounts = await vault.fetchAccounts();
       const settings = await vault.fetchSettings();
       const currentAccount = await vault.getCurrentAccount();
@@ -386,10 +385,10 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
 }
 
 /**
- * Frontend-triggered kickoff for the detached Guardian recovery sequence
- * (delta history + pending notes). Fired by GuardianRecoveryProvider once the
- * hot-key rotation has landed and no transaction is in flight; returns false
- * (so the provider retries) while the account is still ineligible or busy.
+ * Frontend-triggered kickoff for the detached Guardian pending-note recovery.
+ * Fired by GuardianRecoveryProvider once the hot-key rotation has landed and
+ * no transaction is in flight; returns false (so the provider retries) while
+ * the account is still ineligible or busy.
  */
 export function startGuardianRecovery(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {

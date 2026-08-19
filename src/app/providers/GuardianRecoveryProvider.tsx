@@ -7,19 +7,19 @@ import { useWalletStore } from 'lib/store';
  * How often to re-offer a pending recovery to the backend. The backend refuses
  * (returns false) while the account is still busy — hot-key rotation not
  * landed, or a transaction queued/generating — so this is a cheap poll that
- * stops as soon as the account leaves `pending` (status flips to `recovering`
- * → store update → no eligible accounts → the worker unmounts).
+ * stops once the recovery completes (`guardianNoteRecoveryPending` clears →
+ * store update → no eligible accounts → the worker unmounts).
  */
 const RETRY_INTERVAL_MS = 5_000;
 
 /**
- * Headless trigger for the detached Guardian recovery sequence (delta history
- * + pending notes) on seed-recovered accounts.
+ * Headless trigger for the detached Guardian pending-note recovery on
+ * seed-recovered accounts.
  *
  * The kickoff deliberately lives in the frontend rather than in
- * `registerNewWallet`: both recoveries hold the (offscreen) WASM client for
- * long stretches, and firing them while the mandatory hot-key rotation runs
- * deadline-kills the rotation's short reads queued behind them. This
+ * `registerNewWallet`: the recovery holds the (offscreen) WASM client for
+ * long stretches, and firing it while the mandatory hot-key rotation runs
+ * deadline-kills the rotation's short reads queued behind it. This
  * component only offers accounts whose rotation has landed; the backend
  * additionally refuses while any transaction is queued or generating.
  */
@@ -29,7 +29,7 @@ export const GuardianRecoveryProvider: FC = () => {
   const eligiblePublicKeys = useMemo(
     () =>
       accounts
-        .filter(account => account.guardianTransactionRecoveryStatus === 'pending' && !account.requiresHotKeyRotation)
+        .filter(account => account.guardianNoteRecoveryPending && !account.requiresHotKeyRotation)
         .map(account => account.publicKey),
     [accounts]
   );

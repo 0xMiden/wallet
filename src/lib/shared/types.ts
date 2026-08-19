@@ -370,9 +370,6 @@ export type AuthScheme = 'falcon' | 'ecdsa';
  */
 export type GuardianSyncStatus = 'in-sync' | 'resolving' | 'needs-user-input';
 
-/** One-shot transaction-history recovery state for a seed-restored Guardian account. */
-export type GuardianTransactionRecoveryStatus = 'pending' | 'recovering' | 'complete' | 'partial';
-
 /** Built-in guardian provider identity, reverse-mapped from the endpoint. */
 export type GuardianProvider = 'open-zeppelin' | 'gateway' | 'lambda-class' | 'custom';
 
@@ -401,10 +398,11 @@ export interface WalletAccount {
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
   /**
-   * Persisted state for the detached Guardian delta-history recovery. Absent on
-   * accounts that were not adopted through Guardian seed recovery.
+   * Set on adoption through Guardian seed recovery; the detached pending-note
+   * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once
+   * and clears it. Absent on accounts that were not seed-recovered.
    */
-  guardianTransactionRecoveryStatus?: GuardianTransactionRecoveryStatus;
+  guardianNoteRecoveryPending?: boolean;
   /**
    * Guardian operator endpoint this account is registered with — the
    * authoritative source of truth for endpoint resolution (#408). Set at create /

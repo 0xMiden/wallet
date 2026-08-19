@@ -176,7 +176,6 @@ async function fetchTransactionsAsHistoryEntries(
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
   const visibleTransactions = await suppressLinkedConsumes(transactions);
   const entries = visibleTransactions.map(async tx => {
-    const recoveryDetailsPartial = tx.recovery?.detail === 'partial';
     const isCancelled = isUserCancelledTransaction(tx.error);
     const updateMessageForFailed = isCancelled
       ? 'Cancelled'
@@ -185,16 +184,12 @@ async function fetchTransactionsAsHistoryEntries(
         : tx.displayMessage;
     const icon = tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-    const bridge =
-      tx.type === 'bridged-send' && !recoveryDetailsPartial
-        ? (tx.extraInputs as IBridgedSendExtraInputs | undefined)
-        : undefined;
+    const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
-    const earnDeposit: IEarnDepositExtraInputs | undefined =
-      tx.type === 'earn-deposit' && !recoveryDetailsPartial ? tx.extraInputs : undefined;
+    const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     // Source side (USDC) while in flight, destination side once the bridged note
@@ -204,7 +199,7 @@ async function fetchTransactionsAsHistoryEntries(
       : undefined;
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
-    const swapFields = tx.type === 'swap' && !recoveryDetailsPartial ? await resolveSwapHistoryFields(tx) : undefined;
+    const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -241,7 +236,6 @@ async function fetchTransactionsAsHistoryEntries(
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
-      recoveryDetailsPartial,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
@@ -278,7 +272,6 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
   const pendingTransactions = await suppressLinkedConsumes(await getUncompletedTransactions(address, tokenId));
 
   const entryPromises = pendingTransactions.map(async tx => {
-    const recoveryDetailsPartial = tx.recovery?.detail === 'partial';
     const entryType =
       tx.status !== ITransactionStatus.Queued
         ? HistoryEntryType.ProcessingTransaction
@@ -308,7 +301,6 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
-      recoveryDetailsPartial,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       bridgeProvider: bridge?.provider,
