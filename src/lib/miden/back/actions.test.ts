@@ -15,6 +15,7 @@ import {
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
+  startGuardianRecovery,
   checkGuardianDrift,
   applyUserGuardianEndpoint,
   getAllDAppSessions,
@@ -75,6 +76,10 @@ let mockStoreState = {
 jest.mock('lib/miden/back/guardian-drift', () => ({
   resolveGuardianDrift: jest.fn(),
   applyUserGuardianEndpoint: jest.fn()
+}));
+
+jest.mock('lib/miden/back/guardian-recovery', () => ({
+  maybeStartGuardianRecovery: jest.fn()
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
@@ -216,6 +221,28 @@ describe('actions', () => {
 
       const result = await isDAppEnabled();
       expect(result).toBe(true);
+    });
+  });
+
+  describe('startGuardianRecovery', () => {
+    it('starts recovery for the matching account', async () => {
+      const account = { publicKey: 'account-a' };
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([account]);
+      maybeStartGuardianRecovery.mockResolvedValueOnce(true);
+
+      await expect(startGuardianRecovery(account.publicKey)).resolves.toBe(true);
+      expect(maybeStartGuardianRecovery).toHaveBeenCalledWith(account, mockVault);
+    });
+
+    it('returns false without starting recovery when the account is missing', async () => {
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([]);
+
+      await expect(startGuardianRecovery('missing-account')).resolves.toBe(false);
+      expect(maybeStartGuardianRecovery).not.toHaveBeenCalled();
     });
   });
 
