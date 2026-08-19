@@ -13,8 +13,8 @@ import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
-import { accountsUpdated } from './store';
 import { midenClientProxy } from './miden-client-proxy';
+import { accountsUpdated } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
 

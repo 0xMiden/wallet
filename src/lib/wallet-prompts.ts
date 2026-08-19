@@ -3,14 +3,14 @@ import { useCallback, useEffect, useState } from 'react';
 import BigNumber from 'bignumber.js';
 
 import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
-import { compareAccountIds } from 'lib/miden/activity/utils';
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   type GuardianNoteRecoveryProgress,
   normalizeGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
