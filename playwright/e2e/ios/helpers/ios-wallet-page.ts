@@ -84,13 +84,6 @@ export class IosWalletPage implements WalletPage {
   private sim: SimulatorControl;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
-  /**
-   * Story-filmstrip beat hook, wired by the two-simulators fixture. Flow methods
-   * call it at key moments (send review/generating/receipt) so multi-screen
-   * actions tell their sub-story. No-op until wired; best-effort.
-   */
-  beatCapture?: (key: string) => Promise<void>;
-
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
     this.sim = opts.sim;
@@ -576,10 +569,6 @@ export class IosWalletPage implements WalletPage {
     // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
-    // Story beat: the Pending-notes screen with claimable notes. Wait for the
-    // claim UI to render first so the frame shows notes, not a loading screen.
-    await this.pollForSelector('[data-testid="claim-all-button"]', 120_000).catch(() => {});
-    await this.beatCapture?.('claim-pending');
     await this.pollForCondition(
       `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
         `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
@@ -819,8 +808,6 @@ export class IosWalletPage implements WalletPage {
     // on entry (a balance read behind the WASM lock), which can lag well past 15s
     // when a sync tick holds the lock — so poll generously.
     await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
-    // Story beat: the review screen is up and settled here.
-    await this.beatCapture?.('send-review');
     await this.click('[data-testid="send-review-submit"]');
 
     // 5. Treat the submit button detaching as the "submit accepted" signal — the
@@ -848,8 +835,6 @@ export class IosWalletPage implements WalletPage {
       );
     }
     await sleep(2_000);
-    // Story beat: the "Generating Transaction" screen after submit.
-    await this.beatCapture?.('send-generating');
   }
 
   // ── Balance Waiting ───────────────────────────────────────────────────────

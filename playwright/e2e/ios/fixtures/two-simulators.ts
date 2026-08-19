@@ -11,8 +11,8 @@ import { getEnvironmentConfig } from '../../config/environments';
 import { testArtifactDirName } from '../../harness/artifact-path';
 import { CLIRunner } from '../../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../../harness/failure-report';
+import { startScreenPoll } from '../../harness/screen-capture';
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
-import { StoryCapture } from '../../harness/story-capture';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../../harness/types';
@@ -402,36 +402,53 @@ export const test = base.extend<TwoSimulatorFixtures>({
     steps.registerSnapshotCaps('A', buildIosSnapshotCaps(instanceA.walletPage, ''));
     steps.registerSnapshotCaps('B', buildIosSnapshotCaps(instanceB.walletPage, ''));
 
-    // Story capture: the step runner takes one frame per named step, and the
-    // send/swap/claim flows emit their own beats — together they tell the test's
-    // story (see harness/story-capture.ts). Each frame first dismisses the native
-    // notification-permission alert: initNativeNotifications() raises it when the
-    // authenticated shell mounts mid-test, and it's a SpringBoard alert outside
-    // the WebView that CDP can't tap. Gating the capture means no frame is ever
-    // shot while it's up. Best-effort; no-op without idb.
+    // Reactive capture (Chrome's installScreenCapture) isn't available here —
+    // Playwright doesn't own the WebView on iOS, so there's no page instance
+    // to `exposeFunction` into. Poll the app's screen-key over CDP instead:
+    // cheap, tiny reads (a single JSON string) sharing the same serial RWI
+    // socket as the rest of the spec's traffic.
     const screensDir = path.join(steps.outputDir, 'screens');
-    for (const { label, walletPage, udid } of [
-      { label: 'A' as const, walletPage: instanceA.walletPage, udid: instanceA.udid },
-      { label: 'B' as const, walletPage: instanceB.walletPage, udid: instanceB.udid }
-    ]) {
+    const screenPolls = [
+      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp, udid: instanceA.udid },
+      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp, udid: instanceB.udid }
+    ].map(({ label, walletPage, cdp, udid }) => {
+      // Dismiss the native notification-permission alert before each screenshot
+      // (see system-alerts.ts): initNativeNotifications() raises it when the
+      // authenticated shell mounts mid-test — a SpringBoard alert outside the
+      // WebView that CDP can't tap. Gating the capture (vs a background poll)
+      // means no frame is ever shot while it's up. Best-effort; no-op without idb.
       const alertGate = createNotificationAlertGate(udid, {
         onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
       });
-      const story = new StoryCapture(
-        {
-          screenshot: async ({ path: p }) => {
-            await alertGate.beforeCapture();
-            await walletPage.screenshot({ path: p });
-          }
+      return startScreenPoll({
+        intervalMs: 250,
+        read: async () => {
+          // Sync `eval`, not `evalAsync` — the latter is broken on this iOS
+          // RWI bridge (see CdpSession.evalAsync). A plain-object read of
+          // window.__TEST_SCREEN__ touches no WASM, so it's safe from the
+          // single-threaded client's lock contention.
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          const raw = await cdp.eval<string>(
+            'return JSON.stringify(document.body && document.body.innerText.trim().length > 0 ? (window.__TEST_SCREEN__ || null) : null);',
+            { timeoutMs: 5_000 }
+          );
+          return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
-        screensDir,
+        grab: async p => {
+          await alertGate.beforeCapture();
+          await walletPage.screenshot({ path: p });
+        },
+        dir: screensDir,
         label
-      );
-      steps.registerStoryCapture(label, story);
-      walletPage.beatCapture = key => story.capture(key);
-    }
+      });
+    });
 
     await use({ instanceA, instanceB, simA, simB });
+
+    screenPolls.forEach(p => p.stop());
 
     // Parallel teardown is safe — close is a CDP socket close, terminate is
     // just `simctl terminate` which doesn't contend.

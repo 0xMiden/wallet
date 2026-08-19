@@ -302,7 +302,7 @@ const html = `<!doctype html>
   }
 </main>
 
-<footer><div class="wrap">Generated from E2E screenshot artifacts by <code>scripts/build-e2e-gallery.mjs</code>. Each frame is a named test step or a flow beat (send/swap/claim: review → generating → receipt), in test order.</div></footer>
+<footer><div class="wrap">Generated from E2E screenshot artifacts by <code>scripts/build-e2e-gallery.mjs</code>. Every frame is one screen-change captured during a test.</div></footer>
 
 <div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
   <button class="x" aria-label="Close">×</button>
