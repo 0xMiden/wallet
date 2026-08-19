@@ -36,10 +36,16 @@ export const addConnectivityIssue = async () => {
  */
 export const sendConnectivityIssue = async () => {
   if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-    chrome.runtime.sendMessage({
-      type: 'CONNECTIVITY_ISSUE',
-      payload: { timestamp: Date.now() }
-    });
+    // No in-tree listener consumes CONNECTIVITY_ISSUE any more (see the doc
+    // comment above), so this send ALWAYS fails with "Receiving end does not
+    // exist". Swallow it: an uncaught rejection here shows up in the console as
+    // noise indistinguishable from a real messaging fault.
+    Promise.resolve(
+      chrome.runtime.sendMessage({
+        type: 'CONNECTIVITY_ISSUE',
+        payload: { timestamp: Date.now() }
+      })
+    ).catch(() => {});
   }
 };
 
