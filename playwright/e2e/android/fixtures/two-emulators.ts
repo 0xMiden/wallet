@@ -11,8 +11,8 @@ import { getEnvironmentConfig } from '../../config/environments';
 import { testArtifactDirName } from '../../harness/artifact-path';
 import { CLIRunner } from '../../harness/cli-runner';
 import { buildFailureReport, saveFailureReport } from '../../harness/failure-report';
+import { startScreenPoll } from '../../harness/screen-capture';
 import { captureWalletSnapshot } from '../../harness/state-snapshot';
-import { StoryCapture } from '../../harness/story-capture';
 import { TestStepRunner } from '../../harness/test-step';
 import { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { EnvironmentConfig, SerializedWalletState, SnapshotCaps } from '../../harness/types';
@@ -279,20 +279,32 @@ export const test = base.extend<TwoEmulatorFixtures>({
     // bridge), so reads use AndroidWalletPage.evaluate directly — it goes
     // through CdpSession.evaluate with returnByValue: true, so the plain
     // object comes back as-is (no JSON.stringify round-trip needed).
-    // Story capture: the step runner takes one frame per named step, and the
-    // send/swap/claim flows emit their own beats — together they tell the test's
-    // story (see harness/story-capture.ts).
     const screensDir = path.join(steps.outputDir, 'screens');
-    for (const { label, walletPage } of [
-      { label: 'A' as const, walletPage: instanceA.walletPage },
-      { label: 'B' as const, walletPage: instanceB.walletPage }
-    ]) {
-      const story = new StoryCapture(walletPage, screensDir, label);
-      steps.registerStoryCapture(label, story);
-      walletPage.beatCapture = key => story.capture(key);
-    }
+    const screenPolls = [
+      { label: 'A', walletPage: instanceA.walletPage },
+      { label: 'B', walletPage: instanceB.walletPage }
+    ].map(({ label, walletPage }) =>
+      startScreenPoll({
+        intervalMs: 250,
+        read: () =>
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          walletPage.evaluate(() =>
+            document.body && document.body.innerText.trim().length > 0
+              ? ((window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null)
+              : null
+          ),
+        grab: p => walletPage.screenshot({ path: p }),
+        dir: screensDir,
+        label
+      })
+    );
 
     await use({ instanceA, instanceB, emuA, emuB });
+
+    screenPolls.forEach(p => p.stop());
 
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),

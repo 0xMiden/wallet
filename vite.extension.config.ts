@@ -355,7 +355,18 @@ export default defineConfig({
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
     minify: process.env.MODE_ENV === 'production',
-    modulePreload: { polyfill: false },
+    // `false`, not just `{ polyfill: false }`: the polyfill flag only drops the
+    // runtime shim, leaving Vite to inject a <link rel="modulepreload"> per chunk
+    // into every HTML entry (18 of them in sidepanel.html). Chrome then logs
+    // "was preloaded using link preload but not used within a few seconds" for
+    // each chunk that doesn't execute right away — six entry pages' worth of
+    // console noise.
+    //
+    // Preloading buys ~nothing here anyway: modulepreload exists to hide NETWORK
+    // latency, and every chunk in a packaged extension is a local
+    // chrome-extension:// file. Dropping the links costs no real load time and
+    // avoids eagerly fetching + parsing chunks a given page may never run.
+    modulePreload: false,
     rollupOptions: {
       input: {
         // UI pages (HTML entry points at project root for Vite processing)

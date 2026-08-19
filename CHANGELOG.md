@@ -2,6 +2,10 @@
 
 ## 1.15.22 (TBD)
 
+### Fixes
+
+- [FIX][extension] **The browser console is no longer flooded with wallet errors and warnings.** Two unrelated causes: the wallet reconnected to its background service worker once a second forever whenever that connection was unavailable — logging a "could not establish connection" error each time, in every open tab — and the extension pages each declared a preload for every code chunk they might need, which the browser warned about for each chunk it did not end up using. Reconnection now backs off and gives up when the page can never reach the extension again (after an update or reload), and the unused preload hints are gone.
+
 ### Changes
 
 - [CHANGE][ci] **CI no longer loses an hour to a stalled package mirror.** The Ubuntu package mirror the runners use intermittently stops responding; when that happened, jobs sat inside the package step until they hit their one-hour limit and were killed without running a single test. Package installs now prefer the canonical mirror, time out and retry individual downloads, and every install step has its own cap — so a bad mirror costs a few minutes and a retry instead of a whole job. The browser-download step, which has hung for over two hours, is capped the same way.
