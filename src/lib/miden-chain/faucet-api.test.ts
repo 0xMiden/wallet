@@ -130,6 +130,36 @@ describe('faucet-api', () => {
       }
     });
 
+    it('forwards a caller abort to the active fetch request', async () => {
+      const controller = new AbortController();
+      let requestSignal: AbortSignal | null | undefined;
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            requestSignal = init.signal;
+            init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          })
+      );
+
+      const promise = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal });
+      controller.abort();
+
+      await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+      expect(requestSignal?.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops a 429 Retry-After wait when the caller aborts', async () => {
+      const controller = new AbortController();
+      fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited', { 'retry-after': '30' }));
+
+      const promise = faucetFetch('https://faucet-api.example/pow', { signal: controller.signal });
+      controller.abort();
+
+      await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('does not retry a 429 with no Retry-After — returns it for the caller to fail', async () => {
       fetchMock.mockResolvedValueOnce(errorResponse(429, 'rate limited'));
 
