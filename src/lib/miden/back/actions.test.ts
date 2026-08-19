@@ -126,6 +126,11 @@ jest.mock('./dapp', () => ({
 }));
 
 jest.mock('webextension-polyfill', () => ({
+  runtime: {
+    onMessage: {
+      addListener: jest.fn()
+    }
+  },
   storage: {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true })
@@ -963,6 +968,7 @@ describe('actions', () => {
             waitForTransaction: jest.fn()
           }));
           jest.doMock('webextension-polyfill', () => ({
+            runtime: { onMessage: { addListener: jest.fn() } },
             storage: { local: { get: jest.fn().mockResolvedValue({ DAppEnabled: true }) } }
           }));
 

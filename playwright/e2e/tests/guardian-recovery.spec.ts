@@ -16,6 +16,9 @@ const FUND_BASE_UNITS = 100_000_000_000n;
 // claimed with the rotated [new-hot, cold] signer set -- the money movement
 // this test actually exists to prove.
 const RECOVERY_MINT_BASE_UNITS = 25_000_000_000n;
+// Left unconsumed on the original profile, then rediscovered by the detached
+// pending-note recovery after the account is restored on a clean profile.
+const PENDING_RECOVERY_BASE_UNITS = 10_000_000_000n;
 // Both claims land in the same account's vault, so this is what the recovered
 // wallet must still hold after a service-worker respawn.
 const RECOVERED_VAULT_BASE_UNITS = FUND_BASE_UNITS + RECOVERY_MINT_BASE_UNITS;
@@ -226,6 +229,84 @@ test.describe('Guardian recovery - real UI journey', () => {
         decimals: TOKEN_DECIMALS
       });
     });
+  });
+
+  test('recovers a public note that was pending before seed recovery', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps
+  }) => {
+    test.setTimeout(720_000);
+
+    let address = '';
+    let seed = '';
+
+    await steps.step('create_guardian_account_and_leave_note_pending', async () => {
+      const created = await walletA.createGuardianWallet(A);
+      address = created.address;
+      seed = created.seedPhrase.join(' ');
+
+      await midenCli.init();
+      const faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, address, PENDING_RECOVERY_BASE_UNITS, 'public');
+      await midenCli.sync();
+
+      // Establish that this is an old, unconsumed note before the second
+      // profile exists. The recovery must rediscover it; no claim is run on A.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, PENDING_RECOVERY_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
+      expect(await vaultBalance(walletA.page, TOKEN), 'the recovery fixture note must still be unconsumed').toBe(0n);
+    });
+
+    await steps.step(
+      'recover_pending_note_on_clean_profile',
+      async () => {
+        await walletB.recoverGuardianFromSeed(seed, { viaUI: true });
+        expect(await walletB.getAccountAddress(), 'the clean profile must restore the account that owns the note').toBe(
+          address
+        );
+
+        // Hot-key rotation completes before the new detached note recovery is
+        // allowed to start. Wait for its persisted account flag to clear so the
+        // assertion cannot race the single-threaded WASM scan still in flight.
+        await expect
+          .poll(
+            () =>
+              walletB.page.evaluate(recoveredAddress => {
+                const store = Reflect.get(window, '__TEST_STORE__');
+                if (!store || typeof store !== 'object') return 'store-unavailable';
+                const getState = Reflect.get(store, 'getState');
+                if (typeof getState !== 'function') return 'store-unavailable';
+                const state = getState();
+                if (!state || typeof state !== 'object') return 'store-unavailable';
+                const accounts = Reflect.get(state, 'accounts');
+                if (!Array.isArray(accounts)) return 'accounts-unavailable';
+                for (const account of accounts) {
+                  if (!account || typeof account !== 'object') continue;
+                  if (Reflect.get(account, 'publicKey') !== recoveredAddress) continue;
+                  return Reflect.get(account, 'guardianNoteRecoveryPending') === true ? 'pending' : 'complete';
+                }
+                return 'account-missing';
+              }, address),
+            {
+              message: 'the detached Guardian pending-note recovery must finish after hot-key rotation',
+              timeout: 180_000,
+              intervals: [1_000, 2_000, 5_000]
+            }
+          )
+          .toBe('complete');
+
+        await waitForPendingNoteTotal(walletB.page, TOKEN, PENDING_RECOVERY_BASE_UNITS, {
+          timeoutMs: 120_000,
+          decimals: TOKEN_DECIMALS
+        });
+        expect(await vaultBalance(walletB.page, TOKEN), 'recovery must not silently consume the pending note').toBe(0n);
+      },
+      { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
+    );
   });
 });
 
