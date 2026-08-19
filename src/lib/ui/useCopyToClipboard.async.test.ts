@@ -9,6 +9,10 @@ function makeField(value: string): HTMLInputElement {
   return input;
 }
 
+function setFieldRef(ref: { current: HTMLInputElement | null }, value: HTMLInputElement): void {
+  ref.current = value;
+}
+
 describe('useCopyToClipboard async clipboard writes', () => {
   afterEach(() => {
     document.body.innerHTML = '';
@@ -27,7 +31,7 @@ describe('useCopyToClipboard async clipboard writes', () => {
 
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('wallet-address');
-    result.current.fieldRef.current = field;
+    setFieldRef(result.current.fieldRef, field);
 
     act(() => {
       result.current.copy();
@@ -50,7 +54,7 @@ describe('useCopyToClipboard async clipboard writes', () => {
 
     const { result } = renderHook(() => useCopyToClipboard());
     const field = makeField('seed phrase');
-    result.current.fieldRef.current = field;
+    setFieldRef(result.current.fieldRef, field);
 
     await act(async () => {
       result.current.copy();
