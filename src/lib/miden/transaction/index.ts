@@ -13,6 +13,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { logGuardianAccountDiag } from 'lib/miden/guardian/rotation-diag';
 import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -956,6 +957,11 @@ const generateGuardianTransaction = async (
       if (!sdkAccount) {
         throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
       }
+      // TEMPORARY DIAGNOSTIC (guardian rotation zero-commitment race) — remove.
+      // This is the exact state the rotation proposal is built from, read after
+      // generateTransaction's syncState preflight. If `isNew` is true here, the
+      // node's "initial account commitment 0x00..00" rejection is explained.
+      logGuardianAccountDiag('rotation:before-proposal', sdkAccount);
       service = await MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord);
       // NOT retry-wrapped — createReplaceHotKeyProposal mints a hot key.
       const { proposal, newHot } = await service.createReplaceHotKeyProposal(sdkAccount);

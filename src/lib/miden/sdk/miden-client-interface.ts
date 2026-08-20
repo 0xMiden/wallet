@@ -50,6 +50,7 @@ import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/type
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
 import type { CreatedGuardianKeys } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
+import { logGuardianAccountDiag } from '../guardian/rotation-diag';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -404,6 +405,12 @@ export class MidenClientInterface {
           const acc = Account.deserialize(accountBytes);
           await this.client.accounts.insert({ account: acc, overwrite: true });
           await this.client.keystore.insert(acc.id(), coldSk);
+          // TEMPORARY DIAGNOSTIC (guardian rotation zero-commitment race) — remove.
+          // Is the account the guardian handed us already committed, and does the
+          // client still think so after `insert`? A rotation proven at initial
+          // commitment 0x00..00 means something here reads as NEW.
+          logGuardianAccountDiag('recovery:from-guardian', acc);
+          logGuardianAccountDiag('recovery:after-insert', await this.client.accounts.get(acc.id()));
           return getBech32AddressFromAccountId(acc.id());
         });
 
