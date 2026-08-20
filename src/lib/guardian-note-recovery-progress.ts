@@ -8,7 +8,22 @@
 
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
-export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY = 'guardian_note_recovery_progress_v1';
+// v2 is keyed BY ACCOUNT. v1 held a single record, which made the checkpoint
+// unusable in the case it matters most: seed recovery flags every adopted
+// account, so a second account's first progress write erased the first
+// account's checkpoint, and that account then restarted from scratch —
+// re-draining, re-importing and re-searching — only to be clobbered again on
+// the next round. The v1 key is deliberately not migrated: it holds at most one
+// in-flight run's position, and starting that one run over is exactly what
+// happened on every service-worker restart anyway.
+export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY = 'guardian_note_recovery_progress_v2';
+
+/**
+ * Accounts tracked at once. Entries are removed when their run ends, so the
+ * live set is bounded by the number of flagged accounts; this only stops an
+ * account deleted mid-deferral from leaving its entry behind forever.
+ */
+const MAX_TRACKED_ACCOUNTS = 20;
 
 /**
  * A record not refreshed within this window is treated as abandoned. The
@@ -36,7 +51,7 @@ function numberOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-export function normalizeGuardianNoteRecoveryProgress(value: unknown): GuardianNoteRecoveryProgress | null {
+function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
   if (!value || typeof value !== 'object') return null;
   const accountId = Reflect.get(value, 'accountId');
   const step = Reflect.get(value, 'step');
@@ -53,6 +68,29 @@ export function normalizeGuardianNoteRecoveryProgress(value: unknown): GuardianN
 }
 
 /**
+ * The whole stored map, dropping anything malformed. Entries filed under a key
+ * that disagrees with their own `accountId` are dropped too: the two are the
+ * same fact, and a mismatch means the write was not made by this code.
+ */
+export function normalizeGuardianNoteRecoveryProgressMap(value: unknown): Record<string, GuardianNoteRecoveryProgress> {
+  if (!value || typeof value !== 'object') return {};
+  const entries: Record<string, GuardianNoteRecoveryProgress> = {};
+  for (const [accountId, rawEntry] of Object.entries(value as Record<string, unknown>)) {
+    const entry = normalizeEntry(rawEntry);
+    if (entry && entry.accountId === accountId) entries[accountId] = entry;
+  }
+  return entries;
+}
+
+/** One account's entry out of a raw stored map. */
+export function normalizeGuardianNoteRecoveryProgress(
+  value: unknown,
+  accountId: string
+): GuardianNoteRecoveryProgress | null {
+  return normalizeGuardianNoteRecoveryProgressMap(value)[accountId] ?? null;
+}
+
+/**
  * True when the record is old enough that its writer must be gone. Every
  * writer stamps `updatedAt`, so a record without one cannot be from a live run
  * and is stale by definition — treating it as fresh instead would leave a
@@ -66,29 +104,59 @@ export function isGuardianNoteRecoveryProgressStale(
   return now - progress.updatedAt > GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS;
 }
 
-export async function fetchGuardianNoteRecoveryProgress(): Promise<GuardianNoteRecoveryProgress | null> {
-  return normalizeGuardianNoteRecoveryProgress(await fetchFromStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY));
+async function fetchMap(): Promise<Record<string, GuardianNoteRecoveryProgress>> {
+  return normalizeGuardianNoteRecoveryProgressMap(await fetchFromStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY));
 }
 
-/** Best-effort: a progress write must never fail the recovery it narrates. */
+export async function fetchGuardianNoteRecoveryProgress(
+  accountId: string
+): Promise<GuardianNoteRecoveryProgress | null> {
+  return (await fetchMap())[accountId] ?? null;
+}
+
+/**
+ * Best-effort: a progress write must never fail the recovery it narrates.
+ *
+ * A read-modify-write of the map, which is safe because recoveries are
+ * serialized (`recoveryQueue`) and this is the only writer.
+ */
 export async function reportGuardianNoteRecoveryProgress(progress: GuardianNoteRecoveryProgress): Promise<void> {
   try {
-    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, { ...progress, updatedAt: Date.now() });
+    const entries = await fetchMap();
+    entries[progress.accountId] = { ...progress, updatedAt: Date.now() };
+    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, evictOldest(entries, progress.accountId));
   } catch (error) {
     console.warn('[GuardianRecovery] Failed to persist recovery progress:', error);
   }
 }
 
 /**
- * Drop the progress record, but only when it still belongs to `accountId` —
- * recoveries are serialized, yet a run that outlives its own realm could
- * otherwise erase the card of the run that succeeded it.
+ * Trims to `MAX_TRACKED_ACCOUNTS`, oldest first and never the account being
+ * written. Not staleness-based: an entry is a checkpoint as well as a card, and
+ * a checkpoint is still valid long after the card should have stopped showing.
  */
+function evictOldest(
+  entries: Record<string, GuardianNoteRecoveryProgress>,
+  keep: string
+): Record<string, GuardianNoteRecoveryProgress> {
+  const accountIds = Object.keys(entries);
+  if (accountIds.length <= MAX_TRACKED_ACCOUNTS) return entries;
+  const evictable = accountIds
+    .filter(accountId => accountId !== keep)
+    .sort((a, b) => (entries[a]!.updatedAt ?? 0) - (entries[b]!.updatedAt ?? 0));
+  for (const accountId of evictable.slice(0, accountIds.length - MAX_TRACKED_ACCOUNTS)) {
+    delete entries[accountId];
+  }
+  return entries;
+}
+
+/** Drop one account's record, leaving every other account's untouched. */
 export async function clearGuardianNoteRecoveryProgress(accountId: string): Promise<void> {
   try {
-    const current = await fetchGuardianNoteRecoveryProgress();
-    if (current && current.accountId !== accountId) return;
-    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, null);
+    const entries = await fetchMap();
+    if (!(accountId in entries)) return;
+    delete entries[accountId];
+    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, Object.keys(entries).length === 0 ? null : entries);
   } catch (error) {
     console.warn('[GuardianRecovery] Failed to clear recovery progress:', error);
   }

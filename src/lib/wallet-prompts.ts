@@ -373,14 +373,17 @@ export async function faucet(address: string): Promise<void> {
  * events (the SW writes through the same storage area); mobile/desktop have no
  * storage events, so a light poll keeps the card advancing there too.
  *
- * `enabled` must be the viewed account's `guardianNoteRecoveryPending`. It is
- * the whole reason this hook can be cheap: the card only ever renders for the
- * viewed account, only a pending account can have a run to narrate, and the
- * flag is cleared strictly after the progress record is, so gating on it can
- * never hide a live card. Every other wallet — nearly all of them, nearly
- * always — does no reads at all.
+ * Pass the viewed account's id only while its `guardianNoteRecoveryPending`
+ * flag is set, and null otherwise. That gate is the whole reason this hook can
+ * be cheap: only a pending account can have a run to narrate, and the flag is
+ * cleared strictly after the progress record is, so gating on it can never hide
+ * a live card. Every other wallet — nearly all of them, nearly always — does no
+ * reads at all.
+ *
+ * Records are stored per account, so a run for a different recovered account
+ * cannot narrate itself on this account's home view.
  */
-export function useGuardianNoteRecoveryProgress(enabled: boolean): GuardianNoteRecoveryProgress | null {
+export function useGuardianNoteRecoveryProgress(accountId: string | null): GuardianNoteRecoveryProgress | null {
   const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
   const cancelledRef = useRef(false);
 
@@ -393,20 +396,21 @@ export function useGuardianNoteRecoveryProgress(enabled: boolean): GuardianNoteR
   }, []);
 
   const refresh = useCallback(() => {
-    fetchGuardianNoteRecoveryProgress()
+    if (!accountId) return;
+    fetchGuardianNoteRecoveryProgress(accountId)
       .then(accept)
       .catch(error => console.warn('[wallet-prompts] failed to read note-recovery progress:', error));
-  }, [accept]);
+  }, [accept, accountId]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!accountId) {
       setProgress(null);
       return;
     }
     cancelledRef.current = false;
     refresh();
     const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value =>
-      accept(normalizeGuardianNoteRecoveryProgress(value))
+      accept(normalizeGuardianNoteRecoveryProgress(value, accountId))
     );
     // Polled as well as subscribed, not instead: mobile and desktop get no
     // storage events at all (`onStorageChanged` is a no-op there), and on the
@@ -419,7 +423,7 @@ export function useGuardianNoteRecoveryProgress(enabled: boolean): GuardianNoteR
       unsubscribe();
       clearInterval(interval);
     };
-  }, [accept, enabled, refresh]);
+  }, [accept, accountId, refresh]);
 
   return progress;
 }

@@ -356,14 +356,50 @@ describe('detached recovery run', () => {
       await maybeStartGuardianRecovery(account);
       await drainDetachedRun();
 
-      // Neither expensive source is re-paid.
-      expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+      // The expensive source is not re-paid.
       expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
       // The creation-block search is skipped too: 0 means "just give me the tip".
       expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(0);
       // Scanning restarts at the checkpoint, not at block 0.
       expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(200_000);
       expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    });
+
+    // Nothing else in the wallet calls the SDK's `fetchPrivate`, so a private
+    // note that lands in the transport while the pass is deferred is collected
+    // by this drain or by nothing at all — and the pass that resumes is the one
+    // that clears the one-shot flag.
+    it('re-drains the transport on a resumed pass, without downgrading the checkpoint', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now()
+      });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+      // Re-stamping the record at `transport` would throw away the watermark
+      // this pass is resuming from if the pass then died.
+      expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('transport');
+    });
+
+    it('treats a realm teardown during the drain as a deferral', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.drainPrivateNoteTransport.mockRejectedValue(new OperationAbortedError('op-1', 'deadline'));
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // Not a failing source, so the account is re-offered rather than waiting
+      // for the next backend start.
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
     });
 
     it('refuses to resume past a pass that failed a source', async () => {

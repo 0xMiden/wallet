@@ -296,7 +296,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
 
   let resumeFromBlock: number | null = null;
   try {
-    resumeFromBlock = resumePointFor(account, await fetchGuardianNoteRecoveryProgress());
+    resumeFromBlock = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey));
   } catch (error) {
     console.warn(`[GuardianRecovery] Could not read the checkpoint for ${account.publicKey}; starting over:`, error);
   }
@@ -309,28 +309,44 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     let context: GuardianClientContext | undefined;
     let createdAtSeconds = 0;
 
-    // Sources 1 and 2 are skipped entirely on a resumed pass: a checkpoint at
-    // the `public` step can only have been written after both completed
-    // cleanly, and both are the expensive ones to repeat.
+    // Source 1: drain the private-note transport backlog.
+    //
+    // Re-run on a RESUMED pass as well, unlike source 2. This is the wallet's
+    // only caller of the SDK's `fetchPrivate`, so a private note that lands in
+    // the transport while the pass is deferred is fetched by nothing else —
+    // and once a later pass finishes cleanly the one-shot flag clears and no
+    // pass ever runs again. It is a single short op and `mode: 'all'` re-reads
+    // the whole backlog, so repeating it costs almost nothing.
+    //
+    // The progress write is skipped when resuming: it would downgrade this
+    // account's entry from `public` back to `transport` and lose the very
+    // watermark being resumed from.
     if (resumeFromBlock === null) {
-      // Source 1: drain the private-note transport backlog.
       await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'transport' });
-      try {
-        await midenClientProxy.drainPrivateNoteTransport();
-      } catch (error) {
-        result.sourceFailures++;
-        console.warn(`[GuardianRecovery] Private-note transport drain failed for ${account.publicKey}:`, error);
-      }
-
-      const yieldedBeforeProposals = await shouldYield();
-      if (yieldedBeforeProposals) {
+    }
+    try {
+      await midenClientProxy.drainPrivateNoteTransport();
+    } catch (error) {
+      if (isAbortedOp(error)) {
         result.deferred = true;
-        console.warn(
-          `[GuardianRecovery] Yielding (${yieldedBeforeProposals}) before proposals for ${account.publicKey}`
-        );
+        console.warn(`[GuardianRecovery] Transport drain aborted with the offscreen realm for ${account.publicKey}`);
         return result;
       }
+      result.sourceFailures++;
+      console.warn(`[GuardianRecovery] Private-note transport drain failed for ${account.publicKey}:`, error);
+    }
 
+    const yieldedBeforeProposals = await shouldYield();
+    if (yieldedBeforeProposals) {
+      result.deferred = true;
+      console.warn(`[GuardianRecovery] Yielding (${yieldedBeforeProposals}) before proposals for ${account.publicKey}`);
+      return result;
+    }
+
+    // Source 2 is skipped on a resumed pass: a checkpoint at the `public` step
+    // can only have been written after it completed cleanly, and re-importing
+    // the same proposal notes is the expensive half to repeat.
+    if (resumeFromBlock === null) {
       // Source 2: notes embedded in pending consume proposals.
       await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
       try {
