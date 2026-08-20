@@ -5,6 +5,8 @@ import {
   DELEGATE_PROOF_STORAGE_KEY,
   AUTO_CONSUME_STORAGE_KEY,
   DEFAULT_AUTO_CONSUME,
+  TELEMETRY_STORAGE_KEY,
+  DEFAULT_TELEMETRY,
   BG_SETTINGS_MIRRORED_KEY,
   HAPTIC_FEEDBACK_STORAGE_KEY,
   DEFAULT_HAPTIC_FEEDBACK,
@@ -87,6 +89,34 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
   return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
 }
 
+export function setTelemetrySetting(enabled: boolean) {
+  setSetting(TELEMETRY_STORAGE_KEY, enabled);
+  mirrorSetting(TELEMETRY_STORAGE_KEY, enabled);
+}
+
+export function isTelemetryEnabled() {
+  return getSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+}
+
+/**
+ * Service-worker-safe read of the telemetry consent toggle. The background is
+ * the single consent gate for every send, so this is the authoritative read.
+ * Defaults to OFF on read-miss — unlike auto-consume, a missing mirror here
+ * must fail closed.
+ */
+export function isTelemetryEnabledAsync(): Promise<boolean> {
+  return readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+}
+
+/**
+ * Whether the user has ever answered the telemetry prompt. Absence of the key
+ * means "never asked", which is what drives the first-launch step — and which
+ * still sends nothing, since `isTelemetryEnabled()` reads false.
+ */
+export function hasTelemetryChoice(): boolean {
+  return localStorage.getItem(TELEMETRY_STORAGE_KEY) !== null;
+}
+
 /**
  * One-shot migration: copy the current `localStorage` values of the settings the
  * extension service worker needs — auto-consume (whether to run) and delegated-proving
@@ -98,6 +128,7 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
 export function mirrorBackgroundSettings(): void {
   mirrorSetting(AUTO_CONSUME_STORAGE_KEY, isAutoConsumeEnabled());
   mirrorSetting(DELEGATE_PROOF_STORAGE_KEY, isDelegateProofEnabled());
+  mirrorSetting(TELEMETRY_STORAGE_KEY, isTelemetryEnabled());
   // Marker last: the SW treats an absent marker as "settings not yet mirrored" and
   // holds off background native-consume, so it never acts on read-miss defaults for a
   // user who opted out of auto-consume or remote proving.
