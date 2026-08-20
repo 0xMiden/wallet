@@ -1261,6 +1261,159 @@ describe('HistoryDetails', () => {
       expect(mockGetSwapSettlementNotes.mock.calls.length).toBe(readsAfterLoad);
     });
 
+    it('does not scan for a terminal order whose notes only the user can claim', async () => {
+      // Nothing is coming for a manual-consume order that already went terminal:
+      // the wallet will not claim its notes on a schedule, so there is no event
+      // to wait for. Reading "terminal but nothing recorded locally" as
+      // still-waiting put a three-minute unindexed scan behind every such
+      // receipt — and behind every restored history, which looks the same.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 2,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
+      );
+
+      await renderAndLoad();
+      const readsAfterLoad = mockGetSwapSettlementNotes.mock.calls.length;
+
+      await act(async () => {
+        jest.advanceTimersByTime(20_000);
+      });
+      await flush();
+
+      expect(mockGetSwapSettlementNotes.mock.calls.length).toBe(readsAfterLoad);
+    });
+
+    it('still watches a terminal order the wallet is about to claim for itself', async () => {
+      // The counterpart: with auto-consume on, a terminal order's paybacks are
+      // claimed on the next reconcile tick, so the notes are moments away.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 2,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-late']));
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-late');
+    });
+
+    it('starts a fresh scan when a long-lived order finally reports terminal', async () => {
+      // `expirySeconds` is per-row and can exceed anything this 2s poll could
+      // outlast, so the receipt cannot simply set a longer deadline. The lineage
+      // watch continues regardless, and its terminal transition earns the
+      // settlement scan a new budget — otherwise an order that expired after the
+      // cap showed its status but never its fill until the screen was reopened.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, expirySeconds: 600 })
+      );
+
+      await renderAndLoad();
+
+      // Well past the 90-poll (180s) settlement budget, still active.
+      for (let i = 0; i < 120; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(2000);
+        });
+        await flush();
+      }
+      const readsWhileActive = mockGetSwapSettlementNotes.mock.calls.length;
+
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([], ['note-after-expiry']));
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+
+      for (let i = 0; i < 5; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(3000);
+        });
+        await flush();
+      }
+
+      expect(mockGetSwapSettlementNotes.mock.calls.length).toBeGreaterThan(readsWhileActive);
+      expect(screen.getByTestId('swap-reclaimed-notes')).toHaveTextContent('note-after-expiry');
+    });
+
+    it('lets the hero pill catch up when the order settles while the receipt is open', async () => {
+      // The pill reads the persisted stamp so it agrees with the history list,
+      // but a completed swap has no reload interval — so a receipt open across
+      // its own settlement kept "Pending" above a section already listing the
+      // fill. The row has to be re-read once this page can see the consume.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
+      const extraInputs = {
+        expiresAt: 1_700_000_120,
+        orderId: 42n,
+        requestedFaucetId: 'req-faucet',
+        requestedAmount: 1000n
+      };
+      const unstamped = { ...swapTx({}), extraInputs };
+      mockGetTransactionById.mockResolvedValue(unstamped);
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-swap-settlement')).toBe('pending');
+
+      // The settlement consume completes; the background reconcile stamps the row.
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-late']));
+      mockGetTransactionById.mockResolvedValue({
+        ...unstamped,
+        extraInputs: { ...extraInputs, settledAt: 1_700_000_300 }
+      });
+
+      // Stepped rather than one long jump: the note has to be published, which
+      // mounts the re-read, before the re-read's own interval can fire.
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(3000);
+        });
+        await flush();
+      }
+
+      expect(screen.getByTestId('status-pill').getAttribute('data-swap-settlement')).toBe('undefined');
+    });
+
     it('stops chasing a lineage that stays active after the settlement was observed', async () => {
       // Every poll takes the app-wide WASM lock, and on mobile/desktop this
       // screen stays mounted in the background — so an order whose lineage

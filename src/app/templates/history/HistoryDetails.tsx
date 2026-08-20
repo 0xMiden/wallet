@@ -244,6 +244,44 @@ function formatFiatDisplayAmount(
   return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
+/**
+ * Whether a settlement consume may still be recorded for this order, and so
+ * whether the receipt should keep scanning for one. Every read is an UNINDEXED
+ * scan of the transactions table, and on mobile and desktop this screen stays
+ * mounted in the background, which is what makes the negative cases matter.
+ *
+ * Yes while the order is open, while the lineage is still being established
+ * (`trackOrderId` returns null for a while after placement, and the poll backs
+ * off and retries), and once it has gone terminal with the wallet about to claim
+ * the notes itself. No for a terminal order whose notes only the user can claim,
+ * for one whose notes are already listed, and for an order whose lineage the
+ * poll gave up on — that last one is the ordinary shape of a restored history.
+ *
+ * Deliberately says nothing about expiry. An order may carry an `expirySeconds`
+ * longer than any deadline this poll could set, so the watch is keyed off the
+ * lineage's terminal transition instead, which arrives whenever expiry does.
+ */
+const shouldWatchSettlement = ({
+  trackingLoading,
+  lineageState,
+  lineageAbandoned,
+  settlementFound,
+  autoConsume,
+  settlementGrace
+}: {
+  trackingLoading: boolean;
+  lineageState: SwapOrderState | null;
+  lineageAbandoned: boolean;
+  settlementFound: boolean;
+  autoConsume: boolean;
+  settlementGrace: boolean;
+}): boolean => {
+  if (trackingLoading || settlementGrace) return true;
+  if (lineageState === null) return !lineageAbandoned;
+  if (lineageState === 'active') return true;
+  return !settlementFound && autoConsume;
+};
+
 const AccountDisplay: FC<{
   address: string | undefined;
   account: WalletAccount;
@@ -295,6 +333,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
+  /** The lineage poll ran out of retries; the order's state is now unknowable. */
+  const [lineageAbandoned, setLineageAbandoned] = useState(false);
   // Notes claimed by this order's settlement consumes. Those consume rows are
   // suppressed in the history list (the swap row is the order's single trace),
   // so this page is where their notes stay visible.
@@ -307,6 +347,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // "settlement is landing while we watch" from "this receipt was already
   // complete when it was opened".
   const watchedUnsettledRef = useRef(false);
+  const baselineNoteCountRef = useRef<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
   // Guards the earn-withdraw delivery poller so it is (re)started at most once per
@@ -645,6 +686,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       // no order to track at all. Without this, the one moment worth knowing
       // about — the wallet stopped trying — left no trace anywhere.
       if (!cancelled) {
+        setLineageAbandoned(true);
         console.warn('[HistoryDetails] Gave up tracking swap order lineage:', {
           transactionId,
           orderId: trackedOrderId,
@@ -706,45 +748,54 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Settlement can land while this page is open (auto-consume runs on the
   // background sync's own cadence), and the lineage poll above stops at a
   // terminal state — usually just *before* the settlement consume completes. So
-  // watch for the notes separately with cheap Dexie-only reads.
-  //
-  // Watching until the FIRST note arrived was not enough for the two cases that
-  // matter most. A multi-fill order keeps settling after that note, and stopping
-  // froze the receipt on fill 1 of n. And an order placed while the user watches
-  // does not settle until it expires — SWAP_ORDER_EXPIRY_SECONDS defaults to
-  // 120, so a 20-poll/40s cap gave up a full minute before the batch it was
-  // waiting for. An order carrying a longer `expirySeconds` still outlasts even
-  // the raised cap; the receipt then relies on a revisit rather than this watch.
-  // Keep reading until the order is terminal AND something has been observed,
-  // with a cap that outlives expiry.
+  // watch for the notes separately. Each read is an UNINDEXED scan of the
+  // transactions table, which is what makes the question of when to stop worth
+  // this much care.
   const settlementFound = Boolean(
     settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
   );
   settlementFoundRef.current = settlementFound;
-  const settlementSettled = settlementFound && swapTracking != null && swapTracking.state !== 'active';
-  // A receipt opened after the fact is complete on arrival and has nothing to
-  // wait for, so it must not scan at all — the read is an unindexed table scan.
-  // But an order that goes terminal while the page is open can still gain notes
-  // afterwards: settlement bundles whatever has synced this tick, so a payback
-  // that syncs later arrives in a second consume. Stopping the moment the first
-  // note appeared left that fill off the receipt until the screen was reopened.
-  // Only a page that actually watched the order unsettled earns the short tail.
-  // Both sources have to have answered first: before they do, everything is
-  // null and "not settled" only means "not loaded", which would mark even a
-  // years-old receipt as watched. Latches on, and never off.
-  watchedUnsettledRef.current =
-    watchedUnsettledRef.current || (settlementNotes !== null && swapTracking !== null && !settlementSettled);
+  const lineageState = swapTracking?.state ?? null;
+  const lineageTerminal = lineageState !== null && lineageState !== 'active';
+  const settlementSettled = settlementFound && lineageTerminal;
+  // A terminal order can still GAIN notes: settlement bundles whatever synced
+  // this tick, so a payback that syncs a moment later arrives in a second
+  // consume, and stopping at the first note froze the receipt on fill 1 of n.
+  // Only a page that watched the order while it was open earns that tail, and
+  // the lineage reporting 'active' is the only positive evidence of it. Reading
+  // "terminal, but no local notes" as still-waiting instead put a three-minute
+  // scan behind every manual-claim and restored-history receipt — the ordinary
+  // shape of both. Latches on, never off.
+  useEffect(() => {
+    if (lineageState === 'active') watchedUnsettledRef.current = true;
+  }, [lineageState]);
   const settlementGrace = settlementSettled && watchedUnsettledRef.current;
+  const watchSettlement = shouldWatchSettlement({
+    trackingLoading,
+    lineageState,
+    lineageAbandoned,
+    settlementFound,
+    autoConsume: swapAutoConsume,
+    settlementGrace
+  });
   const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
+  // What the first read saw, so that "settlement landed while the user watched"
+  // can be told apart from "this receipt was already settled when it opened".
+  useEffect(() => {
+    if (settlementNotes !== null && baselineNoteCountRef.current === null) {
+      baselineNoteCountRef.current = observedNoteCount;
+    }
+  }, [settlementNotes, observedNoteCount]);
+  const settlementLandedWhileOpen =
+    baselineNoteCountRef.current !== null && observedNoteCount > baselineNoteCountRef.current;
   useEffect(() => {
     if (orderId == null || !transaction) return;
-    if (settlementSettled && !watchedUnsettledRef.current) return;
+    if (!watchSettlement) return;
     const swapTxId = transaction.id;
     const POLL_INTERVAL_MS = 2000;
-    // Past the 120s expiry with room for the consume to prove and complete.
-    // Once the order is terminal and something has been seen, only a short tail
-    // remains — long enough for a sibling consume of the same settlement, not a
-    // standing scan.
+    // Long enough for the default 120s expiry plus the consume's proving. Once
+    // the order is terminal and something has been seen, only a short tail
+    // remains — room for a sibling consume, not a standing scan.
     const MAX_POLLS = settlementGrace ? 5 : 90;
     let polls = 0;
     let cancelled = false;
@@ -791,8 +842,40 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
     // `observedNoteCount` is the poll's starting baseline, deliberately not a
     // trigger: including it would restart the interval on every new note.
+    // `lineageState` IS a trigger even though the predicate above may not change
+    // with it: an order that outlived this poll's cap while active has to get a
+    // fresh budget when its lineage finally reports terminal, which is where a
+    // long `expirySeconds` lands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, settlementSettled, settlementGrace, transaction]);
+  }, [orderId, watchSettlement, settlementGrace, lineageState, transaction]);
+
+  // The hero pill reads the persisted settlement stamp, so that one order cannot
+  // say "Pending" in the history list and "Confirmed" on its own receipt. But
+  // the stamp is written by the background reconcile a tick or two after the
+  // consume completes, and a completed swap has no reload interval — so a
+  // receipt open across its own settlement kept a "Pending" pill above a
+  // section already listing the fill. Re-read the row until the stamp agrees
+  // with what this page can see. Self-limiting: the condition clears as soon as
+  // it lands, and the cap covers a stamp that never does.
+  useEffect(() => {
+    if (!settlementLandedWhileOpen || entry?.swapSettlement !== 'pending') return;
+    const MAX_REREADS = 20;
+    let reads = 0;
+    const timer = setInterval(() => {
+      reads += 1;
+      if (reads > MAX_REREADS) {
+        clearInterval(timer);
+        console.warn('[HistoryDetails] Swap settled locally but the row never carried a stamp:', {
+          transactionId,
+          orderId: orderId?.toString()
+        });
+        return;
+      }
+      void loadTransaction();
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [settlementLandedWhileOpen, entry?.swapSettlement, loadTransaction, transactionId, orderId]);
 
   // What this wallet's own consumes suggest, used only to cover the lag while
   // the lineage still says 'active' — otherwise the status sat on "Active" after
