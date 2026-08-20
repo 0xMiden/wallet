@@ -13,7 +13,9 @@ export default defineConfig({
   // via playwright.ios.bridge-in.config.ts (dedicated runs with their own setup —
   // the bridge-in deposit specs need a local Anvil this suite doesn't provide);
   // keep both out of the standard iOS suite.
-  testIgnore: ['**/guardian-*.ios.spec.ts', '**/bridge-in-*.ios.spec.ts'],
+  // dApp-browser specs run via playwright.ios.dapp.config.ts — they need no
+  // chain, so they get their own (much faster) workflow.
+  testIgnore: ['**/guardian-*.ios.spec.ts', '**/bridge-in-*.ios.spec.ts', '**/dapp-browser.*.spec.ts'],
   // 25 min per test. WASM prove on the simulator is slow (~60-90s per consume),
   // and on degraded macos-26 runners BOTH the two-sim `_simPair` setup (capped
   // at 13 min, see SETUP_DEADLINE_MS) and the test body's simctl/WASM ops crawl.

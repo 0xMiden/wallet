@@ -1,0 +1,268 @@
+name: E2E dApp Browser
+
+# The dApp-browser journey (open / minimize / maximize / switch / custom URL /
+# leave-and-return / close) on BOTH shipped mobile surfaces.
+#
+# Why its own workflow rather than a spec inside the existing suites: this suite
+# has NO chain dependency — no faucet, no funded account, no miden-client-cli.
+# Folding it into e2e-blockchain / e2e-android would make it pay for ~9 minutes
+# of cargo build it never uses, and would let a testnet outage mask a
+# dApp-browser regression. The specs are `testIgnore`d from the base configs and
+# run here via playwright.{ios,android}.dapp.config.ts — the same split the
+# guardian and bridge-in suites already use.
+#
+# The dApps under test are served by a local fixture server started by the spec
+# (playwright/e2e/harness/dapp-fixture-server.ts), so the run is deterministic
+# and offline: the product path stays entirely real (real native WebView, real
+# plugin, real HTTP), only the page on the other end is pinned.
+#
+# The simulator / emulator bring-up below is copied verbatim from
+# e2e-blockchain.yml and e2e-android.yml. It encodes specific runner failure
+# modes (wedged CoreSimulatorService, ANDROID_AVD_HOME disagreement between
+# avdmanager and the emulator). Extracting all three copies into a composite
+# action is worth doing, but is a refactor of currently-green CI and is left as
+# a follow-up rather than bundled into a new-suite PR.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-dapp-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-dapp-browser:
+    name: dApp Browser (iOS)
+    runs-on: macos-26-xlarge
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+      MIDEN_E2E_TEST: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      # Fresh-create + boot of custom simulators hangs multi-minute then
+      # errors on macos-26 runners. Pin the test harness to preinstalled
+      # Xcode sims by writing .device-pair.json before globalSetup reads it.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      # Kick the cold boot off NOW so it overlaps the ~25-minute app build.
+      # First boot of an iOS 26 runtime on a cold runner takes many minutes
+      # (dyld shared-cache build); booting only in playwright's globalSetup
+      # left the suite racing a half-booted simulator, where simctl
+      # install/launch hang for the full test timeout. `simctl boot` is
+      # asynchronous — globalSetup's bootstatus gate later confirms
+      # readiness, which by then is long since done.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          # On a cold runner CoreSimulatorService may not respond ("Unable
+          # to boot the Simulator. launchd failed to respond",
+          # SimLaunchHostService code 4) — retry with backoff. If retries
+          # exhaust, the service is wedged, and a wedged CoreSimulatorService
+          # breaks MORE than booting: xcodebuild stops seeing any simulator
+          # destinations, so the build step would fail 25 minutes later
+          # anyway (observed). Restart the service once; if the subsystem
+          # still can't boot, fail the job HERE — minutes in, clearly
+          # attributed, and cheap to rerun.
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            return 1
+          }
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      # The iOS app is built for a GENERIC simulator destination
+      # (generic/platform=iOS Simulator) — see the test:e2e:mobile:build
+      # script. A build doesn't need a concrete booted device, and the
+      # generic destination resolves to the "Any iOS Simulator Device"
+      # placeholder even when Xcode's IDE-layer CoreSimulator goes blind to
+      # concrete sims on macos-26 runners (the failure mode that a
+      # name=iPhone 17 destination hit here — xcodebuild listed zero concrete
+      # destinations and failed with "Unable to find a device"). This is the
+      # same approach build-mobile.yml's release iOS build already uses. The
+      # pinned sims are still pre-booted above for the test-run phase, which
+      # reaches them via simctl by UDID, independent of xcodebuild.
+
+      - name: Build iOS app
+        # Same SwiftPM-cache self-heal as e2e-blockchain.yml: on a failed build,
+        # wipe the corrupt cache + derived data and retry once.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
+
+      - name: Run dApp browser E2E (iOS)
+        # --retries=2 absorbs the CDP "no pages found" / degraded-CoreSimulator
+        # hiccups the other iOS jobs see. Each retry re-installs and re-launches
+        # from scratch, so a transient runner fault gets a clean attempt.
+        run: yarn playwright test --config playwright.ios.dapp.config.ts --retries=2
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-browser-ios-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  android-dapp-browser:
+    name: dApp Browser (Android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      E2E_NETWORK: testnet
+      MIDEN_E2E_TEST: 'true'
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: yarn }
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "emulator" \
+            "platforms;android-34" "system-images;android-34;default;x86_64"
+
+      # The AVD pair is derived from this base by the harness, so its name has to
+      # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
+      # ever renamed, this step fails loudly rather than silently booting nothing.
+      - name: Create base AVD
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd \
+            --name Pixel_API_34 \
+            --package "system-images;android-34;default;x86_64" \
+            --device pixel_6 \
+            --force
+          # Fail HERE if the emulator can't see what avdmanager just wrote,
+          # rather than 5 minutes later in Playwright's global setup with the
+          # SDK install and the APK build already paid for.
+          echo "AVDs visible to the emulator (ANDROID_AVD_HOME=$ANDROID_AVD_HOME):"
+          "$ANDROID_HOME/emulator/emulator" -list-avds
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
+            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 1
+          }
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build debug APK
+        run: yarn test:e2e:android:build
+
+      # Reclaim the Gradle daemon's heap before two emulators start competing
+      # for the runner's RAM.
+      - name: Stop the Gradle daemon
+        run: cd android && ./gradlew --stop || true
+
+      - name: Run dApp browser E2E (Android)
+        run: yarn test:e2e:android:dapp:run
+
+      - name: Collect emulator logs on failure
+        if: failure()
+        run: |
+          adb devices || true
+          for serial in emulator-5554 emulator-5556; do
+            echo "::group::$serial — app process"
+            adb -s "$serial" shell ps -A 2>/dev/null | grep -i miden || echo "  NO MIDEN PROCESS (app not running)"
+            echo "::endgroup::"
+            echo "::group::$serial — wallet/webview lines"
+            adb -s "$serial" logcat -d 2>/dev/null \
+              | grep -iE "miden|chromium|console|fatal|ANR" | tail -200 || true
+            echo "::endgroup::"
+          done
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-browser-android-${{ github.run_id }}
+          path: test-results-android/
+          retention-days: 7
+          if-no-files-found: ignore
