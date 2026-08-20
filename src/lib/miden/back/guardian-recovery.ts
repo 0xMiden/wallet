@@ -2,6 +2,8 @@ import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import {
   clearGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryProgress,
+  type GuardianNoteRecoveryProgress,
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -15,6 +17,7 @@ import { WalletAccount } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
 import { midenClientProxy } from './miden-client-proxy';
+import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
@@ -70,6 +73,22 @@ function isWalletLocked(): boolean {
  *
  * Returns the reason to stop, or null to keep going.
  */
+/**
+ * True for the rejection the SW raises when it tears down the offscreen realm.
+ *
+ * This is expected traffic, not a broken source. On the extension the offscreen
+ * client is on (`vite.background.config.ts`), read deadlines are armed at
+ * DISPATCH, and recovery chunks are not critical ops — so an AutoSync read
+ * queued behind a chunk trips its own 15s deadline while still waiting, and
+ * `onDeadline` kills the realm, taking the chunk with it. Counting that as a
+ * source failure would keep the account's reservation and strand the recovery
+ * for the rest of the session; treated as a deferral it resumes from the
+ * checkpoint on the next offer instead.
+ */
+function isAbortedOp(error: unknown): boolean {
+  return error instanceof OperationAbortedError;
+}
+
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
   if (isWalletLocked()) return 'wallet locked';
   try {
@@ -243,8 +262,31 @@ async function fetchAccountCreatedAtSeconds(account: WalletAccount, context: Gua
  */
 const PUBLIC_BACKFILL_CHUNK_BLOCKS = 200_000;
 
+/**
+ * A resumable pass reuses the progress record as its checkpoint.
+ *
+ * Deferring for a transaction is not rare — it is the norm. The recovery's job
+ * is to make consumable notes visible, auto-consume is on by default
+ * (`DEFAULT_AUTO_CONSUME`), and the SW enqueues a consume for every newly
+ * visible native-asset note, so importing notes MANUFACTURES the transactions
+ * that make `shouldYield` fire. Without a checkpoint each deferral would throw
+ * the whole pass away and the next one would re-pay the transport drain, the
+ * Guardian client setup, the proposal imports and the scan-range resolution
+ * before reaching the block it had already got to — a wallet that never
+ * finishes recovering.
+ *
+ * Only a pass with NO source failures may be checkpointed: the record carries a
+ * block watermark, not a failure count, so resuming past a failed source would
+ * let a later clean pass clear the one-shot pending flag over notes that were
+ * never imported.
+ */
+function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryProgress | null): number | null {
+  if (!progress || progress.accountId !== account.publicKey) return null;
+  if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
+  return progress.syncedToBlock;
+}
+
 export async function recoverPendingNotes(account: WalletAccount): Promise<GuardianPendingNoteRecoveryResult> {
-  console.log(`[GuardianRecovery] Recovering pending notes for ${account.publicKey}...`);
   const result: GuardianPendingNoteRecoveryResult = {
     proposalNotes: 0,
     publicNotes: 0,
@@ -252,61 +294,112 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     deferred: false
   };
 
+  let resumeFromBlock: number | null = null;
   try {
-    // Source 1: drain the private-note transport backlog.
-    await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'transport' });
-    try {
-      await midenClientProxy.drainPrivateNoteTransport();
-    } catch (error) {
-      result.sourceFailures++;
-      console.warn(`[GuardianRecovery] Private-note transport drain failed for ${account.publicKey}:`, error);
-    }
+    resumeFromBlock = resumePointFor(account, await fetchGuardianNoteRecoveryProgress());
+  } catch (error) {
+    console.warn(`[GuardianRecovery] Could not read the checkpoint for ${account.publicKey}; starting over:`, error);
+  }
+  console.log(
+    `[GuardianRecovery] Recovering pending notes for ${account.publicKey}` +
+      (resumeFromBlock === null ? '...' : ` (resuming the public backfill at block ${resumeFromBlock})`)
+  );
 
-    const yieldedBeforeProposals = await shouldYield();
-    if (yieldedBeforeProposals) {
-      result.deferred = true;
-      console.warn(`[GuardianRecovery] Yielding (${yieldedBeforeProposals}) before proposals for ${account.publicKey}`);
-      return result;
-    }
-
-    // Source 2: notes embedded in pending consume proposals.
-    await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
+  try {
     let context: GuardianClientContext | undefined;
-    try {
-      context = await createGuardianClientContext(account);
-    } catch (error) {
-      result.sourceFailures++;
-      console.warn(`[GuardianRecovery] Guardian client setup failed for ${account.publicKey}:`, error);
-    }
     let createdAtSeconds = 0;
-    if (context) {
-      const payload = await fetchProposalNotePayload(account, context);
-      if (payload.proposalFetchFailed) result.sourceFailures++;
-      // Batched so no single op holds the WASM mutex for the whole payload.
-      for (let start = 0; start < payload.proposalNoteBytes.length; start += PROPOSAL_IMPORT_BATCH_SIZE) {
-        const batch = payload.proposalNoteBytes.slice(start, start + PROPOSAL_IMPORT_BATCH_SIZE);
-        const yielded = await shouldYield();
-        if (yielded) {
-          result.deferred = true;
-          console.warn(`[GuardianRecovery] Yielding (${yielded}) mid-proposal-import for ${account.publicKey}`);
-          return result;
-        }
-        try {
-          const imported = await midenClientProxy.importRecoveryNoteBytes(batch);
-          result.proposalNotes += imported.imported;
-          result.sourceFailures += imported.failures;
-        } catch (error) {
-          result.sourceFailures++;
-          console.warn(`[GuardianRecovery] Proposal note import failed for ${account.publicKey}:`, error);
-        }
+
+    // Sources 1 and 2 are skipped entirely on a resumed pass: a checkpoint at
+    // the `public` step can only have been written after both completed
+    // cleanly, and both are the expensive ones to repeat.
+    if (resumeFromBlock === null) {
+      // Source 1: drain the private-note transport backlog.
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'transport' });
+      try {
+        await midenClientProxy.drainPrivateNoteTransport();
+      } catch (error) {
+        result.sourceFailures++;
+        console.warn(`[GuardianRecovery] Private-note transport drain failed for ${account.publicKey}:`, error);
       }
-      createdAtSeconds = await fetchAccountCreatedAtSeconds(account, context);
+
+      const yieldedBeforeProposals = await shouldYield();
+      if (yieldedBeforeProposals) {
+        result.deferred = true;
+        console.warn(
+          `[GuardianRecovery] Yielding (${yieldedBeforeProposals}) before proposals for ${account.publicKey}`
+        );
+        return result;
+      }
+
+      // Source 2: notes embedded in pending consume proposals.
+      await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
+      try {
+        context = await createGuardianClientContext(account);
+      } catch (error) {
+        result.sourceFailures++;
+        console.warn(`[GuardianRecovery] Guardian client setup failed for ${account.publicKey}:`, error);
+      }
+      if (context) {
+        const payload = await fetchProposalNotePayload(account, context);
+        if (payload.proposalFetchFailed) result.sourceFailures++;
+        // Batched so no single op holds the WASM mutex for the whole payload.
+        for (let start = 0; start < payload.proposalNoteBytes.length; start += PROPOSAL_IMPORT_BATCH_SIZE) {
+          const batch = payload.proposalNoteBytes.slice(start, start + PROPOSAL_IMPORT_BATCH_SIZE);
+          const yielded = await shouldYield();
+          if (yielded) {
+            result.deferred = true;
+            console.warn(`[GuardianRecovery] Yielding (${yielded}) mid-proposal-import for ${account.publicKey}`);
+            return result;
+          }
+          try {
+            const imported = await midenClientProxy.importRecoveryNoteBytes(batch);
+            result.proposalNotes += imported.imported;
+            result.sourceFailures += imported.failures;
+          } catch (error) {
+            if (isAbortedOp(error)) {
+              result.deferred = true;
+              console.warn(
+                `[GuardianRecovery] Proposal import aborted with the offscreen realm for ${account.publicKey}`
+              );
+              return result;
+            }
+            result.sourceFailures++;
+            console.warn(`[GuardianRecovery] Proposal note import failed for ${account.publicKey}:`, error);
+          }
+          // Re-stamped per batch, not per phase: the record ages out after
+          // GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS, and the whole proposal
+          // phase can outlast that — the card would vanish mid-run and the
+          // user would think it had finished.
+          await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
+        }
+        createdAtSeconds = await fetchAccountCreatedAtSeconds(account, context);
+      }
     }
 
     // Source 3: public notes by account tag, scanned from the account's
     // creation block (not genesis) in bounded chunks with live progress.
+    //
+    // Skipped when the Guardian was unreachable on a fresh pass: `createdAt`
+    // would be unknown, which means scanning genesis→tip, and the same failure
+    // keeps the pending flag set — so every backend start would re-walk the
+    // whole chain, forever, for an account whose cold key or local record is
+    // permanently absent. A resumed pass has its range from the checkpoint and
+    // does not need the Guardian at all.
+    if (resumeFromBlock === null && !context) {
+      console.warn(
+        `[GuardianRecovery] Skipping the public backfill for ${account.publicKey}: ` +
+          'no Guardian client, so the creation block is unknown and the scan would start at genesis'
+      );
+      return result;
+    }
+
     try {
-      const { startBlock, latestBlock } = await midenClientProxy.resolveRecoveryScanRange(createdAtSeconds);
+      // On a resumed pass only the chain tip is needed, and passing 0 makes the
+      // resolver return it after ONE header read instead of binary-searching
+      // for a creation block the checkpoint already supersedes.
+      const range = await midenClientProxy.resolveRecoveryScanRange(resumeFromBlock === null ? createdAtSeconds : 0);
+      const latestBlock = range.latestBlock;
+      const startBlock = resumeFromBlock === null ? range.startBlock : Math.min(resumeFromBlock, latestBlock);
       console.log(`[GuardianRecovery] Public backfill for ${account.publicKey}: blocks ${startBlock}-${latestBlock}`);
       await reportGuardianNoteRecoveryProgress({
         accountId: account.publicKey,
@@ -353,6 +446,14 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
             scannedToBlock = blockTo;
           }
         } catch (error) {
+          if (isAbortedOp(error)) {
+            result.deferred = true;
+            console.warn(
+              `[GuardianRecovery] Backfill chunk ${blockFrom}-${blockTo} aborted with the offscreen realm; ` +
+                `will resume ${account.publicKey} from block ${scannedToBlock}`
+            );
+            return result;
+          }
           result.sourceFailures++;
           console.warn(
             `[GuardianRecovery] Public backfill chunk ${blockFrom}-${blockTo} failed for ${account.publicKey}:`,
@@ -368,6 +469,11 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
         });
       }
     } catch (error) {
+      if (isAbortedOp(error)) {
+        result.deferred = true;
+        console.warn(`[GuardianRecovery] Public backfill aborted with the offscreen realm for ${account.publicKey}`);
+        return result;
+      }
       result.sourceFailures++;
       console.warn(`[GuardianRecovery] Public account-tag recovery failed for ${account.publicKey}:`, error);
     }
@@ -389,7 +495,17 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     );
     return result;
   } finally {
-    await clearGuardianNoteRecoveryProgress(account.publicKey);
+    // Keep the record ONLY as a checkpoint for a clean deferral — that is what
+    // lets the next pass resume at the block this one reached instead of
+    // redoing every source. Any other exit clears it: a finished pass has
+    // nothing left to narrate, and a pass that failed a source must start over
+    // (the record carries a watermark, not a failure count, so resuming past a
+    // failed source could clear the pending flag over notes never imported).
+    if (result.deferred && result.sourceFailures === 0) {
+      console.log(`[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume from`);
+    } else {
+      await clearGuardianNoteRecoveryProgress(account.publicKey);
+    }
   }
 }
 

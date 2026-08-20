@@ -10,9 +10,10 @@
 // wedged WASM call dies with it — reopens a fresh doc, and rejects the
 // in-flight op(s) with `OperationAbortedError`.
 //
-// This is behind `MIDEN_USE_OFFSCREEN_CLIENT`, DEFAULT OFF. With the flag off,
-// every method here is a strict pass-through to the existing inline
-// `getMidenClient()` singleton, so production behavior is unchanged.
+// This is behind `MIDEN_USE_OFFSCREEN_CLIENT` (see the flag's own doc below for
+// the per-bundle defaults — ON in the extension service worker, off elsewhere).
+// With the flag off, every method here is a strict pass-through to the inline
+// `getMidenClient()` singleton.
 
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
@@ -59,10 +60,19 @@ import type { NoteType } from '../types';
 /**
  * Feature flag: route proxied methods through the offscreen document.
  *
- * DEFAULT OFF. Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`)
- * so a build with the flag off dead-code-eliminates the offscreen branch. All
- * vite configs default `MIDEN_USE_OFFSCREEN_CLIENT` to `'false'`; mobile
- * hardcodes it off (no `chrome.offscreen` in WKWebView / Android WebView).
+ * Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`) so a build with
+ * the flag off dead-code-eliminates the offscreen branch.
+ *
+ * Defaults per bundle, which decide whether an op has a deadline at all:
+ *   - extension service worker (`vite.background.config.ts`): ON. Ops are
+ *     dispatched to the offscreen realm and DO get their `deadlineMs`.
+ *   - extension UI, desktop, content scripts: OFF (env-overridable).
+ *   - mobile: hardcoded off (no `chrome.offscreen` in WKWebView / Android
+ *     WebView).
+ *
+ * So a backend op runs offscreen-with-deadline on the extension and INLINE WITH
+ * NO DEADLINE on mobile and desktop. Anything long-running has to bound itself;
+ * it cannot rely on a deadline to cut it off.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 

@@ -1,10 +1,14 @@
-import { clearGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import {
+  clearGuardianNoteRecoveryProgress,
+  fetchGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { maybeStartGuardianRecovery } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
+import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 
 // The orchestrator's own decisions are what these tests are about — the gating,
@@ -38,7 +42,8 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 }));
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
-  clearGuardianNoteRecoveryProgress: jest.fn()
+  clearGuardianNoteRecoveryProgress: jest.fn(),
+  fetchGuardianNoteRecoveryProgress: jest.fn()
 }));
 jest.mock('./store', () => ({
   store: { getState: jest.fn() },
@@ -49,6 +54,7 @@ const mockUncompleted = jest.mocked(getAllUncompletedTransactions);
 const mockGetState = jest.mocked(store.getState);
 const mockAccountsUpdated = jest.mocked(accountsUpdated);
 const mockClearProgress = jest.mocked(clearGuardianNoteRecoveryProgress);
+const mockFetchProgress = jest.mocked(fetchGuardianNoteRecoveryProgress);
 const mockProxy = jest.mocked(midenClientProxy);
 
 // `startedRecoveries` and the queue are module state, so each test gets a fresh
@@ -91,6 +97,7 @@ beforeEach(() => {
   setPendingFlag = jest.fn().mockResolvedValue([]);
   unlocked();
   mockUncompleted.mockResolvedValue([]);
+  mockFetchProgress.mockResolvedValue(null);
   mockProxy.getAccount.mockResolvedValue({} as never);
   mockProxy.drainPrivateNoteTransport.mockResolvedValue(undefined as never);
   mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
@@ -260,6 +267,83 @@ describe('detached recovery run', () => {
     // Two blocks it could not scan are two source failures, so the account
     // stays pending for a later retry rather than clearing over skipped notes.
     expect(setPendingFlag).not.toHaveBeenCalled();
+  });
+
+  // The recovery's own imports make notes consumable, auto-consume is on by
+  // default, and the SW enqueues a consume per newly visible note — so
+  // deferring for a transaction is the normal case, not a rare one. Without a
+  // checkpoint every deferral would restart the whole pass and the wallet would
+  // never finish recovering.
+  describe('checkpointing', () => {
+    it('keeps the checkpoint when a clean pass defers, so the next one resumes', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      // Second chunk sees a transaction that the first chunk's imports caused.
+      mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+        mockUncompleted.mockResolvedValue([{ id: 'auto-consume' }] as never);
+        return { imported: 1, failures: 0, saturated: false } as never;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockClearProgress).not.toHaveBeenCalled();
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    it('resumes at the checkpointed block and skips the sources it already did', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now()
+      });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // Neither expensive source is re-paid.
+      expect(mockProxy.drainPrivateNoteTransport).not.toHaveBeenCalled();
+      expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+      // The creation-block search is skipped too: 0 means "just give me the tip".
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(0);
+      // Scanning restarts at the checkpoint, not at block 0.
+      expect(mockProxy.recoverPublicNotesRange.mock.calls[0]?.[1]).toBe(200_000);
+      expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+    });
+
+    it('refuses to resume past a pass that failed a source', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+        mockUncompleted.mockResolvedValue([{ id: 'auto-consume' }] as never);
+        return { imported: 0, failures: 2, saturated: false } as never;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // A watermark cannot express "and two notes were missed", so the record
+      // goes rather than letting a later clean pass clear the flag over them.
+      expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
+    });
+
+    it('treats a realm teardown as a deferral, not a failing source', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      mockProxy.recoverPublicNotesRange.mockRejectedValue(new OperationAbortedError('op-1', 'deadline'));
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockClearProgress).not.toHaveBeenCalled();
+      // Deferred, so the reservation went back and the account is startable.
+      await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+    });
   });
 
   it('runs one account at a time', async () => {

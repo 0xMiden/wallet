@@ -465,16 +465,46 @@ export class MidenClientInterface {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     let imported = 0;
     let failures = 0;
+
+    const notes: Note[] = [];
     for (const noteBytes of proposalNoteBytes) {
       try {
-        const note = Note.deserialize(noteBytes);
-        let inclusionProof: NoteInclusionProof | undefined;
-        try {
-          const fetched = (await withRpcTimeout(() => rpc.getNotesById([note.id()]), 'recoveryProposalNoteProof'))[0];
-          inclusionProof = fetched?.inclusionProof;
-        } catch (error) {
-          console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
+        notes.push(Note.deserialize(noteBytes));
+      } catch (error) {
+        failures++;
+        console.warn('[GuardianRecovery] Failed to deserialize one proposal note:', error);
+      }
+    }
+
+    // ONE proof lookup for the whole batch, not one per note. Per-note lookups
+    // with the default one-retry budget meant a wedged node cost up to 30s ×
+    // batch size inside a single WASM-mutex hold — and on mobile and desktop
+    // that hold has no op deadline to cut it short, so every other wallet
+    // operation, including a transaction the user is waiting on, stalls for all
+    // of it. `retries: 0` for the same reason the other recovery reads use it.
+    // A failed lookup is not fatal: the notes import as Expected instead.
+    const proofs = new Map<string, NoteInclusionProof>();
+    if (notes.length > 0) {
+      try {
+        const fetched = await withRpcTimeout(
+          () => rpc.getNotesById(notes.map(note => note.id())),
+          'recoveryProposalNoteProofs',
+          { retries: 0 }
+        );
+        // Keyed by id rather than trusting position: `getNotesById` may answer
+        // short or reordered (the public backfill counts on that too).
+        for (const entry of fetched) {
+          const proof = entry?.inclusionProof;
+          if (proof) proofs.set(String(entry.noteId), proof);
         }
+      } catch (error) {
+        console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
+      }
+    }
+
+    for (const note of notes) {
+      try {
+        const inclusionProof = proofs.get(String(note.id()));
         const inputNote = inclusionProof
           ? InputNote.authenticated(note, inclusionProof)
           : InputNote.unauthenticated(note);
@@ -517,7 +547,20 @@ export class MidenClientInterface {
     // Invariant: timestamp(lo) < target <= timestamp(hi).
     let lo = 0;
     let hi = latestBlock;
+    // Deadline as well as a bisection bound: this whole method runs inside one
+    // mutex-held op, and ~log2(tip) reads at 8s each would blow well past the
+    // 60s the chunking design budgets for an op. Stopping early only widens the
+    // scan — `lo` is always a block older than the account, which is exactly
+    // what the backfill needs — so a slow node costs extra scanned blocks
+    // rather than a wedged wallet.
+    const searchDeadline = Date.now() + 20_000;
     while (lo + 1 < hi) {
+      if (Date.now() > searchDeadline) {
+        console.warn(
+          `[GuardianRecovery] Creation-block search ran out of budget; scanning from block ${lo} (widened range)`
+        );
+        break;
+      }
       const mid = lo + Math.floor((hi - lo) / 2);
       const midHeader = await header(mid);
       if (midHeader.timestamp() < target) lo = mid;
