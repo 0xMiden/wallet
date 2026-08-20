@@ -68,15 +68,27 @@ export const locallySettledRequestedAmount = (
  * false zero then stripped the "partially filled" qualifier too, upgrading a
  * partial fill to a full one. The local sum, for its part, counts only consumes
  * this wallet tagged, so it misses anything claimed elsewhere. Neither can
- * exceed the truth, so the larger of the two is the honest answer.
+ * exceed the truth, so the larger of the two is the honest answer — unless the
+ * local sum exceeds the whole request, which no honest fill can do. See below.
  */
 export const filledRequestedAmount = (
   fromLineage: bigint | undefined,
-  fromLocalConsumes: bigint | undefined
+  fromLocalConsumes: bigint | undefined,
+  requestedAmount: bigint | undefined
 ): bigint | undefined => {
   // A local sum of zero is no evidence at all: it is what an order with no
   // tagged consumes looks like, which is not the same as a fill of zero.
-  const local = fromLocalConsumes !== undefined && fromLocalConsumes > 0n ? fromLocalConsumes : undefined;
+  const positive = fromLocalConsumes !== undefined && fromLocalConsumes > 0n ? fromLocalConsumes : undefined;
+  // The request is a hard ceiling on what an order can deliver, so a local sum
+  // above it is proof that the sum counts notes from outside this order: a
+  // consume's `amount` aggregates every asset sharing the row's faucet, and a
+  // "Claim All" tap can batch an unclassified payback in with unrelated notes of
+  // the same token, after which settlement tags that whole row. Such a sum is
+  // not a lower bound at all, so it is discarded rather than clamped — clamping
+  // would report the full request as delivered on an order the lineage still
+  // says is mostly outstanding.
+  const local =
+    requestedAmount !== undefined && positive !== undefined && positive > requestedAmount ? undefined : positive;
   if (fromLineage === undefined) return local;
   if (local === undefined) return fromLineage;
   return fromLineage > local ? fromLineage : local;
@@ -146,9 +158,12 @@ export const deriveSwapReceipt = ({
 
   // What this wallet's own consumes suggest, used only to cover the lag while
   // the lineage still says 'active'. A settle consume outranks a reclaim one,
-  // matching `repairSettlementStamp`, for an order carrying both kinds.
+  // matching `repairSettlementStamp`, for an order carrying both kinds. Reads
+  // rows as well as ids for the same reason as above: keying this on ids alone
+  // called a settle-tagged consume that recorded none a RECLAIM, so the receipt
+  // reported funds arriving and the remainder going back in the same breath.
   const settledOrderState: SwapOrderState | null = settlementFound
-    ? settlement && settlement.settled.length > 0
+    ? settlement && (settlement.settled.length > 0 || settledTransactions.length > 0)
       ? 'filled'
       : 'reclaimed'
     : null;
@@ -168,7 +183,8 @@ export const deriveSwapReceipt = ({
       : undefined;
   const filledAmount = filledRequestedAmount(
     fromLineage,
-    locallySettledRequestedAmount(settledTransactions, requestedFaucetId)
+    locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
+    requestedAmount
   );
   const isPartialFill =
     requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;

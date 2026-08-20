@@ -104,23 +104,35 @@ describe('filledRequestedAmount', () => {
     // Both inputs are lower bounds and either can be the stale one: the lineage
     // reads the order's tip (so it lags a fresh fill) and the local sum counts
     // only consumes this wallet tagged (so it misses fills claimed elsewhere).
-    expect(filledRequestedAmount(600n, 400n)).toBe(600n);
-    expect(filledRequestedAmount(400n, 600n)).toBe(600n);
+    expect(filledRequestedAmount(600n, 400n, 1000n)).toBe(600n);
+    expect(filledRequestedAmount(400n, 600n, 1000n)).toBe(600n);
   });
 
   it('does not let a lagging lineage assert zero over money already counted', () => {
-    expect(filledRequestedAmount(0n, 400n)).toBe(400n);
+    expect(filledRequestedAmount(0n, 400n, 1000n)).toBe(400n);
   });
 
   it('treats an empty local sum as no evidence rather than a zero fill', () => {
-    expect(filledRequestedAmount(undefined, 0n)).toBeUndefined();
-    expect(filledRequestedAmount(0n, 0n)).toBe(0n);
+    expect(filledRequestedAmount(undefined, 0n, 1000n)).toBeUndefined();
+    expect(filledRequestedAmount(0n, 0n, 1000n)).toBe(0n);
   });
 
   it('falls back to whichever side answered', () => {
-    expect(filledRequestedAmount(undefined, 400n)).toBe(400n);
-    expect(filledRequestedAmount(600n, undefined)).toBe(600n);
-    expect(filledRequestedAmount(undefined, undefined)).toBeUndefined();
+    expect(filledRequestedAmount(undefined, 400n, 1000n)).toBe(400n);
+    expect(filledRequestedAmount(600n, undefined, 1000n)).toBe(600n);
+    expect(filledRequestedAmount(undefined, undefined, 1000n)).toBeUndefined();
+  });
+
+  it('discards a local sum that exceeds the whole request', () => {
+    // Over the request is proof the sum swept in notes from outside this order,
+    // so it is not a lower bound on anything. The lineage figure stands alone.
+    expect(filledRequestedAmount(200n, 1800n, 1000n)).toBe(200n);
+    // Clamping instead would report the full request as delivered here.
+    expect(filledRequestedAmount(undefined, 1800n, 1000n)).toBeUndefined();
+    // Exactly the request is a legitimate full fill.
+    expect(filledRequestedAmount(undefined, 1000n, 1000n)).toBe(1000n);
+    // With no request to compare against there is nothing to disprove.
+    expect(filledRequestedAmount(undefined, 1800n, undefined)).toBe(1800n);
   });
 });
 
@@ -174,14 +186,42 @@ describe('deriveSwapReceipt', () => {
     expect(view.orderState).toBe('filled');
   });
 
-  it('counts a consume row with no note ids as a settlement', () => {
+  it('counts a consume row with no note ids as the settlement it is', () => {
     // The two are built together, but a consume recorded with no note ids yields
     // a row and no id — and a receipt that renders a fill row while reporting no
     // settlement found, which also defeated the bound on the lineage poll.
     const view = derive({ settlement: settlement({ settledTransactions: [consume({ noteIds: [] })] }) });
 
     expect(view.settlementFound).toBe(true);
+    // A SETTLE row, so a fill. Reading the ids alone called this a reclaim, so
+    // the receipt reported 400 arriving and the remainder going back at once.
+    expect(view.orderState).toBe('filled');
+    expect(view.filledAmount).toBe(400n);
+  });
+
+  it('reads a reclaim row as a reclaim', () => {
+    const view = derive({
+      settlement: settlement({ reclaimed: ['0xnote1'], reclaimedTransactions: [consume()] })
+    });
+
     expect(view.orderState).toBe('reclaimed');
+  });
+
+  it('will not report more arriving than was ever requested', () => {
+    // A "Claim All" tap can batch an unclassified payback in with unrelated
+    // notes of the same token; settlement then tags that whole row, and the
+    // row's aggregate amount covers all of them. Reported as-is, the receipt
+    // announced "1800 of 1000" at 100%, labelled Filled, on an open order.
+    const view = derive({
+      tracking: tracking({ remainingRequested: 800n }),
+      settlement: settlement({ settled: ['0xnote1'], settledTransactions: [consume({ amount: 1800n })] })
+    });
+
+    // The authoritative lineage figure stands, and the partial qualifier keeps
+    // the label honest — the local settle stamp still covers the lineage's lag,
+    // and 'active' and 'filled' both read "partially filled" once it does.
+    expect(view.filledAmount).toBe(200n);
+    expect(view.isPartialFill).toBe(true);
   });
 
   it('reports nothing filled, not a negative fill, when more is owed than was asked', () => {

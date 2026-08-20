@@ -324,10 +324,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // chasing. A ref, not a dep: making it one would restart the poll — and its
   // backoff — the moment the settlement it is racing arrives.
   const settlementFoundRef = useRef(false);
-  // Whether this page has ever seen the order unsettled, which is what separates
-  // "settlement is landing while we watch" from "this receipt was already
-  // complete when it was opened".
-  const watchedUnsettledRef = useRef(false);
+  // Whether this page has ever watched settlement in motion, which is what
+  // separates "settlement is landing while we watch" from "this receipt was
+  // already complete when it was opened". State rather than a ref because the
+  // poll decision below reads it: a ref write does not re-render, so the watch
+  // it is meant to extend would already have been torn down.
+  const [watchedUnsettled, setWatchedUnsettled] = useState(false);
   const baselineNoteCountRef = useRef<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
@@ -338,163 +340,170 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
   const depositPollNonceRef = useRef<string | null>(null);
   const loadGenerationRef = useRef(0);
-  const loadTransaction = useCallback(async () => {
-    // Six call sites drive this, one of them a fixed 3s interval that does not
-    // wait for the previous run, and it awaits three times before writing nine
-    // pieces of state. Without a generation stamp an older snapshot resolving
-    // late overwrites a newer one wholesale: the receipt visibly regresses from
-    // Confirmed back to Pending, `setOrderId(null)` tears down the tracking
-    // poller mid-flight, and the settlement rows the poller published are
-    // replaced by the empty read that started before the consume landed.
-    const generation = ++loadGenerationRef.current;
-    const superseded = () => loadGenerationRef.current !== generation;
-    try {
-      setLoadError(null);
-      const tx = await getTransactionById(transactionId);
-      const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-      console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
-      // Bridge metadata (route/provider, EVM destination, per-route status) lives
-      // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
-      // Slow (Agglayer) and defaults every bridge to the Slow route.
-      const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
-      const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
-        tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
-      const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
-        tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
-      const earnDepositExtra: IEarnDepositExtraInputs | undefined =
-        tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
-      const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
-        tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
-      // Source side (USDC) while in flight, destination side once the bridged
-      // note was consumed — identical rule to the activity row.
-      const earnWithdrawFields = earnWithdrawExtra
-        ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
-        : undefined;
-      // The DEX faucets are usually absent from assetsMetadata, so the generic
-      // `getTokenMetadata` above resolves a swap's OFFERED side to Unknown at 6
-      // decimals — which misscales the receipt hero, since the registry tokens
-      // are 8-decimal. Resolve the offered side through the swap registry the
-      // same way the requested side is resolved below; the swap hero used to get
-      // this from `TransactionSummaryBadge`, which resolves both sides.
-      const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
-      const historyEntry = {
-        address: tx.accountId,
-        key: `completed-${tx.id}`,
-        timestamp: tx.completedAt ?? tx.initiatedAt,
-        message: tx.displayMessage,
-        status: tx.status,
-        transactionIcon: tx.displayIcon,
-        amount: earnWithdrawFields
-          ? earnWithdrawFields.amount
-          : tx.amount
-            ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
-            : undefined,
-        token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
-        earnWithdrawPhase: earnWithdrawExtra?.phase,
-        earnDepositStatus: earnDepositExtra?.epochStatus,
-        secondaryAddress: tx.secondaryAccountId,
-        txId: tx.id,
-        noteType: tx.noteType,
-        noteId: tx.outputNoteIds?.[0],
-        externalTxId: tx.transactionId,
-        swapSettlement: swapSettlementOf(tx),
-        faucetId: tx.faucetId,
-        outputNoteIds: tx.outputNoteIds,
-        txType: tx.type,
-        previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
-        newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
-        errorMessage: tx.error,
-        rawErrorMessage: tx.rawError,
-        isCancelled: isUserCancelledTransaction(tx.error),
-        bridgeProvider: bridge?.provider,
-        bridgeDestinationAddress: bridge?.destinationAddress,
-        bridgeDestinationNetwork: bridge?.destinationNetwork,
-        bridgeClaimStatus: bridge?.claimStatus,
-        bridgeOutputAmount: bridge?.outputAmount,
-        bridgeOutputSymbol: bridge?.outputSymbol,
-        bridgeIntentNonce: bridge?.intentNonce,
-        bridgeFillTxHash: bridge?.fillTxHash,
-        bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus,
-        bridgeInProvider: bridgeReceive?.provider,
-        bridgeInSourceAddress: bridgeReceive?.sourceAddress,
-        bridgeInSourceAmount: bridgeReceive?.sourceAmount,
-        bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
-        bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
-        bridgeInPhase: bridgeReceive?.phase,
-        bridgeInOutputAmount: bridgeReceive?.outputAmount,
-        bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
-        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
-      } as IHistoryEntry;
+  const loadTransaction = useCallback(
+    async ({ readSettlement = true }: { readSettlement?: boolean } = {}) => {
+      // Six call sites drive this, one of them a fixed 3s interval that does not
+      // wait for the previous run, and it awaits three times before writing nine
+      // pieces of state. Without a generation stamp an older snapshot resolving
+      // late overwrites a newer one wholesale: the receipt visibly regresses from
+      // Confirmed back to Pending, `setOrderId(null)` tears down the tracking
+      // poller mid-flight, and the settlement rows the poller published are
+      // replaced by the empty read that started before the consume landed.
+      const generation = ++loadGenerationRef.current;
+      const superseded = () => loadGenerationRef.current !== generation;
+      try {
+        setLoadError(null);
+        const tx = await getTransactionById(transactionId);
+        const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
+        console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
+        // Bridge metadata (route/provider, EVM destination, per-route status) lives
+        // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
+        // Slow (Agglayer) and defaults every bridge to the Slow route.
+        const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
+        const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
+          tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+        const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
+          tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+        const earnDepositExtra: IEarnDepositExtraInputs | undefined =
+          tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+        const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
+          tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+        // Source side (USDC) while in flight, destination side once the bridged
+        // note was consumed — identical rule to the activity row.
+        const earnWithdrawFields = earnWithdrawExtra
+          ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
+          : undefined;
+        // The DEX faucets are usually absent from assetsMetadata, so the generic
+        // `getTokenMetadata` above resolves a swap's OFFERED side to Unknown at 6
+        // decimals — which misscales the receipt hero, since the registry tokens
+        // are 8-decimal. Resolve the offered side through the swap registry the
+        // same way the requested side is resolved below; the swap hero used to get
+        // this from `TransactionSummaryBadge`, which resolves both sides.
+        const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
+        const historyEntry = {
+          address: tx.accountId,
+          key: `completed-${tx.id}`,
+          timestamp: tx.completedAt ?? tx.initiatedAt,
+          message: tx.displayMessage,
+          status: tx.status,
+          transactionIcon: tx.displayIcon,
+          amount: earnWithdrawFields
+            ? earnWithdrawFields.amount
+            : tx.amount
+              ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
+              : undefined,
+          token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
+          earnWithdrawPhase: earnWithdrawExtra?.phase,
+          earnDepositStatus: earnDepositExtra?.epochStatus,
+          secondaryAddress: tx.secondaryAccountId,
+          txId: tx.id,
+          noteType: tx.noteType,
+          noteId: tx.outputNoteIds?.[0],
+          externalTxId: tx.transactionId,
+          swapSettlement: swapSettlementOf(tx),
+          faucetId: tx.faucetId,
+          outputNoteIds: tx.outputNoteIds,
+          txType: tx.type,
+          previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
+          newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          errorMessage: tx.error,
+          rawErrorMessage: tx.rawError,
+          isCancelled: isUserCancelledTransaction(tx.error),
+          bridgeProvider: bridge?.provider,
+          bridgeDestinationAddress: bridge?.destinationAddress,
+          bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeClaimStatus: bridge?.claimStatus,
+          bridgeOutputAmount: bridge?.outputAmount,
+          bridgeOutputSymbol: bridge?.outputSymbol,
+          bridgeIntentNonce: bridge?.intentNonce,
+          bridgeFillTxHash: bridge?.fillTxHash,
+          bridgeFillChainId: bridge?.fillChainId,
+          bridgeEpochStatus: bridge?.epochStatus,
+          bridgeInProvider: bridgeReceive?.provider,
+          bridgeInSourceAddress: bridgeReceive?.sourceAddress,
+          bridgeInSourceAmount: bridgeReceive?.sourceAmount,
+          bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
+          bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
+          bridgeInPhase: bridgeReceive?.phase,
+          bridgeInOutputAmount: bridgeReceive?.outputAmount,
+          bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
+          bridgeInMidenNoteId: bridgeReceive?.midenNoteId
+        } as IHistoryEntry;
 
-      if (tx.type === 'swap') {
-        // Partial on purpose: rows persisted before each optional field was
-        // introduced are still read here, and the required pair can be missing
-        // on the oldest of them.
-        const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
-        // The DEX faucets are usually absent from assetsMetadata, where
-        // getTokenMetadata falls back to the Unknown placeholder and its
-        // decimals, so resolve via the swap-token registry first. Resolve it
-        // before an order id exists as well, so queued and failed swaps still
-        // have a complete receipt hero.
-        const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
-        const requestedMeta =
-          !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
-        if (superseded()) return;
-        setRequestedToken({
-          amount: extra.requestedAmount,
-          decimals: swapToken?.decimals ?? requestedMeta?.decimals,
-          symbol: swapToken?.symbol ?? requestedMeta?.symbol,
-          faucetId: extra.requestedFaucetId
-        });
-        setSwapAutoConsume(extra.autoConsume ?? true);
-        setSwapExpiresAt(extra.expiresAt ?? null);
-        setOrderId(extra.orderId ?? null);
-      }
-
-      if (tx.type === 'swap') {
-        // Ancillary to the receipt rather than the point of it, so its failure is
-        // contained here. Sharing the outer catch meant one failed Dexie scan
-        // replaced an otherwise complete receipt with a full-screen error — and
-        // permanently, since the load effect is gated on `!loadError` and that
-        // error branch offers no retry.
-        try {
-          const notes = await getSwapSettlementNotes(tx.id);
-          // Settlement only ever accumulates, so treat it as monotonic: this load
-          // may have queried the table before a consume was written while the
-          // poller's later result is already on screen. Guarding only against an
-          // EMPTY read was not enough — a snapshot with one of two consumes, from
-          // a write in flight or a sync rewriting rows, is just as stale, and it
-          // took a fill row back off the screen for good, since the poller only
-          // publishes counts above what it last saw.
-          if (!superseded()) {
-            setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
-          }
-        } catch (error) {
-          console.error('[HistoryDetails] Failed to read swap settlement notes:', {
-            transactionId: tx.id,
-            error
+        if (tx.type === 'swap') {
+          // Partial on purpose: rows persisted before each optional field was
+          // introduced are still read here, and the required pair can be missing
+          // on the oldest of them.
+          const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
+          // The DEX faucets are usually absent from assetsMetadata, where
+          // getTokenMetadata falls back to the Unknown placeholder and its
+          // decimals, so resolve via the swap-token registry first. Resolve it
+          // before an order id exists as well, so queued and failed swaps still
+          // have a complete receipt hero.
+          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+          const requestedMeta =
+            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+          if (superseded()) return;
+          setRequestedToken({
+            amount: extra.requestedAmount,
+            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+            symbol: swapToken?.symbol ?? requestedMeta?.symbol,
+            faucetId: extra.requestedFaucetId
           });
+          setSwapAutoConsume(extra.autoConsume ?? true);
+          setSwapExpiresAt(extra.expiresAt ?? null);
+          setOrderId(extra.orderId ?? null);
         }
+
+        // `readSettlement: false` for callers that only want the ROW back, so a
+        // repeating one does not quietly outspend the settlement scan budget the
+        // poller below is so careful about: each read is an unindexed scan of the
+        // whole transactions table.
+        if (tx.type === 'swap' && readSettlement) {
+          // Ancillary to the receipt rather than the point of it, so its failure is
+          // contained here. Sharing the outer catch meant one failed Dexie scan
+          // replaced an otherwise complete receipt with a full-screen error — and
+          // permanently, since the load effect is gated on `!loadError` and that
+          // error branch offers no retry.
+          try {
+            const notes = await getSwapSettlementNotes(tx.id);
+            // Settlement only ever accumulates, so treat it as monotonic: this load
+            // may have queried the table before a consume was written while the
+            // poller's later result is already on screen. Guarding only against an
+            // EMPTY read was not enough — a snapshot with one of two consumes, from
+            // a write in flight or a sync rewriting rows, is just as stale, and it
+            // took a fill row back off the screen for good, since the poller only
+            // publishes counts above what it last saw.
+            if (!superseded()) {
+              setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
+            }
+          } catch (error) {
+            console.error('[HistoryDetails] Failed to read swap settlement notes:', {
+              transactionId: tx.id,
+              error
+            });
+          }
+        }
+
+        if (superseded()) return;
+
+        setEarnWithdraw(earnWithdrawExtra ?? null);
+        setEarnDeposit(earnDepositExtra ?? null);
+
+        setTransaction(tx);
+        setEntry(historyEntry);
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to load transaction:', { transactionId, error });
+        // The success path is generation-guarded but this was not, so a stale
+        // rejection could replace a newer, already-rendered receipt with the error
+        // screen — and since the load effect is gated on `!loadError`, that screen
+        // was permanent until the user navigated away.
+        if (superseded()) return;
+        setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
       }
-
-      if (superseded()) return;
-
-      setEarnWithdraw(earnWithdrawExtra ?? null);
-      setEarnDeposit(earnDepositExtra ?? null);
-
-      setTransaction(tx);
-      setEntry(historyEntry);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to load transaction:', { transactionId, error });
-      // The success path is generation-guarded but this was not, so a stale
-      // rejection could replace a newer, already-rendered receipt with the error
-      // screen — and since the load effect is gated on `!loadError`, that screen
-      // was permanent until the user navigated away.
-      if (superseded()) return;
-      setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
-    }
-  }, [transactionId, setEntry, t]);
+    },
+    [transactionId, setEntry, t]
+  );
 
   useEffect(() => {
     if (!entry && !loadError) loadTransaction();
@@ -761,24 +770,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const lineageState = swapTracking?.state ?? null;
   const lineageTerminal = lineageState !== null && lineageState !== 'active';
   const settlementConfirmedByLineage = settlementFound && lineageTerminal;
-  // A terminal order can still GAIN notes: settlement bundles whatever synced
-  // this tick, so a payback that syncs a moment later arrives in a second
-  // consume. Only a page that watched the order while it was open earns the
-  // grace period for that tail, and a lineage reporting 'active' is the only
-  // positive evidence of it — the alternative reading, "terminal but no local
-  // notes yet", also describes every manual-claim and restored-history receipt,
-  // which must not each pay for a three-minute scan. Latches on, never off.
-  useEffect(() => {
-    if (lineageState === 'active') watchedUnsettledRef.current = true;
-  }, [lineageState]);
-  const settlementGrace = settlementConfirmedByLineage && watchedUnsettledRef.current;
-  const watchSettlement = shouldWatchSettlement({
-    lineageState,
-    lineageAbandoned,
-    settlementFound,
-    autoConsume: swapAutoConsume,
-    settlementGrace
-  });
   const transactionRowId = transaction?.id ?? null;
   const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
   // What the first read saw, so that "settlement landed while the user watched"
@@ -790,6 +781,26 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   }, [settlementNotes, observedNoteCount]);
   const settlementLandedWhileOpen =
     baselineNoteCountRef.current !== null && observedNoteCount > baselineNoteCountRef.current;
+  // A terminal order can still GAIN notes: settlement bundles whatever synced
+  // this tick, so a payback that syncs a moment later arrives in a second
+  // consume. Only a page that watched something happen earns the grace period
+  // for that tail — the alternative reading, "terminal but no local notes yet",
+  // also describes every manual-claim and restored-history receipt, which must
+  // not each pay for a three-minute scan. Two things count as watching: a
+  // lineage seen 'active', and settlement seen growing under us, which is the
+  // only evidence available on a receipt opened AFTER the order went terminal
+  // but before its consumes finished landing. Latches on, never off.
+  useEffect(() => {
+    if (lineageState === 'active' || settlementLandedWhileOpen) setWatchedUnsettled(true);
+  }, [lineageState, settlementLandedWhileOpen]);
+  const settlementGrace = settlementConfirmedByLineage && watchedUnsettled;
+  const watchSettlement = shouldWatchSettlement({
+    lineageState,
+    lineageAbandoned,
+    settlementFound,
+    autoConsume: swapAutoConsume,
+    settlementGrace
+  });
 
   // Settlement can land while this page is open (auto-consume runs on the
   // background sync's own cadence), and the lineage poll above stops at a
@@ -895,7 +906,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         });
         return;
       }
-      void loadTransaction();
+      // Only the row's stamp is wanted here; the settlement rows this is
+      // reacting to are already on screen, and re-scanning for them 20 times
+      // would spend seven times the tail budget the poller allows itself.
+      void loadTransaction({ readSettlement: false });
     }, 3000);
 
     return () => clearInterval(timer);

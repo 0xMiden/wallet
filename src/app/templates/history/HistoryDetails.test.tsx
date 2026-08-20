@@ -1539,6 +1539,48 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('status-pill').getAttribute('data-swap-settlement')).toBe('undefined');
     });
 
+    it('does not spend the settlement budget on the row re-reads chasing the stamp', async () => {
+      // The re-read above wants the ROW, but `loadTransaction` also scans for
+      // settlement notes, and that scan is an unindexed pass over the whole
+      // transactions table. Left on, twenty re-reads spent seven times the tail
+      // budget the poller allows itself — a limit the surrounding code takes
+      // considerable care to compute.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 2,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
+      const extraInputs = { expiresAt: 1_700_000_120, orderId: 42n, requestedFaucetId: 'req-faucet' };
+      // The stamp never lands, so the re-read runs to its full cap.
+      mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs });
+
+      await renderAndLoad();
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-late']));
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await flush();
+
+      const afterSettlement = mockGetSwapSettlementNotes.mock.calls.length;
+      // Two minutes of re-reads: 40 opportunities at the 3s interval.
+      for (let i = 0; i < 40; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await act(async () => {
+          jest.advanceTimersByTime(3000);
+        });
+        // eslint-disable-next-line no-await-in-loop
+        await flush();
+      }
+
+      // The poller's own tail (5 polls) is the only thing still scanning.
+      expect(mockGetSwapSettlementNotes.mock.calls.length - afterSettlement).toBeLessThanOrEqual(5);
+      expect(mockGetTransactionById.mock.calls.length).toBeGreaterThan(5);
+    });
+
     it('stops chasing a lineage that stays active after the settlement was observed', async () => {
       // Every poll takes the app-wide WASM lock, and on mobile/desktop this
       // screen stays mounted in the background — so an order whose lineage

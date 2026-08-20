@@ -345,7 +345,7 @@ describe('bridgeRowDisplay', () => {
       bridgeRowDisplay(
         bridgeEntry({
           token: 'MIDEN',
-          amount: 5n,
+          amount: '5',
           bridgeProvider: 'epoch',
           bridgeOutputSymbol: 'USDC',
           bridgeOutputAmount: '4.987654',
@@ -365,7 +365,7 @@ describe('bridgeRowDisplay', () => {
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
-        bridgeEntry({ token: 'MIDEN', amount: 7n, bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
@@ -410,7 +410,7 @@ describe('bridgeInRowDisplay', () => {
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
-          amount: 3n,
+          amount: '3',
           bridgeInProvider: 'agglayer',
           bridgeInSourceSymbol: 'ETH'
         })
@@ -433,7 +433,7 @@ describe('bridgeInRowDisplay', () => {
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
-          amount: 7n,
+          amount: '7',
           bridgeInOutputAmount: '99',
           bridgeInProvider: 'epoch'
         })
