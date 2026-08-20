@@ -180,3 +180,74 @@ describe('requeueFailedTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
 });
+
+// A guardian recallable send is the only `send` row with cached bytes. Those
+// bytes freeze an absolute reclaim height AND the outgoing asset's vault key, so
+// a retry has to rebuild them — but they also pin the note id, which is the only
+// thing standing between an ambiguous post-submit failure and a double-send.
+// Hence the stage gate: rebuild only when the last attempt provably never
+// submitted.
+describe('requeueFailedTransaction — cached requestBytes', () => {
+  const bytes = () => new Uint8Array([1, 2, 3]);
+
+  it.each(['syncing', 'sending', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
+    "drops a send's bytes when it failed pre-submit at %s",
+    async stage => {
+      const row = failedRow({ type: 'send', stage, requestBytes: bytes() });
+      wireRow(row);
+
+      await requeueFailedTransaction('tx-1');
+
+      expect(row.requestBytes).toBeUndefined();
+    }
+  );
+
+  it("drops a send's bytes when the row never reached the loop (no stage)", async () => {
+    const row = failedRow({ type: 'send', stage: undefined, requestBytes: bytes() });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  // 'submitting' is stamped immediately BEFORE provenTx.submit(), so the submit
+  // may have reached the node. Reusing the bytes re-emits the same note id and
+  // the chain rejects the duplicate; rebuilding would draw a fresh serial number
+  // and genuinely double-send.
+  it.each(['submitting', 'confirming', 'guardian-syncing'] as const)(
+    "KEEPS a send's bytes when the failure at %s could have submitted",
+    async stage => {
+      const kept = bytes();
+      const row = failedRow({ type: 'send', stage, requestBytes: kept });
+      wireRow(row);
+
+      await requeueFailedTransaction('tx-1');
+
+      expect(row.requestBytes).toBe(kept);
+      expect(row.status).toBe(ITransactionStatus.Queued);
+    }
+  );
+
+  it("never drops a swap's bytes — the PSWAP flow requires byte-identical reuse", async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'swap', stage: 'executing', requestBytes: kept });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+  });
+
+  // The pre-built bridge note carries the mandate-binding attachment this
+  // builder cannot reproduce.
+  it("never drops a bridged-send's bytes", async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'bridged-send', stage: 'executing', requestBytes: kept });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+  });
+});

@@ -109,6 +109,9 @@ var mockBuildSendTransactionRequest = jest.fn((): { serialize: () => Uint8Array 
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+  accountRefToSdk: (ref: string) => ({ toString: () => `sdk-${ref}` }),
+  // Mirrors the real helper: strips the composite `<address>_<suffix>` form.
+  walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as []))
@@ -441,6 +444,69 @@ describe('generateTransaction — Guardian routing', () => {
       expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(requestBytes);
     }
   );
+
+  // The sibling cases above all resolve `getAccount` to undefined, exercising
+  // only the no-vault fallback. The account is what supplies the outgoing
+  // asset's vault key (callback flag included), so a guardian send that dropped
+  // it would silently rebuild the asset with the default Disabled flag and abort
+  // in the kernel — the very bug this path was changed to fix.
+  it('Guardian recallable send passes the sender account through as the vault-key source', async () => {
+    const txId = 'recallable-vault-key';
+    const result = makeResult();
+    const requestBytes = new Uint8Array([7, 8, 9]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'send',
+      amount: 1000n,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public',
+      requestBytes: undefined,
+      extraInputs: { recallBlocks: 25 },
+      delegateTransaction: false
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+    const senderAccount = { vault: jest.fn() };
+    const terminate = jest.fn();
+    const getAccount = jest.fn(async () => senderAccount);
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount, terminate });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = Object.assign(makeClientApi(result), { getSyncHeight: jest.fn(async () => 100) });
+    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Looked up by the SENDER's id, and handed to the builder verbatim.
+    expect(getAccount).toHaveBeenCalledWith(expect.objectContaining({ toString: expect.any(Function) }));
+    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
+      senderAccount,
+      expect.anything(),
+      expect.anything(),
+      'faucet',
+      1000n,
+      'Public',
+      125
+    );
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
 
   it('Guardian Epoch bridged-send builds a public recallable P2IDE custom proposal (the allocator rejects a plain P2ID)', async () => {
     const txId = 'guardian-bridged-send';

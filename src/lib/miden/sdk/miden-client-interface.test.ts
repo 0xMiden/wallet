@@ -128,6 +128,9 @@ describe('MidenClientInterface', () => {
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('../helpers', () => ({
+      // Real `isPrivateNoteType`: it is the note-type validation under test on
+      // the send paths below, so stubbing it would make those assertions vacuous.
+      ...jest.requireActual('../helpers'),
       getNoteRecallableAtMs: jest.fn(() => undefined),
       toNoteType: jest.fn()
     }));
@@ -1680,6 +1683,7 @@ describe('MidenClientInterface', () => {
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('../helpers', () => ({
+        ...jest.requireActual('../helpers'),
         getNoteRecallableAtMs: jest.fn(() => undefined),
         toNoteType: jest.fn()
       }));

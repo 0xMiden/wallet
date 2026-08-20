@@ -1,10 +1,13 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { isAddressValid, toNoteType, toNoteTypeString } from './helpers';
+import { isAddressValid, isPrivateNoteType, toNoteType, toNoteTypeString } from './helpers';
 import { NoteTypeEnum } from './types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  NoteType: { Public: 'public', Private: 'private' },
+  // The REAL numeric values, not string stand-ins: `Private` is 0, so a stub
+  // that made it truthy would hide the falsy-enum case `isPrivateNoteType` has
+  // to get right.
+  NoteType: { Private: 0, Public: 1 },
   Address: {
     fromBech32: jest.fn((addr: string) => {
       if (addr === 'valid-bech32') return {};
@@ -24,5 +27,29 @@ describe('miden helpers', () => {
     expect(toNoteTypeString(NoteType.Private as any)).toBe(NoteTypeEnum.Private);
     expect(toNoteType(NoteTypeEnum.Public)).toBe(NoteType.Public);
     expect(toNoteType(NoteTypeEnum.Private)).toBe(NoteType.Private);
+  });
+
+  // A send row's noteType is DECLARED as the numeric SDK enum but PERSISTED as
+  // the 'public'/'private' string, so both shapes reach the request builders.
+  describe('isPrivateNoteType', () => {
+    it('accepts both the persisted string and the declared numeric enum', () => {
+      expect(isPrivateNoteType('private')).toBe(true);
+      expect(isPrivateNoteType('public')).toBe(false);
+      // Private is 0 — falsy, so a truthiness test here would answer "public".
+      expect(isPrivateNoteType(NoteType.Private as any)).toBe(true);
+      expect(isPrivateNoteType(NoteType.Public as any)).toBe(false);
+    });
+
+    it('treats a missing note type as public, like the SDK', () => {
+      expect(isPrivateNoteType(undefined)).toBe(false);
+      expect(isPrivateNoteType(null)).toBe(false);
+    });
+
+    // The wallet used to hand the raw value to `client.send()`, which threw on
+    // an unknown type. Building the note locally must not turn that into a
+    // silent downgrade of a user-approved Private note to a public one.
+    it.each(['Private', 'PRIVATE', 'priv', '', 'unknown', 2])('rejects the unrecognized value %p', value => {
+      expect(() => isPrivateNoteType(value as any)).toThrow('Unknown note type');
+    });
   });
 });

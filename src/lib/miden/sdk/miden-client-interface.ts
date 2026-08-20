@@ -61,6 +61,7 @@ import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/type
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
 import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
+import { isPrivateNoteType } from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -963,7 +964,9 @@ export class MidenClientInterface {
                 accountId,
                 recipientAccountId: secondaryAccountId,
                 faucetId,
-                noteType: noteType === 'private' ? 'private' : 'public',
+                // Same coercion the request builder uses, so the key can't say
+                // 'public' for a note built Private (and vice versa).
+                noteType: isPrivateNoteType(noteType) ? 'private' : 'public',
                 amount: BigInt(amount)
               }
             : undefined;
@@ -982,7 +985,7 @@ export class MidenClientInterface {
         accountRefToSdk(secondaryAccountId),
         faucetId,
         BigInt(amount),
-        noteType === 'private' ? NoteType.Private : NoteType.Public,
+        isPrivateNoteType(noteType) ? NoteType.Private : NoteType.Public,
         reclaimAfter
       );
       const { result } = await this.client.transactions.submit(accountId, request, { prover });
@@ -1487,9 +1490,11 @@ async function buildSendExecuteArgs(
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
   // noteType arrives as either an SDK enum (real send) or a literal
-  // 'public'/'private' string (speculation). Handle both.
-  const isPrivate = noteType === 'private' || (typeof noteType === 'object' && noteType === wasm.NoteType.Private);
-  const nt = isPrivate ? wasm.NoteType.Private : wasm.NoteType.Public;
+  // 'public'/'private' string (speculation) — `isPrivateNoteType` takes both and
+  // throws on anything else rather than silently downgrading to public. The
+  // enum is numeric (`Private = 0`), so the former `typeof === 'object'` arm
+  // never matched and every non-'private' value fell through to public.
+  const nt = isPrivateNoteType(noteType) ? wasm.NoteType.Private : wasm.NoteType.Public;
   // The sender's local account supplies the outgoing asset's vault key
   // (callback flag included) — see `buildSendTransactionRequest`.
   const senderAccount = await inner.getAccount(resolveAccountId(wasm, senderAccountId));

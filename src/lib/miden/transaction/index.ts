@@ -74,9 +74,11 @@ import {
 } from '../db/types';
 import {
   accountIdStringToSdk,
+  accountRefToSdk,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
-  sameWalletAccountId
+  sameWalletAccountId,
+  walletAccountIdToSdk
 } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
@@ -203,11 +205,6 @@ async function requeueTransactionForRetry(
   stage: ITransactionStage,
   cooldownSec: number
 ): Promise<void> {
-  await updateTransactionStatus(txId, ITransactionStatus.Queued, {
-    processingStartedAt: undefined,
-    stage,
-    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec
-  });
   // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
   // time (syncHeight + recallBlocks); reusing them across a long requeue loop
   // would strand the collateral at the Epoch allocator. Drop the cached request
@@ -219,11 +216,19 @@ async function requeueTransactionForRetry(
   // the kernel's remove-asset assertion on every cycle for as long as the bytes
   // survive. Same rule, same pre-submit safety argument. `swap` is requeueable
   // too and must NOT be cleared: the PSWAP flow requires byte-identical reuse.
-  if (txType === 'earn-deposit' || txType === 'send') {
-    await Repo.transactions.where({ id: txId }).modify(t => {
-      t.requestBytes = undefined;
-    });
-  }
+  //
+  // Folded into the status write rather than a second `modify`: as two writes, a
+  // service-worker death between them left the row Queued with its stale bytes
+  // intact — the exact state this clear exists to prevent, and self-perpetuating
+  // once the row is picked up again. `updateTransactionStatus` Object.assigns
+  // `otherValues`, so the undefined lands in the same transaction as the status.
+  const clearRequestBytes = txType === 'earn-deposit' || txType === 'send';
+  await updateTransactionStatus(txId, ITransactionStatus.Queued, {
+    processingStartedAt: undefined,
+    stage,
+    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
+    ...(clearRequestBytes ? { requestBytes: undefined } : {})
+  });
 }
 
 /**
@@ -734,11 +739,18 @@ const ensureGuardianRecallableSendRequestBytes = async (
     try {
       // The sender's local account supplies the outgoing asset's vault key
       // (callback flag included) — see `buildSendTransactionRequest`.
-      const account = await client.getAccount(accountIdStringToSdk(transaction.accountId));
+      //
+      // Parsed with the same permissive helpers as the non-guardian path
+      // (`MidenClientInterface.sendTransaction`) rather than bech32-only
+      // `accountIdStringToSdk`: a recipient the SDK's own `resolveAccountRef`
+      // accepts must not be rejected here just because the account holds a
+      // guardian, and the sender id may arrive in the composite
+      // `<address>_<suffix>` form.
+      const account = await client.getAccount(walletAccountIdToSdk(transaction.accountId));
       return buildSendTransactionRequest(
         account,
-        accountIdStringToSdk(transaction.accountId),
-        accountIdStringToSdk(recipientId),
+        walletAccountIdToSdk(transaction.accountId),
+        accountRefToSdk(recipientId),
         faucetId,
         amount,
         noteType,

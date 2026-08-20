@@ -16,6 +16,31 @@ export const toNoteTypeString = (noteType: NoteType) =>
 
 export const toNoteType = (noteType: NoteTypeString) => (noteType === 'public' ? NoteType.Public : NoteType.Private);
 
+/**
+ * Whether a persisted or dApp-supplied note type means "private", rejecting
+ * anything unrecognized.
+ *
+ * Both shapes genuinely reach the request builders: `ITransaction.noteType` is
+ * DECLARED as the SDK's numeric `NoteType`, but `initiateSendTransaction`
+ * persists the `'public' | 'private'` string, so a value typed as the enum may
+ * be either at runtime.
+ *
+ * Unknown values throw, mirroring the SDK's own `resolveNoteType`. The wallet
+ * used to hand the raw value to `client.send()`, which threw; building the note
+ * locally moved that decision here, and a plain `=== 'private' ? Private :
+ * Public` would answer "public" for every unrecognized value — including the
+ * numeric `NoteType.Private`, which is `0`. A note the user approved as Private
+ * would then go out fully public and irreversibly, so this fails the send
+ * instead.
+ */
+export const isPrivateNoteType = (noteType: NoteType | NoteTypeString | string | null | undefined): boolean => {
+  if (noteType === NoteTypeEnum.Private || noteType === NoteType.Private) return true;
+  // `null`/`undefined` ⇒ public, matching the SDK: a row that never recorded a
+  // note type predates the field and was public.
+  if (noteType === NoteTypeEnum.Public || noteType === NoteType.Public || noteType == null) return false;
+  throw new Error(`Unknown note type: "${String(noteType)}". Expected "public" or "private".`);
+};
+
 // The chain doesn't commit to a fixed cadence, so recall-height → wall-clock
 // conversion is an estimate for display only.
 export const ESTIMATED_MS_PER_BLOCK = 3_000;
