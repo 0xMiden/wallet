@@ -75,6 +75,41 @@ describe('GuardianRecoveryProvider', () => {
     expect(startGuardianRecovery).toHaveBeenCalledTimes(4);
   });
 
+  it('backs off to a slow heartbeat while the backend keeps refusing', () => {
+    startGuardianRecovery.mockResolvedValue(false);
+    setAccounts([account('account-a', { guardianNoteRecoveryPending: true })]);
+
+    render(<GuardianRecoveryProvider />);
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(1);
+
+    // 5s, then 10s, 20s, 40s, then capped at 60s.
+    act(() => jest.advanceTimersByTime(5_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(2);
+    act(() => jest.advanceTimersByTime(9_999));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(2);
+    act(() => jest.advanceTimersByTime(1));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(3);
+
+    act(() => jest.advanceTimersByTime(20_000 + 40_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(5);
+
+    // Ceiling: an hour of refusals costs 60 offers, not 720.
+    act(() => jest.advanceTimersByTime(600_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(15);
+  });
+
+  it('stops offering once unmounted', () => {
+    startGuardianRecovery.mockResolvedValue(false);
+    setAccounts([account('account-a', { guardianNoteRecoveryPending: true })]);
+
+    const { unmount } = render(<GuardianRecoveryProvider />);
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(1);
+
+    unmount();
+    act(() => jest.advanceTimersByTime(600_000));
+    expect(startGuardianRecovery).toHaveBeenCalledTimes(1);
+  });
+
   it('logs a rejected start request without breaking the retry worker', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     startGuardianRecovery.mockRejectedValue(new Error('not ready'));

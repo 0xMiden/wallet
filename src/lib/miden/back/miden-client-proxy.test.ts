@@ -328,7 +328,7 @@ describe('MidenClientProxy — flag routing', () => {
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,
       op_id: env.op_id,
-      resultB64: Buffer.from(JSON.stringify({ imported: 5, failures: 1 })).toString('base64'),
+      resultB64: Buffer.from(JSON.stringify({ imported: 5, failures: 1, saturated: false })).toString('base64'),
       durationMs: 2
     }));
 
@@ -341,7 +341,25 @@ describe('MidenClientProxy — flag routing', () => {
     expect(env.method).toBe('recoverPublicNotesRange');
     expect(env.deadline_ms).toBe(60_000);
     expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999']);
-    expect(result).toEqual({ imported: 5, failures: 1 });
+    expect(result).toEqual({ imported: 5, failures: 1, saturated: false });
+  });
+
+  // `saturated` drives the caller's split loop, so a truthy non-boolean would
+  // make it split forever instead of failing the chunk.
+  it('rejects a non-boolean saturated from the offscreen document', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: 'yes' })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed saturated');
   });
 
   it('routes the scan-range resolution through offscreen with its created-at seconds', async () => {

@@ -137,7 +137,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
   const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
-  const recoveryProgress = useGuardianNoteRecoveryProgress();
+  const recoveryProgress = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending === true);
   // Recovery is per-account and the record is global, so a run for another
   // recovered account must not narrate itself on this account's home view.
   const noteRecoveryProgress = recoveryProgress?.accountId === account.publicKey ? recoveryProgress : null;

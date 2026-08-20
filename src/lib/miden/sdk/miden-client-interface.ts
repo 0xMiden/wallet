@@ -37,6 +37,7 @@ import {
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -469,7 +470,7 @@ export class MidenClientInterface {
         const note = Note.deserialize(noteBytes);
         let inclusionProof: NoteInclusionProof | undefined;
         try {
-          const fetched = (await rpc.getNotesById([note.id()]))[0];
+          const fetched = (await withRpcTimeout(() => rpc.getNotesById([note.id()]), 'recoveryProposalNoteProof'))[0];
           inclusionProof = fetched?.inclusionProof;
         } catch (error) {
           console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
@@ -496,21 +497,30 @@ export class MidenClientInterface {
    */
   async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
-    const latestHeader = await rpc.getBlockHeaderByNumber();
+    // ~log2(tip) sequential header reads, so each one gets a short bound and no
+    // retry: a slow node must not spend the caller's whole op deadline here,
+    // and the recovery retries the whole range on the next backend start.
+    const header = (blockNum?: number) =>
+      withRpcTimeout(() => rpc.getBlockHeaderByNumber(blockNum), 'recoveryScanRangeHeader', {
+        timeoutMs: 8_000,
+        retries: 0
+      });
+
+    const latestHeader = await header();
     const latestBlock = latestHeader.blockNum();
     const clockSkewMarginSeconds = 600;
     const target = createdAtSeconds - clockSkewMarginSeconds;
     if (target <= 0) return { startBlock: 0, latestBlock };
     if (latestHeader.timestamp() <= target) return { startBlock: latestBlock, latestBlock };
-    const genesis = await rpc.getBlockHeaderByNumber(0);
+    const genesis = await header(0);
     if (genesis.timestamp() >= target) return { startBlock: 0, latestBlock };
     // Invariant: timestamp(lo) < target <= timestamp(hi).
     let lo = 0;
     let hi = latestBlock;
     while (lo + 1 < hi) {
       const mid = lo + Math.floor((hi - lo) / 2);
-      const header = await rpc.getBlockHeaderByNumber(mid);
-      if (header.timestamp() < target) lo = mid;
+      const midHeader = await header(mid);
+      if (midHeader.timestamp() < target) lo = mid;
       else hi = mid;
     }
     return { startBlock: lo, latestBlock };
@@ -521,12 +531,20 @@ export class MidenClientInterface {
    * tag matches the account, over ONE bounded block range. The SW walks the
    * full creation-to-tip span in chunks through this method so progress is
    * reportable and the WASM mutex is released between chunks.
+   *
+   * `saturated` means "this range is too big to do in one op, hand me halves":
+   * either the node refused the span, or the range holds more tag matches than
+   * one op should import. Narrowing is the CALLER's job, not this method's —
+   * every dispatch of it runs under the WASM mutex with the SW's write deadline
+   * already armed (`offscreen/main.ts` `handleCall`), so work it does not
+   * finish inside that one op has to come back as another op, not as recursion
+   * inside this one.
    */
   async recoverPublicNotesRange(
     accountId: string,
     blockFrom: number,
     blockTo: number
-  ): Promise<{ imported: number; failures: number }> {
+  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     const accountSdkId = walletAccountIdToSdk(accountId);
     const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
@@ -534,14 +552,27 @@ export class MidenClientInterface {
   }
 
   /**
-   * Narrowest span the bisection will retry. A span this small being refused
-   * as "too wide" means the node is not really complaining about the span.
+   * Span at or below which a range is imported whatever it holds. Note tags
+   * are a truncated commitment, so matches include other accounts' notes and
+   * an attacker can aim volume at a victim's tag — but a dense range still has
+   * to be imported eventually, and past this point narrowing has stopped
+   * helping (a single block cannot be split).
    */
-  private static readonly MIN_BISECT_SPAN_BLOCKS = 1_000;
+  private static readonly MIN_SPLIT_SPAN_BLOCKS = 1_000;
 
   /**
-   * A node that refuses the requested span because it is too wide is retried
-   * as two halves; anything else propagates. Rate limiting must NOT land here:
+   * Tag matches one op will import. Past this it reports `saturated` and
+   * imports nothing, so the caller can come back with halves: on mobile and
+   * desktop the op runs inline with no deadline, so an unbounded note count is
+   * an unbounded WASM-mutex hold — every wallet operation behind it, including
+   * a transaction the user is waiting on, stalls for its duration.
+   */
+  private static readonly MAX_NOTES_PER_CHUNK = 200;
+
+  /**
+   * A node that refuses the requested span because it is too wide is reported
+   * as saturated so the caller can retry halves; anything else propagates.
+   * Rate limiting must NOT land here:
    * "429 Too Many Requests" would otherwise be read as a span complaint and
    * answered by doubling the number of requests.
    */
@@ -567,60 +598,73 @@ export class MidenClientInterface {
     noteTag: ReturnType<Address['toNoteTag']>,
     blockFrom: number,
     blockTo: number
-  ): Promise<{ imported: number; failures: number }> {
+  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
+    const span = blockTo - blockFrom + 1;
+    const splittable = span > MidenClientInterface.MIN_SPLIT_SPAN_BLOCKS;
+
+    let syncInfo;
     try {
-      const syncInfo = await rpc.syncNotes(blockFrom, blockTo, [noteTag]);
-      const committedNotes = syncInfo.notes();
-      let imported = 0;
-      let failures = 0;
-      // A tag match whose body the node does not carry is a PRIVATE note: it is
-      // unreachable from here by design and belongs to the transport drain
-      // (source 1), so it is not counted as a failure of this source.
-      let skippedWithoutBody = 0;
-      const fetchBatchSize = 100;
-      for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
-        const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
-        const fetchedNotes = await rpc.getNotesById(noteIds);
-        // A short or reordered response must not read as success for the ids it
-        // omitted, or the orchestrator clears the recovery flag over notes it
-        // never imported.
-        if (fetchedNotes.length < noteIds.length) failures += noteIds.length - fetchedNotes.length;
-        for (const fetched of fetchedNotes) {
-          const inputNote = fetched.asInputNote();
-          if (!inputNote) {
-            skippedWithoutBody++;
-            continue;
-          }
-          try {
-            await this.client.notes.import(NoteFile.fromInputNote(inputNote));
-            imported++;
-          } catch (error) {
-            failures++;
-            console.warn('[GuardianRecovery] Failed to import one public note:', error);
-          }
+      // Bounded, no retry: an unbounded await here hangs the WASM mutex on the
+      // inline (mobile/desktop) path, where no op deadline exists to kill it.
+      syncInfo = await withRpcTimeout(() => rpc.syncNotes(blockFrom, blockTo, [noteTag]), 'recoverySyncNotes', {
+        timeoutMs: 30_000,
+        retries: 0
+      });
+    } catch (error) {
+      if (splittable && MidenClientInterface.isBlockSpanTooWide(error)) {
+        return { imported: 0, failures: 0, saturated: true };
+      }
+      throw error;
+    }
+
+    const committedNotes = syncInfo.notes();
+    if (splittable && committedNotes.length > MidenClientInterface.MAX_NOTES_PER_CHUNK) {
+      // Nothing imported on purpose: the halves re-scan their own sub-ranges,
+      // and importing a prefix here would only be repeated work (imports are
+      // idempotent) while still holding the mutex for the whole prefix.
+      console.log(
+        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches ` +
+          `exceeds ${MidenClientInterface.MAX_NOTES_PER_CHUNK} per op; asking the caller for a narrower range`
+      );
+      return { imported: 0, failures: 0, saturated: true };
+    }
+
+    let imported = 0;
+    let failures = 0;
+    // A tag match whose body the node does not carry is a PRIVATE note: it is
+    // unreachable from here by design and belongs to the transport drain
+    // (source 1), so it is not counted as a failure of this source.
+    let skippedWithoutBody = 0;
+    const fetchBatchSize = 100;
+    for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
+      const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
+      const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
+        retries: 0
+      });
+      // A short or reordered response must not read as success for the ids it
+      // omitted, or the orchestrator clears the recovery flag over notes it
+      // never imported.
+      if (fetchedNotes.length < noteIds.length) failures += noteIds.length - fetchedNotes.length;
+      for (const fetched of fetchedNotes) {
+        const inputNote = fetched.asInputNote();
+        if (!inputNote) {
+          skippedWithoutBody++;
+          continue;
+        }
+        try {
+          await this.client.notes.import(NoteFile.fromInputNote(inputNote));
+          imported++;
+        } catch (error) {
+          failures++;
+          console.warn('[GuardianRecovery] Failed to import one public note:', error);
         }
       }
-      console.log(
-        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches, ` +
-          `${imported} imported, ${skippedWithoutBody} without body, ${failures} failed`
-      );
-      return { imported, failures };
-    } catch (error) {
-      // Floored: without a floor a node that reports "span too wide" for every
-      // span bisects a 200k-block chunk into ~200k single-block RPCs, each one
-      // holding the WASM client. Below the floor the error is the caller's to
-      // count as a source failure so the recovery stays pending.
-      const span = blockTo - blockFrom + 1;
-      if (!MidenClientInterface.isBlockSpanTooWide(error) || span <= MidenClientInterface.MIN_BISECT_SPAN_BLOCKS)
-        throw error;
-      const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
-      const firstHalf = await this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, midpoint);
-      const secondHalf = await this.recoverPublicNotesInRange(rpc, noteTag, midpoint + 1, blockTo);
-      return {
-        imported: firstHalf.imported + secondHalf.imported,
-        failures: firstHalf.failures + secondHalf.failures
-      };
     }
+    console.log(
+      `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches, ` +
+        `${imported} imported, ${skippedWithoutBody} without body, ${failures} failed`
+    );
+    return { imported, failures, saturated: false };
   }
 
   async getAccount(accountId: string) {

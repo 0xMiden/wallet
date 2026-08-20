@@ -372,8 +372,15 @@ export async function faucet(address: string): Promise<void> {
  * scan is running. Extension surfaces get push updates via storage change
  * events (the SW writes through the same storage area); mobile/desktop have no
  * storage events, so a light poll keeps the card advancing there too.
+ *
+ * `enabled` must be the viewed account's `guardianNoteRecoveryPending`. It is
+ * the whole reason this hook can be cheap: the card only ever renders for the
+ * viewed account, only a pending account can have a run to narrate, and the
+ * flag is cleared strictly after the progress record is, so gating on it can
+ * never hide a live card. Every other wallet — nearly all of them, nearly
+ * always — does no reads at all.
  */
-export function useGuardianNoteRecoveryProgress(): GuardianNoteRecoveryProgress | null {
+export function useGuardianNoteRecoveryProgress(enabled: boolean): GuardianNoteRecoveryProgress | null {
   const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
   const cancelledRef = useRef(false);
 
@@ -392,28 +399,27 @@ export function useGuardianNoteRecoveryProgress(): GuardianNoteRecoveryProgress 
   }, [accept]);
 
   useEffect(() => {
+    if (!enabled) {
+      setProgress(null);
+      return;
+    }
     cancelledRef.current = false;
     refresh();
     const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value =>
       accept(normalizeGuardianNoteRecoveryProgress(value))
     );
+    // Polled as well as subscribed, not instead: mobile and desktop get no
+    // storage events at all (`onStorageChanged` is a no-op there), and on the
+    // extension the listener is registered after an async import, so a write
+    // landing in that window is missed. The poll is also what ages out a
+    // record whose run died with its realm.
+    const interval = setInterval(refresh, 2000);
     return () => {
       cancelledRef.current = true;
       unsubscribe();
+      clearInterval(interval);
     };
-  }, [accept, refresh]);
-
-  // Polls unconditionally, by necessity rather than preference: mobile and
-  // desktop get no storage events at all (`onStorageChanged` is a no-op there),
-  // and on the extension the listener is registered after an async import, so
-  // a write landing in that window is missed. Gating the poll on an
-  // already-observed record would let a recovery that starts after the first
-  // read stay invisible forever. The poll is also what ages out an abandoned
-  // record, and it only runs while the home view is mounted.
-  useEffect(() => {
-    const interval = setInterval(refresh, 2000);
-    return () => clearInterval(interval);
-  }, [refresh]);
+  }, [accept, enabled, refresh]);
 
   return progress;
 }

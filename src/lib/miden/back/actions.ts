@@ -235,17 +235,24 @@ export function getCurrentAccount() {
 }
 
 export function createHDAccount(walletType: WalletType, name?: string) {
-  return withUnlocked(async ({ vault }) => {
-    if (name) {
-      name = name.trim();
-      if (!ACCOUNT_NAME_PATTERN.test(name)) {
-        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+  // Serialize on the accounts write queue, for the same reason `importAccount`
+  // does: `vault.createHDAccount` reads the accounts list, does seconds of WASM
+  // work, then writes the list back. Anything else doing a read-modify-write of
+  // that list in the meantime — another create, an import, or the detached
+  // Guardian recovery clearing its pending flag — loses one of the two writes.
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      if (name) {
+        name = name.trim();
+        if (!ACCOUNT_NAME_PATTERN.test(name)) {
+          throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+        }
       }
-    }
 
-    const accounts = await vault.createHDAccount(walletType, name);
-    accountsUpdated({ accounts });
-  });
+      const accounts = await vault.createHDAccount(walletType, name);
+      accountsUpdated({ accounts });
+    })
+  );
 }
 
 // Stub implementations kept in the exported shape so the frontend's
@@ -283,16 +290,20 @@ export function removeAccount(_accPublicKey: string, _password: string) {}
 
 export function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
-  return withUnlocked(async ({ vault }) => {
-    name = name.trim();
-    if (!ACCOUNT_NAME_PATTERN.test(name)) {
-      throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
-    }
+  // Queued: renaming also reads the accounts list and writes it back, so it can
+  // drop (or be dropped by) a concurrent create/import/recovery write.
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      name = name.trim();
+      if (!ACCOUNT_NAME_PATTERN.test(name)) {
+        throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
+      }
 
-    const updatedAccounts = await vault.editAccountName(accPublicKey, name);
-    console.log({ updatedAccounts });
-    accountsUpdated(updatedAccounts);
-  });
+      const updatedAccounts = await vault.editAccountName(accPublicKey, name);
+      console.log({ updatedAccounts });
+      accountsUpdated(updatedAccounts);
+    })
+  );
 }
 
 export function importAccount(privateKey: string, name?: string) {

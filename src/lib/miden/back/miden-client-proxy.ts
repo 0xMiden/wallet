@@ -119,6 +119,18 @@ function parseRecoveryCounts(method: string, resultB64: string | null): { import
 }
 
 /**
+ * `saturated` drives the caller's range-splitting loop, so a non-boolean has to
+ * throw rather than be coerced: a truthy string would make it split forever.
+ */
+function readRecoverySaturated(method: string, parsed: unknown): boolean {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'saturated') : undefined;
+  if (typeof value !== 'boolean') {
+    throw new Error(`${method}: offscreen document returned a malformed saturated`);
+  }
+  return value;
+}
+
+/**
  * Per-op deadline (ms) for a whole-op offscreen WRITE (`consumeNoteId`).
  *
  * This is the funds-risk knob (design §3.4). It must clear a legitimate
@@ -1033,7 +1045,7 @@ export const midenClientProxy = {
     accountId: string,
     blockFrom: number,
     blockTo: number
-  ): Promise<{ imported: number; failures: number }> {
+  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
         (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo)
@@ -1042,7 +1054,12 @@ export const midenClientProxy = {
     const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
-    return parseRecoveryCounts('recoverPublicNotesRange', resultB64);
+    const parsed = parseRecoveryResult('recoverPublicNotesRange', resultB64);
+    return {
+      imported: readRecoveryCount('recoverPublicNotesRange', parsed, 'imported'),
+      failures: readRecoveryCount('recoverPublicNotesRange', parsed, 'failures'),
+      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed)
+    };
   },
 
   /**

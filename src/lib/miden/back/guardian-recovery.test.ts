@@ -181,6 +181,37 @@ describe('detached recovery run', () => {
     expect(mockAccountsUpdated).not.toHaveBeenCalled();
   });
 
+  it('gives the client back when a transaction appears mid-run, and stays startable', async () => {
+    const account = pendingAccount();
+    mockProxy.drainPrivateNoteTransport.mockImplementation(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'tx-1' }] as never);
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    // Stopped before the public backfill rather than contending for the one
+    // WASM client with a live transaction.
+    expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+
+    // Deferring is not a failure, so the reservation went back.
+    mockUncompleted.mockResolvedValue([]);
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('stays startable when only the terminal flag write fails', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    setPendingFlag.mockRejectedValue(new Error('encrypt failed'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).toHaveBeenCalled();
+    expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
   it('never touches the vault or front state once the wallet locks mid-run', async () => {
     const account = pendingAccount();
     mockProxy.drainPrivateNoteTransport.mockImplementation(async () => {
@@ -192,6 +223,43 @@ describe('detached recovery run', () => {
 
     expect(setPendingFlag).not.toHaveBeenCalled();
     expect(mockAccountsUpdated).not.toHaveBeenCalled();
+  });
+
+  it('re-offers a saturated range as halves, each as its own op', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 1_999 } as never);
+    mockProxy.recoverPublicNotesRange
+      .mockResolvedValueOnce({ imported: 0, failures: 0, saturated: true } as never)
+      .mockResolvedValue({ imported: 1, failures: 0, saturated: false } as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
+      [0, 1_999],
+      [0, 999],
+      [1_000, 1_999]
+    ]);
+    // Both halves landed, so the pass is clean and the flag clears.
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  it('stops splitting at a single block instead of looping forever', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 1 } as never);
+    mockProxy.recoverPublicNotesRange.mockResolvedValue({ imported: 0, failures: 0, saturated: true } as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
+      [0, 1],
+      [0, 0],
+      [1, 1]
+    ]);
+    // Two blocks it could not scan are two source failures, so the account
+    // stays pending for a later retry rather than clearing over skipped notes.
+    expect(setPendingFlag).not.toHaveBeenCalled();
   });
 
   it('runs one account at a time', async () => {
