@@ -211,15 +211,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       mgr?.invalidate();
       return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
-    // case WalletMessageType.SendTrackEventRequest:
-    //   await Analytics.trackEvent(req);
-    //   return { type: WalletMessageType.SendTrackEventResponse };
-    // case WalletMessageType.SendPageEventRequest:
-    //   await Analytics.pageEvent(req);
-    //   return { type: WalletMessageType.SendPageEventResponse };
-    // case WalletMessageType.SendPerformanceEventRequest:
-    //   await Analytics.performanceEvent(req);
-    //   return { type: WalletMessageType.SendPerformanceEventResponse };
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {

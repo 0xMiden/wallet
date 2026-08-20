@@ -2,17 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import useTippy from 'lib/ui/useTippy';
 
 import FormSubmitButton from './FormSubmitButton';
-
-// `lib/analytics` is a barrel that pulls in SDK-backed modules; mock only the
-// analytics surface the component touches.
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-  useAnalytics: jest.fn()
-}));
 
 // `useTippy` wires up tippy.js against a real DOM node on mount; stub it so we
 // can both hand back a ref and assert the props the component computes.
@@ -39,17 +31,13 @@ jest.mock('app/atoms/Spinner/Spinner', () => ({
   default: ({ color }: { color?: string }) => <div data-testid="spinner" data-color={color} />
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockUseTippy = useTippy as jest.Mock;
 
 const getButton = () => screen.getByTestId('ds-button');
 
 describe('FormSubmitButton', () => {
-  const trackEvent = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
     mockUseTippy.mockReturnValue({ current: null });
   });
 
@@ -126,7 +114,7 @@ describe('FormSubmitButton', () => {
     expect(button).toHaveAttribute('name', 'submitter');
   });
 
-  it('tracks a ButtonPress event and calls `onClick` when a testID is provided', () => {
+  it('calls `onClick` when provided alongside a testID, and does not forward testID/testIDProperties to the DOM button', () => {
     const onClick = jest.fn();
     const testIDProperties = { surface: 'send' };
     render(
@@ -135,31 +123,18 @@ describe('FormSubmitButton', () => {
       </FormSubmitButton>
     );
 
-    fireEvent.click(getButton());
+    const button = getButton();
+    fireEvent.click(button);
 
-    expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith('confirm-send', AnalyticsEventCategory.ButtonPress, testIDProperties);
     expect(onClick).toHaveBeenCalledTimes(1);
+    expect(button).not.toHaveAttribute('testID');
+    expect(button).not.toHaveAttribute('testIDProperties');
   });
 
-  it('does not track when no testID is given, and does not throw without an onClick', () => {
-    render(<FormSubmitButton type="button">No Track</FormSubmitButton>);
+  it('does not throw without an onClick handler', () => {
+    render(<FormSubmitButton type="button">No Click</FormSubmitButton>);
 
-    // No testID → no analytics; no onClick → optional-chain no-ops (no throw).
     expect(() => fireEvent.click(getButton())).not.toThrow();
-    expect(trackEvent).not.toHaveBeenCalled();
-  });
-
-  it('tracks (testID) even when no onClick handler is supplied', () => {
-    render(
-      <FormSubmitButton type="button" testID="lone-track">
-        Lone
-      </FormSubmitButton>
-    );
-
-    fireEvent.click(getButton());
-
-    expect(trackEvent).toHaveBeenCalledWith('lone-track', AnalyticsEventCategory.ButtonPress, undefined);
   });
 
   it('passes tooltip content to useTippy and wraps the button in a ref span when a tooltip is set', () => {

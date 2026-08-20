@@ -14,7 +14,7 @@ import Welcome from './Welcome';
 // (from screens/onboarding/navigator), which we stub to a probe that captures
 // the props Welcome forwards and, crucially, exposes the `onAction` callback so
 // each test can drive a specific branch. Every leaf dependency (router, store,
-// Miden context, analytics, platform detection, native secure-storage/biometric
+// Miden context, platform detection, native secure-storage/biometric
 // dynamic imports, bip39, mobile back handler, fonts gate) is mocked so the test
 // exercises ONLY Welcome.tsx's own branching.
 // ---------------------------------------------------------------------------
@@ -91,13 +91,6 @@ jest.mock('lib/store', () => ({
 const mockFetchState = jest.fn();
 jest.mock('lib/store/hooks/useIntercomSync', () => ({
   fetchStateFromBackend: (...a: any[]) => mockFetchState(...a)
-}));
-
-// Analytics: spy on trackEvent, provide the two categories the component reads.
-const mockTrackEvent = jest.fn();
-jest.mock('lib/analytics', () => ({
-  useAnalytics: () => ({ trackEvent: mockTrackEvent }),
-  AnalyticsEventCategory: { ButtonPress: 'button-press', FormSubmit: 'form-submit' }
 }));
 
 const mockSeedWalletPrompt = jest.fn();
@@ -369,13 +362,12 @@ describe('Welcome — hash → step routing', () => {
 // ===========================================================================
 
 describe('Welcome — onAction forward navigation', () => {
-  it('choose-protection routes to the protection step and tracks the event', async () => {
+  it('choose-protection routes to the protection step', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-protection');
-    expect(mockTrackEvent).toHaveBeenCalledWith('choose-protection', 'button-press', {});
   });
 
   it('choose-protection off mobile skips straight to create-password', async () => {
@@ -416,10 +408,10 @@ describe('Welcome — onAction forward navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
   });
 
-  it('ignores unrecognised action ids (default) but still tracks', async () => {
+  it('ignores unrecognised action ids (default) without throwing', async () => {
     await renderWelcome();
     await dispatch({ id: 'totally-unknown' });
-    expect(mockTrackEvent).toHaveBeenCalledWith('totally-unknown', 'button-press', {});
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
 
@@ -514,7 +506,6 @@ describe('Welcome — create-password-submit', () => {
     expect(mockFlowProps.current.password).toBe('pw');
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-guardian');
-    expect(mockTrackEvent).toHaveBeenLastCalledWith('create-password-submit', 'form-submit', {});
   });
 
   it('seed-phrase import routes to recovery-method selection', async () => {
@@ -598,7 +589,6 @@ describe('Welcome — confirmation / register', () => {
     expect(mockSyncFromBackend).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(mockFlowProps.current.isLoading).toBe(false);
-    expect(mockTrackEvent).toHaveBeenLastCalledWith('confirmation', 'form-submit', {});
   });
 
   it('passes undefined password through for hardware-only wallets', async () => {
@@ -921,7 +911,6 @@ describe('Welcome — side-panel handoff', () => {
       await Promise.resolve();
     });
     expect(mockRegisterWallet).toHaveBeenCalled();
-    expect(mockTrackEvent).toHaveBeenCalledWith('confirmation', 'form-submit', {});
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(mockFlowProps.current.confirmCreating).toBe(true);
   });

@@ -2,15 +2,6 @@ import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
 
-import {
-  SendPageEventRequest,
-  SendPageEventResponse,
-  SendPerformanceEventRequest,
-  SendPerformanceEventResponse,
-  SendTrackEventRequest,
-  SendTrackEventResponse
-} from './analytics-types';
-
 export enum WalletMessageType {
   // Aknowledge
   Acknowledge = 'CONNECT_AKNOWLEDGE',
@@ -111,12 +102,6 @@ export enum WalletMessageType {
   DAppGetAllSessionsResponse = 'DAPP_GET_ALL_SESSIONS_RESPONSE',
   DAppRemoveSessionRequest = 'DAPP_REMOVE_SESSION_REQUEST',
   DAppRemoveSessionResponse = 'DAPP_REMOVE_SESSION_RESPONSE',
-  SendTrackEventRequest = 'SEND_TRACK_EVENT_REQUEST',
-  SendTrackEventResponse = 'SEND_TRACK_EVENT_RESPONSE',
-  SendPageEventRequest = 'SEND_PAGE_EVENT_REQUEST',
-  SendPageEventResponse = 'SEND_PAGE_EVENT_RESPONSE',
-  SendPerformanceEventRequest = 'SEND_PROOF_GENERATION_EVENT_REQUEST',
-  SendPerformanceEventResponse = 'SEND_PROOF_GENERATION_EVENT_RESPONSE',
   DecryptCiphertextsRequest = 'DECRYPT_CIPHERTEXTS_REQUEST',
   DecryptCiphertextsResponse = 'DECRYPT_CIPHERTEXTS_RESPONSE',
   GetOwnedRecordsRequest = 'GET_OWNED_RECORDS_REQUEST',
@@ -1029,9 +1014,6 @@ export type WalletRequest =
   | DAppDeployConfirmationRequest
   | GetAllDAppSessionsRequest
   | RemoveDAppSessionRequest
-  | SendTrackEventRequest
-  | SendPageEventRequest
-  | SendPerformanceEventRequest
   | DecryptCiphertextsRequest
   | GetOwnedRecordsRequest
   | ImportFromClientRequest
@@ -1092,9 +1074,6 @@ export type WalletResponse =
   | DAppDeployConfirmationResponse
   //   | GetAllDAppSessionsResponse
   // | RemoveDAppSessionResponse
-  | SendTrackEventResponse
-  | SendPageEventResponse
-  | SendPerformanceEventResponse
   | DecryptCiphertextsResponse
   | GetOwnedRecordsResponse
   | ImportFromClientResponse

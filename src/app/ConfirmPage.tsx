@@ -12,7 +12,6 @@ import ErrorBoundary from 'app/ErrorBoundary';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
-import { CustomRpsContext } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -689,97 +688,95 @@ const ConfirmDAppForm: FC = () => {
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
 
   return (
-    <CustomRpsContext.Provider value={'TODO'}>
+    <div
+      className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
+      style={{
+        width: 380,
+        height: 610
+      }}
+    >
+      <div className="flex flex-col items-left px-4">
+        <h2 className="py-6 flex text-black text-lg font-semibold">{content.title}</h2>
+
+        {payload.type === 'connect' && (
+          <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
+        )}
+
+        {content.want}
+
+        {error ? (
+          <Alert
+            closable
+            onClose={handleErrorAlertClose}
+            type="error"
+            title={t('error')}
+            description={error?.message ?? t('smthWentWrong')}
+            className="my-4"
+            autoFocus
+          />
+        ) : (
+          <>
+            {payload.type === 'connect' ? (
+              account && (
+                <AccountBanner
+                  account={account}
+                  networkRpc={payload.networkRpc}
+                  labelIndent="sm"
+                  className="w-full my-2"
+                />
+              )
+            ) : (
+              <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
+            )}
+          </>
+        )}
+
+        {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+      </div>
+
+      <div className="flex-1" />
+
       <div
-        className={classNames('relative bg-surface-solid rounded-md shadow-md overflow-y-auto', 'flex flex-col')}
-        style={{
-          width: 380,
-          height: 610
-        }}
+        className={classNames(
+          'sticky bottom-0 w-full',
+          'bg-surface-solid shadow-md',
+          'flex items-stretch',
+          'px-4 pt-2 pb-6'
+        )}
       >
-        <div className="flex flex-col items-left px-4">
-          <h2 className="py-6 flex text-black text-lg font-semibold">{content.title}</h2>
-
-          {payload.type === 'connect' && (
-            <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />
-          )}
-
-          {content.want}
-
-          {error ? (
-            <Alert
-              closable
-              onClose={handleErrorAlertClose}
-              type="error"
-              title={t('error')}
-              description={error?.message ?? t('smthWentWrong')}
-              className="my-4"
-              autoFocus
-            />
-          ) : (
-            <>
-              {payload.type === 'connect' ? (
-                account && (
-                  <AccountBanner
-                    account={account}
-                    networkRpc={payload.networkRpc}
-                    labelIndent="sm"
-                    className="w-full my-2"
-                  />
-                )
-              ) : (
-                <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
-              )}
-            </>
-          )}
-
-          {requirePrivateDataCheckbox && <PrivateDataPermissionCheckbox setChecked={setIsPrivateDataChecked} />}
+        <div className="w-1/2 pr-2">
+          <Button
+            type="button"
+            variant={ButtonVariant.Secondary}
+            className={classNames('w-full', 'px-8', 'text-black font-medium', 'transition duration-200 ease-in-out')}
+            style={{
+              fontSize: '16px',
+              lineHeight: '24px',
+              padding: '14px 0px',
+              border: 'none'
+            }}
+            isLoading={declining}
+            onClick={handleDeclineClick}
+            data-testid={content.declineActionTestID}
+          >
+            {content.declineActionTitle}
+          </Button>
         </div>
 
-        <div className="flex-1" />
-
-        <div
-          className={classNames(
-            'sticky bottom-0 w-full',
-            'bg-surface-solid shadow-md',
-            'flex items-stretch',
-            'px-4 pt-2 pb-6'
-          )}
-        >
-          <div className="w-1/2 pr-2">
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              className={classNames('w-full', 'px-8', 'text-black font-medium', 'transition duration-200 ease-in-out')}
-              style={{
-                fontSize: '16px',
-                lineHeight: '24px',
-                padding: '14px 0px',
-                border: 'none'
-              }}
-              isLoading={declining}
-              onClick={handleDeclineClick}
-              data-testid={content.declineActionTestID}
-            >
-              {content.declineActionTitle}
-            </Button>
-          </div>
-
-          <div className="w-1/2 pl-2">
-            <FormSubmitButton
-              type="button"
-              className="w-full justify-center justify-center rounded-lg py-3"
-              style={{ fontSize: '16px', lineHeight: '24px', padding: '14px 0px', border: 'none' }}
-              loading={confirming}
-              onClick={handleConfirmClick}
-              testID={content.confirmActionTestID}
-              data-testid={content.confirmActionTestID}
-            >
-              {content.confirmActionTitle}
-            </FormSubmitButton>
-          </div>
+        <div className="w-1/2 pl-2">
+          <FormSubmitButton
+            type="button"
+            className="w-full justify-center justify-center rounded-lg py-3"
+            style={{ fontSize: '16px', lineHeight: '24px', padding: '14px 0px', border: 'none' }}
+            loading={confirming}
+            onClick={handleConfirmClick}
+            testID={content.confirmActionTestID}
+            data-testid={content.confirmActionTestID}
+          >
+            {content.confirmActionTitle}
+          </FormSubmitButton>
         </div>
       </div>
-    </CustomRpsContext.Provider>
+    </div>
   );
 };

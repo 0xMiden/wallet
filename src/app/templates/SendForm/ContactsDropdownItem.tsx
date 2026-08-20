@@ -7,7 +7,7 @@ import AddressShortView from 'app/atoms/AddressShortView';
 import ColorIdenticon from 'app/atoms/ColorIdenticon';
 import Name from 'app/atoms/Name';
 import { Button, ButtonVariant } from 'components/Button';
-import { TestIDProps } from 'lib/analytics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 
 import { SendFormSelectors } from '../SendForm.selectors';
 

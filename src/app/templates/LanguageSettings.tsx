@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useMemo } from 'react';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -28,7 +27,6 @@ type LanguageSettingsProps = {
 
 const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
   const selectedLocale = getCurrentLocale();
-  const { trackEvent } = useAnalytics();
 
   const currentCode = useMemo(() => {
     const exact = LANGUAGES.find(({ code }) => code === selectedLocale);
@@ -40,11 +38,10 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
   const handleSelect = useCallback(
     (code: string) => {
       hapticLight();
-      trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
       onClose?.();
     },
-    [trackEvent, onClose]
+    [onClose]
   );
 
   return (

@@ -5,7 +5,6 @@ import wordslist from 'bip39/src/wordlists/english.json';
 
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
@@ -112,7 +111,6 @@ const Welcome: FC = () => {
   // origin without colliding with the legacy create flow.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { registerWallet } = useMidenContext();
-  const { trackEvent } = useAnalytics();
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
   // time the user gets through the password/passcode step to the
@@ -225,18 +223,9 @@ const Welcome: FC = () => {
   // in `guardianProbe.state`, which the recovery-method screen renders.
   const startGuardianProbe = useCallback(
     (words: string[]) => {
-      void guardianProbe.start(words).then(result => {
-        if (!result) return;
-        // Deliberately no endpoint / account id — only shape, so we can tell
-        // how often detection actually helps.
-        trackEvent('guardian-probe', AnalyticsEventCategory.General, {
-          detected: Boolean(result.best),
-          matchCount: result.matches.length,
-          failureCount: result.failures.length
-        });
-      });
+      void guardianProbe.start(words);
     },
-    [guardianProbe, trackEvent]
+    [guardianProbe]
   );
 
   const register = useCallback(async () => {
@@ -267,7 +256,7 @@ const Welcome: FC = () => {
   //   - import flows are excluded because guardian lookup can fail and needs
   //     the in-tab retry UI — imports keep the classic in-tab flow.
   // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
-  // `register`/`trackEvent` are (correctly) in the dependency array.
+  // `register` is (correctly) in the dependency array.
   useEffect(() => {
     if (!sidePanelHandoff) return;
     if (step !== OnboardingStep.Confirmation) return;
@@ -279,7 +268,6 @@ const Welcome: FC = () => {
     (async () => {
       try {
         await register();
-        trackEvent('confirmation', AnalyticsEventCategory.FormSubmit, {});
         // Move to the dedicated handoff route, which survives the Ready
         // transition and shows the "Open wallet" button. Crucially we do NOT
         // waitForReadyState here — pushing Ready into the store first would
@@ -292,12 +280,9 @@ const Welcome: FC = () => {
         setConfirmPhase('failed');
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, trackEvent]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register]);
 
   const onAction = async (action: OnboardingAction) => {
-    let eventCategory = AnalyticsEventCategory.ButtonPress;
-    let eventProperties = {};
-
     switch (action.id) {
       case 'choose-protection':
         setOnboardingType(OnboardingType.Create);
@@ -388,7 +373,6 @@ const Welcome: FC = () => {
         break;
       case 'create-password-submit':
         setPassword(action.payload.password);
-        eventCategory = AnalyticsEventCategory.FormSubmit;
         if (onboardingType === OnboardingType.Create && !isMobile()) {
           // Extension/desktop create flow: the password screen replaces
           // passcode setup and runs before guardian selection — generate the
@@ -429,7 +413,6 @@ const Welcome: FC = () => {
           // This fixes a race condition where navigation happens before state is Ready
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
-          eventCategory = AnalyticsEventCategory.FormSubmit;
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
           // like Create does, instead of always entering in-tab (#428).
@@ -497,8 +480,6 @@ const Welcome: FC = () => {
       default:
         break;
     }
-
-    trackEvent(action.id, eventCategory, eventProperties);
   };
 
   useEffect(() => {

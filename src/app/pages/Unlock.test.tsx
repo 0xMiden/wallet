@@ -24,11 +24,6 @@ const mockOpenInFullPage = jest.fn();
 const mockBioHasKey = jest.fn();
 const mockDesktopHasKey = jest.fn();
 const mockHasPasswordProtector = jest.fn();
-const mockFormAnalytics = {
-  trackSubmit: jest.fn(),
-  trackSubmitSuccess: jest.fn(),
-  trackSubmitFail: jest.fn()
-};
 
 // Identity translator: assertions match raw i18n keys.
 jest.mock('react-i18next', () => ({
@@ -48,10 +43,6 @@ jest.mock('lib/woozie', () => ({
 jest.mock('app/env', () => ({
   openInFullPage: (...args: unknown[]) => mockOpenInFullPage(...args),
   useAppEnv: () => ({ compact: mockCompact })
-}));
-
-jest.mock('lib/analytics', () => ({
-  useFormAnalytics: () => mockFormAnalytics
 }));
 
 jest.mock('lib/miden/types', () => ({
@@ -227,9 +218,6 @@ beforeEach(() => {
   mockBioHasKey.mockReset();
   mockDesktopHasKey.mockReset();
   mockHasPasswordProtector.mockReset();
-  mockFormAnalytics.trackSubmit.mockClear();
-  mockFormAnalytics.trackSubmitSuccess.mockClear();
-  mockFormAnalytics.trackSubmitFail.mockClear();
 
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -276,9 +264,7 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await flushMicro();
 
-    expect(mockFormAnalytics.trackSubmit).toHaveBeenCalledTimes(1);
     expect(mockUnlock).toHaveBeenCalledWith('hunter2');
-    expect(mockFormAnalytics.trackSubmitSuccess).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     // Extension reloads to sync with the background worker (window.location.reload
     // is a jsdom no-op) — the tell-tale of that branch is that it never navigates.
@@ -294,7 +280,6 @@ describe('Unlock — extension password form', () => {
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await advance(500); // clears the 300ms pre-error delay
 
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(screen.getByText('incorrectPassword')).toBeInTheDocument();
     expect(mockLsStore.PasswordAttempts).toBe(2); // 1 -> 2, no time-lock yet
 
@@ -326,7 +311,6 @@ describe('Unlock — extension password form', () => {
     await flushMicro();
 
     expect(mockUnlock).not.toHaveBeenCalled();
-    expect(mockFormAnalytics.trackSubmit).not.toHaveBeenCalled();
   });
 
   it('disables the form and shows the countdown after too many attempts', async () => {
@@ -416,7 +400,6 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(200); // fire the 150ms auto-submit timer
 
     expect(mockUnlock).toHaveBeenCalledWith('123456');
-    expect(mockFormAnalytics.trackSubmitSuccess).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(1);
     // Mobile navigates instead of reloading.
     expect(mockNavigate).toHaveBeenCalledWith('/');
@@ -439,7 +422,6 @@ describe('Unlock — mobile passcode numpad', () => {
     type(container, '111111');
     await advance(600); // 150ms auto-submit + 300ms pre-error delay
 
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(screen.getByText('incorrectPasscode')).toBeInTheDocument();
     expect(mockLsStore.PasswordAttempts).toBe(2);
 
@@ -464,7 +446,6 @@ describe('Unlock — mobile passcode numpad', () => {
     await advance(1700);
 
     expect(mockUnlock).toHaveBeenCalledWith('222222');
-    expect(mockFormAnalytics.trackSubmitFail).toHaveBeenCalledTimes(1);
     expect(mockLsStore.PasswordAttempts).toBe(6);
     expect(typeof mockLsStore.TimeLock).toBe('number');
     expect(mockLsStore.TimeLock).not.toBe(0); // setTimeLock(Date.now()) ran
