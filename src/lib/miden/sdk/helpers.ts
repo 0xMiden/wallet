@@ -1,4 +1,16 @@
-import { AccountId, Address } from '@miden-sdk/miden-sdk/lazy';
+import {
+  Account,
+  AccountId,
+  Address,
+  FungibleAsset,
+  Note,
+  NoteArray,
+  NoteAssets,
+  NoteAttachment,
+  NoteType,
+  TransactionRequest,
+  TransactionRequestBuilder
+} from '@miden-sdk/miden-sdk/lazy';
 
 import { getNetworkId } from 'lib/miden-chain/constants';
 
@@ -47,4 +59,70 @@ export function canonicalWalletAccountId(id: string): string {
  */
 export function sameWalletAccountId(a: string, b: string): boolean {
   return canonicalWalletAccountId(a) === canonicalWalletAccountId(b);
+}
+
+/**
+ * Parse an account reference in either of the two forms the wallet stores —
+ * `0x…` hex or bech32 — into an SDK `AccountId`. Faucet ids in particular
+ * appear in both forms depending on the producer.
+ */
+export function accountRefToSdk(ref: string): AccountId {
+  if (ref.startsWith('0x') || ref.startsWith('0X')) {
+    return AccountId.fromHex(ref);
+  }
+  return accountIdStringToSdk(ref);
+}
+
+/**
+ * Builds the fungible asset for an outgoing note from the sender's held vault
+ * key, falling back to a freshly constructed asset when the faucet isn't in
+ * the vault (surfacing the missing-asset error during execution).
+ *
+ * The callback flag is part of an asset's vault key, so rebuilding the asset
+ * from faucet/amount with the constructor's default `Disabled` flag addresses
+ * a different vault slot than the one holding a callback-enabled balance
+ * (assets minted by a transfer-policy faucet, e.g. AggLayer-bridged tokens)
+ * and the kernel aborts the send with "the amount of the asset in the vault
+ * is less than the amount to remove". Deriving from the vault key is exact
+ * for Disabled assets too, so every send uses this path. Mirrors
+ * `resolveFungibleAssetFromVault` in @openzeppelin/miden-multisig-client's
+ * p2id.ts.
+ */
+function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: string, amount: bigint): FungibleAsset {
+  const faucetId = accountRefToSdk(faucetRef);
+  const faucetHex = faucetId.toString();
+  const held = account
+    ?.vault()
+    .fungibleAssets()
+    .find(asset => asset.faucetId().toString() === faucetHex);
+  if (!held) {
+    return new FungibleAsset(faucetId, amount);
+  }
+  return FungibleAsset.fromVaultKey(held.vaultKey(), amount);
+}
+
+/**
+ * The single request builder for every wallet send: resolves the outgoing
+ * asset from the sender's vault (callback flag included, see
+ * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
+ * reclaim height is given — as the request's own output note. Guardian
+ * recallable sends, the offscreen-prover path, and the high-level send all
+ * route through this so they can't drift on asset construction again.
+ */
+export function buildSendTransactionRequest(
+  senderAccount: Account | undefined,
+  sender: AccountId,
+  recipient: AccountId,
+  faucetRef: string,
+  amount: bigint,
+  noteType: NoteType,
+  reclaimAfter?: number
+): TransactionRequest {
+  const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
+  const assets = new NoteAssets([asset]);
+  const note =
+    reclaimAfter != null
+      ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
+      : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
+  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
 }

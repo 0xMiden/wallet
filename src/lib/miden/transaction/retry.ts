@@ -112,6 +112,15 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;
     dbTx.displayIcon = ICON_BY_TYPE[dbTx.type] ?? 'DEFAULT';
+    // A plain send's cached request froze both an absolute reclaim height and
+    // the asset as built at first attempt (a wrong callback flag there fails
+    // the kernel's remove-asset assertion forever). Drop it so the retry
+    // rebuilds against current state. Swaps must NOT be cleared (the PSWAP
+    // flow requires byte-identical reuse) and a bridged-send's bytes are the
+    // pre-built bridge note itself.
+    if (dbTx.type === 'send') {
+      dbTx.requestBytes = undefined;
+    }
   });
 };
 

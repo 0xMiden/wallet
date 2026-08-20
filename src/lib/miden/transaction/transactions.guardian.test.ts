@@ -100,12 +100,19 @@ jest.mock('lib/store', () => ({
   useWalletStore: { getState: () => ({ accounts: [], setLastCompletedTxHash: jest.fn() }) }
 }));
 
+// Every send path builds its request through the shared
+// `buildSendTransactionRequest` (lib/miden/sdk/helpers); tests set its
+// serialized bytes per-case via mockReturnValue.
+// eslint-disable-next-line no-var
+var mockBuildSendTransactionRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array()
+}));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as []))
 }));
-
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -301,6 +308,7 @@ describe('generateTransaction — Guardian routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCreateWasmWebClient.mockReset();
+    mockBuildSendTransactionRequest.mockReset();
     txStore.length = 0;
   });
 
@@ -386,11 +394,9 @@ describe('generateTransaction — Guardian routing', () => {
         status: ITransactionStatus.Queued
       });
 
-      const newSendTransactionRequest = jest.fn(async () => ({
-        serialize: () => requestBytes
-      }));
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
       const terminate = jest.fn();
-      mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate });
 
       const multisigService = {
         createCustomProposal: jest.fn(async () => ({ id: 'recall-proposal' })),
@@ -419,14 +425,14 @@ describe('generateTransaction — Guardian routing', () => {
       );
 
       expect(mockCreateWasmWebClient).toHaveBeenCalledWith(expect.any(String));
-      expect(newSendTransactionRequest).toHaveBeenCalledWith(
+      expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
+        undefined,
         expect.objectContaining({ toString: expect.any(Function) }),
         expect.objectContaining({ toString: expect.any(Function) }),
-        expect.objectContaining({ toString: expect.any(Function) }),
-        expectedSdkNoteType,
+        'faucet',
         1000n,
-        125,
-        null
+        expectedSdkNoteType,
+        125
       );
       expect(terminate).toHaveBeenCalledTimes(1);
       expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
@@ -455,9 +461,9 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
     const terminate = jest.fn();
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate });
 
     const multisigService = {
       createSendProposal: jest.fn(),
@@ -485,14 +491,14 @@ describe('generateTransaction — Guardian routing', () => {
     // A plain P2ID (createSendProposal) is rejected by the allocator; the note must
     // be a PUBLIC recallable P2IDE built from the row's recallBlocks (absolute
     // reclaim height = fresh syncHeight 200 + recallBlocks 30 = 230).
-    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
+      undefined,
       expect.objectContaining({ toString: expect.any(Function) }),
       expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'Public',
+      'faucet',
       1000n,
-      230,
-      null
+      'Public',
+      230
     );
     expect(terminate).toHaveBeenCalledTimes(1);
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
@@ -519,9 +525,9 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
     const terminate = jest.fn();
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate });
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-proposal' })),
@@ -552,14 +558,14 @@ describe('generateTransaction — Guardian routing', () => {
     // P2IDE collateral note to the allocator with an absolute reclaim height
     // (syncHeight 100 + recallBlocks 25 = 125), proposed as a custom proposal —
     // never a plain P2ID send proposal.
-    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
+      undefined,
       expect.objectContaining({ toString: expect.any(Function) }),
       expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'Public',
+      'faucet',
       1000n,
-      125,
-      null
+      'Public',
+      125
     );
     expect(terminate).toHaveBeenCalledTimes(1);
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
@@ -596,8 +602,8 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
@@ -627,14 +633,14 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     // Built with the fallback height (200 + 25 = 225) and proceeded to a custom proposal.
-    expect(newSendTransactionRequest).toHaveBeenCalledWith(
+    expect(mockBuildSendTransactionRequest).toHaveBeenCalledWith(
+      undefined,
       expect.objectContaining({ toString: expect.any(Function) }),
       expect.objectContaining({ toString: expect.any(Function) }),
-      expect.objectContaining({ toString: expect.any(Function) }),
-      'Public',
+      'faucet',
       1000n,
-      225,
-      null
+      'Public',
+      225
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });
@@ -831,8 +837,8 @@ describe('generateTransaction — Guardian routing', () => {
         initiatedAt: Math.floor(Date.now() / 1000)
       });
 
-      const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-      mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
@@ -901,8 +907,8 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
@@ -966,8 +972,8 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),

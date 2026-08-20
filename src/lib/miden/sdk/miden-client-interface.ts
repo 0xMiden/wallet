@@ -44,7 +44,12 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
-import { getBech32AddressFromAccountId, walletAccountIdToSdk } from './helpers';
+import {
+  accountRefToSdk,
+  buildSendTransactionRequest,
+  getBech32AddressFromAccountId,
+  walletAccountIdToSdk
+} from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
@@ -968,15 +973,19 @@ export class MidenClientInterface {
           cacheParams
         );
       }
-      const { result } = await this.client.transactions.send({
-        account: accountId,
-        to: secondaryAccountId,
-        token: faucetId,
-        amount,
-        type: noteType as any,
-        reclaimAfter,
-        prover
-      });
+      // The sender's local account supplies the outgoing asset's vault key
+      // (callback flag included) — see `buildSendTransactionRequest`.
+      const senderAccount = await this.client.accounts.get(accountId);
+      const request = buildSendTransactionRequest(
+        senderAccount ?? undefined,
+        walletAccountIdToSdk(accountId),
+        accountRefToSdk(secondaryAccountId),
+        faucetId,
+        BigInt(amount),
+        noteType === 'private' ? NoteType.Private : NoteType.Public,
+        reclaimAfter
+      );
+      const { result } = await this.client.transactions.submit(accountId, request, { prover });
       return result;
     }, dbTransaction.delegateTransaction);
   }
@@ -1454,10 +1463,10 @@ function isLocalProver(prover: TransactionProver): boolean {
  * Speculation params and the real-send params produce IDENTICAL
  * TransactionRequest WASM objects, which is what the cache hit relies on.
  *
- * Note: WASM-bindgen value-consumption is real here. `newSendTransactionRequest`
- * consumes `senderId` by value; we allocate a fresh `AccountId` for the
- * subsequent `executeTransaction`. Don't refactor this to share AccountIds
- * across calls without re-checking the wasm-bindgen ownership semantics.
+ * Note: WASM-bindgen value-consumption is real here — several WASM methods
+ * consume `AccountId` arguments by value, so a fresh `AccountId` is allocated
+ * for the subsequent `executeTransaction`. Don't refactor this to share
+ * AccountIds across calls without re-checking the ownership semantics.
  */
 async function buildSendExecuteArgs(
   wasm: any,
@@ -1471,19 +1480,21 @@ async function buildSendExecuteArgs(
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
-  const tokenId = resolveAccountId(wasm, faucetId);
   // noteType arrives as either an SDK enum (real send) or a literal
   // 'public'/'private' string (speculation). Handle both.
   const isPrivate = noteType === 'private' || (typeof noteType === 'object' && noteType === wasm.NoteType.Private);
   const nt = isPrivate ? wasm.NoteType.Private : wasm.NoteType.Public;
-  const request: TransactionRequest = await inner.newSendTransactionRequest(
+  // The sender's local account supplies the outgoing asset's vault key
+  // (callback flag included) — see `buildSendTransactionRequest`.
+  const senderAccount = await inner.getAccount(resolveAccountId(wasm, senderAccountId));
+  const request = buildSendTransactionRequest(
+    senderAccount ?? undefined,
     senderId,
     receiverId,
-    tokenId,
-    nt,
+    faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
-    reclaimAfter ?? null,
-    null
+    nt,
+    reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };

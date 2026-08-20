@@ -72,7 +72,12 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
+import {
+  accountIdStringToSdk,
+  buildSendTransactionRequest,
+  canonicalWalletAccountId,
+  sameWalletAccountId
+} from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
@@ -721,16 +726,18 @@ const ensureGuardianRecallableSendRequestBytes = async (
     }
     const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
     try {
-      const tr = await client.newSendTransactionRequest(
+      // The sender's local account supplies the outgoing asset's vault key
+      // (callback flag included) — see `buildSendTransactionRequest`.
+      const account = await client.getAccount(accountIdStringToSdk(transaction.accountId));
+      return buildSendTransactionRequest(
+        account,
         accountIdStringToSdk(transaction.accountId),
         accountIdStringToSdk(recipientId),
-        accountIdStringToSdk(faucetId),
-        noteType,
+        faucetId,
         amount,
-        syncHeight + recallBlocks,
-        null
-      );
-      return tr.serialize();
+        noteType,
+        syncHeight + recallBlocks
+      ).serialize();
     } finally {
       client.terminate();
     }
