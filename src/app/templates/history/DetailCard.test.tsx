@@ -151,6 +151,18 @@ describe('StatusPill', () => {
     expect(label(container)).toHaveTextContent('t:reclaimed');
   });
 
+  it('lets failure outrank a reported settlement rather than labelling it in red', () => {
+    // A failed swap never placed its order, so it has no settlement to report.
+    // Taking the caller's word for one produced a pill reading "Pending" in
+    // failure red — two different outcomes at once, with the actionable one
+    // spelled only in colour.
+    const { container } = render(<StatusPill status={ITransactionStatus.Failed} swapSettlement="pending" />);
+
+    expect(label(container)).toHaveTextContent('t:failed');
+    expect(label(container)).toHaveClass('text-status-negative');
+    expect(dot(container)).toHaveClass('bg-status-negative');
+  });
+
   it('renders the failed (negative) variant for status === Failed', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 

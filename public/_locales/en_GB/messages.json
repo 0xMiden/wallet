@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ of $total$ $symbol$ filled",
+    "message": "$filled$ of $total$$symbol$ filled",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {

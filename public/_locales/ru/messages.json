@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ из $total$ $symbol$ заполнено",
+    "message": "$filled$ из $total$$symbol$ исполнено",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes включено в этот своп",
+    "message": "Notes, объединённые в этот свап",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Заполните форму note $number$",
+    "message": "Note исполнения $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Прочитано · $time$",
+    "message": "Использовано · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "Открытое заполнение",
+    "message": "Ожидаемое исполнение",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "Сопоставление на DEX…",
+    "message": "Подбор на DEX…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Пока не было добавлено ни одного «notes» (заявки с фиксированной заполняемостью).",
+    "message": "Notes пока не объединены.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Перейти к разделу «Ожидающие» Notes",
+    "message": "Перейти к Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Использование идентификатора транзакции (TX ID)",
+    "message": "ID транзакции использования",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Используйте ID транзакции $number$",
+    "message": "ID транзакции использования $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ $total$의 $symbol$ 항목이 채워졌습니다.",
+    "message": "$total$$symbol$ 중 $filled$ 체결",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes 이 스왑에 포함된 항목",
+    "message": "이 스왑에 번들된 Notes",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "note 작성 $number$",
+    "message": "체결 Note $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Consumed · $time$",
+    "message": "소비 완료 · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "오픈 필",
+    "message": "미체결 물량",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "DEX에서의 매칭…",
+    "message": "DEX에서 매칭 중…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "아직 '필(fill)'notes가 묶여 있는 경우는 없습니다.",
+    "message": "아직 번들된 Note가 없습니다.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "'보류 중' 페이지로 이동: Notes",
+    "message": "Pending Notes로 이동",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "TX ID 사용",
+    "message": "소비 트랜잭션 ID",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "TX ID 확인$number$",
+    "message": "소비 트랜잭션 ID $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

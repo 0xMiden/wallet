@@ -3544,7 +3544,7 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "N.º de identificación de Texas",
+    "message": "ID de Tx",
     "englishSource": "Tx ID"
   },
   "notesSection": {
@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ de $total$ $symbol$ rellenado",
+    "message": "$filled$ de $total$$symbol$ ejecutado",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes incluidos en este intercambio",
+    "message": "Notes agrupadas en este swap",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Rellena note $number$",
+    "message": "Note de ejecución $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Leído · $time$",
+    "message": "Consumido · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "Rellenar abierto",
+    "message": "Ejecución pendiente",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "Emparejamiento en DEX…",
+    "message": "Emparejando en la DEX…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Aún no se han agrupado los «notes» sin ejecutar.",
+    "message": "Todavía no se ha agrupado ninguna Note.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Accede a «Pending» (Pendiente) en Notes",
+    "message": "Ir a Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Utilizar el ID de transacción",
+    "message": "ID de la transacción de consumo",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Consulta el ID de la transacción$number$",
+    "message": "ID de la transacción de consumo $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

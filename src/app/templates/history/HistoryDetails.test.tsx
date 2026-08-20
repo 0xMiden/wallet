@@ -522,6 +522,9 @@ describe('HistoryDetails', () => {
   });
 
   describe('swap order tracking', () => {
+    // Orders the wallet writes today always carry an expiry, which is what makes
+    // auto-settlement reachable; tests covering rows persisted before that stamp
+    // existed override it back to undefined.
     const swapTx = (extra: Record<string, unknown>): Tx => ({
       ...baseSendTx,
       type: 'swap',
@@ -529,7 +532,7 @@ describe('HistoryDetails', () => {
       faucetId: 'faucet-1',
       outputNoteIds: undefined,
       transactionId: undefined,
-      extraInputs: extra
+      extraInputs: { expiresAt: 1_700_000_120, ...extra }
     });
 
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
@@ -703,7 +706,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
     });
 
-    it('falls back to token metadata, defaults the requested amount, clamps overfill to 0 and omits an unknown symbol', async () => {
+    it('falls back to token metadata and reports an absent requested amount as unknown, not as zero', async () => {
       // Registry miss → metadata lookup for the requested faucet (returns {} → no symbol/decimals).
       mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
       mockTrackOrderId.mockResolvedValue({
@@ -717,9 +720,15 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
-      // requestedAmount defaulted to 0n; remainingRequested(5) > amount(0) → filled clamped to 0; no symbol.
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_0_');
-      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+      // The row carries no requestedAmount, so the total is unknown and the fill
+      // derived from it is too. Defaulting the total to 0 used to render
+      // "0 of 0 filled" at 0% — a confident claim about an order this receipt
+      // knows nothing about. Unknown progress is indeterminate: no bar, no
+      // percentage, no aria-valuenow.
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_');
+      expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+      expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
+      expect(screen.queryByText('swapProgressPercent')).not.toBeInTheDocument();
       // Two metadata calls: tx faucet + requested faucet.
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('req-faucet');
     });
@@ -987,21 +996,27 @@ describe('HistoryDetails', () => {
       mockGetTransactionById.mockResolvedValue(swapTx({ requestedFaucetId: 'req-faucet' }));
       await renderAndLoad();
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
-      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+      // Nothing is tracked, so the fill is unknown rather than zero.
+      expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
       expect(mockTrackOrderId).not.toHaveBeenCalled();
     });
 
-    it('renders a zero-state receipt for a swap with entirely absent extraInputs', async () => {
+    it('renders an unknown-state receipt for a swap with entirely absent extraInputs', async () => {
       mockGetTransactionById.mockResolvedValue({ ...swapTx({}), extraInputs: undefined });
       await renderAndLoad();
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
-      // No order id, so nothing is tracked and nothing is known — an em dash,
-      // not a 0 that would claim the order definitely filled nothing.
-      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_—_0_');
+      // No order id and no requested amount, so neither side of the progress
+      // line is known — em dashes, not zeroes that would claim the order
+      // definitely filled nothing out of a total of nothing.
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_—_—_');
+      expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
     });
   });
 
   describe('swap settlement notes', () => {
+    // Orders the wallet writes today always carry an expiry, which is what makes
+    // auto-settlement reachable; tests covering rows persisted before that stamp
+    // existed override it back to undefined.
     const swapTx = (extra: Record<string, unknown>): Tx => ({
       ...baseSendTx,
       type: 'swap',
@@ -1009,7 +1024,7 @@ describe('HistoryDetails', () => {
       faucetId: 'faucet-1',
       outputNoteIds: undefined,
       transactionId: undefined,
-      extraInputs: extra
+      extraInputs: { expiresAt: 1_700_000_120, ...extra }
     });
 
     it('keeps watching for later fills instead of freezing on the first one', async () => {
@@ -1311,6 +1326,31 @@ describe('HistoryDetails', () => {
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
     });
 
+    it('keeps the claim route for a legacy order the wallet will never settle on its own', async () => {
+      // Orders persisted before expiry stamping have no `expiresAt`, and
+      // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
+      // expires — so this order is never auto-settled, no matter that
+      // `autoConsume` is absent and therefore read as enabled. Trusting that
+      // flag alone hid "Go to Pending Notes" from precisely the orders whose
+      // funds nothing else will ever collect.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 400n,
+        remainingRequested: 400n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, expiresAt: undefined })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
+      expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    });
+
     it('never claims a full fill for a partially filled order that settled at expiry', async () => {
       // An expiry batch carrying any payback is tagged 'settle', so a PARTIAL
       // fill reaches `settledOrderState === 'filled'`. Assuming the requested
@@ -1371,7 +1411,11 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
-      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+      // An em dash beside a full-width empty bar reading "0%" still asserted
+      // zero in every channel except the one word. Unknown progress draws no
+      // bar and exposes no value to assistive technology.
+      expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+      expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
     });
 
     it('resolves the offered side through the swap registry so the hero is not misscaled', async () => {

@@ -22,7 +22,8 @@ import { formatDate } from './transactionUtils';
 
 interface SwapDetailProps {
   entry: IHistoryEntry;
-  requestedAmount: bigint;
+  /** Undefined = unknown, which is not the same statement as zero. */
+  requestedAmount?: bigint;
   requestedDecimals?: number;
   requestedSymbol?: string;
   requestedFaucetId?: string;
@@ -38,8 +39,13 @@ interface SwapDetailProps {
   approximateUsdAmount?: string;
   fromAccount: React.ReactNode;
   showActions: boolean;
-  showPendingNotesAction: boolean;
-  onOpenPendingNotes: () => void;
+  /**
+   * Route to the unclaimed notes, shown only when supplied. Presence *is* the
+   * flag: a separate `showPendingNotesAction` boolean alongside a mandatory
+   * callback let a caller ask for a button with nothing behind it, or hand over
+   * a navigation the receipt would never call.
+   */
+  onOpenPendingNotes?: () => void;
   /** Leaves the receipt. Nothing about the order is cancelled. */
   onDismiss: () => void;
 }
@@ -238,18 +244,25 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   approximateUsdAmount,
   fromAccount,
   showActions,
-  showPendingNotesAction,
   onOpenPendingNotes,
   onDismiss
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
-  const percentage = filledAmount === undefined ? 0 : progressPercentage(filledAmount, requestedAmount);
-  const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
-  const formattedRequested = formatAmount(requestedAmount, requestedDecimals);
   // An unknown fill (no lineage and no settlement consume in the requested
-  // token) is not a zero fill. Printing "0 of 1000" would assert that nothing
-  // arrived, which is a different and possibly false statement.
+  // token) is not a zero fill, and neither is an unknown requested total.
+  // Printing "0 of 1000" — or drawing an empty bar and "0%" beside a "—" —
+  // asserts that nothing arrived, which is a different and possibly false
+  // statement about a restored wallet whose order may long since have settled.
+  // Unknown progress is therefore rendered with no bar, no percentage and no
+  // `aria-valuenow`, which is what the ARIA indeterminate state is for.
+  const percentage =
+    filledAmount !== undefined && requestedAmount !== undefined
+      ? progressPercentage(filledAmount, requestedAmount)
+      : undefined;
+  const progressKnown = percentage !== undefined;
+  const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
+  const formattedRequested = requestedAmount === undefined ? '—' : formatAmount(requestedAmount, requestedDecimals);
   const formattedFilled = filledAmount === undefined ? '—' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
@@ -301,13 +314,15 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             aria-valuemax={100}
             aria-valuenow={percentage}
           >
-            <motion.div
-              data-testid="swap-amount-progress-fill"
-              className="h-full origin-left rounded-full bg-tx-swap"
-              initial={{ scaleX: 0 }}
-              animate={{ scaleX: percentage / 100 }}
-              transition={progressTransition}
-            />
+            {percentage !== undefined && (
+              <motion.div
+                data-testid="swap-amount-progress-fill"
+                className="h-full origin-left rounded-full bg-tx-swap"
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: percentage / 100 }}
+                transition={progressTransition}
+              />
+            )}
           </div>
 
           <div className="mt-2 flex items-start justify-between gap-4 font-heading">
@@ -322,9 +337,11 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 symbol: requestedSuffix
               })}
             </span>
-            <span className="shrink-0 text-sm font-semibold text-text-secondary-token">
-              {t('swapProgressPercent', { percentage })}
-            </span>
+            {percentage !== undefined && (
+              <span className="shrink-0 text-sm font-semibold text-text-secondary-token">
+                {t('swapProgressPercent', { percentage })}
+              </span>
+            )}
           </div>
 
           <p
@@ -382,7 +399,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               </div>
             )}
             {showPendingRow && <SwapNoteRow kind="pending" />}
-            {!showPendingRow && !hasSettlementRows && (
+            {/* Only claimable while the fill is actually known. With no lineage
+                and no settlement rows — a restored wallet, or consumes that
+                predate settlement tagging — "nothing has been bundled yet" is
+                an assertion the receipt cannot support, and is plainly false
+                for an order that settled before the wallet was restored. The
+                status line above already reads "Not available"; adding a
+                confident denial underneath it is worse than saying nothing. */}
+            {!showPendingRow && !hasSettlementRows && progressKnown && (
               <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">{t('swapNoBundledNotes')}</p>
             )}
           </div>
@@ -429,7 +453,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
       {showActions && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
-          {showPendingNotesAction && (
+          {onOpenPendingNotes && (
             <Button
               variant={ButtonVariant.Primary}
               title={t('swapOpenPendingNotes')}

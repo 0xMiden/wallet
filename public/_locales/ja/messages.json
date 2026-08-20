@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ $total$ $symbol$ より",
+    "message": "$total$$symbol$ のうち $filled$ 約定",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes このスワップに組み込まれている",
+    "message": "このスワップにバンドルされた Notes",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "note $number$",
+    "message": "約定 Note $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "参照元 · $time$",
+    "message": "消費済み · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "オープンフィル",
+    "message": "未約定分",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "DEXでのマッチング…",
+    "message": "DEX でマッチング中…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "notesの未約定注文は、現時点ではまだまとめられていません。",
+    "message": "バンドルされた Notes はまだありません。",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "「保留中」ページへ Notes",
+    "message": "Pending Notes へ",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "TX ID を使用する",
+    "message": "消費トランザクション ID",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "TX IDの参照：$number$",
+    "message": "消費トランザクション ID $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

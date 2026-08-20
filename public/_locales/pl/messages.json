@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ z $total$ $symbol$ wypełniono",
+    "message": "$filled$ z $total$$symbol$ zrealizowano",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes objęte tą wymianą",
+    "message": "Notes powiązane z tym swapem",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Wypełnij note $number$",
+    "message": "Note realizacji $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3646,7 +3646,7 @@
     }
   },
   "swapOpenFill": {
-    "message": "Otwarte wypełnienie",
+    "message": "Oczekująca realizacja",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
@@ -3654,11 +3654,11 @@
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Nie dodano jeszcze żadnych pakietów typu „fill-notes”.",
+    "message": "Nie zgrupowano jeszcze żadnych Notes.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Przejdź do sekcji „Pending” Notes",
+    "message": "Przejdź do Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Wykorzystaj identyfikator transakcji (TX ID)",
+    "message": "Identyfikator transakcji wykorzystania",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Wykorzystaj identyfikator transakcji (TX ID) $number$",
+    "message": "Identyfikator transakcji wykorzystania $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

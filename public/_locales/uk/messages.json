@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ з $total$ $symbol$ заповнено",
+    "message": "$filled$ з $total$$symbol$ виконано",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes включено до цього обміну",
+    "message": "Notes, об’єднані в цей свап",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Заповніть форму note $number$",
+    "message": "Note виконання $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "Відкрите заповнення",
+    "message": "Очікуване виконання",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "Збіг на DEX…",
+    "message": "Підбір на DEX…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Поки що не було об’єднано жодних заповнених «notes».",
+    "message": "Notes ще не об’єднано.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Перейти до «Pending» Notes",
+    "message": "Перейти до Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Використовуйте ідентифікатор транзакції (TX ID)",
+    "message": "ID транзакції використання",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Використовуйте ідентифікатор транзакції (TX ID) $number$",
+    "message": "ID транзакції використання $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

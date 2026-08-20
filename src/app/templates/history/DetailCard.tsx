@@ -82,10 +82,15 @@ export const StatusPill: FC<{
   isCancelled?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
   testId?: string;
-}> = memo(({ status, isCancelled, swapSettlement, testId }) => {
+}> = memo(({ status, isCancelled, swapSettlement: reportedSettlement, testId }) => {
   const { t } = useTranslation();
-  const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
   const isFailed = status === ITransactionStatus.Failed;
+  // A swap that failed or was cancelled never placed its order, so it has no
+  // settlement to report; taking the caller's word for one produced a pill
+  // labelled "Pending" in failure red, which names two different outcomes at
+  // once. Failure is the stronger and more actionable fact, so it wins.
+  const swapSettlement = isFailed || isCancelled ? undefined : reportedSettlement;
+  const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
   // A reclaimed order ended without delivering what was asked for, so it gets
   // the same muted treatment as a cancellation — the history list already tones
   // it that way.

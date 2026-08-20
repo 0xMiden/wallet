@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ von $total$ $symbol$ ausgefüllt",
+    "message": "$filled$ von $total$$symbol$ ausgeführt",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes in diesem Swap gebündelt",
+    "message": "In diesen Swap gebündelte Notes",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Füllen Sie das Formular aus unter note $number$",
+    "message": "Ausführungs-Note $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Gelesen · $time$",
+    "message": "Eingelöst · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "Open fill",
+    "message": "Offene Ausführung",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "Abgleich auf DEX…",
+    "message": "Abgleich auf der DEX…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Bislang wurden noch keine „Fill-notes“ gebündelt.",
+    "message": "Es wurden noch keine Notes gebündelt.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Weiter zu „Pending“ Notes",
+    "message": "Zu Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "TX-ID verwenden",
+    "message": "TX-ID des Einlösens",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "TX-ID abrufen: $number$",
+    "message": "TX-ID des Einlösens $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

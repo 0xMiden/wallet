@@ -88,11 +88,14 @@ interface SwapExtraInputs {
   requestedAmount?: bigint;
   orderId?: bigint;
   autoConsume?: boolean;
+  /** Absent on orders placed before expiry stamping; those never auto-settle. */
+  expiresAt?: number;
 }
 
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
-  amount: bigint;
+  /** Undefined for rows persisted without a requested amount — unknown, not zero. */
+  amount?: bigint;
   decimals?: number;
   symbol?: string;
   faucetId?: string;
@@ -254,7 +257,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
-  const [swapAutoConsume, setSwapAutoConsume] = useState(true);
+  const [swapSelfSettles, setSwapSelfSettles] = useState(true);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   // Notes claimed by this order's settlement consumes. Those consume rows are
@@ -374,12 +377,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
         if (superseded()) return;
         setRequestedToken({
-          amount: extra.requestedAmount ?? 0n,
+          amount: extra.requestedAmount,
           decimals: swapToken?.decimals ?? requestedMeta?.decimals,
           symbol: swapToken?.symbol ?? requestedMeta?.symbol,
           faucetId: extra.requestedFaucetId
         });
-        setSwapAutoConsume(extra.autoConsume ?? true);
+        // Whether the wallet will ever settle this order without the user. Both
+        // conditions are required: `reconcileSwapOrderNotes` skips
+        // manual-consume orders outright, and it only bundles an 'active'
+        // order's notes once the order expires — an order persisted before
+        // expiry stamps existed has no `expiresAt`, is therefore never deemed
+        // expired, and so its paybacks are never claimed automatically. Reading
+        // `autoConsume` alone hid the manual route from exactly those orders,
+        // leaving a partially filled legacy swap with funds it never offered a
+        // way to collect.
+        setSwapSelfSettles((extra.autoConsume ?? true) && extra.expiresAt != null);
         setOrderId(extra.orderId ?? null);
       }
 
@@ -718,11 +730,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       : (settledOrderState ?? swapTracking?.state ?? null);
   // How much of the requested amount has been filled so far, derived from the
   // original requested amount and the lineage's still-outstanding remainder.
+  const requestedAmount = requestedToken?.amount;
   const filledRequested =
-    requestedToken && swapTracking
-      ? swapTracking.remainingRequested > requestedToken.amount
+    requestedAmount !== undefined && swapTracking
+      ? swapTracking.remainingRequested > requestedAmount
         ? 0n
-        : requestedToken.amount - swapTracking.remainingRequested
+        : requestedAmount - swapTracking.remainingRequested
       : undefined;
 
   // For a bridge the sender is always the Miden account; the EVM destination is
@@ -788,14 +801,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // order can be partially filled, and so can a terminal (expired/reclaimed)
   // one — the two together are the only honest reading of an expiry payback.
   const isPartialFill =
-    requestedToken != null && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedToken.amount;
+    requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
   // `reconcileSwapOrderNotes` skips manual-consume orders, so this wallet's own
   // claim is never tagged and `settlementFound` stays false for them. The route
   // to the notes therefore has to survive the order reaching 'filled' — a
   // fully-matched order whose paybacks are still sitting unconsumed is exactly
   // when the user needs it, and it was the moment the button used to vanish.
   // Only a reclaim leaves nothing to collect.
-  const showPendingNotesAction = !swapAutoConsume && !settlementFound && displayOrderState !== 'reclaimed';
+  const showPendingNotesAction = !swapSelfSettles && !settlementFound && displayOrderState !== 'reclaimed';
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -869,8 +882,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            showPendingNotesAction={showPendingNotesAction}
-            onOpenPendingNotes={() => navigate('/pending-notes')}
+            onOpenPendingNotes={showPendingNotesAction ? () => navigate('/pending-notes') : undefined}
             onDismiss={goBack}
           />
         ) : (

@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ $total$ $symbol$ 已填寫",
+    "message": "已成交 $filled$／$total$$symbol$",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes 捆綁於本次交換中",
+    "message": "打包進此交換的 Notes",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "填寫 note $number$",
+    "message": "成交 Note $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "已閱讀 · $time$",
+    "message": "已消耗 · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "開放填寫",
+    "message": "待成交",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "在去中心化交易所（DEX）進行配對……",
+    "message": "正在 DEX 撮合…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "目前尚未將任何「未成交」notes 進行捆綁。",
+    "message": "尚未打包任何 Note。",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "前往「待處理」頁面：Notes",
+    "message": "前往 Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "使用交易 ID",
+    "message": "消耗交易 ID",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "讀取交易 ID $number$",
+    "message": "消耗交易 ID $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

@@ -3588,7 +3588,7 @@
     "englishSource": "Filled"
   },
   "swapAmountProgress": {
-    "message": "$filled$ de $total$ $symbol$ preenchido",
+    "message": "$filled$ de $total$$symbol$ executado",
     "englishSource": "$filled$ of $total$$symbol$ filled",
     "placeholders": {
       "filled": {
@@ -3612,11 +3612,11 @@
     }
   },
   "swapNotesBundled": {
-    "message": "Notes incluído nesta troca",
+    "message": "Notes agrupadas neste swap",
     "englishSource": "Notes bundled into this swap"
   },
   "swapFillNote": {
-    "message": "Preencha note $number$",
+    "message": "Note de execução $number$",
     "englishSource": "Fill note $number$",
     "placeholders": {
       "number": {
@@ -3625,7 +3625,7 @@
     }
   },
   "swapConsumedAt": {
-    "message": "Lido · $time$",
+    "message": "Consumido · $time$",
     "englishSource": "Consumed · $time$",
     "placeholders": {
       "time": {
@@ -3646,19 +3646,19 @@
     }
   },
   "swapOpenFill": {
-    "message": "Preenchimento aberto",
+    "message": "Execução pendente",
     "englishSource": "Open fill"
   },
   "swapMatchingDex": {
-    "message": "Correspondência na DEX…",
+    "message": "A corresponder na DEX…",
     "englishSource": "Matching on DEX…"
   },
   "swapNoBundledNotes": {
-    "message": "Ainda não foram agrupados nenhumnoteses de preenchimento.",
+    "message": "Ainda não foi agrupada nenhuma Note.",
     "englishSource": "No fill notes have been bundled yet."
   },
   "swapOpenPendingNotes": {
-    "message": "Acesse “Pending” (Notes)",
+    "message": "Ir para Pending Notes",
     "englishSource": "Go to Pending Notes"
   },
   "trackingUnavailable": {
@@ -3666,11 +3666,11 @@
     "englishSource": "Not available"
   },
   "consumeTxId": {
-    "message": "Utilizar o ID da transação",
+    "message": "ID da transação de consumo",
     "englishSource": "Consume TX ID"
   },
   "consumeTxIdNumber": {
-    "message": "Consulte o ID da transação $number$",
+    "message": "ID da transação de consumo $number$",
     "englishSource": "Consume TX ID $number$",
     "placeholders": {
       "number": {

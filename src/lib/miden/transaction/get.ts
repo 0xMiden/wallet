@@ -152,8 +152,22 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
       (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity) ||
       (a.transactionId ?? a.id).localeCompare(b.transactionId ?? b.id)
   );
+  // A note must be attributed to exactly one consume. Two completed rows can
+  // name the same note — a broader batch overlapping an earlier claim — and
+  // deduplicating only the id sets left the per-transaction arrays disagreeing
+  // with them: the receipt drew the note twice, and a caller summing the rows'
+  // amounts to infer the fill counted the same funds twice. The sort above is
+  // deterministic, so "the earlier consume owns it" is a stable rule. A row
+  // whose notes were all claimed earlier is that same claim seen again and is
+  // dropped, rather than contributing its amount a second time.
+  const claimed = new Set<string>();
+
   for (const tx of consumes) {
-    const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
+    const rawNoteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
+    const noteIds = rawNoteIds.filter(noteId => !claimed.has(noteId));
+    if (rawNoteIds.length > 0 && noteIds.length === 0) continue;
+    for (const noteId of noteIds) claimed.add(noteId);
+
     const transaction = {
       id: tx.id,
       transactionId: tx.transactionId,
