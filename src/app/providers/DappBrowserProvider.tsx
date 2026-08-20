@@ -76,8 +76,10 @@ import {
 // hand a disk-loaded snapshot to the in-memory store without going
 // through the native plugin.
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
+import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
+import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -883,6 +885,29 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const isLoading = foregroundState?.isLoading ?? false;
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
+
+  // E2E-only. Names the current dApp-browser surface in the screen-key signal
+  // (`lib/e2e/screen-key`), which the mobile suites take one screenshot per
+  // change of. Every dApp transition happens on ONE route, `/browser`, so
+  // without this the entire feature — open, park, restore, switch between
+  // sessions — is a single unchanging key, and the one suite whose failures are
+  // purely visual would document none of the transitions it exists to catch.
+  //
+  // The gate is the same three conditions the E2E driver uses for "this dApp is
+  // up": foregrounded, done loading, and holding a slot to draw into.
+  // `foregroundId` is assigned well before the native webview has a rect, let
+  // alone a painted frame, so publishing any earlier would spend the one
+  // screenshot-per-change on a blank slot.
+  //
+  // The label is `getDappDisplayName` — the same string the capsule bar shows —
+  // so the key names what the user is looking at instead of the session id,
+  // which is regenerated on every run and would sort as noise.
+  const dappScreenKeyPart = switcherOpen
+    ? 'dapp-switcher'
+    : foregroundState && foregroundState.status === 'active' && !foregroundState.isLoading && slotRect
+      ? `dapp:${getDappDisplayName(foregroundState.session)}`
+      : '';
+  useOverlayScreenKey(Boolean(dappScreenKeyPart), dappScreenKeyPart);
 
   // The React-only wallet shell is active once the user is past
   // onboarding / unlock. Parked dApp trays use this gate so persistent
