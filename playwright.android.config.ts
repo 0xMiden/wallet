@@ -7,6 +7,9 @@ import { defineConfig } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './playwright/e2e/android/tests',
+  // dApp-browser specs run via playwright.android.dapp.config.ts (no chain
+  // dependency, so they get their own faster workflow).
+  testIgnore: ['**/dapp-browser.*.spec.ts'],
   // Same 15-min ceiling as iOS — Android emulator on Apple Silicon is
   // comparable to iOS sim for our prove workload.
   timeout: 900_000,

@@ -65,6 +65,15 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Android-only helpers (mirror the iOS-only set on IosWalletPage) ─────
 
+  /**
+   * Evaluate a raw JS body (must `return`) in the wallet webview. Mirrors
+   * `IosWalletPage.evalJs` so the shared dApp-browser driver can drive both
+   * platforms through one interface.
+   */
+  async evalJs<T = unknown>(js: string): Promise<T> {
+    return this.cdp.eval<T>(js);
+  }
+
   async locatorText(selector: string): Promise<string | null> {
     return this.cdp.eval<string | null>(
       `var el = document.querySelector(${JSON.stringify(selector)}); ` +
