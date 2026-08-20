@@ -132,8 +132,8 @@ export enum WalletMessageType {
   SpeculateSendResponse = 'SPECULATE_SEND_RESPONSE',
   SpeculateInvalidate = 'SPECULATE_INVALIDATE',
   SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE',
-  ReportTelemetryEventRequest = 'ReportTelemetryEventRequest',
-  ReportTelemetryEventResponse = 'ReportTelemetryEventResponse'
+  ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
