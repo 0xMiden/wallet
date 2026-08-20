@@ -13,6 +13,7 @@ import { maybeStartGuardianRecovery } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
+import { doSync } from './sync-manager';
 
 // The orchestrator's own decisions are what these tests are about — the gating,
 // the queue and the terminal flag write — so every source it drives is stubbed.
@@ -60,6 +61,7 @@ const mockClearProgress = jest.mocked(clearGuardianNoteRecoveryProgress);
 const mockFetchProgress = jest.mocked(fetchGuardianNoteRecoveryProgress);
 const mockReportProgress = jest.mocked(reportGuardianNoteRecoveryProgress);
 const mockProxy = jest.mocked(midenClientProxy);
+const mockDoSync = jest.mocked(doSync);
 
 /** `createdAt` from the mocked Guardian `getState`, in unix seconds. */
 const GUARDIAN_CREATED_AT_SECONDS = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
@@ -615,6 +617,64 @@ describe('detached recovery run', () => {
 
     // The requeued range is only claimed as its halves land, in order.
     expect(reportedWatermarks()).toEqual([0, 0, 999, 1_999]);
+  });
+
+  // The backfill can finish long after the last yield check, and the closing
+  // sync is itself a long client-holding op — the exact thing every other yield
+  // in this run exists to keep away from a live transaction.
+  it('yields before the closing sync when a transaction appears during the backfill', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 0 } as never);
+    mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'auto-consume' }] as never);
+      return { imported: 1, failures: 0, saturated: false } as never;
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockDoSync).not.toHaveBeenCalled();
+    // A clean deferral, so the checkpoint survives for the next pass.
+    expect(mockClearProgress).not.toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+  });
+
+  // The pass succeeded; only the write failed. Holding the reservation would
+  // make the account unstartable for the rest of this backend's lifetime with
+  // nothing left to clear it.
+  it('frees the account to retry when the wallet locks before the terminal write', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    // Locked at the last possible moment: the closing sync is the step right
+    // before the write, so the pass itself completes and only the write is lost.
+    mockDoSync.mockImplementationOnce(async () => {
+      locked();
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockDoSync).toHaveBeenCalled();
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    unlocked();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  // Whoever debugs a stuck recovery reads these lines to decide whether a
+  // resume point exists. Only the backfill writes one.
+  it('does not claim a checkpoint when it defers before the backfill', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'tx-1' }] as never);
+    });
+    const logged = jest.mocked(console.log);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    const lines = logged.mock.calls.map(([line]) => String(line));
+    expect(lines.some(line => line.includes('the next pass starts over'))).toBe(true);
+    expect(lines.some(line => line.includes('Keeping the checkpoint'))).toBe(false);
   });
 
   describe('note paging within one range', () => {

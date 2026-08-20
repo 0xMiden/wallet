@@ -106,6 +106,15 @@ async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' 
  * response is remote and only as trustworthy as the operator, and every entry
  * costs a base64 decode, a WASM deserialize, an RPC round trip and a store
  * write — so it is capped rather than iterated to whatever length arrives.
+ *
+ * Going over the cap is a failed source, so the pending flag stays set and the
+ * account is retried on the next backend start rather than finishing over the
+ * notes that did not fit. There is no cursor: the retry re-reads the pending
+ * list from the top, and what makes that converge is the list SHRINKING as the
+ * notes already imported get consumed and their proposals stop being pending.
+ * An account holding more than this many notes that stay pending indefinitely
+ * would need a cursor to finish, which is not built — it stays flagged, which
+ * is the safe direction.
  */
 const MAX_PROPOSAL_NOTES = 500;
 
@@ -332,6 +341,10 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     deferred: false
   };
 
+  // Highest watermark this pass has persisted, so the deferral log can say
+  // whether there is anything to resume from. Null until the public step runs.
+  let checkpointedBlock: number | null = null;
+
   let resumeFromBlock: number | null = null;
   try {
     resumeFromBlock = resumePointFor(account, await fetchGuardianNoteRecoveryProgress(account.publicKey));
@@ -463,6 +476,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
         latestBlock,
         sourcesClean: result.sourceFailures === 0
       });
+      checkpointedBlock = result.sourceFailures === 0 ? startBlock : null;
       let scannedToBlock = startBlock;
       // A work list rather than a fixed stride, because a chunk can come back
       // `saturated` — too wide for the node, or holding more tag matches than
@@ -544,6 +558,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
           // never reaches its `finally` because the realm was evicted.
           sourcesClean: result.sourceFailures === 0
         });
+        checkpointedBlock = result.sourceFailures === 0 ? scannedToBlock : null;
       }
     } catch (error) {
       if (isAbortedOp(error)) {
@@ -579,7 +594,14 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
     // (the record carries a watermark, not a failure count, so resuming past a
     // failed source could clear the pending flag over notes never imported).
     if (result.deferred && result.sourceFailures === 0) {
-      console.log(`[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume from`);
+      // Only the public step writes a resumable watermark, so a deferral before
+      // it has nothing to resume from — saying otherwise sends whoever reads
+      // this looking for a checkpoint that was never written.
+      console.log(
+        checkpointedBlock === null
+          ? `[GuardianRecovery] Deferring ${account.publicKey} before the backfill; the next pass starts over`
+          : `[GuardianRecovery] Keeping the checkpoint for ${account.publicKey} to resume from block ${checkpointedBlock}`
+      );
     } else {
       await clearGuardianNoteRecoveryProgress(account.publicKey);
     }
