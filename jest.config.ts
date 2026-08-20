@@ -52,10 +52,14 @@ export default {
   //   not referenced by the `./index` barrel, not imported anywhere. It has no
   //   runtime surface to test; when real staking logic lands, remove it from
   //   this list so the gate demands proper tests.
+  // - `lib/telemetry/types.ts` — pure types and interfaces, no enums; TypeScript
+  //   erases the whole file at compile time, so it has no runtime surface to
+  //   execute or cover, ever.
   coveragePathIgnorePatterns: [
     '/node_modules/',
     '/src/lib/lock-up/run-checks\\.ts$',
     '/src/lib/miden/assets/stake\\.ts$',
+    '/src/lib/telemetry/types\\.ts$',
     '/src/app/pages/Browser/',
     '/src/app/pages/Pending\\.tsx$',
     '/src/app/pages/PendingNotes\\.tsx$',
