@@ -71,6 +71,27 @@ export const isCompletedTransaction = (message: string): boolean => {
 };
 
 /**
+ * Settlement state for a completed swap order, driving the swap row's status
+ * chip and the receipt's hero pill; `undefined` renders Confirmed. Pending only
+ * for auto-consumed orders that carry an explicit expiry (stamped since
+ * settlement shipped) and have no settlement stamp yet — settled, legacy, and
+ * manual-claim orders all fall through to Confirmed. A settledAt stamp wins over
+ * reclaimedAt (a batch containing payback notes delivered funds even if the
+ * order later expired).
+ *
+ * Shared by the list and the detail screen so one order cannot read "Pending"
+ * in the list and "Confirmed" on its own receipt.
+ */
+export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
+  const extra = tx.extraInputs ?? {};
+  if (extra.settledAt != null) return undefined;
+  if (extra.reclaimedAt != null) return 'reclaimed';
+  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
+  return undefined;
+};
+
+/**
  * Round a bridge's (USDC) destination output to the standard 2 decimals for
  * display, expanding for small non-zero values. Passes non-numeric input
  * through unchanged.

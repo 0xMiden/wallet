@@ -93,7 +93,10 @@ jest.mock('lib/shared/format', () => ({
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: (...args: unknown[]) => mockIsFaucetRequest(...args),
   resolveSwapHistoryFields: (...args: unknown[]) => mockResolveSwapHistoryFields(...args),
-  earnWithdrawAmountFields: (...args: unknown[]) => mockEarnWithdrawAmountFields(...args)
+  earnWithdrawAmountFields: (...args: unknown[]) => mockEarnWithdrawAmountFields(...args),
+  // Pure derivation the swap-chip assertions below depend on, so run the real
+  // one rather than restating its rules in a stub.
+  swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf
 }));
 
 // Thin HistoryView stub: capture props (for `loadMore`) and surface each entry

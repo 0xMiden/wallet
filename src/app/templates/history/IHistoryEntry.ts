@@ -28,7 +28,14 @@ export interface IHistoryEntry {
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
   token?: string;
-  amount?: bigint;
+  /**
+   * Formatted for display, like `requestedAmount` below — every producer assigns
+   * the result of `formatAmount`, so this is decimal-shifted text and NOT base
+   * units. It was declared `bigint` behind an `as IHistoryEntry` cast at both
+   * construction sites, which would have let a reader scale a money figure a
+   * second time with no type error.
+   */
+  amount?: string;
   /** Swap only: formatted requested-side amount, shown on the row's right. */
   requestedAmount?: string;
   /** Swap only: requested-side token symbol. */

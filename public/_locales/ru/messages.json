@@ -3588,16 +3588,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Открыть",
+    "message": "Открыт",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заполнен",
+    "message": "Исполнен",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Восстановленный",
+    "message": "Возвращён",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частично исполнен",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частично исполнен, остаток возвращён",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заполнить кружки",
@@ -3607,9 +3615,96 @@
     "message": "Заполнен",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ из $total$$symbol$ исполнено",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes, объединённые в этот свап",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note исполнения $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Использовано · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Ожидаемое исполнение",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Подбор на DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Notes пока не объединены.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Перейти к Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Нет в наличии",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "ID транзакции использования",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "ID транзакции использования $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Создано",
