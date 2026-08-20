@@ -172,6 +172,9 @@ class MockResizeObserver {
 interface MockRelease {
   keyframes: unknown;
   options: { duration: number; easing: string; fill: string };
+  // Tracked because "holding the transform" and "still running" are different
+  // questions in the component, and conflating them was a real bug.
+  playState: 'running' | 'finished' | 'idle';
   cancel: jest.Mock;
   onfinish: (() => void) | null;
 }
@@ -191,7 +194,15 @@ beforeAll(() => {
     keyframes: unknown,
     options: MockRelease['options']
   ) {
-    const release: MockRelease = { keyframes, options, cancel: jest.fn(), onfinish: null };
+    const release: MockRelease = {
+      keyframes,
+      options,
+      playState: 'running',
+      cancel: jest.fn(() => {
+        release.playState = 'idle';
+      }),
+      onfinish: null
+    };
     mockReleases.push(release);
     return release;
   };
@@ -249,6 +260,18 @@ function releaseInFlight(): MockRelease {
   const animation = mockReleases[mockReleases.length - 1];
   if (!animation) throw new Error('expected a compositor release to have been started');
   return animation;
+}
+
+/**
+ * Run the release to its end, as the compositor would: it reports itself finished
+ * and keeps holding the landing position, since nothing cancels it.
+ */
+function finishRelease() {
+  const animation = releaseInFlight();
+  animation.playState = 'finished';
+  act(() => {
+    animation.onfinish?.();
+  });
 }
 
 /**
@@ -518,9 +541,7 @@ describe('HomeSwipeContainer', () => {
       measure(300);
       release(-300);
       mockMotionSet.mockClear();
-      act(() => {
-        releaseInFlight().onfinish?.();
-      });
+      finishRelease();
       expect(mockMotionSet).toHaveBeenCalledWith(-300);
       // Deliberately not cancelled here: dropping the compositor's hold before
       // framer's next render would show the stale transform for a frame.
@@ -608,6 +629,22 @@ describe('HomeSwipeContainer', () => {
       expect(mockLastDragConstraints).toEqual({ left: 0, right: 0 });
     });
 
+    it('repositions the track when the width changes after a snap-back', () => {
+      mockPathname = '/send'; // index 1
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      release(-310); // too weak to commit: snaps back to the same page
+      mockAnimate.mockClear();
+
+      measure(400); // rotation, split-screen, anything that resizes the container
+
+      // The snap-back recorded index 1 as the release target, and this effect
+      // doesn't re-run to consume it, so keying the early return on the index
+      // alone left the track at -300 against 400px pages — two panes at once.
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -400, expect.anything());
+    });
+
     it('clamps left to -(pages-1)*width once measured', () => {
       render(<HomeSwipeContainer />);
       measure(300);
@@ -693,6 +730,18 @@ describe('HomeSwipeContainer', () => {
     it('lets a tap focus a field while nothing is animating', () => {
       const { getByTestId } = render(<HomeSwipeContainer />);
       measure(300);
+      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
+    });
+
+    it('lets a tap focus a field once the transition has landed', () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      finishRelease();
+      // The finished animation still holds the transform, which is not the same as
+      // the track still moving. Reading it as "mid-transition" cost the first tap
+      // on every field after a flick — the keyboard needed a second tap.
       expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
     });
   });

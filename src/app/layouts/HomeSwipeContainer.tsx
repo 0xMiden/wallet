@@ -166,6 +166,17 @@ const HomeSwipeContainer: FC = () => {
     [x]
   );
 
+  /**
+   * Whether a release is still moving the track.
+   *
+   * Deliberately not the same question as whether `releaseRef` is set, which asks
+   * who owns the transform: `onfinish` doesn't cancel — that is what stops the
+   * 244px flash — so a finished animation keeps holding its landing position
+   * until something takes over. Conflating the two made every tap after a flick
+   * look like an interruption.
+   */
+  const isReleaseRunning = useCallback(() => releaseRef.current?.playState === 'running', []);
+
   // Animate to the active page's resting position whenever activeIdx or
   // width changes. Uses the standard spring so this matches the rest of
   // the wallet's motion vocabulary.
@@ -178,12 +189,17 @@ const HomeSwipeContainer: FC = () => {
     }
     // A release is already carrying the track to this exact index. Re-animating
     // would restart the motion from a standstill mid-flight.
-    if (dragTargetIdx === activeIdx) return;
+    //
+    // Tested against the animation rather than the index alone: a drag that snaps
+    // back to the same page leaves the index recorded, and this effect doesn't
+    // re-run to consume it, so a later width change (rotation, split-screen) would
+    // otherwise bail out here and leave the track offset across two panes.
+    if (dragTargetIdx === activeIdx && isReleaseRunning()) return;
     // Any other route change outranks a release still in flight.
     endRelease(true);
     const controls = animate(x, -activeIdx * width, resolveTransition(reduceMotion, springs.standard));
     return () => controls.stop();
-  }, [activeIdx, width, x, reduceMotion, endRelease]);
+  }, [activeIdx, width, x, reduceMotion, endRelease, isReleaseRunning]);
 
   useEffect(() => () => releaseRef.current?.cancel(), []);
 
@@ -302,7 +318,7 @@ const HomeSwipeContainer: FC = () => {
    * is up, so a focused field with the keyboard open is untouched by this (#481).
    */
   const handlePointerDownCapture = (event: React.PointerEvent) => {
-    const interruptingRelease = releaseRef.current !== null;
+    const interruptingRelease = isReleaseRunning();
     endRelease(true);
     // A touch that lands mid-transition means "stop", and shouldn't also land on
     // the control underneath: the fields are still moving, so which one the finger
@@ -334,7 +350,7 @@ const HomeSwipeContainer: FC = () => {
    */
   const landAfterInterruptedRelease = () => {
     requestAnimationFrame(() => {
-      if (releaseRef.current || !width) return;
+      if (isReleaseRunning() || !width) return;
       const resting = -activeIdx * width;
       if (Math.abs(x.get() - resting) < 0.5) return;
       animate(x, resting, resolveTransition(reduceMotion, springs.standard));
