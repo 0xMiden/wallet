@@ -246,6 +246,21 @@ describe('detached recovery run', () => {
     expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
   });
 
+  // The setup reads the account through the offscreen realm, so a deadline kill
+  // there is ordinary traffic. Counting it as a failed source would strand the
+  // account for the rest of this backend's lifetime over nothing.
+  it('treats a realm teardown during the Guardian client setup as a deferral', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new OperationAbortedError('op-1', 'deadline'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    // Re-offerable straight away rather than waiting for the next backend start.
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
   it('keeps the flag set when a source failed, so the next backend start retries', async () => {
     const account = pendingAccount();
     mockProxy.recoverPublicNotesRange.mockRejectedValue(new Error('node unavailable'));
@@ -774,6 +789,40 @@ describe('detached recovery run', () => {
       await drainDetachedRun();
 
       expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    // One null entry in a remote list must cost one proposal, not the notes
+    // already collected from the proposals before it.
+    it('keeps the notes it already collected when one proposal is malformed', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      jest.mocked(GuardianHttpClient).mockImplementation(
+        () =>
+          ({
+            setSigner: jest.fn(),
+            getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+            getDeltaProposals: jest.fn().mockResolvedValue([
+              {
+                deltaPayload: {
+                  metadata: {
+                    proposalType: 'consume_notes',
+                    consumeNotesMetadataVersion: 2,
+                    consumeNotesNotes: ['AQID']
+                  }
+                }
+              },
+              null,
+              { deltaPayload: undefined }
+            ])
+          }) as never
+      );
+      mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 1, failures: 0 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.importRecoveryNoteBytes).toHaveBeenCalledWith([expect.any(Uint8Array)]);
+      // The malformed entries are still a failed source, so the flag stays set.
       expect(setPendingFlag).not.toHaveBeenCalled();
     });
 

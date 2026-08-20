@@ -195,6 +195,7 @@ async function fetchProposalNotePayload(
     const proposalNoteBytes: Uint8Array[] = [];
     let undecodable = 0;
     let unsupportedVersion = 0;
+    let malformed = 0;
     let truncated = false;
     // The proposal list, and every note list inside it, is remote input: bound
     // what is even LOOKED AT, not just what is kept. Otherwise an operator can
@@ -202,8 +203,16 @@ async function fetchProposalNotePayload(
     // are all rejected.
     if (proposals.length > MAX_PROPOSALS_EXAMINED) truncated = true;
     for (const proposal of proposals.slice(0, MAX_PROPOSALS_EXAMINED)) {
-      const metadata = proposal.deltaPayload.metadata;
-      if (metadata?.proposalType !== 'consume_notes') continue;
+      // Reached through optional chaining, not a bare dereference: one null
+      // entry or one missing `deltaPayload` in a remote list would otherwise
+      // throw past this loop and discard every note collected from the
+      // proposals before it — the opposite of the per-note isolation below.
+      const metadata = proposal?.deltaPayload?.metadata;
+      if (metadata === undefined || metadata === null) {
+        malformed++;
+        continue;
+      }
+      if (metadata.proposalType !== 'consume_notes') continue;
       if (metadata.consumeNotesMetadataVersion !== 2) {
         // A consume proposal in a shape this build cannot read may still be
         // carrying notes. Skipping it silently would let the pass finish clean
@@ -245,11 +254,11 @@ async function fetchProposalNotePayload(
     console.log(
       `[GuardianRecovery] Pending proposals for ${account.publicKey}: ${proposals.length} proposals, ` +
         `${proposalNoteBytes.length} embedded consume notes, ${undecodable} undecodable, ` +
-        `${unsupportedVersion} of an unsupported version`
+        `${unsupportedVersion} of an unsupported version, ${malformed} malformed`
     );
     return {
       proposalNoteBytes,
-      proposalFetchFailed: undecodable > 0 || truncated || unsupportedVersion > 0
+      proposalFetchFailed: undecodable > 0 || truncated || unsupportedVersion > 0 || malformed > 0
     };
   } catch (error) {
     console.warn(`[GuardianRecovery] Pending proposal lookup failed for ${account.publicKey}:`, error);
@@ -394,15 +403,30 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
       return result;
     }
 
-    // Source 2 is skipped on a resumed pass: a checkpoint at the `public` step
-    // can only have been written after it completed cleanly, and re-importing
-    // the same proposal notes is the expensive half to repeat.
+    // Source 2 is skipped on a resumed pass, because re-importing the same
+    // proposal notes is the expensive half to repeat. What makes that safe is
+    // `sourcesClean` on the record: reaching the `public` step does NOT by
+    // itself mean this source succeeded (a failure here only increments a
+    // counter and falls through), so the resume point is gated on the writing
+    // pass having been failure-free — see `resumePointFor`.
     if (resumeFromBlock === null) {
       // Source 2: notes embedded in pending consume proposals.
       await reportGuardianNoteRecoveryProgress({ accountId: account.publicKey, step: 'proposals' });
       try {
         context = await createGuardianClientContext(account);
       } catch (error) {
+        // The setup reads the account through the offscreen realm, so it can be
+        // aborted by a deadline kill like every other dispatch here — expected
+        // traffic, not a broken source. Counting it as a failure would strand
+        // the account for the rest of the backend's lifetime AND skip the
+        // public backfill, which needs this context for the creation block.
+        if (isAbortedOp(error)) {
+          result.deferred = true;
+          console.warn(
+            `[GuardianRecovery] Guardian client setup aborted with the offscreen realm for ${account.publicKey}`
+          );
+          return result;
+        }
         result.sourceFailures++;
         console.warn(`[GuardianRecovery] Guardian client setup failed for ${account.publicKey}:`, error);
       }

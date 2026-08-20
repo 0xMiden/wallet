@@ -365,29 +365,45 @@ export function persistNewHotKey(newHotPubKey: string, newHotCiphertext: string)
   });
 }
 
+// The guardian per-account writers below all read the accounts list and write it
+// back, so they join the same queue as create/import/rename and the recovery's
+// terminal flag write. They are the ones most likely to collide with it in
+// practice: `resolveGuardianDrift` fires them on unlock, which is exactly when
+// the recovery is running.
+//
+// Queued HERE rather than inside the Vault methods, because
+// `migrateLegacyGuardianAccounts` calls two of those methods while unlock
+// already holds this queue — queueing inside them would deadlock it.
+
 export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
-  return withUnlocked(async ({ vault }) => {
-    const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
-    // Push the updated WalletAccount[] into the Effector store so the frontStore
-    // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
-    // the old endpoint, so the Guardian Settings display stays stale and the next
-    // guardian sync rebuilds a service against the old operator.
-    accountsUpdated(updated);
-  });
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+      // Push the updated WalletAccount[] into the Effector store so the frontStore
+      // mapping fires StateUpdated. Without this the popup's Zustand snapshot keeps
+      // the old endpoint, so the Guardian Settings display stays stale and the next
+      // guardian sync rebuilds a service against the old operator.
+      accountsUpdated(updated);
+    })
+  );
 }
 
 export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
-  return withUnlocked(async ({ vault }) => {
-    const updated = await vault.setGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
-    accountsUpdated(updated);
-  });
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.setGuardianOperatorCommitment(accountPublicKey, guardianOperatorCommitment);
+      accountsUpdated(updated);
+    })
+  );
 }
 
 export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) {
-  return withUnlocked(async ({ vault }) => {
-    const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
-    accountsUpdated(updated);
-  });
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.setGuardianSyncStatus(accountPublicKey, guardianSyncStatus);
+      accountsUpdated(updated);
+    })
+  );
 }
 
 /**
@@ -418,17 +434,28 @@ export function startGuardianRecovery(accountPublicKey: string) {
  * guardian-sync loop calls this every 3s per guardian account, and on the
  * common no-op tick (nothing drifted) there's nothing new to broadcast.
  */
+/**
+ * The drift resolvers' vault adapter, with each accounts-list write on the
+ * single-writer queue. Only the individual writes are queued, not the whole
+ * resolution: it makes guardian HTTP calls between them, and holding the queue
+ * across those would stall an unrelated account create for as long as the
+ * operator takes to answer.
+ */
+function queuedDriftVaultAdapter(vault: Vault) {
+  return {
+    getAccount: async (pk: string) => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
+    setGuardianEndpoint: (pk: string, endpoint: string) =>
+      getAccountsWriteQueue().add(() => vault.setGuardianEndpoint(pk, endpoint)),
+    setGuardianOperatorCommitment: (pk: string, commitment: string) =>
+      getAccountsWriteQueue().add(() => vault.setGuardianOperatorCommitment(pk, commitment)),
+    setGuardianSyncStatus: (pk: string, status: GuardianSyncStatus) =>
+      getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status))
+  };
+}
+
 export function checkGuardianDrift(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
-    const { status, changed } = await resolveGuardianDrift(
-      {
-        getAccount: async pk => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
-        setGuardianEndpoint: (pk, endpoint) => vault.setGuardianEndpoint(pk, endpoint),
-        setGuardianOperatorCommitment: (pk, commitment) => vault.setGuardianOperatorCommitment(pk, commitment),
-        setGuardianSyncStatus: (pk, status) => vault.setGuardianSyncStatus(pk, status)
-      },
-      accountPublicKey
-    );
+    const { status, changed } = await resolveGuardianDrift(queuedDriftVaultAdapter(vault), accountPublicKey);
     if (changed) {
       const accounts = await vault.fetchAccounts();
       const currentAccount = await vault.getCurrentAccount();
@@ -448,16 +475,7 @@ export function checkGuardianDrift(accountPublicKey: string) {
  */
 export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: string) {
   return withUnlocked(async ({ vault }) => {
-    const applied = await applyVerifiedGuardianEndpoint(
-      {
-        getAccount: async pk => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
-        setGuardianEndpoint: (pk, ep) => vault.setGuardianEndpoint(pk, ep),
-        setGuardianOperatorCommitment: (pk, commitment) => vault.setGuardianOperatorCommitment(pk, commitment),
-        setGuardianSyncStatus: (pk, status) => vault.setGuardianSyncStatus(pk, status)
-      },
-      accountPublicKey,
-      endpoint
-    );
+    const applied = await applyVerifiedGuardianEndpoint(queuedDriftVaultAdapter(vault), accountPublicKey, endpoint);
     if (applied) {
       const accounts = await vault.fetchAccounts();
       const currentAccount = await vault.getCurrentAccount();
@@ -468,15 +486,17 @@ export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: st
 }
 
 export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {
-  return withUnlocked(async ({ vault }) => {
-    const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
-    // Push the updated WalletAccount[] into the Effector store so the
-    // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
-    // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
-    // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
-    // re-binds against the old hot key.
-    accountsUpdated(updated);
-  });
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+      // Push the updated WalletAccount[] into the Effector store so the
+      // frontStore mapping fires StateUpdated. Without this, the popup's Zustand
+      // `accounts[i].hotPublicKey` stays at the pre-rotation value, the next
+      // sync cycle reads the stale pubkey, and `getOrCreateMultisigService`
+      // re-binds against the old hot key.
+      accountsUpdated(updated);
+    })
+  );
 }
 
 export function getPublicKeyForCommitment(commitment: string) {
