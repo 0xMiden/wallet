@@ -1,6 +1,6 @@
 import React, { FC, ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-import { animate, motion, useMotionValue, useReducedMotion } from 'framer-motion';
+import { animate, motion, useDragControls, useMotionValue, useReducedMotion } from 'framer-motion';
 
 import Earn from 'app/pages/Earn';
 import Explore from 'app/pages/Explore';
@@ -63,6 +63,17 @@ function readTranslateX(el: HTMLElement): number {
   return new DOMMatrixReadOnly(transform).m41;
 }
 
+/**
+ * Mirrors framer's own `isElementTextInput`, the predicate it uses to decide a
+ * drag may not start. Kept in step with it deliberately: this file overrides
+ * that decision for touch, and an override has to test the same thing.
+ */
+const TEXT_INPUT_TAGS = new Set(['INPUT', 'SELECT', 'TEXTAREA']);
+
+function isTextInput(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (TEXT_INPUT_TAGS.has(target.tagName) || target.isContentEditable);
+}
+
 const HomeSwipeContainer: FC = () => {
   const { pathname } = useLocation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -76,6 +87,7 @@ const HomeSwipeContainer: FC = () => {
   // (tapping Send/Receive) animate `x` directly and are unaffected.
   const navbarHidden = useNavbarHidden();
   const reduceMotion = useReducedMotion();
+  const dragControls = useDragControls();
   // Index the release animation is already heading toward. The `navigate()` in
   // handleDragEnd re-runs the effect below on the next commit; without this
   // marker that effect would start a second, competing animation on `x`.
@@ -266,15 +278,41 @@ const HomeSwipeContainer: FC = () => {
   // Drag constraints clamp the track to its valid x-range, with a small
   // elastic overshoot for that rubber-band feel at the ends.
   const dragMaxLeft = width ? -(pages.length - 1) * width : 0;
+  const dragEnabled = !navbarHidden;
+
+  /**
+   * Runs before framer's own pointerdown listener on the track, for two reasons.
+   *
+   * It ends any in-flight release first, because framer reads the drag origin
+   * from `x` — stale while the compositor owns the transform — and would snap the
+   * track back to the spot the last finger left.
+   *
+   * Then it starts the drag itself when the finger landed on a text field.
+   * Framer declines to in that case (its `isClickingTextInputChild` check), so
+   * that dragging inside a field selects text rather than dragging the parent.
+   * That trade is wrong for a full-screen carousel on touch: the swap screen's
+   * two amount fields are full-width and ~64px tall, so most of that screen
+   * silently refused to swipe. iOS selects text by long-press and double-tap,
+   * neither of which a pan session interferes with — framer's drag never calls
+   * `preventDefault`, and only claims the gesture once it passes a 3px
+   * threshold, so a tap still focuses the field and opens the keyboard.
+   *
+   * Mouse and pen keep framer's behaviour, where dragging across a field to
+   * select text is the expected thing. Nothing starts while `data-hide-navbar`
+   * is up, so a focused field with the keyboard open is untouched by this (#481).
+   */
+  const handlePointerDownCapture = (event: React.PointerEvent) => {
+    endRelease(true);
+    if (dragEnabled && event.pointerType === 'touch' && isTextInput(event.target)) {
+      dragControls.start(event);
+    }
+  };
 
   return (
     <div
       ref={containerRef}
       className="h-full w-full overflow-hidden touch-pan-y bg-app-bg"
-      // Capture phase, so this runs before framer's own listener on the track
-      // records the drag origin from `x` — which is stale while a release is in
-      // flight, and would snap the track back to the last finger position.
-      onPointerDownCapture={() => endRelease(true)}
+      onPointerDownCapture={handlePointerDownCapture}
     >
       <motion.div
         ref={trackRef}
@@ -289,7 +327,11 @@ const HomeSwipeContainer: FC = () => {
         // descendants, so any future home-page child needing viewport-fixed
         // placement must portal out of the track (today's drawers/modals do).
         style={{ x, width: `${pages.length * 100}%`, willChange: 'transform' }}
-        drag={navbarHidden ? false : 'x'}
+        drag={dragEnabled ? 'x' : false}
+        // Only used by `handlePointerDownCapture`, for the gestures framer's own
+        // listener refuses to start. Everything else still goes through that
+        // listener, so passing this doesn't change the ordinary path.
+        dragControls={dragControls}
         dragDirectionLock
         dragConstraints={{ left: dragMaxLeft, right: 0 }}
         dragElastic={0.15}

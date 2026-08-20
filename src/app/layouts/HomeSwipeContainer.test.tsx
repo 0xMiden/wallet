@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, act } from '@testing-library/react';
+import { render, act, fireEvent } from '@testing-library/react';
 
 import HomeSwipeContainer from './HomeSwipeContainer';
 
@@ -13,19 +13,43 @@ import HomeSwipeContainer from './HomeSwipeContainer';
 const mockNavigate = jest.fn();
 let mockPathname = '/';
 const mockSwapEnabled = { value: true };
+const mockReduceMotion = { value: false };
 
 const mockAnimateStop = jest.fn();
 const mockAnimate = jest.fn((..._args: unknown[]) => ({ stop: mockAnimateStop }));
-const mockMotionSet = jest.fn();
-const mockMotionValue = { set: mockMotionSet, get: () => 0 };
+// The motion value is stateful here, because the release path reads it back:
+// `snapToPage` derives both the release velocity and the committed page from
+// `x.get()`, so a `get` pinned to 0 would make every one of those tests agree
+// with itself and nothing else.
+let mockX = 0;
+const mockMotionSet = jest.fn((value: number) => {
+  mockX = value;
+});
+const mockMotionValue = { set: mockMotionSet, get: () => mockX };
 
-// The single `motion.div` in the component is the draggable track. We stash
-// its `onDragEnd` handler on each render so tests can drive the pan gesture
-// directly (framer-motion's real drag needs a pointer pipeline jsdom lacks).
+const mockDragStart = jest.fn();
+const mockDragControls = { start: mockDragStart };
+const mockBoostRefreshRate = jest.fn();
+
+// The spring is solved into a `linear()` easing before the release starts. The
+// null-below-half-a-pixel rule is the real one's, and matters: it's the branch a
+// snap-back-to-the-same-place takes.
+const mockSpringToLinearEasing = jest.fn((_transition: unknown, { distance }: { distance: number }) =>
+  Math.abs(distance) < 0.5 ? null : { duration: 340, easing: 'linear(0,0.5,1)' }
+);
+
+// The single `motion.div` in the component is the draggable track. We stash its
+// handlers on each render so tests can drive the gesture directly (framer's real
+// drag needs a pointer pipeline jsdom lacks).
 let mockLastDragEnd: ((e: unknown, info: unknown) => void) | null = null;
 let mockLastDragConstraints: unknown = null;
 // #481 — the `drag` prop toggles between 'x' (swipe enabled) and false (locked).
 let mockLastDrag: unknown = null;
+// The snap is chosen and started inside `modifyTarget`, which framer calls while
+// it handles pointer-up — a frame before `onDragEnd`. That ordering is the whole
+// point of the release path, so the tests drive it in that order too.
+let mockLastModifyTarget: ((ideal: number) => number) | null = null;
+let mockLastDragControlsProp: unknown = null;
 
 // framer-motion: `motion.div` -> passthrough div (drag props stripped so React
 // doesn't warn/attempt to render them). `animate`/`useMotionValue` are stubbed.
@@ -41,11 +65,15 @@ jest.mock('framer-motion', () => {
       dragDirectionLock,
       dragElastic,
       dragMomentum,
+      dragTransition,
+      dragControls,
       style,
       ...rest
     } = props;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
+    if (dragTransition) mockLastModifyTarget = dragTransition.modifyTarget;
+    if (dragControls !== undefined) mockLastDragControlsProp = dragControls;
     mockLastDrag = drag;
     return ReactActual.createElement('div', { ref, ...rest }, children);
   });
@@ -53,7 +81,9 @@ jest.mock('framer-motion', () => {
     __esModule: true,
     motion: new Proxy({}, { get: () => passthrough }),
     animate: (...args: unknown[]) => mockAnimate(...args),
-    useMotionValue: () => mockMotionValue
+    useMotionValue: () => mockMotionValue,
+    useReducedMotion: () => mockReduceMotion.value,
+    useDragControls: () => mockDragControls
   };
 });
 
@@ -64,10 +94,19 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ pathname: mockPathname })
 }));
 
-// The spring config is just an opaque object as far as the (mocked) animate is
-// concerned.
 jest.mock('lib/animation', () => ({
-  springs: { standard: { type: 'spring', stiffness: 1 } }
+  springs: {
+    standard: { type: 'spring', stiffness: 1 },
+    dragRelease: { type: 'spring', stiffness: 2, damping: 3 }
+  },
+  // Reduced motion is asserted through the spring solver instead, which is where
+  // the component actually branches on it.
+  resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
+  springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
+}));
+
+jest.mock('lib/mobile/high-refresh-rate', () => ({
+  boostRefreshRate: (...args: unknown[]) => mockBoostRefreshRate(...args)
 }));
 
 // Child pages pull in the full wallet/SDK stack — stub each to a marker div.
@@ -87,9 +126,15 @@ jest.mock('screens/send-flow/SendManager', () => ({
   __esModule: true,
   SendFlow: ({ isLoading }: { isLoading?: boolean }) => <div data-testid="page-send" data-loading={String(isLoading)} />
 }));
+// The swap pane carries the amount fields whose `<input>` made framer refuse to
+// start a drag, so this stub keeps one.
 jest.mock('screens/swap-flow/SwapManager', () => ({
   __esModule: true,
-  SwapFlow: () => <div data-testid="page-swap" />
+  SwapFlow: () => (
+    <div data-testid="page-swap">
+      <input data-testid="swap-amount-input" />
+    </div>
+  )
 }));
 
 // Swap availability is gated by isSwapEnabled (false on iOS); toggle it to
@@ -121,8 +166,39 @@ class MockResizeObserver {
   }
 }
 
+// The release runs on the compositor through the Web Animations API, which jsdom
+// has none of. Each animation is captured so tests can assert what the
+// compositor was handed, and drive its completion.
+interface MockRelease {
+  keyframes: unknown;
+  options: { duration: number; easing: string; fill: string };
+  cancel: jest.Mock;
+  onfinish: (() => void) | null;
+}
+let mockReleases: MockRelease[] = [];
+
 beforeAll(() => {
   (global as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;
+
+  (Element.prototype as unknown as { animate: unknown }).animate = function (
+    keyframes: unknown,
+    options: MockRelease['options']
+  ) {
+    const release: MockRelease = { keyframes, options, cancel: jest.fn(), onfinish: null };
+    mockReleases.push(release);
+    return release;
+  };
+
+  // Enough of DOMMatrixReadOnly to read back a translateX, which is all the
+  // component asks of it — and asking is the point: adopting the *on-screen*
+  // position is what stops an interrupted release from jumping.
+  (global as unknown as { DOMMatrixReadOnly: unknown }).DOMMatrixReadOnly = class {
+    m41: number;
+    constructor(transform: string) {
+      const match = /translateX\((-?[\d.]+)px\)/.exec(transform);
+      this.m41 = match ? Number(match[1]) : 0;
+    }
+  };
 });
 
 beforeEach(() => {
@@ -131,8 +207,13 @@ beforeEach(() => {
   mockLastDragEnd = null;
   mockLastDragConstraints = null;
   mockLastDrag = null;
+  mockLastModifyTarget = null;
+  mockLastDragControlsProp = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
+  mockReduceMotion.value = false;
+  mockX = 0;
+  mockReleases = [];
   document.body.removeAttribute('data-hide-navbar');
 });
 
@@ -147,15 +228,45 @@ function measure(width: number) {
   });
 }
 
-// Fire the captured onDragEnd handler with a synthetic PanInfo.
-function dragEnd(offsetX: number, velocityX = 0) {
+/**
+ * Put the track at rest on a page. The mount effect animates there through the
+ * (mocked) `animate`, which never moves the value, so a test starting anywhere
+ * but index 0 has to say so.
+ */
+function settleAt(x: number) {
+  mockX = x;
+}
+
+/**
+ * Play a release the way framer does: `modifyTarget` with the coasting target it
+ * projected from the finger, then `onDragEnd` once the frame ends.
+ *
+ * Returns what `modifyTarget` handed back, which is framer's own momentum target.
+ */
+function release(idealX: number): number | undefined {
+  let parked: number | undefined;
   act(() => {
+    parked = mockLastModifyTarget?.(idealX);
     mockLastDragEnd?.(null, {
-      offset: { x: offsetX, y: 0 },
-      velocity: { x: velocityX, y: 0 },
+      offset: { x: 0, y: 0 },
+      velocity: { x: 0, y: 0 },
       point: { x: 0, y: 0 },
       delta: { x: 0, y: 0 }
     });
+  });
+  return parked;
+}
+
+/**
+ * jsdom has no PointerEvent, and `fireEvent.pointerDown` silently drops
+ * `pointerType` when it falls back to `Event` — which is the one field the
+ * handler branches on, so it is set explicitly here.
+ */
+function pointerDown(node: Element, pointerType: 'touch' | 'mouse') {
+  const event = new Event('pointerdown', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'pointerType', { value: pointerType });
+  act(() => {
+    fireEvent(node, event);
   });
 }
 
@@ -249,8 +360,8 @@ describe('HomeSwipeContainer', () => {
       act(() => {
         mockRoCallback?.([{ contentRect: { width: 0 } }]);
       });
-      // width stayed 0 -> dragging is a no-op (early return in handleDragEnd).
-      dragEnd(-1000);
+      // width stayed 0 -> the release is a no-op (early return in snapToPage).
+      release(-1000);
       expect(mockNavigate).not.toHaveBeenCalled();
     });
 
@@ -259,73 +370,165 @@ describe('HomeSwipeContainer', () => {
       act(() => {
         mockRoCallback?.([]); // entries[0] undefined -> w = 0
       });
-      dragEnd(-1000);
+      release(-1000);
       expect(mockNavigate).not.toHaveBeenCalled();
     });
   });
 
-  describe('handleDragEnd', () => {
-    it('is a no-op while width is unmeasured (0)', () => {
-      mockPathname = '/';
-      render(<HomeSwipeContainer />);
-      dragEnd(-1000, -1000);
-      expect(mockNavigate).not.toHaveBeenCalled();
-    });
-
-    it('advances to the next page when dragged left past the threshold', () => {
-      mockPathname = '/'; // index 0
-      render(<HomeSwipeContainer />);
-      measure(300); // threshold = 0.3 * 300 = 90
-      dragEnd(-200); // projected -200 < -90
-      expect(mockNavigate).toHaveBeenCalledWith('/send');
-    });
-
-    it('uses fling velocity projection to commit even on a short drag', () => {
+  describe('committing a release', () => {
+    // `modifyTarget` receives framer's coasting target, `origin + power * velocity`
+    // with power 0.8, and commits when 300ms of that velocity would carry the
+    // track past 30% of a page. At width 300 and rest, that is a target beyond
+    // -240: velocity -375px/s, projected -112.5px, past the -90px threshold.
+    it('advances to the next page when the flick projects past the threshold', () => {
       mockPathname = '/'; // index 0
       render(<HomeSwipeContainer />);
       measure(300);
-      // offset -50 alone is short of -90, but velocity adds -500 * 0.3 = -150.
-      dragEnd(-50, -500);
+      release(-300);
       expect(mockNavigate).toHaveBeenCalledWith('/send');
     });
 
-    it('goes to the previous page when dragged right past the threshold', () => {
+    it('goes to the previous page when flicked the other way', () => {
       mockPathname = '/receive'; // index 2
       render(<HomeSwipeContainer />);
       measure(300);
-      dragEnd(200); // projected 200 > 90, index > 0 -> previous
+      settleAt(-600);
+      release(-300); // velocity +375 -> projected +112.5
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('stays put when the flick is too weak to project past the threshold', () => {
+      mockPathname = '/send'; // index 1
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      release(-310); // velocity -12.5 -> projected -3.75
+      expect(mockNavigate).not.toHaveBeenCalled();
     });
 
     it('cannot advance past the last page', () => {
       mockPathname = '/swap'; // index 4 (last)
       render(<HomeSwipeContainer />);
       measure(300);
-      mockAnimate.mockClear();
-      dragEnd(-1000); // projected far left but activeIdx === PAGES.length - 1
+      settleAt(-1200);
+      release(-1500);
       expect(mockNavigate).not.toHaveBeenCalled();
-      // No index change -> snap back animate to the current resting position.
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -1200, expect.anything());
+      // Same page, so the release has nowhere to travel: no compositor animation,
+      // and the resting position is restored directly.
+      expect(mockReleases).toHaveLength(0);
+      expect(mockMotionSet).toHaveBeenCalledWith(-1200);
     });
 
     it('cannot go before the first page', () => {
       mockPathname = '/'; // index 0 (first)
       render(<HomeSwipeContainer />);
       measure(300);
-      mockAnimate.mockClear();
-      dragEnd(1000); // projected far right but activeIdx === 0
+      release(300);
       expect(mockNavigate).not.toHaveBeenCalled();
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+      expect(mockReleases).toHaveLength(0);
     });
 
-    it('snaps back (no navigation) when the drag is below the threshold', () => {
-      mockPathname = '/send'; // index 1
+    it('parks framer\u2019s own momentum on the spot the finger left', () => {
+      mockPathname = '/';
       render(<HomeSwipeContainer />);
       measure(300);
-      mockAnimate.mockClear();
-      dragEnd(-10); // |projected| < 90 -> newIdx === activeIdx
+      settleAt(-42);
+      // Returning the origin leaves framer's inertia animation nothing to travel,
+      // so it cannot fight the compositor for the transform.
+      expect(release(-300)).toBe(-42);
+    });
+
+    it('is a no-op while width is unmeasured (0)', () => {
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      // Without a width there is no page geometry, so framer's own target is
+      // handed straight back.
+      expect(release(-1000)).toBe(-1000);
       expect(mockNavigate).not.toHaveBeenCalled();
-      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -300, expect.anything());
+    });
+  });
+
+  describe('the release animation', () => {
+    it('hands the compositor a single transform animation from the finger to the page', () => {
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-120);
+      release(-300);
+
+      expect(mockReleases).toHaveLength(1);
+      expect(mockReleases[0].keyframes).toEqual([
+        { transform: 'translateX(-120px)' },
+        { transform: 'translateX(-300px)' }
+      ]);
+      // `fill: forwards` holds the landing position; without it the transform
+      // reverts to framer's stale inline value for a frame.
+      expect(mockReleases[0].options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
+    });
+
+    it('seeds the spring with the release velocity, so the snap continues the flick', () => {
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockSpringToLinearEasing).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ distance: 300, velocity: -375 })
+      );
+    });
+
+    it('asks for the display\u2019s full refresh rate only for the animation\u2019s duration', () => {
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockBoostRefreshRate).toHaveBeenCalledWith(340);
+    });
+
+    it('syncs the motion value to the target once the animation finishes', () => {
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      mockMotionSet.mockClear();
+      act(() => {
+        mockReleases[0].onfinish?.();
+      });
+      expect(mockMotionSet).toHaveBeenCalledWith(-300);
+      // Deliberately not cancelled here: dropping the compositor's hold before
+      // framer's next render would show the stale transform for a frame.
+      expect(mockReleases[0].cancel).not.toHaveBeenCalled();
+    });
+
+    it('jumps straight to the page when reduced motion is on', () => {
+      mockReduceMotion.value = true;
+      mockPathname = '/';
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockReleases).toHaveLength(0);
+      expect(mockMotionSet).toHaveBeenCalledWith(-300);
+      expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('adopts the on-screen position when a finger interrupts a release', () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+
+      // Mid-flight the compositor owns the transform; pretend it has carried the
+      // track to -180 while framer still believes the finger's last position.
+      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
+      track.style.transform = 'translateX(-180px)';
+      mockMotionSet.mockClear();
+
+      pointerDown(getByTestId('page-explore'), 'touch');
+
+      // Read and written before the hold is dropped — the other order leaves one
+      // frame of the stale transform, which measured as a 172px backward jump.
+      expect(mockMotionSet).toHaveBeenCalledWith(-180);
+      expect(mockReleases[0].cancel).toHaveBeenCalled();
     });
   });
 
@@ -375,6 +578,39 @@ describe('HomeSwipeContainer', () => {
     });
   });
 
+  describe('swiping from a text field', () => {
+    // framer refuses to start a drag when the gesture lands on a form control, so
+    // that dragging inside one selects text. The swap screen's two amount fields
+    // are full-width and ~64px tall, which left most of that screen unable to
+    // swipe, so touch gestures start the drag here instead.
+    it('starts the drag itself for a touch that lands on an input', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      pointerDown(getByTestId('swap-amount-input'), 'touch');
+      expect(mockDragStart).toHaveBeenCalledTimes(1);
+      // Manual starts need framer's controls on the track, or they go nowhere.
+      expect(mockLastDragControlsProp).toBe(mockDragControls);
+    });
+
+    it('leaves a mouse on an input to framer, so drag-to-select still works', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      pointerDown(getByTestId('swap-amount-input'), 'mouse');
+      expect(mockDragStart).not.toHaveBeenCalled();
+    });
+
+    it('leaves touches on ordinary content to framer\u2019s own listener', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      pointerDown(getByTestId('page-earn'), 'touch');
+      expect(mockDragStart).not.toHaveBeenCalled();
+    });
+
+    it('starts nothing while the swipe is locked (#481)', () => {
+      document.body.setAttribute('data-hide-navbar', '');
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      pointerDown(getByTestId('swap-amount-input'), 'touch');
+      expect(mockDragStart).not.toHaveBeenCalled();
+    });
+  });
+
   describe('cleanup', () => {
     it('disconnects the ResizeObserver and stops the animation on unmount', () => {
       const { unmount } = render(<HomeSwipeContainer />);
@@ -382,6 +618,15 @@ describe('HomeSwipeContainer', () => {
       unmount();
       expect(mockRoDisconnect).toHaveBeenCalled();
       expect(mockAnimateStop).toHaveBeenCalled();
+    });
+
+    it('cancels an in-flight release on unmount', () => {
+      mockPathname = '/';
+      const { unmount } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      unmount();
+      expect(mockReleases[0].cancel).toHaveBeenCalled();
     });
   });
 });
