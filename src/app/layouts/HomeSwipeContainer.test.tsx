@@ -180,6 +180,13 @@ let mockReleases: MockRelease[] = [];
 beforeAll(() => {
   (global as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;
 
+  // The landing check defers itself by a frame, so framer's own release path runs
+  // first. Run it inline instead of making every test pump a clock.
+  (global as unknown as { requestAnimationFrame: unknown }).requestAnimationFrame = (cb: (t: number) => void) => {
+    cb(0);
+    return 0;
+  };
+
   (Element.prototype as unknown as { animate: unknown }).animate = function (
     keyframes: unknown,
     options: MockRelease['options']
@@ -237,6 +244,13 @@ function settleAt(x: number) {
   mockX = x;
 }
 
+/** The release in flight, asserting there is one. */
+function releaseInFlight(): MockRelease {
+  const animation = mockReleases[mockReleases.length - 1];
+  if (!animation) throw new Error('expected a compositor release to have been started');
+  return animation;
+}
+
 /**
  * Play a release the way framer does: `modifyTarget` with the coasting target it
  * projected from the finger, then `onDragEnd` once the frame ends.
@@ -262,12 +276,25 @@ function release(idealX: number): number | undefined {
  * `pointerType` when it falls back to `Event` — which is the one field the
  * handler branches on, so it is set explicitly here.
  */
-function pointerDown(node: Element, pointerType: 'touch' | 'mouse') {
+function pointerDown(node: Element, pointerType: 'touch' | 'mouse'): Event {
   const event = new Event('pointerdown', { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'pointerType', { value: pointerType });
   act(() => {
     fireEvent(node, event);
   });
+  return event;
+}
+
+function pointerUp(node: Element) {
+  act(() => {
+    fireEvent(node, new Event('pointerup', { bubbles: true, cancelable: true }));
+  });
+}
+
+/** A touch that lands and lifts without travelling far enough to drag. */
+function tap(node: Element) {
+  pointerDown(node, 'touch');
+  pointerUp(node);
 }
 
 describe('HomeSwipeContainer', () => {
@@ -457,13 +484,13 @@ describe('HomeSwipeContainer', () => {
       release(-300);
 
       expect(mockReleases).toHaveLength(1);
-      expect(mockReleases[0].keyframes).toEqual([
+      expect(releaseInFlight().keyframes).toEqual([
         { transform: 'translateX(-120px)' },
         { transform: 'translateX(-300px)' }
       ]);
       // `fill: forwards` holds the landing position; without it the transform
       // reverts to framer's stale inline value for a frame.
-      expect(mockReleases[0].options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
+      expect(releaseInFlight().options).toEqual({ duration: 340, easing: 'linear(0,0.5,1)', fill: 'forwards' });
     });
 
     it('seeds the spring with the release velocity, so the snap continues the flick', () => {
@@ -492,12 +519,12 @@ describe('HomeSwipeContainer', () => {
       release(-300);
       mockMotionSet.mockClear();
       act(() => {
-        mockReleases[0].onfinish?.();
+        releaseInFlight().onfinish?.();
       });
       expect(mockMotionSet).toHaveBeenCalledWith(-300);
       // Deliberately not cancelled here: dropping the compositor's hold before
       // framer's next render would show the stale transform for a frame.
-      expect(mockReleases[0].cancel).not.toHaveBeenCalled();
+      expect(releaseInFlight().cancel).not.toHaveBeenCalled();
     });
 
     it('jumps straight to the page when reduced motion is on', () => {
@@ -528,7 +555,50 @@ describe('HomeSwipeContainer', () => {
       // Read and written before the hold is dropped — the other order leaves one
       // frame of the stale transform, which measured as a 172px backward jump.
       expect(mockMotionSet).toHaveBeenCalledWith(-180);
-      expect(mockReleases[0].cancel).toHaveBeenCalled();
+      expect(releaseInFlight().cancel).toHaveBeenCalled();
+    });
+
+    it('lands the track on its page when a tap stops a release', () => {
+      mockPathname = '/';
+      const { getByTestId, rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+
+      // The route commits the moment the finger lifts, so by now the active page
+      // is already the one the release is travelling to.
+      mockPathname = '/send';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
+      track.style.transform = 'translateX(-180px)';
+      mockAnimate.mockClear();
+
+      tap(getByTestId('page-explore'));
+
+      // Without this the track stays at -180: framer starts no drag for a tap, and
+      // the resting-position effect won't re-run for an index that didn't change,
+      // so it sat stranded showing two pages at once.
+      expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -300, expect.anything());
+    });
+
+    it('does nothing when a tap lands on a track already at rest', () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      mockAnimate.mockClear();
+      tap(getByTestId('page-earn'));
+      expect(mockAnimate).not.toHaveBeenCalled();
+    });
+
+    it('leaves the landing to the release when the gesture was a drag', () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300); // a drag's own release is in flight
+      mockAnimate.mockClear();
+      pointerUp(getByTestId('page-explore'));
+      expect(mockAnimate).not.toHaveBeenCalled();
     });
   });
 
@@ -609,6 +679,22 @@ describe('HomeSwipeContainer', () => {
       pointerDown(getByTestId('swap-amount-input'), 'touch');
       expect(mockDragStart).not.toHaveBeenCalled();
     });
+
+    it('does not focus a field tapped mid-transition', () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      // The fields are moving at that moment, so which one is under the finger is
+      // accidental — and the keyboard would interrupt the transition it stopped.
+      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(true);
+    });
+
+    it('lets a tap focus a field while nothing is animating', () => {
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
+    });
   });
 
   describe('cleanup', () => {
@@ -626,7 +712,7 @@ describe('HomeSwipeContainer', () => {
       measure(300);
       release(-300);
       unmount();
-      expect(mockReleases[0].cancel).toHaveBeenCalled();
+      expect(releaseInFlight().cancel).toHaveBeenCalled();
     });
   });
 });

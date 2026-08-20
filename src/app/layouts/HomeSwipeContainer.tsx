@@ -302,10 +302,43 @@ const HomeSwipeContainer: FC = () => {
    * is up, so a focused field with the keyboard open is untouched by this (#481).
    */
   const handlePointerDownCapture = (event: React.PointerEvent) => {
+    const interruptingRelease = releaseRef.current !== null;
     endRelease(true);
+    // A touch that lands mid-transition means "stop", and shouldn't also land on
+    // the control underneath: the fields are still moving, so which one the finger
+    // is over is accidental, and the keyboard it would raise interrupts the
+    // transition it just stopped. Cancelling the pointerdown suppresses the focus
+    // without affecting the pan session, which framer starts regardless.
+    if (interruptingRelease && isTextInput(event.target)) event.preventDefault();
     if (dragEnabled && event.pointerType === 'touch' && isTextInput(event.target)) {
       dragControls.start(event);
     }
+  };
+
+  /**
+   * Lands the track on its page when a touch stopped a release without going on
+   * to drag.
+   *
+   * The route is committed the moment the finger lifts, so by the time a release
+   * is in flight nothing downstream is still waiting to move the track: framer
+   * starts no drag for a tap, and the resting-position effect won't re-run for an
+   * index that hasn't changed. Interrupting therefore used to leave the track
+   * wherever the compositor had got to — stranded between two pages, showing
+   * both at once.
+   *
+   * Deferred by a frame so framer's own release path has run first: if this
+   * gesture was a drag, `snapToPage` has started a release by then and there is
+   * nothing to recover. Phrased as "is the track off its resting position" rather
+   * than tracked with a flag, so it also catches a second tap interrupting this
+   * very animation, and any future path that leaves the track adrift.
+   */
+  const landAfterInterruptedRelease = () => {
+    requestAnimationFrame(() => {
+      if (releaseRef.current || !width) return;
+      const resting = -activeIdx * width;
+      if (Math.abs(x.get() - resting) < 0.5) return;
+      animate(x, resting, resolveTransition(reduceMotion, springs.standard));
+    });
   };
 
   return (
@@ -313,6 +346,8 @@ const HomeSwipeContainer: FC = () => {
       ref={containerRef}
       className="h-full w-full overflow-hidden touch-pan-y bg-app-bg"
       onPointerDownCapture={handlePointerDownCapture}
+      onPointerUpCapture={landAfterInterruptedRelease}
+      onPointerCancelCapture={landAfterInterruptedRelease}
     >
       <motion.div
         ref={trackRef}
