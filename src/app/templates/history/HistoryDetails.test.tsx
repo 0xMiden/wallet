@@ -378,6 +378,72 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('historyDetailsLoadError')).toBeInTheDocument();
     });
 
+    it('does not let a stale rejection replace a receipt that already rendered', async () => {
+      // Reloads overlap by design (a queued row reloads every 3s), and the
+      // success path is generation-guarded while the catch was not. So an older
+      // load rejecting after a newer one had rendered replaced a perfectly good
+      // receipt with the error screen — permanently, because the load effect is
+      // gated on `!loadError` and that screen offers no retry.
+      // Queued keeps the 3s reload interval alive, which is what makes loads
+      // overlap in the first place.
+      const queuedRow = { ...baseSendTx, status: 0 };
+      let rejectStale: (reason: Error) => void = () => {};
+      mockGetTransactionById
+        .mockResolvedValueOnce(queuedRow)
+        .mockImplementationOnce(
+          () =>
+            new Promise((_resolve, reject) => {
+              rejectStale = reject;
+            })
+        )
+        .mockResolvedValue(queuedRow);
+
+      await renderAndLoad();
+
+      // Second load starts and hangs; the third supersedes it and renders.
+      await act(async () => {
+        jest.advanceTimersByTime(3000);
+      });
+      await flush();
+      await act(async () => {
+        jest.advanceTimersByTime(3000);
+      });
+      await flush();
+
+      // Only now does the superseded load fail.
+      await act(async () => {
+        rejectStale(new Error('stale-boom'));
+        await Promise.resolve();
+      });
+      await flush();
+
+      expect(screen.queryByText('stale-boom')).not.toBeInTheDocument();
+      expect(screen.queryByText('smthWentWrong')).not.toBeInTheDocument();
+    });
+
+    it('still renders the swap receipt when the settlement-note lookup fails', async () => {
+      // The notes enrich the receipt; they are not what it is for. Sharing the
+      // main try meant one failed Dexie scan replaced the whole receipt with an
+      // error screen that never retried.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockGetSwapSettlementNotes.mockRejectedValue(new Error('dexie-down'));
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'swap',
+        amount: undefined,
+        faucetId: 'faucet-1',
+        outputNoteIds: undefined,
+        transactionId: undefined,
+        extraInputs: { orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, expiresAt: 1_700_000_120 }
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.queryByText('dexie-down')).not.toBeInTheDocument();
+      expect(screen.queryByText('smthWentWrong')).not.toBeInTheDocument();
+    });
+
     it('calls goBack when the header back button is pressed', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
       await renderAndLoad();
@@ -1144,7 +1210,11 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('swapFillNote_1')).toBeInTheDocument();
     });
 
-    it('stops reading settlement notes once the order is terminal and something was seen', async () => {
+    it('never scans for a receipt that was already settled when it was opened', async () => {
+      // The scan is an unindexed read of the transactions table, and a receipt
+      // opened after the fact has nothing to wait for. This is the counterweight
+      // to the sibling-consume tail below: that tail must be earned by actually
+      // watching the order unsettled, not handed to every old swap the user opens.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       mockTrackOrderId.mockResolvedValue({
         orderId: '42',
@@ -1326,6 +1396,86 @@ describe('HistoryDetails', () => {
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
     });
 
+    it('reports the fill as unknown, not as smaller, when a consume cannot be attributed', async () => {
+      // With no lineage the fill is inferred by summing the settled consumes'
+      // amounts. A row whose notes were split across consumes carries no usable
+      // amount, so the sum is incomplete — and an incomplete sum is not a
+      // smaller fill, it is an unknown one. Adding up only the rows that happen
+      // to have amounts stated 400 of 1000 where 600 arrived, which understates
+      // the money as confidently as the old double-count overstated it.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a', 'note-b'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['note-a'],
+            amount: 400n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          },
+          {
+            id: 'consume-2',
+            transactionId: 'chain-2',
+            noteIds: ['note-b'],
+            amount: undefined,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_200
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
+      expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
+    });
+
+    it('still sums the fill when an unattributable consume is for the other side of the swap', async () => {
+      // The offered-token tip comes back in its own consume and legitimately has
+      // no bearing on the requested side, so it must not poison the total the way
+      // an unattributable requested-token row does.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a', 'tip-note'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['note-a'],
+            amount: 400n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          },
+          {
+            id: 'consume-2',
+            transactionId: 'chain-2',
+            noteIds: ['tip-note'],
+            amount: undefined,
+            faucetId: 'offered-faucet',
+            completedAt: 1_700_000_200
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+    });
+
     it('keeps the claim route for a legacy order the wallet will never settle on its own', async () => {
       // Orders persisted before expiry stamping have no `expiresAt`, and
       // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
@@ -1505,6 +1655,41 @@ describe('HistoryDetails', () => {
       });
 
       expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
+    });
+
+    it('picks up a sibling consume that lands after the order is already terminal', async () => {
+      // Settlement bundles whatever has synced this tick, so a payback that syncs
+      // later arrives in a SECOND consume — after the lineage has already gone
+      // terminal. Treating the first observed note as completeness stopped the
+      // scan there and left that fill off the receipt until the screen was
+      // reopened.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 2,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+      await renderAndLoad();
+
+      // First consume lands while the page watches; the lineage is already terminal.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-1'], reclaimed: [] });
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await flush();
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-1');
+
+      // Its sibling lands two ticks later.
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-1', 'note-2'], reclaimed: [] });
+      await act(async () => {
+        jest.advanceTimersByTime(4000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-2');
     });
   });
 

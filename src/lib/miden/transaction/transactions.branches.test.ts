@@ -472,6 +472,45 @@ describe('getSwapSettlementNotes', () => {
     expect(notes.settledTransactions.map(tx => tx.noteIds)).toEqual([['n-1'], ['n-2']]);
   });
 
+  it('reports no amount for a row whose notes were split across consumes', async () => {
+    // `amount` is an aggregate over the row's whole note list, so it stops
+    // describing the row once part of that list belongs to an earlier consume.
+    // Keeping it overstated the money: 400 + 600 read as 1000 received where
+    // only 600 arrived. There is no per-note breakdown to split it with, so the
+    // honest value is "unknown" — which the receipt renders as such.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        amount: 400n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        amount: 600n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => [tx.id, tx.noteIds, tx.amount])).toEqual([
+      ['c-1', ['n-1'], 400n],
+      ['c-2', ['n-2'], undefined]
+    ]);
+  });
+
   it('orders same-second consumes by chain id so every device numbers the fills alike', async () => {
     // `completedAt` is a one-second local stamp and auto-consume settles a batch
     // within one tick, so ties are ordinary. Falling through to the Dexie scan's

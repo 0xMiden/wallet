@@ -92,6 +92,40 @@ interface SwapExtraInputs {
   expiresAt?: number;
 }
 
+/**
+ * How much of the requested token this wallet can actually prove it received,
+ * from the settlement consumes alone — the only fill evidence left when the
+ * order's lineage is unresolvable (a restored wallet, or a poll that gave up).
+ *
+ * Returns undefined for "cannot tell", which is deliberately distinct from 0n.
+ * A partial accounting is not a smaller fill, and understating what arrived is
+ * as wrong as overstating it, so a single consume that cannot be attributed
+ * makes the whole total unknown. That happens when the row records no faucet to
+ * compare, or no usable amount: `amount` is an aggregate over the row's whole
+ * note list, so it stops describing the row once part of that list has been
+ * attributed to an earlier consume.
+ */
+const locallySettledRequestedAmount = (
+  settledTransactions: SwapSettlementNotes['settledTransactions'],
+  requestedFaucetId: string | undefined
+): bigint | undefined => {
+  if (requestedFaucetId === undefined) return undefined;
+
+  let total = 0n;
+  for (const consume of settledTransactions) {
+    // Tri-state on purpose: `false` is "another token, contributes nothing",
+    // `undefined` is "no faucet recorded, so it may well have been the
+    // requested one" — not the same answer.
+    const deliveredRequested =
+      consume.faucetId === undefined ? undefined : compareAccountIds(consume.faucetId, requestedFaucetId);
+    if (deliveredRequested === false) continue;
+    if (deliveredRequested === undefined || consume.amount === undefined) return undefined;
+    total += consume.amount;
+  }
+
+  return total;
+};
+
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
   /** Undefined for rows persisted without a requested amount — unknown, not zero. */
@@ -268,6 +302,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // chasing. A ref, not a dep: making it one would restart the poll — and its
   // backoff — the moment the settlement it is racing arrives.
   const settlementFoundRef = useRef(false);
+  // Whether this page has ever seen the order unsettled, which is what separates
+  // "settlement is landing while we watch" from "this receipt was already
+  // complete when it was opened".
+  const watchedUnsettledRef = useRef(false);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
   // Guards the earn-withdraw delivery poller so it is (re)started at most once per
@@ -396,12 +434,27 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
 
       if (tx.type === 'swap') {
-        const notes = await getSwapSettlementNotes(tx.id);
-        // Never trade observed settlement for an empty read: this load may have
-        // queried the table before the consume was written, while the poller's
-        // later result is already on screen.
-        if (!superseded() && (notes.settled.length > 0 || notes.reclaimed.length > 0 || !settlementFoundRef.current)) {
-          setSettlementNotes(notes);
+        // Ancillary to the receipt rather than the point of it, so its failure is
+        // contained here. Sharing the outer catch meant one failed Dexie scan
+        // replaced an otherwise complete receipt with a full-screen error — and
+        // permanently, since the load effect is gated on `!loadError` and that
+        // error branch offers no retry.
+        try {
+          const notes = await getSwapSettlementNotes(tx.id);
+          // Never trade observed settlement for an empty read: this load may have
+          // queried the table before the consume was written, while the poller's
+          // later result is already on screen.
+          if (
+            !superseded() &&
+            (notes.settled.length > 0 || notes.reclaimed.length > 0 || !settlementFoundRef.current)
+          ) {
+            setSettlementNotes(notes);
+          }
+        } catch (error) {
+          console.error('[HistoryDetails] Failed to read swap settlement notes:', {
+            transactionId: tx.id,
+            error
+          });
         }
       }
 
@@ -413,7 +466,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       setTransaction(tx);
       setEntry(historyEntry);
     } catch (error) {
-      console.error('[HistoryDetails] Failed to load transaction:', error);
+      console.error('[HistoryDetails] Failed to load transaction:', { transactionId, error });
+      // The success path is generation-guarded but this was not, so a stale
+      // rejection could replace a newer, already-rendered receipt with the error
+      // screen — and since the load effect is gated on `!loadError`, that screen
+      // was permanent until the user navigated away.
+      if (superseded()) return;
       setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
     }
   }, [transactionId, setEntry, t]);
@@ -586,6 +644,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
         const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
         timer = setTimeout(poll, delay);
+        return;
+      }
+      // The screen reads "Not available" from the first unresolved poll onward,
+      // so it looks the same while retrying, after giving up, and when there was
+      // no order to track at all. Without this, the one moment worth knowing
+      // about — the wallet stopped trying — left no trace anywhere.
+      if (!cancelled) {
+        console.warn('[HistoryDetails] Gave up tracking swap order lineage:', {
+          transactionId,
+          orderId: trackedOrderId,
+          attempts: unresolved
+        });
       }
     };
 
@@ -637,7 +707,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [orderId]);
+  }, [orderId, transactionId]);
 
   // Settlement can land while this page is open (auto-consume runs on its own
   // 2s cycle), and the lineage poll above stops at a terminal state — usually
@@ -656,16 +726,34 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   );
   settlementFoundRef.current = settlementFound;
   const settlementSettled = settlementFound && swapTracking != null && swapTracking.state !== 'active';
+  // A receipt opened after the fact is complete on arrival and has nothing to
+  // wait for, so it must not scan at all — the read is an unindexed table scan.
+  // But an order that goes terminal while the page is open can still gain notes
+  // afterwards: settlement bundles whatever has synced this tick, so a payback
+  // that syncs later arrives in a second consume. Stopping the moment the first
+  // note appeared left that fill off the receipt until the screen was reopened.
+  // Only a page that actually watched the order unsettled earns the short tail.
+  // Both sources have to have answered first: before they do, everything is
+  // null and "not settled" only means "not loaded", which would mark even a
+  // years-old receipt as watched. Latches on, and never off.
+  watchedUnsettledRef.current =
+    watchedUnsettledRef.current || (settlementNotes !== null && swapTracking !== null && !settlementSettled);
+  const settlementGrace = settlementSettled && watchedUnsettledRef.current;
   const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
   useEffect(() => {
-    if (orderId == null || settlementSettled || !transaction) return;
+    if (orderId == null || !transaction) return;
+    if (settlementSettled && !watchedUnsettledRef.current) return;
     const swapTxId = transaction.id;
     const POLL_INTERVAL_MS = 2000;
     // Past the 120s expiry with room for the consume to prove and complete.
-    const MAX_POLLS = 90;
+    // Once the order is terminal and something has been seen, only a short tail
+    // remains — long enough for a sibling consume of the same settlement, not a
+    // standing scan.
+    const MAX_POLLS = settlementGrace ? 5 : 90;
     let polls = 0;
     let cancelled = false;
     let inFlight = false;
+    let loggedFailure = false;
     let seen = observedNoteCount;
 
     const timer = setInterval(async () => {
@@ -689,7 +777,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           setSettlementNotes(notes);
         }
       } catch (error) {
-        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
+        // Same reasoning as the lineage poll: this ticks every 2s for up to 90
+        // attempts, so a persistently failing scan would print 90 identical
+        // lines with nothing in them to identify the order.
+        if (!loggedFailure) {
+          loggedFailure = true;
+          console.error('[HistoryDetails] Failed to read swap settlement notes:', { swapTxId, orderId, error });
+        }
       } finally {
         inFlight = false;
       }
@@ -702,7 +796,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     // `observedNoteCount` is the poll's starting baseline, deliberately not a
     // trigger: including it would restart the interval on every new note.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, settlementSettled, transaction]);
+  }, [orderId, settlementSettled, settlementGrace, transaction]);
 
   // Reconcile the (potentially lagging) on-chain order lineage with settlement
   // this wallet has already observed: once the settlement/reclaim consume notes
@@ -785,17 +879,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // requested token. "A note settled" is emphatically not "the order filled":
   // an expiry bundle carrying any payback is tagged 'settle' even for a partial
   // fill, so the requested amount must never be assumed here.
-  const locallySettledRequested = settledTransactions.reduce(
-    (total, consume) =>
-      consume.amount !== undefined &&
-      consume.faucetId !== undefined &&
-      requestedToken?.faucetId !== undefined &&
-      compareAccountIds(consume.faucetId, requestedToken.faucetId)
-        ? total + consume.amount
-        : total,
-    0n
-  );
-  const filledAmount = filledRequested ?? (locallySettledRequested > 0n ? locallySettledRequested : undefined);
+  const locallySettledRequested = locallySettledRequestedAmount(settledTransactions, requestedToken?.faucetId);
+  const filledAmount =
+    filledRequested ??
+    (locallySettledRequested !== undefined && locallySettledRequested > 0n ? locallySettledRequested : undefined);
   // Some of the requested token arrived, but not all of it. Reported separately
   // from the order state because it qualifies every one of them: an active
   // order can be partially filled, and so can a terminal (expired/reclaimed)

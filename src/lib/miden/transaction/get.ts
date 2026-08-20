@@ -168,11 +168,21 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
     if (rawNoteIds.length > 0 && noteIds.length === 0) continue;
     for (const noteId of noteIds) claimed.add(noteId);
 
+    // `amount` is an aggregate over every note on the row sharing the first
+    // note's faucet (see the ConsumeTransaction constructor), so it is only a
+    // fact about the row's WHOLE note list. Once part of that list has been
+    // attributed to an earlier consume, the aggregate no longer describes what
+    // is left, and reporting it anyway overstated the money: rows
+    // `[n1] = 400` and `[n1,n2] = 600` were emitted as `[n1] = 400` and
+    // `[n2] = 600`, so a caller summing them read 1000 where 600 arrived.
+    // There is no per-note breakdown to split it with, so the honest value for
+    // a partially attributed row is "unknown".
+    const partiallyAttributed = noteIds.length !== rawNoteIds.length;
     const transaction = {
       id: tx.id,
       transactionId: tx.transactionId,
       noteIds,
-      amount: tx.amount,
+      amount: partiallyAttributed ? undefined : tx.amount,
       faucetId: tx.faucetId,
       completedAt: tx.completedAt
     };
