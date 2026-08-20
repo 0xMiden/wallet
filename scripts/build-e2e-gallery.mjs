@@ -48,6 +48,8 @@ const JOB_LABELS = [
   ['mobile-e2e', 'Wallet (iOS)'],
   ['bridge-in-e2e', 'Bridge-IN (iOS)'],
   ['android-e2e', 'Wallet (Android)'],
+  ['dapp-browser-ios', 'dApp Browser (iOS)'],
+  ['dapp-browser-android', 'dApp Browser (Android)'],
   ['swap-e2e', 'Swap (Chrome)'],
   ['earn-e2e', 'Earn (Chrome)'],
   ['guardian-lifecycle-e2e', 'Guardian Lifecycle (Chrome)'],
