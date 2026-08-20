@@ -2198,13 +2198,24 @@ describe('HistoryDetails', () => {
     });
 
     it('surfaces the failure reason and the raw error for a failed swap', async () => {
+      // A failed swap never placed an order, so it carries neither an orderId
+      // nor an expiry: `completeSwapTransaction` stamps both only inside the
+      // same write that sets Completed. Building this through `swapTx` gave the
+      // one genuinely-failed fixture a shape production cannot produce, and with
+      // it a lineage poll and an expiry the real screen would never run.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       mockGetTransactionById.mockResolvedValue({
-        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        ...baseSendTx,
+        type: 'swap',
+        amount: undefined,
+        faucetId: 'faucet-1',
+        outputNoteIds: undefined,
+        transactionId: undefined,
+        extraInputs: { requestedFaucetId: 'req-faucet', requestedAmount: 1000n },
         status: 3,
         error: 'Swap request rejected',
         rawError: 'Error: note script failed at cycle 4211'
-      });
+      } as Tx);
 
       await renderAndLoad();
 
@@ -2212,6 +2223,15 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('Swap request rejected');
       fireEvent.click(screen.getByText('showFullError'));
       expect(screen.getByText('Error: note script failed at cycle 4211')).toBeInTheDocument();
+      // No order to track and no notes to scan for.
+      expect(mockTrackOrderId).not.toHaveBeenCalled();
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('trackingUnavailable');
+      // A retry offers the whole swap again, so the receipt must not also be
+      // offering its own in-card route out at the same time: the two action
+      // groups are rendered by sibling, independently-gated conditionals.
+      expect(screen.getByText('retry')).toBeInTheDocument();
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+      expect(screen.queryByText('close')).not.toBeInTheDocument();
     });
 
     it('omits the reclaimed row when the order only settled', async () => {

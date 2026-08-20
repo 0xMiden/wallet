@@ -8,7 +8,6 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
-import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
@@ -16,6 +15,7 @@ import { formatAmount } from 'lib/shared/format';
 import HashChip from '../HashChip';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
+import { deliveredRequestedToken } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
 import { formatDate } from './transactionUtils';
@@ -29,7 +29,6 @@ interface SwapDetailProps {
   requestedFaucetId?: string;
   /** Undefined = unknown, which is not the same statement as zero. */
   filledAmount?: bigint;
-  isPartialFill?: boolean;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
   /**
@@ -105,15 +104,11 @@ const SwapNoteRow = memo(function SwapNoteRow({
   // faucet, and an expiry settlement bundles the requested-token paybacks with
   // the offered-token tip. Labelling that sum with the requested token's symbol
   // and decimals would misreport the offered remainder as funds received, so
-  // show it only once the consume's own faucet confirms which side it is.
-  // A blank faucet is a half-written row (queued by `settleSwapOrders`, marked
-  // Completed by the reaper without a stamp), not a mismatch — either way this
-  // withholds the amount rather than mislabelling it.
-  const isRequestedToken = Boolean(
-    transaction?.faucetId && requestedFaucetId && compareAccountIds(transaction.faucetId, requestedFaucetId)
-  );
+  // show it only once the consume's own faucet confirms which side it is. An
+  // unrecorded faucet is not a mismatch, but it is not a confirmation either.
+  const deliveredRequested = transaction ? deliveredRequestedToken(transaction, requestedFaucetId) : false;
   const receivedAmount =
-    transaction?.amount === undefined || !isRequestedToken
+    transaction?.amount === undefined || deliveredRequested !== true
       ? undefined
       : formatAmount(transaction.amount, requestedDecimals);
 
@@ -247,7 +242,6 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   requestedSymbol,
   requestedFaucetId,
   filledAmount,
-  isPartialFill = false,
   orderState,
   trackingLoading,
   settledTransactions,
@@ -272,6 +266,11 @@ export const SwapDetail: FC<SwapDetailProps> = ({
       ? progressPercentage(filledAmount, requestedAmount)
       : undefined;
   const progressKnown = percentage !== undefined;
+  // Derived here rather than passed in: it is a statement about these two props,
+  // and as a third prop a caller could contradict them — asserting a partial
+  // fill on a receipt whose progress line reads "— of 1000".
+  const isPartialFill =
+    filledAmount !== undefined && requestedAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
   const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
   const formattedRequested = requestedAmount === undefined ? '—' : formatAmount(requestedAmount, requestedDecimals);
   const formattedFilled = filledAmount === undefined ? '—' : formatAmount(filledAmount, requestedDecimals);

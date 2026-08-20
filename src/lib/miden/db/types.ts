@@ -454,6 +454,30 @@ export class ConsumeTransaction implements ITransaction {
 }
 
 /**
+ * Requested side of a swap, persisted on `SwapTransaction.extraInputs`.
+ *
+ * `orderId` is strictly output info (the PSWAP lineage id resolved by
+ * `completeSwapTransaction`) rather than an input, but it rides here to avoid a
+ * Dexie schema change; it is absent until completion, and so are the stamps
+ * below. Exported because readers of persisted rows — which predate any of these
+ * optional fields — need the same shape without hand-rolling their own copy.
+ */
+export interface ISwapExtraInputs {
+  requestedFaucetId: string;
+  requestedAmount: bigint;
+  orderId?: bigint | string;
+  expirySeconds?: number;
+  /** Absent on orders placed before expiry stamping; those never auto-settle. */
+  expiresAt?: number;
+  expiryTriggeredAt?: number;
+  autoConsume?: boolean;
+  /** Stamped when a payback-claim settlement consume completes. */
+  settledAt?: number;
+  /** Stamped when an expiry-reclaim settlement consume completes. */
+  reclaimedAt?: number;
+}
+
+/**
  * Swap one asset for another. The user offers `offeredAmount` of
  * `offeredFaucetId` and requests `requestedAmount` of `requestedFaucetId`.
  * The offered side maps onto the shared `faucetId`/`amount` fields; the
@@ -474,22 +498,7 @@ export class SwapTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  // Requested side of the swap. `orderId` is strictly output info (the PSWAP
-  // lineage id resolved by `completeSwapTransaction`) rather than an input, but
-  // it rides here to avoid a Dexie schema change; it's absent until completion.
-  extraInputs: {
-    requestedFaucetId: string;
-    requestedAmount: bigint;
-    orderId?: bigint | string;
-    expirySeconds?: number;
-    expiresAt?: number;
-    expiryTriggeredAt?: number;
-    autoConsume?: boolean;
-    /** Stamped when a payback-claim settlement consume completes. */
-    settledAt?: number;
-    /** Stamped when an expiry-reclaim settlement consume completes. */
-    reclaimedAt?: number;
-  };
+  extraInputs: ISwapExtraInputs;
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the

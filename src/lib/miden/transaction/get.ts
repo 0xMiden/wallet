@@ -211,6 +211,13 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
  *   - active    : still fillable / reclaimable
  *   - filled    : fully filled (terminal)
  *   - reclaimed : reclaimed by the creator (terminal)
+ *
+ * From a live lineage, 'filled' means FULLY filled. The swap receipt reuses the
+ * same values for a locally-inferred state when no lineage is resolvable, where
+ * 'filled' is only "this wallet consumed a settlement note" — a weaker claim,
+ * since an expiry batch carrying a partial payback is also tagged 'settle'. Any
+ * reader of an inferred state must qualify it with the fill amount; see
+ * `deriveSwapReceipt`, which is the only place that mixes the two.
  */
 export type SwapOrderState = 'active' | 'filled' | 'reclaimed';
 

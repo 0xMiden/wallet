@@ -27,12 +27,12 @@ import {
   SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
-import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISwapExtraInputs,
   ITransaction,
   ITransactionStatus,
   ISwitchGuardianExtraInputs
@@ -57,6 +57,7 @@ import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
+import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import {
@@ -81,82 +82,6 @@ const isHexEvmAddress = (value: string | undefined): value is `0x${string}` =>
 interface HistoryDetailsProps {
   transactionId: string;
 }
-
-/** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
-interface SwapExtraInputs {
-  requestedFaucetId?: string;
-  requestedAmount?: bigint;
-  orderId?: bigint;
-  autoConsume?: boolean;
-  /** Absent on orders placed before expiry stamping; those never auto-settle. */
-  expiresAt?: number;
-}
-
-/**
- * How much of the requested token this wallet can actually prove it received,
- * from the settlement consumes alone — the only fill evidence left when the
- * order's lineage is unresolvable (a restored wallet, or a poll that gave up).
- *
- * Returns undefined for "cannot tell", which is deliberately distinct from 0n.
- * A partial accounting is not a smaller fill, and understating what arrived is
- * as wrong as overstating it, so a single consume that cannot be attributed
- * makes the whole total unknown. That happens when the row records no faucet to
- * compare, or no usable amount: `amount` is an aggregate over the row's whole
- * note list, so it stops describing the row once part of that list has been
- * attributed to an earlier consume.
- */
-const locallySettledRequestedAmount = (
-  settledTransactions: SwapSettlementNotes['settledTransactions'],
-  requestedFaucetId: string | undefined
-): bigint | undefined => {
-  if (requestedFaucetId === undefined) return undefined;
-
-  let total = 0n;
-  for (const consume of settledTransactions) {
-    // Tri-state on purpose: `false` is "another token, contributes nothing",
-    // `undefined` is "no faucet recorded, so it may well have been the
-    // requested one" — not the same answer. The blank string counts as
-    // unrecorded: `settleSwapOrders` queues its consume rows with `faucetId: ''`
-    // and the reaper (`verifyStuckTransactionsFromNode`) can mark such a row
-    // Completed without ever stamping the real faucet. `compareAccountIds('', x)`
-    // is false, so reading the field as present made a settlement that DID
-    // deliver funds subtract itself from the fill and state the shortfall as
-    // fact.
-    const deliveredRequested = consume.faucetId ? compareAccountIds(consume.faucetId, requestedFaucetId) : undefined;
-    if (deliveredRequested === false) continue;
-    if (deliveredRequested === undefined || consume.amount === undefined) return undefined;
-    total += consume.amount;
-  }
-
-  return total;
-};
-
-/**
- * How much of the requested token has arrived, as the tightest figure the
- * receipt can stand behind.
- *
- * Both inputs are lower bounds, and either one can be the stale one. The
- * lineage's remainder is read off the order's current tip, so a lineage that has
- * not yet synced a fill still reports the whole request outstanding — the same
- * lag that used to leave the STATUS on "Active" after settlement (#486). Taking
- * the lineage first therefore let it assert a confident ZERO over a payback this
- * wallet had already consumed and was listing three rows further down, and the
- * false zero then stripped the "partially filled" qualifier too, upgrading a
- * partial fill to a full one. The local sum, for its part, counts only consumes
- * this wallet tagged, so it misses anything claimed elsewhere. Neither can
- * exceed the truth, so the larger of the two is the honest answer.
- */
-const filledRequestedAmount = (
-  fromLineage: bigint | undefined,
-  fromLocalConsumes: bigint | undefined
-): bigint | undefined => {
-  // A local sum of zero is no evidence at all: it is what an order with no
-  // tagged consumes looks like, which is not the same as a fill of zero.
-  const local = fromLocalConsumes !== undefined && fromLocalConsumes > 0n ? fromLocalConsumes : undefined;
-  if (fromLineage === undefined) return local;
-  if (local === undefined) return fromLineage;
-  return fromLineage > local ? fromLineage : local;
-};
 
 const settlementCount = (notes: SwapSettlementNotes | null): number =>
   notes === null ? -1 : notes.settled.length + notes.reclaimed.length;
@@ -503,7 +428,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       } as IHistoryEntry;
 
       if (tx.type === 'swap') {
-        const extra: SwapExtraInputs = tx.extraInputs ?? {};
+        // Partial on purpose: rows persisted before each optional field was
+        // introduced are still read here, and the required pair can be missing
+        // on the oldest of them.
+        const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
         // The DEX faucets are usually absent from assetsMetadata, where
         // getTokenMetadata falls back to the Unknown placeholder and its
         // decimals, so resolve via the swap-token registry first. Resolve it
@@ -817,40 +745,33 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
   }, [orderId, transactionId]);
 
-  // Settlement can land while this page is open (auto-consume runs on the
-  // background sync's own cadence), and the lineage poll above stops at a
-  // terminal state — usually just *before* the settlement consume completes. So
-  // watch for the notes separately. Each read is an UNINDEXED scan of the
-  // transactions table, which is what makes the question of when to stop worth
-  // this much care.
-  // Counts consume ROWS as well as note ids. The two are built together, but a
-  // consume recorded with no note ids at all yields a row and no id — and then a
-  // receipt that renders a fill row while reporting no settlement found, which
-  // also defeats the bound on the lineage poll (it is what caps a lineage stuck
-  // on 'active'). Deriving from both keeps them from disagreeing.
-  const settlementFound = Boolean(
-    settlementNotes &&
-    (settlementNotes.settled.length ||
-      settlementNotes.reclaimed.length ||
-      settlementNotes.settledTransactions.length ||
-      settlementNotes.reclaimedTransactions.length)
-  );
+  // Everything the receipt asserts about the order — how it stands, how much of
+  // it filled, whether the user still has notes to claim — resolved in one pure
+  // pass so those answers cannot contradict each other. See `swapReceipt.ts`.
+  const receipt = deriveSwapReceipt({
+    requestedAmount: requestedToken?.amount,
+    requestedFaucetId: requestedToken?.faucetId,
+    tracking: swapTracking,
+    settlement: settlementNotes,
+    autoConsume: swapAutoConsume,
+    expiresAt: swapExpiresAt
+  });
+  const { settlementFound } = receipt;
   settlementFoundRef.current = settlementFound;
   const lineageState = swapTracking?.state ?? null;
   const lineageTerminal = lineageState !== null && lineageState !== 'active';
-  const settlementSettled = settlementFound && lineageTerminal;
+  const settlementConfirmedByLineage = settlementFound && lineageTerminal;
   // A terminal order can still GAIN notes: settlement bundles whatever synced
   // this tick, so a payback that syncs a moment later arrives in a second
-  // consume, and stopping at the first note froze the receipt on fill 1 of n.
-  // Only a page that watched the order while it was open earns that tail, and
-  // the lineage reporting 'active' is the only positive evidence of it. Reading
-  // "terminal, but no local notes" as still-waiting instead put a three-minute
-  // scan behind every manual-claim and restored-history receipt — the ordinary
-  // shape of both. Latches on, never off.
+  // consume. Only a page that watched the order while it was open earns the
+  // grace period for that tail, and a lineage reporting 'active' is the only
+  // positive evidence of it — the alternative reading, "terminal but no local
+  // notes yet", also describes every manual-claim and restored-history receipt,
+  // which must not each pay for a three-minute scan. Latches on, never off.
   useEffect(() => {
     if (lineageState === 'active') watchedUnsettledRef.current = true;
   }, [lineageState]);
-  const settlementGrace = settlementSettled && watchedUnsettledRef.current;
+  const settlementGrace = settlementConfirmedByLineage && watchedUnsettledRef.current;
   const watchSettlement = shouldWatchSettlement({
     lineageState,
     lineageAbandoned,
@@ -869,6 +790,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   }, [settlementNotes, observedNoteCount]);
   const settlementLandedWhileOpen =
     baselineNoteCountRef.current !== null && observedNoteCount > baselineNoteCountRef.current;
+
+  // Settlement can land while this page is open (auto-consume runs on the
+  // background sync's own cadence), and the lineage poll above stops at a
+  // terminal state — usually just *before* the settlement consume completes. So
+  // watch for the notes separately. Each read is an UNINDEXED scan of the
+  // transactions table, which is what makes the question of when to stop worth
+  // the care above.
   useEffect(() => {
     if (orderId == null || !transactionRowId) return;
     if (!watchSettlement) return;
@@ -973,36 +901,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     return () => clearInterval(timer);
   }, [settlementLandedWhileOpen, entry?.swapSettlement, loadTransaction, transactionId, orderId]);
 
-  // What this wallet's own consumes suggest, used only to cover the lag while
-  // the lineage still says 'active' — otherwise the status sat on "Active" after
-  // the swap had actually settled (#486). A settle consume outranks a reclaim
-  // one, matching `repairSettlementStamp`, for an order carrying both kinds
-  // (paybacks settled one tick, tip reclaimed another).
-  const settledOrderState: SwapOrderState | null = settlementFound
-    ? settlementNotes && settlementNotes.settled.length > 0
-      ? 'filled'
-      : 'reclaimed'
-    : null;
-  // A terminal lineage is the authority on how the ORDER ended; the local
-  // settlement stamp only covers the lag while the lineage still says 'active'.
-  // Getting this backwards mislabels the protocol's most common partial-fill
-  // path: an expiry batch that carries any payback is tagged 'settle' (see
-  // `reconcileSwapOrderNotes`), so a 40%-filled order that expired — lineage
-  // 'reclaimed', per swap-partial-fill.spec.ts — was announced as "Filled".
-  const displayOrderState: SwapOrderState | null =
-    swapTracking && swapTracking.state !== 'active'
-      ? swapTracking.state
-      : (settledOrderState ?? swapTracking?.state ?? null);
-  // How much of the requested amount has been filled so far, derived from the
-  // original requested amount and the lineage's still-outstanding remainder.
-  const requestedAmount = requestedToken?.amount;
-  const filledRequested =
-    requestedAmount !== undefined && swapTracking
-      ? swapTracking.remainingRequested > requestedAmount
-        ? 0n
-        : requestedAmount - swapTracking.remainingRequested
-      : undefined;
-
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
@@ -1042,39 +940,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.address;
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
-  // With no resolvable lineage (a restored wallet no longer tracks the order,
-  // and the poll gives up after its cap) the only fill evidence is what this
-  // wallet actually consumed, so sum the settlement consumes that delivered the
-  // requested token. "A note settled" is emphatically not "the order filled":
-  // an expiry bundle carrying any payback is tagged 'settle' even for a partial
-  // fill, so the requested amount must never be assumed here.
-  const locallySettledRequested = locallySettledRequestedAmount(settledTransactions, requestedToken?.faucetId);
-  const filledAmount = filledRequestedAmount(filledRequested, locallySettledRequested);
-  // Some of the requested token arrived, but not all of it. Reported separately
-  // from the order state because it qualifies every one of them: an active
-  // order can be partially filled, and so can a terminal (expired/reclaimed)
-  // one — the two together are the only honest reading of an expiry payback.
-  const isPartialFill =
-    requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
-  // Whether the wallet will collect this order's notes on its own.
-  // `reconcileSwapOrderNotes` declines in exactly two situations: the user chose
-  // manual consume, or the order is still 'active' and not yet expired. The
-  // second only becomes permanent without an `expiresAt` — an order persisted
-  // before expiry stamping is never deemed expired, so it waits forever. A
-  // terminal order needs no expiry; its paybacks are claimed on the next tick
-  // either way. An unresolvable lineage counts as possibly-open, because
-  // stranding funds is worse than offering a route to none.
-  const orderMayStillBeOpen = displayOrderState === 'active' || displayOrderState === null;
-  const walletWillClaimNotes = swapAutoConsume && !(orderMayStillBeOpen && swapExpiresAt == null);
-  // The route has to survive the order reaching 'filled': a fully matched
-  // manual-consume order whose paybacks sit unconsumed is exactly when the user
-  // needs it. A reclaim is a statement about the OFFERED tip being taken back,
-  // and the payback notes carrying whatever was matched are an independent P2ID
-  // chain — Pending Notes claims per group, so a user can take the tip back and
-  // leave the paybacks sitting there. Only a reclaim with a known-zero fill
-  // leaves nothing to collect.
-  const nothingWasMatched = displayOrderState === 'reclaimed' && filledAmount !== undefined && filledAmount === 0n;
-  const showPendingNotesAction = !walletWillClaimNotes && !settlementFound && !nothingWasMatched;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -1137,16 +1002,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             requestedDecimals={requestedToken.decimals}
             requestedSymbol={requestedToken.symbol}
             requestedFaucetId={requestedToken.faucetId}
-            filledAmount={filledAmount}
-            isPartialFill={isPartialFill}
-            orderState={displayOrderState}
+            filledAmount={receipt.filledAmount}
+            orderState={receipt.orderState}
             trackingLoading={trackingLoading}
             settledTransactions={settledTransactions}
             reclaimedTransactions={reclaimedTransactions}
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            onOpenPendingNotes={showPendingNotesAction ? () => navigate('/pending-notes') : undefined}
+            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
             onDismiss={goBack}
           />
         ) : (
