@@ -67,7 +67,18 @@ android/app/*.jks
 
 # iOS build artifacts
 ios/App/build/
+# Device / simulator builds from a custom -derivedDataPath, e.g. build-device.
+# Multi-GB each, and they made the branch diff too large for review tooling.
+ios/App/build-*/
 sdk-debug/
+
+# Local run artifacts: packaged builds, unpacked extensions, stress-test logs
+stress-logs/
+chrome_unpacked/
+dist */
+*.apk
+MidenWallet.*.zip
+MidenWallet.*/
 
 # Linked web-sdk PR state marker — written by
 # scripts/dev-with-web-sdk-pr.sh / .github/actions/inject-linked-web-sdk-pr
