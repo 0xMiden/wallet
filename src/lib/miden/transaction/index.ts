@@ -72,6 +72,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+import { isPrivateNoteType } from '../helpers';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
@@ -84,7 +85,6 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode } from '../sdk/sdk-error-code';
-import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
 export * from './complete';
@@ -735,30 +735,39 @@ const ensureGuardianRecallableSendRequestBytes = async (
     } else {
       syncHeight = await midenClientProxy.getSyncHeight();
     }
-    const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
-    try {
-      // The sender's local account supplies the outgoing asset's vault key
-      // (callback flag included) — see `buildSendTransactionRequest`.
-      //
-      // Parsed with the same permissive helpers as the non-guardian path
-      // (`MidenClientInterface.sendTransaction`) rather than bech32-only
-      // `accountIdStringToSdk`: a recipient the SDK's own `resolveAccountRef`
-      // accepts must not be rejected here just because the account holds a
-      // guardian, and the sender id may arrive in the composite
-      // `<address>_<suffix>` form.
-      const account = await client.getAccount(walletAccountIdToSdk(transaction.accountId));
-      return buildSendTransactionRequest(
-        account,
-        walletAccountIdToSdk(transaction.accountId),
-        accountRefToSdk(recipientId),
-        faucetId,
-        amount,
-        noteType,
-        syncHeight + recallBlocks
-      ).serialize();
-    } finally {
-      client.terminate();
-    }
+    // The sender's local account supplies the outgoing asset's vault key
+    // (callback flag included) — see `buildSendTransactionRequest`.
+    //
+    // Read through `midenClientProxy`, like the sync height above, rather than a
+    // transient `WasmWebClient.createClient(...)`. That transient client existed
+    // to reach `newSendTransactionRequest`, a raw-client method; now that the
+    // request is built from statically-imported SDK types the only thing left
+    // needing a client is this account read, and the proxy does it better on both
+    // counts. Correctness: flag-ON it reads from the OFFSCREEN client that owns
+    // the canonical sync state and that will EXECUTE this request, so the vault
+    // key is derived from the same account snapshot the kernel will check it
+    // against — a separate client could disagree. Cost: no worker spawn and no
+    // second multi-MB wasm instance inside the app-wide lock, which now matters
+    // per requeue cycle rather than once, since a requeued `send` drops its
+    // cached bytes and rebuilds. The proxy read is unlocked by design and this
+    // caller already holds `withWasmClientLock`, as its W2 contract requires.
+    //
+    // Passed as canonical hex: `walletAccountIdToSdk` strips the composite
+    // `<address>_<suffix>` form, and the SDK's `resolveAccountRef` takes `0x…`
+    // directly, so neither id shape can be rejected here.
+    const account = await midenClientProxy.getAccount(walletAccountIdToSdk(transaction.accountId).toString());
+    return buildSendTransactionRequest(
+      account ?? undefined,
+      walletAccountIdToSdk(transaction.accountId),
+      // The recipient is parsed as permissively as the non-guardian path rather
+      // than bech32-only: an id the SDK's own `resolveAccountRef` accepts must
+      // not be rejected just because the account holds a guardian.
+      accountRefToSdk(recipientId),
+      faucetId,
+      amount,
+      noteType,
+      syncHeight + recallBlocks
+    ).serialize();
   });
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -937,7 +946,10 @@ const generateGuardianTransaction = async (
           sendTx.secondaryAccountId,
           sendTx.faucetId,
           BigInt(sendTx.amount),
-          sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
+          // Via `isPrivateNoteType` like every other send-path coercion: the
+          // former `=== Public ? Public : Private` failed closed for an
+          // unrecognized value, which is the safe direction but silent.
+          isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks
         );
         proposalResult = await withGuardianConflictRetry(() =>

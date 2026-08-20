@@ -14,29 +14,32 @@ export function isAddressValid(address: string) {
 export const toNoteTypeString = (noteType: NoteType) =>
   noteType === NoteType.Public ? NoteTypeEnum.Public : NoteTypeEnum.Private;
 
-export const toNoteType = (noteType: NoteTypeString) => (noteType === 'public' ? NoteType.Public : NoteType.Private);
-
 /**
  * Whether a persisted or dApp-supplied note type means "private", rejecting
  * anything unrecognized.
  *
- * Both shapes genuinely reach the request builders: `ITransaction.noteType` is
- * DECLARED as the SDK's numeric `NoteType`, but `initiateSendTransaction`
- * persists the `'public' | 'private'` string, so a value typed as the enum may
- * be either at runtime.
+ * Accepts two shapes because two shapes can arrive. `ITransaction.noteType` is
+ * the `'public' | 'private'` string union (`lib/miden/types`), and that string is
+ * what `initiateSendTransaction` persists — so every send row reaching the
+ * builders carries a string. The numeric arm is for the typed seam:
+ * `buildSendExecuteArgs` declares its parameter as the SDK's `NoteType | string`
+ * and dApp/speculation input arrives unvalidated, so a caller can legitimately
+ * hand in the enum.
  *
  * Unknown values throw, mirroring the SDK's own `resolveNoteType`. The wallet
  * used to hand the raw value to `client.send()`, which threw; building the note
  * locally moved that decision here, and a plain `=== 'private' ? Private :
  * Public` would answer "public" for every unrecognized value — including the
- * numeric `NoteType.Private`, which is `0`. A note the user approved as Private
- * would then go out fully public and irreversibly, so this fails the send
- * instead.
+ * numeric `NoteType.Private`, which is `0` and therefore also falsy, so a
+ * truthiness test fails the same way. A note the user approved as Private would
+ * go out fully public and irreversibly, so this fails the send instead.
  */
 export const isPrivateNoteType = (noteType: NoteType | NoteTypeString | string | null | undefined): boolean => {
   if (noteType === NoteTypeEnum.Private || noteType === NoteType.Private) return true;
-  // `null`/`undefined` ⇒ public, matching the SDK: a row that never recorded a
-  // note type predates the field and was public.
+  // `null`/`undefined` ⇒ public, matching the SDK's `resolveNoteType`. Reachable
+  // only through the `noteType?:` rows (`ITransaction`, bridged-send,
+  // earn-deposit), whose sends hardcode Public anyway; `SendTransaction.noteType`
+  // is required. Kept so the function is total over its declared input.
   if (noteType === NoteTypeEnum.Public || noteType === NoteType.Public || noteType == null) return false;
   throw new Error(`Unknown note type: "${String(noteType)}". Expected "public" or "private".`);
 };

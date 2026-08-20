@@ -1,6 +1,6 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { isAddressValid, isPrivateNoteType, toNoteType, toNoteTypeString } from './helpers';
+import { isAddressValid, isPrivateNoteType, toNoteTypeString } from './helpers';
 import { NoteTypeEnum } from './types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -22,11 +22,9 @@ describe('miden helpers', () => {
     expect(isAddressValid('anything')).toBe(false);
   });
 
-  it('converts note type enum to string and back', () => {
+  it('converts note type enum to string', () => {
     expect(toNoteTypeString(NoteType.Public as any)).toBe(NoteTypeEnum.Public);
     expect(toNoteTypeString(NoteType.Private as any)).toBe(NoteTypeEnum.Private);
-    expect(toNoteType(NoteTypeEnum.Public)).toBe(NoteType.Public);
-    expect(toNoteType(NoteTypeEnum.Private)).toBe(NoteType.Private);
   });
 
   // A send row's noteType is DECLARED as the numeric SDK enum but PERSISTED as

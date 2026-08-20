@@ -64,6 +64,50 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
 export const isRequeueableTransaction = (tx: { status?: ITransactionStatus; type: ITransactionType }): boolean =>
   tx.status === ITransactionStatus.Failed && REQUEUEABLE_TYPES.includes(tx.type);
 
+/** Output-producing types whose Retry must first node-verify it didn't already
+ *  land (double-send guard). Consume is excluded — it has its own input-note
+ *  landed check (verifyConsumeLanded) on the kill/reaper path. */
+const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
+
+/**
+ * Stages a Failed row can hold that PROVE nothing was broadcast, so its cached
+ * request may be safely rebuilt (see the `requestBytes` clear below).
+ *
+ * A Failed row keeps the stage it died in — `updateTransactionStatus` preserves
+ * it precisely because it records WHERE the failure happened — so this reads as
+ * "how far did the last attempt get".
+ *
+ * Deliberately excludes 'sending', which is NOT pre-submit despite sitting
+ * before the submit stamps in the stage list. It is stamped at pickup
+ * (`generateTransaction`) and again just before the guardian leaf runs, and only
+ * the INLINE leaf then narrows it: `runGuardianPipeline` stamps
+ * 'executing'/'proving'/'submitting' as it goes, but `dispatchGuardianPipeline`
+ * takes no stage callback at all, so the offscreen leaf runs
+ * execute → prove → submit → apply with the row frozen at 'sending'. Offscreen
+ * routing is the DEFAULT (`MIDEN_USE_OFFSCREEN_CLIENT` defaults to 'true') and
+ * `send` is offscreen-routable, so on the shipping path a submit that landed
+ * before the realm was torn down leaves exactly this stage. The sibling requeue
+ * gate reached the same conclusion independently — "a 429 at or after 'sending'
+ * must NOT requeue".
+ *
+ * The cut is therefore `provenTx.submit()` OR any stage that could span it:
+ * 'submitting' is stamped immediately before that call, and 'sending' may
+ * enclose it.
+ *
+ * A missing stage is safe for a different reason than the rest: pickup stamps
+ * 'syncing' then 'sending' before any request is built, so a row that never got
+ * a stage never reached `ensureGuardianRecallableSendRequestBytes` and has no
+ * bytes to clear. Included so the gate reads total rather than because such a
+ * row needs rebuilding.
+ */
+const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
+  'syncing',
+  'creating-proposal',
+  'signing-proposal',
+  'executing',
+  'proving'
+]);
+
 /**
  * Retry a Failed transaction by resetting its row to `Queued` so the FIFO
  * processing loop picks it up again. The row keeps its id (and, for swaps, its
@@ -73,38 +117,6 @@ export const isRequeueableTransaction = (tx: { status?: ITransactionStatus; type
  * the retry on sight, and `nextEligibleAt` is cleared so a stale
  * requeue-backoff can't delay the user's explicit retry.
  */
-/** Output-producing types whose Retry must first node-verify it didn't already
- *  land (double-send guard). Consume is excluded — it has its own input-note
- *  landed check (verifyConsumeLanded) on the kill/reaper path. */
-const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-send', 'execute'];
-
-/**
- * Stages a Failed row can hold that prove nothing was broadcast, so its cached
- * request may be safely rebuilt (see the `requestBytes` clear below).
- *
- * A Failed row keeps the stage it died in — `updateTransactionStatus` preserves
- * it precisely because it records WHERE the failure happened — so this reads as
- * "how far did the last attempt get". The cut is `provenTx.submit()`:
- * `runGuardianPipeline` stamps 'submitting' immediately BEFORE that call, so
- * 'submitting' and everything after it are ambiguous — the submit may have
- * reached the node before the failure. Every earlier stage provably has not.
- *
- * 'sending' is pre-submit despite the name: it is the stage stamped at pickup
- * and again just before the pipeline runs, never after a submit.
- *
- * A missing stage means the row was failed before the loop ever picked it up
- * (a Queued row reaped by `cancelStaleQueuedTransactions` has no stage), which
- * is likewise pre-submit.
- */
-const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
-  'syncing',
-  'sending',
-  'creating-proposal',
-  'signing-proposal',
-  'executing',
-  'proving'
-]);
-
 export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx) throw new Error(`Transaction ${txId} not found`);
@@ -132,9 +144,18 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
 
   // Read off the pre-reset row: the modify callback below clears `stage` as part
   // of returning the row to Queued, so it cannot be consulted from in there.
-  const failedPreSubmit = tx.stage === undefined || PRE_SUBMIT_STAGES.has(tx.stage);
+  const failedStage = tx.stage;
+  const failedPreSubmit = failedStage === undefined || PRE_SUBMIT_STAGES.has(failedStage);
 
   await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
+    // `verifySendLanded` above makes a network round trip, so the row read at the
+    // top of this function can be arbitrarily stale by now. Re-check what the
+    // decision below was made from: if a concurrent retry already requeued this
+    // row and the loop advanced the new attempt, writing here would reset a
+    // live transaction to Queued and — worse — clear the NEW attempt's
+    // `requestBytes` on the strength of the OLD attempt's stage, dropping the
+    // double-send guard for a submit that may since have landed.
+    if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return;
     dbTx.status = ITransactionStatus.Queued;
     dbTx.initiatedAt = Math.floor(Date.now() / 1000);
     dbTx.processingStartedAt = undefined;
@@ -148,31 +169,19 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // A `send` row's cached bytes only exist for a GUARDIAN recallable send
     // (`ensureGuardianRecallableSendRequestBytes`) — the non-guardian path
     // rebuilds its request on every call and never reads `requestBytes`. Those
-    // bytes froze both an absolute reclaim height and the asset as built at
-    // first attempt (a wrong callback flag there fails the kernel's remove-asset
-    // assertion on every subsequent attempt), so a retry has to rebuild them to
-    // stand any chance of succeeding.
+    // bytes froze an absolute reclaim height and the outgoing asset as built at
+    // first attempt, so a retry has to rebuild them to stand any chance of
+    // succeeding. But they also pin the note id, which is the ONLY thing that
+    // makes the chain reject a duplicate — hence the stage gate; see
+    // `PRE_SUBMIT_STAGES` for why the stage is a sound discriminator and where
+    // it stops being one.
     //
-    // No other requeueable type may be cleared. A swap's bytes must be reused
-    // byte-identically (the PSWAP flow requires it). A `bridged-send` normally
-    // carries the pre-built bridge note, mandate-binding attachment included,
-    // which a rebuild would silently replace with an attachment-less note the
-    // Epoch allocator rejects — and for the legacy attachment-less rows that DO
-    // reach the same build fallback, a rebuild is no better: the Epoch intent
-    // behind the row is already spent, so the answer there is a new intent, not
-    // a fresh note.
-    //
-    // Gated on the failure stage, because the bytes double as a double-send
-    // guard: reusing them re-emits the SAME note id, which the chain rejects if
-    // the first attempt actually landed. `verifySendLanded` above can only
-    // answer 'landed' or 'unknown', so on the ambiguous post-submit failures —
-    // exactly where a send both lands and gets marked Failed — it cannot rule a
-    // double-send out and the note id is the only thing that can. Keep the bytes
-    // there and let the chain reject the duplicate.
-    //
-    // This costs nothing for the bug the clear exists for: a wrong callback flag
-    // aborts in the transaction kernel during `executeRequest`, i.e. at
-    // 'executing', which is pre-submit — so those rows still rebuild.
+    // No other requeueable type may be cleared, whatever its stage. A swap's
+    // bytes must be reused byte-identically (the PSWAP flow requires it). A
+    // `bridged-send` carries a pre-built note whose attachment this builder
+    // cannot reproduce — the Epoch mandate binding, or the AggLayer B2AGG
+    // destination — and behind an Epoch row the intent is already spent, so the
+    // answer for a broken one is a new intent, not a fresh note.
     if (dbTx.type === 'send' && failedPreSubmit) {
       dbTx.requestBytes = undefined;
     }

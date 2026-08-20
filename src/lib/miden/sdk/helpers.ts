@@ -24,9 +24,16 @@ export function accountIdStringToSdk(accountIdStr: string): AccountId {
 }
 
 /**
- * Parse a wallet-account identifier into an SDK `AccountId`, accepting both
- * the bare bech32 address and the composite `WalletAccount.publicKey`
- * (`<address>_<suffix>`) — `Address.fromBech32` rejects the composite form.
+ * Parse a wallet-account identifier into an SDK `AccountId`, accepting both the
+ * bare bech32 address and the composite `WalletAccount.publicKey`
+ * (`<address>_<suffix>`).
+ *
+ * Splitting the suffix off is what makes the composite form safe to pass here.
+ * `Address.fromBech32` does parse it directly for SOME suffixes — the trailing
+ * segment is its own bech32 routing-parameter encoding, and a `_qr7qqq9wr6w`
+ * address round-trips to the same account id — but it throws for others
+ * (`_qruqqypuyph` fails as an "invalid note tag length"). Splitting first makes
+ * the parse independent of whichever routing parameters the wallet appended.
  *
  * Hex is accepted too, via `accountRefToSdk`: this has to stay at least as
  * permissive as the SDK's own `resolveAccountRef`, which every id handed to

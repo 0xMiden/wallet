@@ -190,7 +190,7 @@ describe('requeueFailedTransaction', () => {
 describe('requeueFailedTransaction — cached requestBytes', () => {
   const bytes = () => new Uint8Array([1, 2, 3]);
 
-  it.each(['syncing', 'sending', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
+  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
     "drops a send's bytes when it failed pre-submit at %s",
     async stage => {
       const row = failedRow({ type: 'send', stage, requestBytes: bytes() });
@@ -209,6 +209,23 @@ describe('requeueFailedTransaction — cached requestBytes', () => {
     await requeueFailedTransaction('tx-1');
 
     expect(row.requestBytes).toBeUndefined();
+  });
+
+  // 'sending' is the one that looks safe and is not. It is stamped before the
+  // guardian leaf, and only the INLINE leaf then advances it — the offscreen
+  // leaf (`dispatchGuardianPipeline`, the default build) takes no stage callback,
+  // so a row that executed, proved, SUBMITTED and then lost its realm is still
+  // sitting at 'sending'. Clearing there would let Retry mint a fresh note
+  // serial for a transfer that already landed.
+  it("KEEPS a send's bytes at 'sending', which the offscreen leaf never advances", async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: 'sending', requestBytes: kept });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+    expect(row.status).toBe(ITransactionStatus.Queued);
   });
 
   // 'submitting' is stamped immediately BEFORE provenTx.submit(), so the submit
@@ -248,6 +265,28 @@ describe('requeueFailedTransaction — cached requestBytes', () => {
 
     await requeueFailedTransaction('tx-1');
 
+    expect(row.requestBytes).toBe(kept);
+  });
+
+  // `verifySendLanded` makes a network round trip between the row read and the
+  // write, so a concurrent retry can requeue the row and the loop can advance the
+  // new attempt in that window. Writing blind would reset a live transaction and
+  // clear the NEW attempt's bytes on the strength of the OLD attempt's stage.
+  it('leaves the row alone when it moved on during the landed-check round trip', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: 'executing', requestBytes: kept });
+    wireRow(row);
+    mockVerifySendLanded.mockImplementation(async () => {
+      // A concurrent retry already requeued it and the loop picked it back up.
+      row.status = ITransactionStatus.GeneratingTransaction;
+      row.stage = 'submitting';
+      return 'unknown';
+    });
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(row.stage).toBe('submitting');
     expect(row.requestBytes).toBe(kept);
   });
 });
