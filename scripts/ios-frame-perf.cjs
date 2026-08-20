@@ -97,8 +97,8 @@ const evaluate = (rd, body) => rd.executeAtom('execute_script', [body, []]);
 const RECORDER = `
 window.__PERF__ = window.__PERF__ || {};
 var P = window.__PERF__;
-if (P.version !== 4) {
-  P.version = 4;
+if (P.version !== 8) {
+  P.version = 8;
   P.frames = [];
   P.pings = [];
   P.rects = 0;
@@ -180,12 +180,29 @@ if (P.version !== 4) {
     return 'started';
   };
 
-  P.synth = function (mode) {
+  P.synth = function (mode, opts) {
+    opts = opts || {};
     var track = P.findTrack();
     if (!track) return 'no-track';
+
     var y = Math.round(innerHeight * 0.45);
     var cx = Math.round(innerWidth * 0.78);
+    // Starting the gesture over a specific element matters: a drag that begins on
+    // a text input behaves differently from one on inert content, because WebKit
+    // may claim the horizontal gesture for the input's own scroller or selection.
+    if (opts.selector) {
+      var matches = document.querySelectorAll(opts.selector);
+      var el = matches[opts.nth || 0];
+      if (!el) return 'no-match:' + opts.selector;
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return 'zero-rect:' + opts.selector;
+      y = Math.round(r.top + r.height / 2);
+      cx = Math.round(r.left + r.width / 2);
+    }
+    var dir = opts.dir === 'right' ? 1 : -1;
     var target = document.elementFromPoint(cx, y) || track;
+    P.lastSynthTarget =
+      target.tagName.toLowerCase() + (target.getAttribute('data-testid') ? '[' + target.getAttribute('data-testid') + ']' : '');
 
     function ev(type, clientX, buttons) {
       target.dispatchEvent(
@@ -212,7 +229,7 @@ if (P.version !== 4) {
       if (i === 0) {
         ev('pointerdown', cx, 1);
       } else if (i <= MOVES) {
-        cx -= STEP;
+        cx += STEP * dir;
         ev('pointermove', cx, 1);
       } else {
         ev('pointerup', cx, 0);
@@ -238,12 +255,19 @@ if (P.version !== 4) {
     P.rects = 0;
     P.mutations = 0;
     P.recording = true;
+    // A run that threw before reaching stop() leaves its sampling loop alive, and
+    // two loops pushing into the same array double the frame count and halve the
+    // median — a 60Hz display then reports as 120Hz, which is precisely the
+    // mistake this tool exists to catch. Each run claims a generation, and a loop
+    // that no longer owns it retires on its next tick.
+    P.generation = (P.generation || 0) + 1;
+    var gen = P.generation;
 
     var track = P.findTrack();
     P.trackFound = !!track;
 
     var rafStep = function (t) {
-      if (!P.recording) return;
+      if (!P.recording || gen !== P.generation) return;
       P.frames.push(t);
       P.xs.push(P.readX(track));
       requestAnimationFrame(rafStep);
@@ -253,7 +277,7 @@ if (P.version !== 4) {
     var mc = new MessageChannel();
     P.port = mc.port2;
     mc.port1.onmessage = function () {
-      if (!P.recording) return;
+      if (!P.recording || gen !== P.generation) return;
       P.pings.push(performance.now());
       mc.port2.postMessage(0);
     };
@@ -296,7 +320,10 @@ if (P.version !== 4) {
       var dir = d > 0 ? 1 : -1;
       if (lastDir !== 0 && dir !== lastDir) {
         reversals.push({
-          atMs: Math.round(moves[q].t),
+          // Relative to the start of the recording, matching xTrace. These used
+          // to be raw performance.now() values while the trace was normalised,
+          // which makes a reversal impossible to locate in the trace beside it.
+          atMs: Math.round(moves[q].t - P.frames[0]),
           x: Math.round(P.xs[moves[q].i]),
           dxBefore: Math.round(moves[q - 1] ? moves[q - 1].dx * 10 : 0) / 10,
           dxAfter: Math.round(d * 10) / 10
@@ -306,14 +333,32 @@ if (P.version !== 4) {
     }
     // Stalls: |dx| under noise for >=2 consecutive frames while motion is
     // ongoing on both sides (a pause in the middle of a slide).
+    //
+    // resumeDx is how far the frame that ended the stall travelled, and is the
+    // difference between the two things this catches. A hitch mid-flick resumes
+    // at flick speed (tens of px); a spring settling on its target resumes at
+    // ~1px, having run out of distance rather than been interrupted. Both are
+    // reported — deciding which is which is the reader's call, not the probe's.
     var stalls = [];
     var run = 0;
+    var sawMotion = false;
     for (var r = 0; r < moves.length; r++) {
       if (Math.abs(moves[r].dx) < NOISE) {
         run++;
       } else {
-        if (run >= 2) stalls.push({ atMs: Math.round(moves[r].t), frames: run });
+        // Bookended on both sides, as advertised. Without the leading side the
+        // idle frames between starting the recorder and the gesture arriving
+        // score as a stall, on every single run — a false positive that reads
+        // exactly like the real defect this exists to find.
+        if (run >= 2 && sawMotion) {
+          stalls.push({
+            atMs: Math.round(moves[r].t - P.frames[0]),
+            frames: run,
+            resumeDx: Math.round(Math.abs(moves[r].dx) * 10) / 10
+          });
+        }
         run = 0;
+        sawMotion = true;
       }
     }
     var absMoves = moves.map(function (m) { return Math.abs(m.dx); });
@@ -614,24 +659,37 @@ async function cmdHz() {
 async function cmdSynth() {
   const mode = process.env.SPIKE_SYNTH_MODE || 'flick';
   const reps = Number(process.env.SPIKE_SYNTH_REPS || 6);
+  const opts = {
+    selector: process.env.SPIKE_SYNTH_SELECTOR || undefined,
+    nth: process.env.SPIKE_SYNTH_NTH ? Number(process.env.SPIKE_SYNTH_NTH) : undefined,
+    dir: process.env.SPIKE_SYNTH_DIR || 'left'
+  };
+  const startRoute = process.env.SPIKE_SYNTH_ROUTE || '#/';
   return withSession(async rd => {
     await evaluate(rd, RECORDER);
-    // Park on the first page so every run starts from the same place. Without
-    // this, a previous run leaves the carousel on the last page and every flick
-    // becomes a rubber-band snap-back instead of a page commit — which looks like
-    // a pass while testing nothing.
-    await evaluate(rd, `location.hash = '#/'; return 1;`);
-    await sleep(900);
+    // Park on a known page so every run starts from the same place. Without this,
+    // a previous run leaves the carousel wherever it ended and a flick becomes a
+    // rubber-band snap-back instead of a page commit — which looks like a pass
+    // while testing nothing.
+    await evaluate(rd, `location.hash = ${JSON.stringify(startRoute)}; return 1;`);
+    await sleep(1200);
     const route = await evaluate(rd, 'return location.hash;');
     await evaluate(rd, 'window.__PERF__.start(); return 1;');
     for (let i = 0; i < reps; i++) {
-      const started = await evaluate(rd, `return window.__PERF__.synth(${JSON.stringify(mode)});`);
+      const started = await evaluate(
+        rd,
+        `return window.__PERF__.synth(${JSON.stringify(mode)}, ${JSON.stringify(opts)});`
+      );
       if (started !== 'started') throw new Error(`synth failed to start: ${started}`);
       await sleep(1400);
     }
     await evaluate(rd, 'window.__PERF__.stop(); return 1;');
+    const hitTarget = await evaluate(rd, 'return window.__PERF__.lastSynthTarget || null;');
     const report = await evaluate(rd, 'return JSON.stringify(window.__PERF__.report());');
-    console.log(`\n=== SYNTHETIC ${mode.toUpperCase()} x${reps} (start route ${route}) ===`);
+    console.log(
+      `\n=== SYNTHETIC ${mode.toUpperCase()} x${reps} dir=${opts.dir} route=${route}` +
+        `${opts.selector ? ` over ${opts.selector}[${opts.nth || 0}] -> hit ${hitTarget}` : ''} ===`
+    );
     console.log(report);
   });
 }
@@ -671,6 +729,28 @@ async function cmdCaps() {
   });
 }
 
+/**
+ * Runs a snippet from a file in the page, for one-off diagnostics that don't
+ * warrant a command of their own.
+ *
+ * The snippet may be asynchronous: whatever it leaves on `window.__DIAG__` is
+ * read back after `SPIKE_EVAL_WAIT` ms, so it can instrument a gesture and
+ * report once the gesture has played out.
+ */
+async function cmdEval() {
+  const file = process.env.SPIKE_EVAL_FILE;
+  if (!file) throw new Error('set SPIKE_EVAL_FILE=<path> to a file containing the snippet body');
+  const body = require('fs').readFileSync(file, 'utf8');
+  const wait = Number(process.env.SPIKE_EVAL_WAIT || 2000);
+  return withSession(async rd => {
+    await evaluate(rd, RECORDER);
+    const immediate = await evaluate(rd, body);
+    if (immediate != null) console.log(`returned: ${immediate}`);
+    await sleep(wait);
+    console.log(await evaluate(rd, 'return JSON.stringify(window.__DIAG__ || null, null, 1);'));
+  });
+}
+
 /** Dump what the inspector can see, for when no pages show up. */
 async function cmdPages() {
   const rd = createRemoteDebugger(
@@ -701,14 +781,29 @@ async function cmdPages() {
         `appKeys=${JSON.stringify(Object.keys(apps))}`
     );
     for (const [key, app] of Object.entries(apps)) {
-      console.log(`  app ${key}: bundleId=${app.bundleId} name=${app.name} pages=${JSON.stringify(app.pageArray || [])}`);
+      console.log(
+        `  app ${key}: bundleId=${app.bundleId} name=${app.name} pages=${JSON.stringify(app.pageArray || [])}`
+      );
     }
     await sleep(2000);
   }
   await rd.disconnect().catch(() => {});
 }
 
-const CMDS = { refresh: cmdRefresh, slide: cmdSlide, flick: cmdFlick, pages: cmdPages, setup: cmdSetup, probe: cmdProbe, dom: cmdDom, unlock: cmdUnlock, caps: cmdCaps, synth: cmdSynth, hz: cmdHz };
+const CMDS = {
+  refresh: cmdRefresh,
+  slide: cmdSlide,
+  flick: cmdFlick,
+  pages: cmdPages,
+  setup: cmdSetup,
+  probe: cmdProbe,
+  dom: cmdDom,
+  unlock: cmdUnlock,
+  caps: cmdCaps,
+  synth: cmdSynth,
+  hz: cmdHz,
+  eval: cmdEval
+};
 
 (async () => {
   const cmd = process.argv[2] || 'refresh';
