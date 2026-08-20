@@ -107,8 +107,13 @@ jest.mock('lib/secure-hot-key', () => ({
 }));
 
 const mockGetSignerDetailsFromAccount = jest.fn();
+// The staleness guard itself is a collaborator here, covered against real
+// nonces in account.test.ts; these tests only assert that the import path
+// routes its write THROUGH it rather than calling accounts.insert directly.
+const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
   // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
   resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
@@ -521,7 +526,7 @@ describe('MultisigService', () => {
       guardianConfig.getState.mockReset();
     });
 
-    it('fetches state, base64-decodes into Account, and inserts into the webClient', async () => {
+    it('fetches state, base64-decodes into Account, and adopts it through the staleness guard', async () => {
       const webClient = {
         accounts: { insert: jest.fn(async () => {}) }
       };
@@ -534,7 +539,10 @@ describe('MultisigService', () => {
 
       expect(guardianConfig.setSigner).toHaveBeenCalled();
       expect(mockAccountDeserialize).toHaveBeenCalled();
-      expect(webClient.accounts.insert).toHaveBeenCalledWith({ account: fakeAccount, overwrite: true });
+      // Routed through the guard, never straight to accounts.insert — an
+      // unguarded overwrite here is what let a stale snapshot win.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalledWith(webClient, fakeAccount);
+      expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
     it('rejects (and does not insert) when the guardian returns a mismatched account id', async () => {
@@ -571,7 +579,8 @@ describe('MultisigService', () => {
 
       await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
 
-      expect(webClient.accounts.insert).toHaveBeenCalled();
+      // Reached the adoption step, i.e. the import ran to completion.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalled();
       // The global-key read is gone: storage is never consulted for the import.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
