@@ -353,7 +353,9 @@ describe('completeSendTransaction', () => {
     } catch {
       // May or may not throw depending on the error path
     }
-    expect(spy).toBeDefined();
+    // `toBeDefined` on a spy is always true: it held whether the failure was
+    // logged or the path was never reached at all.
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 });
@@ -708,9 +710,11 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // The errorCode dispatch is exercised; the final status depends on
-    // mock timing between updateTransactionStatus and cancelTransaction.
-    expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+    // The whole point of this error code: the transaction IS on chain, only the
+    // local apply failed, so the row must not be demoted to Failed — that would
+    // offer a retry for a consume that already happened. Accepting either
+    // terminal status here made the test's own name unfalsifiable.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
 
     sdk.withWasmClientLock = origLock;
   });
