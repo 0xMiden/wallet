@@ -49,7 +49,7 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
-import type { CreatedGuardianKeys } from '../guardian/account';
+import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
 
 export interface GuardianAccountCreationResult {
@@ -410,7 +410,10 @@ export class MidenClientInterface {
         const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
         const bech32 = await withWasmClientLock(async () => {
           const acc = Account.deserialize(accountBytes);
-          await this.client.accounts.insert({ account: acc, overwrite: true });
+          // The same account matches at more than one HD index, so this runs
+          // twice per recovery; a plain overwrite lets whichever snapshot
+          // arrives last win, including a creation-time one.
+          await insertGuardianAccountMonotonically(this.client, acc);
           await this.client.keystore.insert(acc.id(), coldSk);
           return getBech32AddressFromAccountId(acc.id());
         });
