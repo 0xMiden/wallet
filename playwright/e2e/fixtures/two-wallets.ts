@@ -377,19 +377,36 @@ async function launchWalletInstance(
   // wrapper survives within a single SW lifetime but is lost on restart;
   // re-install on every new SW target for this context.
   context.on('serviceworker', async newWorker => {
-    if (new URL(newWorker.url()).host !== extensionId) return;
-    newWorker.on('console', (msg: any) => {
-      const text = msg.text();
-      if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
-      timeline.emit({
-        category: 'browser_console',
-        severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
-        wallet: label,
-        message: `[${label}-SW] ${msg.type()}: ${text}`,
-        data: { source: 'service_worker', type: msg.type(), text }
+    // Whole body guarded. This is an ASYNC listener, so anything that throws in
+    // here becomes an unhandled rejection that Playwright charges to whichever
+    // test is running — and the throw is easy to provoke: MV3 announces a new SW
+    // and can destroy it immediately (or the spec killed the browser outright),
+    // at which point attaching to it raises "Object with guid handle@… was not
+    // bound in the connection". Instrumentation must never be the thing that
+    // fails a run; losing capture on a worker that no longer exists costs
+    // nothing.
+    try {
+      if (new URL(newWorker.url()).host !== extensionId) return;
+      newWorker.on('console', (msg: any) => {
+        const text = msg.text();
+        if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+        timeline.emit({
+          category: 'browser_console',
+          severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
+          wallet: label,
+          message: `[${label}-SW] ${msg.type()}: ${text}`,
+          data: { source: 'service_worker', type: msg.type(), text }
+        });
       });
-    });
-    await attachServiceWorkerFetchCapture(newWorker, label, timeline);
+      await attachServiceWorkerFetchCapture(newWorker, label, timeline);
+    } catch (err) {
+      timeline.emit({
+        category: 'test_lifecycle',
+        severity: 'warn',
+        wallet: label,
+        message: `[SW-NET] re-attach to restarted SW failed: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
   });
 
   // After a delay, probe the SW for errors and state
@@ -612,6 +629,28 @@ async function captureFailureSnapshot(
   return captureWalletSnapshot(caps, label, timeline.currentStep, 'failure').catch(() => undefined);
 }
 
+/**
+ * Close a wallet's browser context in teardown, tolerating one that is already
+ * gone.
+ *
+ * A spec that deliberately kills the browser (`killBrowser()`, the
+ * deterministic stand-in for the Chromium crash CI produces) leaves this
+ * pointing at a dead context whenever the relaunch that follows doesn't
+ * complete. An unguarded `close()` then throws "browserContext.close: Target
+ * page, context or browser has been closed" FROM TEARDOWN, and Playwright
+ * reports that as the test's failure — burying the real error under a teardown
+ * artefact and failing tests whose body passed. That is how
+ * `guardian-recovery-stress`'s browser-crash spec failed on main (run
+ * 32365630519, and the same signature on a sibling test at 32321128598).
+ *
+ * Every other close in this harness already swallows this — `killBrowser`, and
+ * the page closes in `launchWalletInstance` — so these were the outliers.
+ * Teardown must not be able to invent a failure.
+ */
+async function closeContextQuietly(context: BrowserContext): Promise<void> {
+  await context.close().catch(() => {});
+}
+
 function writeDebugSession(
   testName: string,
   reportPath: string,
@@ -800,16 +839,14 @@ export const test = base.extend<TwoWalletFixtures>({
     if (isAgentic && failed) {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
-        try {
-          await instance.context.close();
-        } catch {}
+        await closeContextQuietly(instance.context);
       }, AGENTIC_TIMEOUT_MS);
       timer.unref();
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) so the SDK state can be
       // recovered offline if the in-page forensic dump was incomplete (e.g. the
       // page died mid-dump under memory pressure). Only the context is closed.
-      await instance.context.close();
+      await closeContextQuietly(instance.context);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -818,7 +855,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await instance.context.close();
+      await closeContextQuietly(instance.context);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   },
@@ -860,17 +897,13 @@ export const test = base.extend<TwoWalletFixtures>({
 
       // Schedule auto-cleanup with process exit safety net
       const cleanupTimer = setTimeout(async () => {
-        try {
-          await instance.context.close();
-        } catch {
-          // ignore
-        }
+        await closeContextQuietly(instance.context);
       }, AGENTIC_TIMEOUT_MS);
       cleanupTimer.unref(); // Don't keep process alive just for this timer
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) for offline SDK-state
       // recovery when the in-page forensic dump may be incomplete.
-      await instance.context.close();
+      await closeContextQuietly(instance.context);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -879,7 +912,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await instance.context.close();
+      await closeContextQuietly(instance.context);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   }
