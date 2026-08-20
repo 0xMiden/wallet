@@ -520,9 +520,17 @@ export class MidenClientInterface {
       }
     }
 
+    // One import per distinct id. A batch holding the same note twice — which
+    // the Guardian, not this wallet, decides — would otherwise hand the same
+    // proof to `authenticated` twice, and the second call gets a handle the
+    // first one already moved into Rust. Re-importing is a no-op anyway.
+    const imports = new Set<string>();
     for (const note of notes) {
       try {
-        const inclusionProof = proofs.get(String(note.id()));
+        const noteId = String(note.id());
+        if (imports.has(noteId)) continue;
+        imports.add(noteId);
+        const inclusionProof = proofs.get(noteId);
         const inputNote = inclusionProof
           ? InputNote.authenticated(note, inclusionProof)
           : InputNote.unauthenticated(note);
@@ -692,6 +700,8 @@ export class MidenClientInterface {
     try {
       // Bounded, no retry: an unbounded await here hangs the WASM mutex on the
       // inline (mobile/desktop) path, where no op deadline exists to kill it.
+      // The no-retry part is also load-bearing for correctness: this call MOVES
+      // `noteTag` into Rust, so a second attempt would hand it a dead handle.
       syncInfo = await withRpcTimeout(() => rpc.syncNotes(blockFrom, blockTo, [noteTag]), 'recoverySyncNotes', {
         timeoutMs: 30_000,
         retries: 0
@@ -738,14 +748,19 @@ export class MidenClientInterface {
     const fetchBatchSize = 100;
     for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
       const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
-      const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
-        retries: 0
-      });
+      // Read BEFORE the call: passing these into `getNotesById` MOVES them into
+      // Rust (wasm-bindgen unwraps every element and zeroes the JS wrapper's
+      // pointer), so afterwards each one is a dead handle and stringifying it
+      // traps. Only the array's length survives the call.
+      //
       // Resolved BY ID, not by count. A response of the right length can still
       // be the wrong notes — duplicates of one id, or ids never asked for —
       // and counting length alone would read that as a clean chunk, letting
       // the orchestrator clear the one-shot flag over notes never imported.
       const requestedIds = new Set(noteIds.map(String));
+      const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
+        retries: 0
+      });
       const answeredIds = new Set<string>();
       for (const fetched of fetchedNotes) {
         const noteId = String(fetched.noteId);

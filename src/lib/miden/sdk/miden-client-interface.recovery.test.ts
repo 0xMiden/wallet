@@ -25,6 +25,8 @@ interface FakeRpc {
 
 let fakeRpc: FakeRpc;
 let noteImport: jest.Mock;
+/** Ids each `getNotesById` call asked for, as strings read before the call moved them. */
+let requestedIdBatches: string[][];
 
 const NOTE_TYPE_PRIVATE = 0;
 const NOTE_TYPE_PUBLIC = 1;
@@ -46,8 +48,29 @@ function fetchedNote(
   };
 }
 
+/**
+ * A `NoteId` handle with the SDK's ownership semantics. Passing one into an RPC
+ * call MOVES it: wasm-bindgen unwraps every element of the array and zeroes the
+ * JS wrapper's pointer, so reading the handle afterwards traps. Modelling that
+ * here is what makes this suite able to see it — against plain strings, code
+ * that reads a requested id after the call passes the test and traps against
+ * the real SDK.
+ */
+function noteIdHandle(id: string) {
+  let moved = false;
+  return {
+    move: () => {
+      moved = true;
+    },
+    toString: () => {
+      if (moved) throw new Error('null pointer passed to rust');
+      return id;
+    }
+  };
+}
+
 function committedNote(id: string) {
-  return { noteId: () => id };
+  return { noteId: () => noteIdHandle(id) };
 }
 
 function blockHeader(blockNum: number, timestamp: number) {
@@ -57,15 +80,32 @@ function blockHeader(blockNum: number, timestamp: number) {
 async function loadClient(): Promise<RecoveryClientInterface> {
   jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
     ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
-    RpcClient: jest.fn(() => fakeRpc),
+    RpcClient: jest.fn(() => ({
+      ...fakeRpc,
+      // Delegates to the mock (so call assertions still work), then consumes
+      // the ids exactly as the real call does.
+      getNotesById: async (ids: Array<{ move?: () => void }>) => {
+        requestedIdBatches.push(ids.map(String));
+        try {
+          return await fakeRpc.getNotesById(ids);
+        } finally {
+          for (const id of ids) id.move?.();
+        }
+      }
+    })),
     Endpoint: jest.fn(url => ({ url })),
     // The shared wasm mock stands NoteType up as strings; the real enum is
     // numeric and the accounting compares against it.
     NoteType: { Private: NOTE_TYPE_PRIVATE, Public: NOTE_TYPE_PUBLIC },
     Address: { fromAccountId: jest.fn(() => ({ toNoteTag: () => NOTE_TAG })) },
-    Note: { deserialize: jest.fn((bytes: Uint8Array) => ({ id: () => `note-${bytes[0]}` })) },
+    Note: { deserialize: jest.fn((bytes: Uint8Array) => ({ id: () => noteIdHandle(`note-${bytes[0]}`) })) },
     InputNote: {
-      authenticated: jest.fn((note, proof) => ({ note, proof, authenticated: true })),
+      // Consumes the proof, as the real one does.
+      authenticated: jest.fn((note, proof: { moved?: boolean }) => {
+        if (proof.moved) throw new Error('null pointer passed to rust');
+        proof.moved = true;
+        return { note, proof, authenticated: true };
+      }),
       unauthenticated: jest.fn(note => ({ note, authenticated: false }))
     },
     NoteFile: { fromInputNote: jest.fn(inputNote => ({ file: inputNote })) }
@@ -97,6 +137,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     noteImport = jest.fn(async () => 'imported');
+    requestedIdBatches = [];
     fakeRpc = {
       syncNotes: jest.fn(async () => ({ notes: () => [] })),
       getNotesById: jest.fn(async () => []),
@@ -233,7 +274,7 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     it('pages a dense unsplittable range instead of importing it all at once', async () => {
       const many = Array.from({ length: 450 }, (_, i) => committedNote(`n${i}`));
       fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
-      fakeRpc.getNotesById.mockImplementation(async (ids: string[]) => ids.map(id => fetchedNote(id)));
+      fakeRpc.getNotesById.mockImplementation(async (ids: unknown[]) => ids.map(id => fetchedNote(String(id))));
       const client = await loadClient();
 
       const first = await client.recoverPublicNotesRange('acct', 0, 999);
@@ -251,12 +292,12 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
     it('imports the notes of the requested page, not the first ones again', async () => {
       const many = Array.from({ length: 250 }, (_, i) => committedNote(`n${i}`));
       fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
-      fakeRpc.getNotesById.mockImplementation(async (ids: string[]) => ids.map(id => fetchedNote(id)));
+      fakeRpc.getNotesById.mockImplementation(async (ids: unknown[]) => ids.map(id => fetchedNote(String(id))));
       const client = await loadClient();
 
       await client.recoverPublicNotesRange('acct', 0, 999, 200);
 
-      expect(fakeRpc.getNotesById).toHaveBeenCalledWith(many.slice(200).map(note => note.noteId()));
+      expect(requestedIdBatches).toEqual([Array.from({ length: 50 }, (_, i) => `n${200 + i}`)]);
     });
 
     it('does not page a range it can still narrow', async () => {
@@ -330,11 +371,26 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
         failures: 0
       });
       expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
-      expect(fakeRpc.getNotesById).toHaveBeenCalledWith(['note-1', 'note-2']);
+      expect(requestedIdBatches).toEqual([['note-1', 'note-2']]);
       // Both got their own proof, so both import authenticated.
       const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
       expect(wasm.InputNote.authenticated).toHaveBeenCalledTimes(2);
       expect(wasm.InputNote.unauthenticated).not.toHaveBeenCalled();
+    });
+
+    it('imports a repeated note once instead of reusing its already-moved proof', async () => {
+      // The Guardian chooses what is in the batch. Handing the same proof to
+      // `authenticated` twice fails the second import, which keeps the one-shot
+      // pending flag set and makes every later pass fail the same way.
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-1')]);
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([1])])).resolves.toEqual({
+        imported: 1,
+        failures: 0
+      });
+      const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+      expect(wasm.InputNote.authenticated).toHaveBeenCalledTimes(1);
     });
 
     it('imports a note with no proof as unauthenticated rather than dropping it', async () => {
