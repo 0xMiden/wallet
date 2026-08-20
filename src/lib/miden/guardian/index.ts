@@ -17,7 +17,7 @@ import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
+import { getSignerDetailsFromAccount, insertGuardianAccountMonotonically, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -172,7 +172,7 @@ export class MultisigService {
         throw new Error(`Guardian returned account ${returnedId} but ${accountId} was requested`);
       }
 
-      await webClient.accounts.insert({ account, overwrite: true });
+      await insertGuardianAccountMonotonically(webClient, account);
     } catch (error) {
       console.error('Error fetching account state from Guardian:', error);
       throw error;

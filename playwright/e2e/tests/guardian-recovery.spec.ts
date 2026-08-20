@@ -111,6 +111,17 @@ test.describe('Guardian recovery - real UI journey', () => {
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressA, FUND_BASE_UNITS, 'public');
       await midenCli.sync();
+
+      // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+      // which is also true before the note has synced -- claiming too early
+      // returns "drained" having consumed nothing, and the vault pin below then
+      // fails on a healthy run. Seen for real on main (run 32025335779), where
+      // this exact step read vault 0 with the whole mint still unconsumed.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
+
       await walletA.claimAllNotes(180_000);
 
       // claimAllNotes only drains the pending-note list; it does not prove the

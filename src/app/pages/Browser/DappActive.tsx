@@ -187,7 +187,7 @@ export const DappActive: FC = () => {
   if (!session) return null;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-testid="dapp-active">
       <CapsuleBar
         session={session}
         onClose={() => void close()}

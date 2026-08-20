@@ -23,6 +23,7 @@ on:
       - 'E2E Android'
       - 'E2E Bridge'
       - 'E2E Bridge-IN'
+      - 'E2E dApp Browser'
       - 'Infra Resilience E2E (Chrome)'
       - 'Swap E2E (Chrome)'
       - 'Earn E2E (Chrome)'
@@ -85,7 +86,7 @@ jobs:
         run: |
           set -u
           mkdir -p _e2e_stage
-          WORKFLOWS="e2e-blockchain.yml e2e-android.yml e2e-bridge.yml e2e-bridge-in.yml e2e-resilience.yml pr-e2e-swap.yml pr-e2e-earn.yml pr-e2e-guardian-lifecycle.yml pr-e2e-bridge-guardian.yml"
+          WORKFLOWS="e2e-blockchain.yml e2e-android.yml e2e-bridge.yml e2e-bridge-in.yml e2e-dapp-browser.yml e2e-resilience.yml pr-e2e-swap.yml pr-e2e-earn.yml pr-e2e-guardian-lifecycle.yml pr-e2e-bridge-guardian.yml"
           for wf in $WORKFLOWS; do
             # Pick the latest run that RAN TO COMPLETION — success OR failure — but
             # not "cancelled" (a rapid series of main pushes makes concurrency cancel

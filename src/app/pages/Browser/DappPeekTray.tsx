@@ -381,6 +381,7 @@ export const DappPeekTray: FC = () => {
   return createPortal(
     <div
       data-dapp-bubble-host="true"
+      data-testid="dapp-peek-tray"
       className="pointer-events-none fixed"
       style={{
         // Position the tray so its bottom edge sits 4pt above the top
