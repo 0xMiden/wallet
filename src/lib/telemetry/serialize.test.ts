@@ -1,0 +1,79 @@
+import { serializeEvent, WIRE_KEYS } from './serialize';
+import { TelemetryContext, TelemetryEvent } from './types';
+
+const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension' };
+
+describe('serializeEvent', () => {
+  it('serializes a started event with no result or duration', () => {
+    const event: TelemetryEvent = { phase: 'started', flow: 'send', flowId: 'f1' };
+    expect(serializeEvent(event, context)).toEqual({
+      phase: 'started',
+      flow: 'send',
+      flowId: 'f1',
+      appVersion: '1.15.21',
+      platform: 'extension'
+    });
+  });
+
+  it('serializes a completed event with a rounded duration', () => {
+    const event: TelemetryEvent = {
+      phase: 'ended',
+      flow: 'send',
+      flowId: 'f1',
+      result: 'completed',
+      durationMs: 1234.87
+    };
+    expect(serializeEvent(event, context)).toEqual({
+      phase: 'ended',
+      flow: 'send',
+      flowId: 'f1',
+      result: 'completed',
+      durationMs: 1235,
+      appVersion: '1.15.21',
+      platform: 'extension'
+    });
+  });
+
+  it('includes errorKind only when supplied', () => {
+    const withKind = serializeEvent(
+      { phase: 'ended', flow: 'send', flowId: 'f1', result: 'errored', errorKind: 'network', durationMs: 10 },
+      context
+    );
+    expect(withKind.errorKind).toBe('network');
+
+    const withoutKind = serializeEvent(
+      { phase: 'ended', flow: 'send', flowId: 'f1', result: 'cancelled', durationMs: 10 },
+      context
+    );
+    expect('errorKind' in withoutKind).toBe(false);
+  });
+
+  it('emits only allowlisted keys for every event shape', () => {
+    const events: TelemetryEvent[] = [
+      { phase: 'started', flow: 'open', flowId: 'a' },
+      { phase: 'ended', flow: 'unlock', flowId: 'b', result: 'completed', durationMs: 1 },
+      { phase: 'ended', flow: 'import', flowId: 'c', result: 'errored', errorKind: 'rpc', durationMs: 2 }
+    ];
+    for (const event of events) {
+      for (const key of Object.keys(serializeEvent(event, context))) {
+        expect(WIRE_KEYS).toContain(key);
+      }
+    }
+  });
+
+  it('derives appVersion and platform from context, ignoring any caller-supplied value', () => {
+    const payload = serializeEvent({ phase: 'started', flow: 'open', flowId: 'a' }, context);
+    expect(payload.appVersion).toBe('1.15.21');
+    expect(payload.platform).toBe('extension');
+  });
+
+  it('never produces a nested object or array', () => {
+    const payload = serializeEvent(
+      { phase: 'ended', flow: 'send', flowId: 'f1', result: 'errored', errorKind: 'proving', durationMs: 5 },
+      context
+    );
+    for (const value of Object.values(payload)) {
+      expect(['string', 'number']).toContain(typeof value);
+    }
+  });
+});
