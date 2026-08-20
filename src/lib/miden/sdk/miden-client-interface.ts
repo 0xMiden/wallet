@@ -978,7 +978,15 @@ export class MidenClientInterface {
       }
       // The sender's local account supplies the outgoing asset's vault key
       // (callback flag included) — see `buildSendTransactionRequest`.
-      const senderAccount = await this.client.accounts.get(accountId);
+      //
+      // Looked up by the CANONICAL id, matching the sender id handed to the
+      // builder on the next line and the guardian path's own read. The raw
+      // `accountId` may be the composite `<address>_<suffix>` form, which
+      // `accounts.get` resolves via the SDK's bech32 parser and which therefore
+      // throws for suffixes whose routing parameters don't decode — a failure
+      // this read would newly introduce, since nothing loaded the account here
+      // before.
+      const senderAccount = await this.client.accounts.get(walletAccountIdToSdk(accountId).toString());
       const request = buildSendTransactionRequest(
         senderAccount ?? undefined,
         walletAccountIdToSdk(accountId),
@@ -1528,14 +1536,23 @@ function speculationParamsHash(p: SpeculationParams): string {
  * places (URL params, dApp inputs) a `0x`-prefixed hex form may also appear,
  * so handle both.
  *
+ * The composite `WalletAccount.publicKey` form (`<address>_<suffix>`) is reduced
+ * to its address first, exactly as `walletAccountIdToSdk` does for the SW-side
+ * path — every caller here passes an ACCOUNT id, and `Address.fromBech32` only
+ * parses the composite form for suffixes whose routing parameters happen to
+ * decode. Ids without a `_` are unaffected. This matters most for the sender
+ * account read (`getAccount`): without the split, a composite id could throw
+ * where nothing read the account at all before.
+ *
  * Note: each call returns a freshly-allocated `AccountId`. As of SDK 0.15.9 the
  * methods used here borrow rather than move it, but some wasm-bindgen methods do
  * move their argument (`exportAccountFile` is one) and leave the JS handle
  * nulled, so allocating per call site keeps that distinction from mattering.
  */
 function resolveAccountId(wasm: any, ref: string): any {
-  if (ref.startsWith('0x') || ref.startsWith('0X')) {
-    return wasm.AccountId.fromHex(ref);
+  const address = ref.split('_')[0] ?? ref;
+  if (address.startsWith('0x') || address.startsWith('0X')) {
+    return wasm.AccountId.fromHex(address);
   }
-  return wasm.AccountId.fromBech32(ref);
+  return wasm.AccountId.fromBech32(address);
 }

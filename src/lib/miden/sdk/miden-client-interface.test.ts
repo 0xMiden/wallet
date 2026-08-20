@@ -449,6 +449,56 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.submit).toHaveBeenCalled();
   });
 
+  // The sender's vault is what supplies the outgoing asset's callback flag, so
+  // the account read must not be the one place a composite
+  // `<address>_<suffix>` id fails to resolve — nothing read the account here
+  // before, and a miss silently falls back to the default Disabled flag.
+  it('reads the sender vault by canonical id when the row carries a composite one', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+    const buildSendTransactionRequest = jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }));
+    const senderAccount = { vault: jest.fn() };
+    fakeMidenClient.accounts.get = jest.fn(async () => senderAccount);
+
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest
+    }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
+      TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.sendTransaction({
+      accountId: 'sender_qr7qqq9wr6w',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: 'public' as any,
+      amount: BigInt(100),
+      extraInputs: {}
+    } as any);
+
+    // Suffix stripped for the lookup, and the account reaches the builder.
+    expect(fakeMidenClient.accounts.get).toHaveBeenCalledWith('sdk-sender');
+    expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+      senderAccount,
+      expect.anything(),
+      expect.anything(),
+      'faucet',
+      100n,
+      'Public',
+      undefined
+    );
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 
