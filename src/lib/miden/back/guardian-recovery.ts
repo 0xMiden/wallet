@@ -14,7 +14,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { accountsUpdated } from './store';
+import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
 
@@ -30,6 +30,23 @@ export interface GuardianPendingNoteRecoveryResult {
   proposalNotes: number;
   publicNotes: number;
   sourceFailures: number;
+  /** Set when the run stopped early because the wallet locked under it. */
+  abortedByLock: boolean;
+}
+
+/**
+ * The recovery runs detached for minutes and keeps using the `Vault` it
+ * captured at kickoff. An auto-lock in the meantime nulls the store's vault,
+ * and `withUnlocked` only asserts the store is INITED (see `store.ts`), so
+ * nothing downstream would notice. Continuing past a lock would sign Guardian
+ * requests with a post-lock vault and — worse — `accountsUpdated` merges into
+ * state that `locked` deliberately rebuilt empty ("Security stuff! ... Reset
+ * all properties!"), repopulating `accounts`/`currentAccount` into the front
+ * state of a locked wallet. Same hazard class as issue #313, which is why the
+ * transaction processor uses `withUnlockedVault`.
+ */
+function isWalletLocked(): boolean {
+  return !store.getState().vault;
 }
 
 interface GuardianClientContext {
@@ -79,16 +96,27 @@ async function fetchProposalNotePayload(
   try {
     const proposals = await context.guardian.getDeltaProposals(context.guardianAccountId);
     const proposalNoteBytes: Uint8Array[] = [];
+    let undecodable = 0;
     for (const proposal of proposals) {
       const metadata = proposal.deltaPayload.metadata;
       if (metadata?.proposalType !== 'consume_notes' || metadata.consumeNotesMetadataVersion !== 2) continue;
-      for (const encodedNote of metadata.consumeNotesNotes ?? []) proposalNoteBytes.push(b64ToU8(encodedNote));
+      for (const encodedNote of metadata.consumeNotesNotes ?? []) {
+        // Decode per note: the payload is remote, and `b64ToU8` throws on
+        // malformed base64. One bad entry must not discard the notes already
+        // collected from earlier proposals.
+        try {
+          proposalNoteBytes.push(b64ToU8(encodedNote));
+        } catch (error) {
+          undecodable++;
+          console.warn(`[GuardianRecovery] Skipping undecodable proposal note for ${account.publicKey}:`, error);
+        }
+      }
     }
     console.log(
       `[GuardianRecovery] Pending proposals for ${account.publicKey}: ${proposals.length} proposals, ` +
-        `${proposalNoteBytes.length} embedded consume notes`
+        `${proposalNoteBytes.length} embedded consume notes, ${undecodable} undecodable`
     );
-    return { proposalNoteBytes, proposalFetchFailed: false };
+    return { proposalNoteBytes, proposalFetchFailed: undecodable > 0 };
   } catch (error) {
     console.warn(`[GuardianRecovery] Pending proposal lookup failed for ${account.publicKey}:`, error);
     return { proposalNoteBytes: [], proposalFetchFailed: true };
@@ -123,7 +151,12 @@ export async function recoverPendingNotes(
   vault: Vault
 ): Promise<GuardianPendingNoteRecoveryResult> {
   console.log(`[GuardianRecovery] Recovering pending notes for ${account.publicKey}...`);
-  const result: GuardianPendingNoteRecoveryResult = { proposalNotes: 0, publicNotes: 0, sourceFailures: 0 };
+  const result: GuardianPendingNoteRecoveryResult = {
+    proposalNotes: 0,
+    publicNotes: 0,
+    sourceFailures: 0,
+    abortedByLock: false
+  };
 
   try {
     // Source 1: drain the private-note transport backlog.
@@ -133,6 +166,14 @@ export async function recoverPendingNotes(
     } catch (error) {
       result.sourceFailures++;
       console.warn(`[GuardianRecovery] Private-note transport drain failed for ${account.publicKey}:`, error);
+    }
+
+    // Source 2 signs Guardian requests with the captured vault, so stop here
+    // rather than reach for a vault the user has locked.
+    if (isWalletLocked()) {
+      result.abortedByLock = true;
+      console.warn(`[GuardianRecovery] Wallet locked during recovery for ${account.publicKey}; stopping early`);
+      return result;
     }
 
     // Source 2: notes embedded in pending consume proposals.
@@ -173,10 +214,21 @@ export async function recoverPendingNotes(
         syncedToBlock: startBlock,
         latestBlock
       });
+      let scannedToBlock = startBlock;
       for (let blockFrom = startBlock; blockFrom <= latestBlock; blockFrom += PUBLIC_BACKFILL_CHUNK_BLOCKS) {
         const blockTo = Math.min(latestBlock, blockFrom + PUBLIC_BACKFILL_CHUNK_BLOCKS - 1);
+        if (isWalletLocked()) {
+          result.abortedByLock = true;
+          console.warn(`[GuardianRecovery] Wallet locked mid-backfill for ${account.publicKey}; stopping early`);
+          return result;
+        }
         try {
-          result.publicNotes += await midenClientProxy.recoverPublicNotesRange(account.publicKey, blockFrom, blockTo);
+          const chunk = await midenClientProxy.recoverPublicNotesRange(account.publicKey, blockFrom, blockTo);
+          result.publicNotes += chunk.imported;
+          result.sourceFailures += chunk.failures;
+          // Only a chunk that actually completed advances the reported
+          // progress, so the card never claims a range it skipped.
+          scannedToBlock = blockTo;
         } catch (error) {
           result.sourceFailures++;
           console.warn(
@@ -188,7 +240,7 @@ export async function recoverPendingNotes(
           accountId: account.publicKey,
           step: 'public',
           startBlock,
-          syncedToBlock: blockTo,
+          syncedToBlock: scannedToBlock,
           latestBlock
         });
       }
@@ -197,6 +249,11 @@ export async function recoverPendingNotes(
       console.warn(`[GuardianRecovery] Public account-tag recovery failed for ${account.publicKey}:`, error);
     }
 
+    if (isWalletLocked()) {
+      result.abortedByLock = true;
+      console.warn(`[GuardianRecovery] Wallet locked before the closing sync for ${account.publicKey}`);
+      return result;
+    }
     await doSync(true);
     console.log(
       `[GuardianRecovery] Pending notes for ${account.publicKey}: ` +
@@ -206,19 +263,32 @@ export async function recoverPendingNotes(
     );
     return result;
   } finally {
-    await clearGuardianNoteRecoveryProgress();
+    await clearGuardianNoteRecoveryProgress(account.publicKey);
   }
 }
 
 /**
- * Accounts whose pending-note recovery has started in this process. Entries
- * are never removed once a run begins (only a refused start is rolled back),
- * so an account gets at most one recovery attempt per backend lifetime: a
- * failed pass keeps `guardianNoteRecoveryPending` set for the next backend
- * start to retry, without GuardianRecoveryProvider's 5s poll re-running the
- * full drain/backfill in a loop against a persistently failing source.
+ * Accounts whose pending-note recovery has started in this process. A pass
+ * that FAILED a source keeps its entry, so an account gets at most one such
+ * attempt per backend lifetime: the flag stays set for the next backend start
+ * to retry, without GuardianRecoveryProvider's 5s poll re-running the full
+ * drain/backfill in a loop against a persistently failing source.
+ *
+ * Entries are released again only where the run never really got its turn — a
+ * refused start, a rejected eligibility query, or a wallet lock — since those
+ * are transient and should be retried within this same backend lifetime.
  */
 const startedRecoveries = new Set<string>();
+
+/**
+ * Recoveries run one at a time. They are long, they monopolize the single
+ * WASM/offscreen client, and they narrate their progress through one shared
+ * storage record — so two concurrent runs would both contend for that client
+ * and interleave their progress writes, blanking each other's card. Seed
+ * recovery flags EVERY adopted account, so more than one eligible account is
+ * the normal case, not an edge case.
+ */
+let recoveryQueue: Promise<void> = Promise.resolve();
 
 /**
  * Start the detached pending-note recovery for a seed-recovered account, but
@@ -243,13 +313,23 @@ export async function maybeStartGuardianRecovery(account: WalletAccount, vault: 
   // account (popup + full page both mount the provider) would otherwise both
   // pass the check above while the first one's Dexie query is in flight.
   startedRecoveries.add(account.publicKey);
-  const uncompleted = await getAllUncompletedTransactions();
-  if (uncompleted.length > 0) {
+  try {
+    const uncompleted = await getAllUncompletedTransactions();
+    if (uncompleted.length > 0) {
+      startedRecoveries.delete(account.publicKey);
+      return false;
+    }
+  } catch (error) {
+    // Release the reservation: a rejected Dexie query is transient, and
+    // holding the slot would make the account unstartable for the rest of
+    // this backend's lifetime while its pending flag stays set.
     startedRecoveries.delete(account.publicKey);
-    return false;
+    throw error;
   }
 
-  runDetachedRecovery(account, vault);
+  // Queued rather than launched: `recoveryQueue` serializes runs across
+  // accounts. Never rejects — `runDetachedRecovery` swallows its own errors.
+  recoveryQueue = recoveryQueue.then(() => runDetachedRecovery(account, vault));
   return true;
 }
 
@@ -263,11 +343,24 @@ async function runDetachedRecovery(account: WalletAccount, vault: Vault): Promis
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   try {
     const result = await recoverPendingNotes(account, vault);
+    if (result.abortedByLock) {
+      // A lock is not a failing source: release the reservation so the
+      // provider's poll restarts this account once the user unlocks, instead
+      // of waiting for the next backend start.
+      startedRecoveries.delete(account.publicKey);
+      console.warn(`[GuardianRecovery] Recovery for ${account.publicKey} deferred until the wallet is unlocked`);
+      return;
+    }
     if (result.sourceFailures > 0) {
       console.warn(
         `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
           `${result.sourceFailures} source(s) failed; will retry on the next session`
       );
+      return;
+    }
+    if (isWalletLocked()) {
+      startedRecoveries.delete(account.publicKey);
+      console.warn(`[GuardianRecovery] Wallet locked before clearing the flag for ${account.publicKey}; will retry`);
       return;
     }
     const updated = await vault.setGuardianNoteRecoveryPending(account.publicKey, false);

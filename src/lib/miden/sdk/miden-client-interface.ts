@@ -446,11 +446,6 @@ export class MidenClientInterface {
   }
 
   /**
-   * Recover every pending-note source in the client realm that owns the SDK
-   * store. Callers route this through midenClientProxy so the offscreen client
-   * remains canonical when enabled.
-   */
-  /**
    * Pending-note recovery source 1 of 3: drain the private-note transport
    * backlog into the store. Kept a standalone short op (the SW orchestrates
    * the sources as separate offscreen calls) so nothing holds the WASM mutex
@@ -527,11 +522,38 @@ export class MidenClientInterface {
    * full creation-to-tip span in chunks through this method so progress is
    * reportable and the WASM mutex is released between chunks.
    */
-  async recoverPublicNotesRange(accountId: string, blockFrom: number, blockTo: number): Promise<number> {
+  async recoverPublicNotesRange(
+    accountId: string,
+    blockFrom: number,
+    blockTo: number
+  ): Promise<{ imported: number; failures: number }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     const accountSdkId = walletAccountIdToSdk(accountId);
     const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
     return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo);
+  }
+
+  /**
+   * A node that refuses the requested span because it is too wide is retried
+   * as two halves; anything else propagates. Rate limiting must NOT land here:
+   * "429 Too Many Requests" would otherwise be read as a span complaint and
+   * answered by doubling the number of requests.
+   */
+  private static isBlockSpanTooWide(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const rateLimited =
+      message.includes('too many requests') ||
+      message.includes('rate limit') ||
+      message.includes('resource exhausted') ||
+      message.includes('resourceexhausted') ||
+      message.includes('429');
+    if (rateLimited) return false;
+    return (
+      message.includes('paginationerror') ||
+      message.includes('blockpagination') ||
+      message.includes('safety cap') ||
+      (message.includes('block') && (message.includes('too many') || message.includes('maximum number')))
+    );
   }
 
   private async recoverPublicNotesInRange(
@@ -539,43 +561,53 @@ export class MidenClientInterface {
     noteTag: ReturnType<Address['toNoteTag']>,
     blockFrom: number,
     blockTo: number
-  ): Promise<number> {
+  ): Promise<{ imported: number; failures: number }> {
     try {
       const syncInfo = await rpc.syncNotes(blockFrom, blockTo, [noteTag]);
       const committedNotes = syncInfo.notes();
-      console.log(
-        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches`
-      );
       let imported = 0;
+      let failures = 0;
+      // A tag match whose body the node does not carry is a PRIVATE note: it is
+      // unreachable from here by design and belongs to the transport drain
+      // (source 1), so it is not counted as a failure of this source.
+      let skippedWithoutBody = 0;
       const fetchBatchSize = 100;
       for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
         const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
         const fetchedNotes = await rpc.getNotesById(noteIds);
+        // A short or reordered response must not read as success for the ids it
+        // omitted, or the orchestrator clears the recovery flag over notes it
+        // never imported.
+        if (fetchedNotes.length < noteIds.length) failures += noteIds.length - fetchedNotes.length;
         for (const fetched of fetchedNotes) {
           const inputNote = fetched.asInputNote();
-          if (!inputNote) continue;
+          if (!inputNote) {
+            skippedWithoutBody++;
+            continue;
+          }
           try {
             await this.client.notes.import(NoteFile.fromInputNote(inputNote));
             imported++;
           } catch (error) {
+            failures++;
             console.warn('[GuardianRecovery] Failed to import one public note:', error);
           }
         }
       }
-      return imported;
+      console.log(
+        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches, ` +
+          `${imported} imported, ${skippedWithoutBody} without body, ${failures} failed`
+      );
+      return { imported, failures };
     } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-      const safetyCapReached =
-        message.includes('paginationerror') ||
-        message.includes('blockpagination') ||
-        message.includes('safety cap') ||
-        message.includes('too many') ||
-        message.includes('maximum number');
-      if (!safetyCapReached || blockFrom >= blockTo) throw error;
+      if (!MidenClientInterface.isBlockSpanTooWide(error) || blockFrom >= blockTo) throw error;
       const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
       const firstHalf = await this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, midpoint);
       const secondHalf = await this.recoverPublicNotesInRange(rpc, noteTag, midpoint + 1, blockTo);
-      return firstHalf + secondHalf;
+      return {
+        imported: firstHalf.imported + secondHalf.imported,
+        failures: firstHalf.failures + secondHalf.failures
+      };
     }
   }
 

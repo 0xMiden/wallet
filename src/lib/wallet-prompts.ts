@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
@@ -7,6 +7,7 @@ import {
   fetchGuardianNoteRecoveryProgress,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
   type GuardianNoteRecoveryProgress,
+  isGuardianNoteRecoveryProgressStale,
   normalizeGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
@@ -374,27 +375,44 @@ export async function faucet(address: string): Promise<void> {
  */
 export function useGuardianNoteRecoveryProgress(): GuardianNoteRecoveryProgress | null {
   const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
+  const cancelledRef = useRef(false);
+
+  // A run that died with its realm stops refreshing the record. The card is
+  // non-dismissible, so without ageing the record out it would sit on screen
+  // forever.
+  const accept = useCallback((next: GuardianNoteRecoveryProgress | null) => {
+    if (cancelledRef.current) return;
+    setProgress(next && isGuardianNoteRecoveryProgressStale(next) ? null : next);
+  }, []);
+
+  const refresh = useCallback(() => {
+    fetchGuardianNoteRecoveryProgress()
+      .then(accept)
+      .catch(error => console.warn('[wallet-prompts] failed to read note-recovery progress:', error));
+  }, [accept]);
 
   useEffect(() => {
-    let cancelled = false;
-    const refresh = () => {
-      fetchGuardianNoteRecoveryProgress()
-        .then(next => {
-          if (!cancelled) setProgress(next);
-        })
-        .catch(error => console.warn('[wallet-prompts] failed to read note-recovery progress:', error));
-    };
+    cancelledRef.current = false;
     refresh();
-    const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value => {
-      if (!cancelled) setProgress(normalizeGuardianNoteRecoveryProgress(value));
-    });
-    const interval = setInterval(refresh, 2000);
+    const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value =>
+      accept(normalizeGuardianNoteRecoveryProgress(value))
+    );
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
       unsubscribe();
-      clearInterval(interval);
     };
-  }, []);
+  }, [accept, refresh]);
+
+  // Poll only while a recovery is actually in flight. Mobile and desktop have
+  // no storage events, so the poll is the only thing that advances the card
+  // there; on every platform it is also what ages out an abandoned record.
+  // Idle wallets — almost all of them, almost always — never poll at all.
+  const recoveryInFlight = progress !== null;
+  useEffect(() => {
+    if (!recoveryInFlight) return;
+    const interval = setInterval(refresh, 2000);
+    return () => clearInterval(interval);
+  }, [recoveryInFlight, refresh]);
 
   return progress;
 }

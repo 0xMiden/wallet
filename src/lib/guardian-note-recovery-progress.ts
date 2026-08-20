@@ -10,6 +10,15 @@ import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 
 export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY = 'guardian_note_recovery_progress_v1';
 
+/**
+ * A record not refreshed within this window is treated as abandoned. The
+ * orchestrator rewrites it on every step and after every backfill chunk (each
+ * bounded by a 60s op deadline), so a longer gap means the run died with the
+ * realm — and without this bound the card, being non-dismissible, would stay
+ * on screen forever.
+ */
+export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS = 180_000;
+
 export type GuardianNoteRecoveryStep = 'transport' | 'proposals' | 'public';
 
 export type GuardianNoteRecoveryProgress = {
@@ -19,6 +28,8 @@ export type GuardianNoteRecoveryProgress = {
   startBlock?: number;
   syncedToBlock?: number;
   latestBlock?: number;
+  /** `Date.now()` of the write, used to age out a record whose run died. */
+  updatedAt?: number;
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -36,8 +47,22 @@ export function normalizeGuardianNoteRecoveryProgress(value: unknown): GuardianN
     step,
     startBlock: numberOrUndefined(Reflect.get(value, 'startBlock')),
     syncedToBlock: numberOrUndefined(Reflect.get(value, 'syncedToBlock')),
-    latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock'))
+    latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),
+    updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt'))
   };
+}
+
+/**
+ * True when the record is old enough that its writer must be gone. A record
+ * without `updatedAt` predates that field and is never aged out, so an
+ * in-flight recovery across an extension update does not lose its card.
+ */
+export function isGuardianNoteRecoveryProgressStale(
+  progress: GuardianNoteRecoveryProgress,
+  now: number = Date.now()
+): boolean {
+  if (progress.updatedAt === undefined) return false;
+  return now - progress.updatedAt > GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS;
 }
 
 export async function fetchGuardianNoteRecoveryProgress(): Promise<GuardianNoteRecoveryProgress | null> {
@@ -47,14 +72,21 @@ export async function fetchGuardianNoteRecoveryProgress(): Promise<GuardianNoteR
 /** Best-effort: a progress write must never fail the recovery it narrates. */
 export async function reportGuardianNoteRecoveryProgress(progress: GuardianNoteRecoveryProgress): Promise<void> {
   try {
-    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, progress);
+    await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, { ...progress, updatedAt: Date.now() });
   } catch (error) {
     console.warn('[GuardianRecovery] Failed to persist recovery progress:', error);
   }
 }
 
-export async function clearGuardianNoteRecoveryProgress(): Promise<void> {
+/**
+ * Drop the progress record, but only when it still belongs to `accountId` —
+ * recoveries are serialized, yet a run that outlives its own realm could
+ * otherwise erase the card of the run that succeeded it.
+ */
+export async function clearGuardianNoteRecoveryProgress(accountId: string): Promise<void> {
   try {
+    const current = await fetchGuardianNoteRecoveryProgress();
+    if (current && current.accountId !== accountId) return;
     await putToStorage(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, null);
   } catch (error) {
     console.warn('[GuardianRecovery] Failed to clear recovery progress:', error);

@@ -91,6 +91,34 @@ const SYNC_DEADLINE_MS = 45_000;
 const NOTE_RECOVERY_CHUNK_DEADLINE_MS = 60_000;
 
 /**
+ * Decode one recovery chunk's JSON payload. Recovery decides whether to clear
+ * the one-shot pending flag from these numbers, so a malformed payload has to
+ * throw rather than degrade: an absent `failures` would otherwise make the
+ * orchestrator's `sourceFailures` accumulator NaN, and `NaN > 0` is false —
+ * reading as "every source succeeded" over a chunk that reported nothing.
+ */
+function parseRecoveryResult(method: string, resultB64: string | null): unknown {
+  if (resultB64 == null) throw new Error(`${method}: offscreen document returned no result`);
+  return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+}
+
+function readRecoveryCount(method: string, parsed: unknown, field: string): number {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, field) : undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${method}: offscreen document returned a malformed ${field}`);
+  }
+  return value;
+}
+
+function parseRecoveryCounts(method: string, resultB64: string | null): { imported: number; failures: number } {
+  const parsed = parseRecoveryResult(method, resultB64);
+  return {
+    imported: readRecoveryCount(method, parsed, 'imported'),
+    failures: readRecoveryCount(method, parsed, 'failures')
+  };
+}
+
+/**
  * Per-op deadline (ms) for a whole-op offscreen WRITE (`consumeNoteId`).
  *
  * This is the funds-risk knob (design §3.4). It must clear a legitimate
@@ -982,9 +1010,7 @@ export const midenClientProxy = {
     const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
-    if (resultB64 == null) throw new Error('importRecoveryNoteBytes: offscreen document returned no result');
-    const result: { imported: number; failures: number } = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
-    return result;
+    return parseRecoveryCounts('importRecoveryNoteBytes', resultB64);
   },
 
   /** Pending-note recovery chunk: resolve the creation-block scan range. */
@@ -995,15 +1021,19 @@ export const midenClientProxy = {
     const resultB64 = await this.call('resolveRecoveryScanRange', [createdAtSeconds], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
-    if (resultB64 == null) throw new Error('resolveRecoveryScanRange: offscreen document returned no result');
-    const result: { startBlock: number; latestBlock: number } = JSON.parse(
-      new TextDecoder().decode(b64ToBytes(resultB64))
-    );
-    return result;
+    const parsed = parseRecoveryResult('resolveRecoveryScanRange', resultB64);
+    return {
+      startBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'startBlock'),
+      latestBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'latestBlock')
+    };
   },
 
   /** Pending-note recovery chunk: public backfill over ONE bounded block range. */
-  async recoverPublicNotesRange(accountId: string, blockFrom: number, blockTo: number): Promise<number> {
+  async recoverPublicNotesRange(
+    accountId: string,
+    blockFrom: number,
+    blockTo: number
+  ): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
         (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo)
@@ -1012,9 +1042,7 @@ export const midenClientProxy = {
     const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
-    if (resultB64 == null) throw new Error('recoverPublicNotesRange: offscreen document returned no result');
-    const imported: number = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
-    return imported;
+    return parseRecoveryCounts('recoverPublicNotesRange', resultB64);
   },
 
   /**

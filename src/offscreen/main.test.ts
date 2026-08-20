@@ -235,7 +235,7 @@ function resetControl() {
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
     clientDrainPrivateNoteTransport: jest.fn(async () => {}),
     clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
-    clientRecoverPublicNotesRange: jest.fn(async () => 2),
+    clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
     clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
     // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
@@ -1272,7 +1272,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999);
     const response = sendResponse.mock.calls[0][0];
-    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toBe(2);
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
+      imported: 2,
+      failures: 0
+    });
   });
 
   it('dispatches the private-note transport drain with a null result', async () => {

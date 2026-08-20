@@ -333,8 +333,8 @@ const DISPATCH: Record<string, DispatchFn> = {
   },
 
   recoverPublicNotesRange: async (client, accountId: string, blockFrom: number, blockTo: number) => {
-    const imported = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo);
-    return new TextEncoder().encode(JSON.stringify(imported));
+    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo);
+    return new TextEncoder().encode(JSON.stringify(result));
   },
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
