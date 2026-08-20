@@ -1,6 +1,9 @@
+import { GuardianHttpClient } from '@openzeppelin/guardian-client';
+
 import {
   clearGuardianNoteRecoveryProgress,
-  fetchGuardianNoteRecoveryProgress
+  fetchGuardianNoteRecoveryProgress,
+  reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import type { WalletAccount } from 'lib/shared/types';
@@ -55,7 +58,49 @@ const mockGetState = jest.mocked(store.getState);
 const mockAccountsUpdated = jest.mocked(accountsUpdated);
 const mockClearProgress = jest.mocked(clearGuardianNoteRecoveryProgress);
 const mockFetchProgress = jest.mocked(fetchGuardianNoteRecoveryProgress);
+const mockReportProgress = jest.mocked(reportGuardianNoteRecoveryProgress);
 const mockProxy = jest.mocked(midenClientProxy);
+
+/** `createdAt` from the mocked Guardian `getState`, in unix seconds. */
+const GUARDIAN_CREATED_AT_SECONDS = Math.floor(Date.parse('2026-01-01T00:00:00Z') / 1000);
+
+/** The block ranges the backfill actually asked for, in order. */
+function backfillRanges() {
+  return mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1));
+}
+
+/** Watermarks the progress card was told about, in order. */
+function reportedWatermarks() {
+  return mockReportProgress.mock.calls.map(([progress]) => progress.syncedToBlock).filter(block => block !== undefined);
+}
+
+/**
+ * Makes the Guardian offer one consume proposal carrying `count` notes.
+ *
+ * Re-applied with 0 before every test: this replaces the module mock's own
+ * implementation, which `jest.clearAllMocks` does not restore.
+ */
+function guardianOffersProposalNotes(count: number) {
+  jest.mocked(GuardianHttpClient).mockImplementation(
+    () =>
+      ({
+        setSigner: jest.fn(),
+        getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+        getDeltaProposals: jest.fn().mockResolvedValue([
+          {
+            deltaPayload: {
+              metadata: {
+                proposalType: 'consume_notes',
+                consumeNotesMetadataVersion: 2,
+                // 'AQID' decodes to [1, 2, 3] — `b64ToU8` is the real one here.
+                consumeNotesNotes: Array.from({ length: count }, () => 'AQID')
+              }
+            }
+          }
+        ])
+      }) as never
+  );
+}
 
 // `startedRecoveries` and the queue are module state, so each test gets a fresh
 // account id rather than a fresh module.
@@ -85,9 +130,13 @@ function locked() {
   mockGetState.mockReturnValue({ vault: null } as never);
 }
 
-/** Lets the detached run (queued, then several awaits deep) reach its end. */
+/**
+ * Lets the detached run (queued, then several awaits deep) reach its end. The
+ * budget covers the longest run here — 20 proposal batches, each several awaits
+ * deep — since every source is a resolved mock.
+ */
 async function drainDetachedRun() {
-  for (let i = 0; i < 50; i++) await Promise.resolve();
+  for (let i = 0; i < 500; i++) await Promise.resolve();
 }
 
 beforeEach(() => {
@@ -95,6 +144,7 @@ beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
   jest.spyOn(console, 'warn').mockImplementation(() => {});
   setPendingFlag = jest.fn().mockResolvedValue([]);
+  guardianOffersProposalNotes(0);
   unlocked();
   mockUncompleted.mockResolvedValue([]);
   mockFetchProgress.mockResolvedValue(null);
@@ -332,6 +382,49 @@ describe('detached recovery run', () => {
       expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
     });
 
+    // `fetchGuardianNoteRecoveryProgress` reads ONE global record, and every
+    // account adopted by a seed recovery is flagged — so the record a queued
+    // account finds is very often another account's. Consuming it would make
+    // this account skip the transport drain and the proposal import outright and
+    // then clear its own one-shot pending flag, losing those notes for good.
+    it('ignores a checkpoint left by a different account', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: 'some-other-account',
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now()
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // Treated as a fresh pass: every source is paid for, and the scan range is
+      // resolved from the account's creation time rather than from the tip.
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+    });
+
+    it('ignores a record that has not reached the public step yet', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      // Same account, but the watermark cannot be trusted: the earlier steps had
+      // not finished when this was written.
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'proposals',
+        syncedToBlock: 200_000,
+        updatedAt: Date.now()
+      } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+    });
+
     it('treats a realm teardown as a deferral, not a failing source', async () => {
       const account = pendingAccount({ coldPublicKey: '0xcold' });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
@@ -344,6 +437,152 @@ describe('detached recovery run', () => {
       // Deferred, so the reservation went back and the account is startable.
       await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
     });
+  });
+
+  // The point of the between-chunk check is to stop CONTENDING for the one WASM
+  // client the moment a transaction appears. Asserting only the run's outcome
+  // cannot see that: the pre-sync check produces the same outcome after
+  // scanning every remaining chunk, which is the bug it exists to prevent.
+  it('stops the backfill at the very next chunk when a transaction appears', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 600_000 } as never);
+    mockProxy.recoverPublicNotesRange.mockImplementationOnce(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'auto-consume' }] as never);
+      return { imported: 1, failures: 0, saturated: false } as never;
+    });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    // Four chunks were queued; only the first ran.
+    expect(backfillRanges()).toEqual([[0, 199_999]]);
+    expect(setPendingFlag).not.toHaveBeenCalled();
+  });
+
+  it('re-checks at its turn in the queue, not just when it was offered', async () => {
+    const first = pendingAccount();
+    const second = pendingAccount();
+    // A transaction appears while `first` runs, so `second` — queued behind it
+    // and cleared to start minutes ago — must give up its turn.
+    mockProxy.drainPrivateNoteTransport.mockImplementationOnce(async () => {
+      mockUncompleted.mockResolvedValue([{ id: 'tx-1' }] as never);
+    });
+
+    await maybeStartGuardianRecovery(first);
+    await maybeStartGuardianRecovery(second);
+    await drainDetachedRun();
+
+    // Only `first` ever drained; `second` never started a source at all.
+    expect(mockProxy.drainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    // And it gave its reservation back, so the provider can re-offer it.
+    mockUncompleted.mockResolvedValue([]);
+    await expect(maybeStartGuardianRecovery(second)).resolves.toBe(true);
+  });
+
+  it('never reports a block range the backfill actually skipped', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+    // First chunk fails, second succeeds.
+    mockProxy.recoverPublicNotesRange
+      .mockRejectedValueOnce(new Error('node unavailable'))
+      .mockResolvedValue({ imported: 0, failures: 0, saturated: false } as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    const watermarks = reportedWatermarks();
+    // The failed chunk must never appear as scanned — the card would claim it,
+    // and the same record is the checkpoint a later pass would resume from.
+    expect(watermarks).not.toContain(199_999);
+    expect(watermarks[watermarks.length - 1]).toBe(400_000);
+  });
+
+  it('does not claim a saturated range until its halves have been scanned', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 1_999 } as never);
+    mockProxy.recoverPublicNotesRange
+      .mockResolvedValueOnce({ imported: 0, failures: 0, saturated: true } as never)
+      .mockResolvedValue({ imported: 0, failures: 0, saturated: false } as never);
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    // The requeued range is only claimed as its halves land, in order.
+    expect(reportedWatermarks()).toEqual([0, 0, 999, 1_999]);
+  });
+
+  describe('proposal note import', () => {
+    it('imports in bounded batches and re-stamps the card after each one', async () => {
+      // One call per batch, because on mobile and desktop it runs inline and
+      // holds the single WASM mutex for the whole batch; and the card has to be
+      // re-stamped as it goes or it ages out mid-phase.
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalNotes(30);
+      mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 25, failures: 0 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.importRecoveryNoteBytes.mock.calls.map(([batch]) => batch.length)).toEqual([25, 5]);
+      const proposalReports = mockReportProgress.mock.calls.filter(([progress]) => progress.step === 'proposals');
+      expect(proposalReports.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('stops between batches when a transaction appears', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalNotes(30);
+      mockProxy.importRecoveryNoteBytes.mockImplementationOnce(async () => {
+        mockUncompleted.mockResolvedValue([{ id: 'auto-consume' }] as never);
+        return { imported: 25, failures: 0 } as never;
+      });
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.importRecoveryNoteBytes).toHaveBeenCalledTimes(1);
+      // Gave up its turn before ever reaching the backfill.
+      expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    it('counts notes the import rejected, so the flag stays set', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalNotes(5);
+      mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 3, failures: 2 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    it('keeps the recovery pending when the Guardian offers more notes than the cap', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalNotes(600);
+      mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 25, failures: 0 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // Capped at 500 notes = 20 full batches, and truncation counts as a
+      // failed source so the remainder is retried rather than dropped.
+      const imported = mockProxy.importRecoveryNoteBytes.mock.calls.reduce((sum, [batch]) => sum + batch.length, 0);
+      expect(imported).toBe(500);
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not scan from genesis when the Guardian client could not be built', async () => {
+    // Without a Guardian there is no creation block, so the range would be
+    // genesis→tip; and since the same failure keeps the flag set, every backend
+    // start would re-walk the entire chain.
+    const account = pendingAccount({ coldPublicKey: undefined });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(mockProxy.resolveRecoveryScanRange).not.toHaveBeenCalled();
+    expect(mockProxy.recoverPublicNotesRange).not.toHaveBeenCalled();
   });
 
   it('runs one account at a time', async () => {
