@@ -141,7 +141,17 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
   // they settled in — the Dexie scan yields rows by uuid, which would number a
   // multi-fill order arbitrarily and renumber it when a later fill lands. A row
   // without a completion stamp sorts last rather than first.
-  consumes.sort((a, b) => (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity));
+  // `completedAt` is a one-second local stamp and auto-consume settles batches
+  // within a single tick, so ties are the common case rather than the edge. With
+  // no tie-break the order fell through to the Dexie scan's primary-key order —
+  // row UUIDs — so two fills in the same second were numbered arbitrarily, and
+  // differently on every device. Break on the submitted chain id, which every
+  // device agrees on.
+  consumes.sort(
+    (a, b) =>
+      (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity) ||
+      (a.transactionId ?? a.id).localeCompare(b.transactionId ?? b.id)
+  );
   for (const tx of consumes) {
     const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
     const transaction = {

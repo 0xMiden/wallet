@@ -273,7 +273,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Smart Deposit (open-position) metadata for the details card + intent polling.
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
   const depositPollNonceRef = useRef<string | null>(null);
+  const loadGenerationRef = useRef(0);
   const loadTransaction = useCallback(async () => {
+    // Six call sites drive this, one of them a fixed 3s interval that does not
+    // wait for the previous run, and it awaits three times before writing nine
+    // pieces of state. Without a generation stamp an older snapshot resolving
+    // late overwrites a newer one wholesale: the receipt visibly regresses from
+    // Confirmed back to Pending, `setOrderId(null)` tears down the tracking
+    // poller mid-flight, and the settlement rows the poller published are
+    // replaced by the empty read that started before the consume landed.
+    const generation = ++loadGenerationRef.current;
+    const superseded = () => loadGenerationRef.current !== generation;
     try {
       setLoadError(null);
       const tx = await getTransactionById(transactionId);
@@ -362,6 +372,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
         const requestedMeta =
           !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
+        if (superseded()) return;
         setRequestedToken({
           amount: extra.requestedAmount ?? 0n,
           decimals: swapToken?.decimals ?? requestedMeta?.decimals,
@@ -373,8 +384,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
 
       if (tx.type === 'swap') {
-        setSettlementNotes(await getSwapSettlementNotes(tx.id));
+        const notes = await getSwapSettlementNotes(tx.id);
+        // Never trade observed settlement for an empty read: this load may have
+        // queried the table before the consume was written, while the poller's
+        // later result is already on screen.
+        if (!superseded() && (notes.settled.length > 0 || notes.reclaimed.length > 0 || !settlementFoundRef.current)) {
+          setSettlementNotes(notes);
+        }
       }
+
+      if (superseded()) return;
 
       setEarnWithdraw(earnWithdrawExtra ?? null);
       setEarnDeposit(earnDepositExtra ?? null);
@@ -558,9 +577,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       }
     };
 
+    // Only the FIRST attempt counts as "loading". `trackingLoading` gates both
+    // the status word and whether a whole row exists in the notes list, so
+    // toggling it on every backoff retry made that row mount and unmount ~20
+    // times over the retry schedule, reflowing everything under it. After one
+    // answer we know the state; a retry is not new information.
+    let firstAttempt = true;
+
     async function poll() {
       if (cancelled) return;
-      setTrackingLoading(true);
+      if (firstAttempt) setTrackingLoading(true);
       try {
         const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
@@ -586,7 +612,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         console.error('[HistoryDetails] Failed to track swap order:', error);
         if (!cancelled) scheduleUnresolvedRetry();
       } finally {
-        if (!cancelled) setTrackingLoading(false);
+        if (firstAttempt) {
+          firstAttempt = false;
+          if (!cancelled) setTrackingLoading(false);
+        }
       }
     }
 
@@ -841,9 +870,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
             showPendingNotesAction={showPendingNotesAction}
-            showCancelAction={displayOrderState !== 'filled'}
             onOpenPendingNotes={() => navigate('/pending-notes')}
-            onCancel={goBack}
+            onDismiss={goBack}
           />
         ) : (
           <div className="flex-1 flex flex-col overflow-y-auto">

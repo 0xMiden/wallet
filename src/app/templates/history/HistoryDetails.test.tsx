@@ -593,6 +593,55 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
     });
 
+    it('keeps a way off the screen once the order is filled', async () => {
+      // Close is a dismiss, not a cancellation, so no order state can take it
+      // away. Deriving it from the order state left a filled receipt with only
+      // the header controls, and slid it into the primary slot the instant a
+      // fill landed — under a finger already travelling toward the other button.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 2,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
+      expect(screen.getByText('close')).toBeInTheDocument();
+    });
+
+    it('does not flicker between Loading and Not available while it retries', async () => {
+      // `trackingLoading` gates the status word AND whether a whole row exists
+      // in the notes list, so toggling it per retry mounted and unmounted that
+      // row on every backoff step, reflowing the page each time.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId
+        .mockResolvedValueOnce(null)
+        // The retry hangs, so any per-attempt loading state would be visible.
+        .mockReturnValue(new Promise(() => {}));
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      await flush();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('trackingUnavailable');
+      expect(screen.getByTestId('swap-order-status')).not.toHaveTextContent('loading');
+    });
+
     it('calls a partly-matched open order partially filled, not open', async () => {
       // 600 of 1000 matched on the DEX with the order still live. "Open" alone
       // understates it and the bar would be the only hint that anything landed.
@@ -1029,6 +1078,55 @@ describe('HistoryDetails', () => {
       await flush();
 
       expect(screen.getByText('swapFillNote_2')).toBeInTheDocument();
+    });
+
+    it('does not let a stale reload erase settlement rows already on screen', async () => {
+      // The row reload and the settlement poll run concurrently, and the reload
+      // wrote whatever it read unconditionally. A reload that queried the table
+      // before the consume was written would therefore wipe rows the poll had
+      // already published — and reset the poll's own progress with them.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 400n,
+        remainingRequested: 400n
+      });
+      mockGetSwapSettlementNotes
+        .mockResolvedValueOnce({
+          settled: ['note-a'],
+          reclaimed: [],
+          settledTransactions: [
+            {
+              id: 'consume-1',
+              transactionId: 'chain-1',
+              noteIds: ['note-a'],
+              amount: 300n,
+              faucetId: 'req-faucet',
+              completedAt: 1_700_000_100
+            }
+          ],
+          reclaimedTransactions: []
+        })
+        // Every later read — including the one the reload interval makes — comes
+        // back empty, as a read that raced the write would.
+        .mockResolvedValue({ settled: [], reclaimed: [], settledTransactions: [], reclaimedTransactions: [] });
+      mockGetTransactionById.mockResolvedValue({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        // Queued keeps the 3s row-reload interval alive.
+        status: 0
+      });
+
+      await renderAndLoad();
+      expect(screen.getByText('swapFillNote_1')).toBeInTheDocument();
+
+      await act(async () => {
+        jest.advanceTimersByTime(6000);
+      });
+      await flush();
+
+      expect(screen.getByText('swapFillNote_1')).toBeInTheDocument();
     });
 
     it('stops reading settlement notes once the order is terminal and something was seen', async () => {

@@ -433,6 +433,39 @@ describe('getSwapSettlementNotes', () => {
     expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
   });
 
+  it('orders same-second consumes by chain id so every device numbers the fills alike', async () => {
+    // `completedAt` is a one-second local stamp and auto-consume settles a batch
+    // within one tick, so ties are ordinary. Falling through to the Dexie scan's
+    // primary-key order numbered those fills by row UUID — arbitrary, and
+    // different on each device that saw the same order. Rows are pushed in
+    // reverse chain order here to prove the comparator, not the input order.
+    txStore.push(
+      {
+        id: 'uuid-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'uuid-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.transactionId)).toEqual(['chain-1', 'chain-2']);
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+  });
+
   it('treats an untagged kind as a settle and reads the singular noteId', async () => {
     txStore.push({
       id: 'c-1',

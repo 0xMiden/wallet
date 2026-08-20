@@ -39,9 +39,9 @@ interface SwapDetailProps {
   fromAccount: React.ReactNode;
   showActions: boolean;
   showPendingNotesAction: boolean;
-  showCancelAction: boolean;
   onOpenPendingNotes: () => void;
-  onCancel: () => void;
+  /** Leaves the receipt. Nothing about the order is cancelled. */
+  onDismiss: () => void;
 }
 
 interface SwapNoteRowProps {
@@ -239,9 +239,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   fromAccount,
   showActions,
   showPendingNotesAction,
-  showCancelAction,
   onOpenPendingNotes,
-  onCancel
+  onDismiss
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
@@ -428,7 +427,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
         </section>
       </div>
 
-      {showActions && (showPendingNotesAction || showCancelAction) && (
+      {showActions && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
           {showPendingNotesAction && (
             <Button
@@ -438,11 +437,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               className="max-w-none"
             />
           )}
-          {/* Dismisses the receipt — an order that already reached the DEX has no
-              cancel path, so it must not borrow the destructive Cancel label. */}
-          {showCancelAction && (
-            <Button variant={ButtonVariant.Secondary} title={t('close')} onClick={onCancel} className="max-w-none" />
-          )}
+          {/* Always present. It dismisses the receipt — an order that already
+              reached the DEX has no cancel path, so it must not borrow the
+              destructive Cancel label, and there is no order state in which
+              "leave this screen" stops being available. Deriving it from the
+              order state instead left a filled receipt with no button at all,
+              and promoted this one into the primary slot the instant a fill
+              landed, under a finger already reaching for the other button. */}
+          <Button variant={ButtonVariant.Secondary} title={t('close')} onClick={onDismiss} className="max-w-none" />
         </div>
       )}
     </div>
