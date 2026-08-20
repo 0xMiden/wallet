@@ -170,7 +170,10 @@ const capturedConfirmation = (): CapturedConfirmation => {
 const amountRow = (confirmation: CapturedConfirmation): string | undefined =>
   confirmation.transactionMessages?.find(message => message.startsWith('Amount, '));
 
-const sendRequest = (faucetId: string, amount: string) =>
+/** Distinguishes "caller omitted it" from "caller passed undefined on purpose". */
+const OMITTED = Symbol('omitted');
+
+const sendRequest = (faucetId: string, amount: string, noteType: unknown = OMITTED) =>
   ({
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
@@ -178,7 +181,7 @@ const sendRequest = (faucetId: string, amount: string) =>
       senderAddress: 'mtst1sender',
       recipientAddress: 'mtst1recipient',
       faucetId,
-      noteType: 'private',
+      noteType: noteType === OMITTED ? 'private' : noteType,
       amount,
       recallBlocks: 0
     }
@@ -295,5 +298,94 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
     await expect(requestTransaction(DAPP_ORIGIN, customReq, 'session-1')).rejects.toThrow(DECLINED);
 
     expect(capturedConfirmation().origin).toBe(DAPP_ORIGIN);
+  });
+});
+
+// ── 3. The note type is resolved before the user is asked ──────────
+
+/**
+ * `noteType` is required by the SendTransaction contract, but it crosses
+ * postMessage from an untrusted page, so the type is a claim rather than a
+ * guarantee. The wallet now builds the note itself, and its resolver treats a
+ * missing type as PUBLIC — so an omitted one would have rendered "Note Type,
+ * undefined" on the sheet and then gone out as a public note. Reject before the
+ * sheet is ever raised.
+ */
+describe('dApp send approval: the note type must resolve before the user is asked', () => {
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+  });
+
+  const noteTypeRow = (confirmation: CapturedConfirmation): string | undefined =>
+    confirmation.transactionMessages?.find(message => message.startsWith('Note Type, '));
+
+  it.each([
+    ['private', 'Note Type, Private'],
+    ['public', 'Note Type, Public']
+  ])('renders the resolved label for %p', async (noteType, expected) => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    expect(noteTypeRow(capturedConfirmation())).toBe(expected);
+  });
+
+  // Built inline rather than through `sendRequest`: a default parameter fires
+  // for an explicitly-passed `undefined` too, which would silently substitute a
+  // valid note type and make this assertion vacuous.
+  const requestWithNoteType = (noteType: unknown) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'mtst1sender',
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType,
+        amount: '1500000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['absent', OMITTED]
+  ])('rejects a %s note type without prompting', async (_label, noteType) => {
+    const request =
+      noteType === OMITTED
+        ? ({
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'mtst1sender',
+              recipientAddress: 'mtst1recipient',
+              faucetId: 'faucet-6dp',
+              amount: '1500000',
+              recallBlocks: 0
+            }
+          } as unknown as Parameters<typeof requestSendTransaction>[1])
+        : requestWithNoteType(noteType);
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, request, 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  // An unrecognized value must not quietly become public either — that is the
+  // silent privacy downgrade `isPrivateNoteType` exists to stop. Miscased
+  // variants ('Private') belong in `helpers.test.ts`, which pins the REAL
+  // numeric enum; the shared wasm mock stubs `NoteType.Private` as the string
+  // 'Private', so that one value resolves here for a reason that does not exist
+  // in production.
+  it.each(['PRIVATE', 'secret', ''])('rejects the unrecognized note type %p', async noteType => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
   });
 });

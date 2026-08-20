@@ -290,3 +290,71 @@ describe('requeueFailedTransaction — cached requestBytes', () => {
     expect(row.requestBytes).toBe(kept);
   });
 });
+
+// The stage gate alone is amnesiac: requeueing resets `stage` to undefined, so
+// the "this attempt may have submitted" signal survived exactly one retry and
+// the NEXT failure — at an early, genuinely pre-submit stage — cleared the very
+// bytes the previous retry protected. `mayHaveSubmitted` is the sticky record
+// that makes the guard hold across requeues.
+describe('requeueFailedTransaction — mayHaveSubmitted is sticky', () => {
+  const bytes = () => new Uint8Array([1, 2, 3]);
+
+  it('stamps the row when it keeps bytes for a possibly-submitted send', async () => {
+    const row = failedRow({ type: 'send', stage: 'submitting', requestBytes: bytes() });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.mayHaveSubmitted).toBe(true);
+    // The stage that justified it is gone — which is exactly why it is persisted.
+    expect(row.stage).toBeUndefined();
+  });
+
+  it('does not stamp a send that provably never submitted', async () => {
+    const row = failedRow({ type: 'send', stage: 'proving', requestBytes: bytes() });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  // The regression: attempt A dies at 'submitting' (bytes kept, flag set),
+  // the retry is picked up and attempt B dies at 'syncing'. Stage-only, that
+  // second failure reads as pre-submit and rebuilds the note id that is the
+  // only thing stopping the chain from accepting attempt A's transfer twice.
+  it('keeps bytes on a LATER pre-submit failure once the flag is set', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: 'syncing', requestBytes: kept, mayHaveSubmitted: true });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+    expect(row.mayHaveSubmitted).toBe(true);
+  });
+
+  // Same hole, reached without a second user Retry: the requeued row sits
+  // Queued with no stage until `cancelStaleQueuedTransactions` fails it, and
+  // `cancelTransaction` writes no stage — so a missing stage plus live bytes is
+  // reachable and must NOT be read as proof of never having submitted.
+  it('keeps bytes when the flag is set and the stage is missing entirely', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: undefined, requestBytes: kept, mayHaveSubmitted: true });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+  });
+
+  it('never unsets the flag', async () => {
+    const row = failedRow({ type: 'send', stage: 'executing', mayHaveSubmitted: true });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.mayHaveSubmitted).toBe(true);
+  });
+});

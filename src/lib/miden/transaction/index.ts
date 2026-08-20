@@ -217,12 +217,21 @@ async function requeueTransactionForRetry(
   // survive. Same rule, same pre-submit safety argument. `swap` is requeueable
   // too and must NOT be cleared: the PSWAP flow requires byte-identical reuse.
   //
+  // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
+  // requeue from proposal creation or proving), but not necessarily for the row:
+  // a user Retry of a send that died post-submit keeps its bytes and stamps
+  // `mayHaveSubmitted`, and the fresh attempt can then hit a 409 here. Clearing
+  // on the strength of this attempt's stage would rebuild the note id that is
+  // the only thing stopping the chain from accepting a second payment, so the
+  // sticky flag vetoes the clear.
+  //
   // Folded into the status write rather than a second `modify`: as two writes, a
   // service-worker death between them left the row Queued with its stale bytes
   // intact — the exact state this clear exists to prevent, and self-perpetuating
   // once the row is picked up again. `updateTransactionStatus` Object.assigns
   // `otherValues`, so the undefined lands in the same transaction as the status.
-  const clearRequestBytes = txType === 'earn-deposit' || txType === 'send';
+  const row = await Repo.transactions.where({ id: txId }).first();
+  const clearRequestBytes = (txType === 'earn-deposit' || txType === 'send') && row?.mayHaveSubmitted !== true;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     stage,
@@ -946,9 +955,15 @@ const generateGuardianTransaction = async (
           sendTx.secondaryAccountId,
           sendTx.faucetId,
           BigInt(sendTx.amount),
-          // Via `isPrivateNoteType` like every other send-path coercion: the
-          // former `=== Public ? Public : Private` failed closed for an
-          // unrecognized value, which is the safe direction but silent.
+          // Via `isPrivateNoteType` like every other send-path coercion, so
+          // this path and the non-guardian one can't disagree about the same
+          // row. Note the direction change: the former `=== Public ? Public :
+          // Private` mapped an unrecognized value to Private (safe but silent)
+          // and a MISSING one to Private too, where this resolves missing to
+          // Public like the SDK. That is only sound because a missing noteType
+          // can no longer reach here — the dApp send boundary rejects it with
+          // InvalidParams before the user is prompted, and the wallet's own
+          // send screens always set it.
           isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks
         );

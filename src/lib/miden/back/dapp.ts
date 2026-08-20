@@ -72,6 +72,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { isPrivateNoteType } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -1704,12 +1705,26 @@ function isAllowedNetwork() {
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
   const tokenMetadata = await getTokenMetadata(transaction.faucetId);
   const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
+  // `noteType` is required by the SendTransaction contract, but it arrives over
+  // postMessage from an untrusted page, where the type is a claim rather than a
+  // guarantee. Resolve it the same way the request builder will: an omitted or
+  // unrecognized value used to render "Note Type, undefined" here and then
+  // resolve to PUBLIC downstream, so the user approved a send whose privacy the
+  // prompt never stated. `isPrivateNoteType` throws on an unrecognized value and
+  // the caller turns that into InvalidParams before any prompt is shown; an
+  // omitted one is rejected here for the same reason. Deriving the label from
+  // the resolved value (rather than echoing the input) keeps the consent surface
+  // and the note that gets built from ever disagreeing.
+  if (transaction.noteType === undefined || transaction.noteType === null) {
+    throw new Error('noteType is required');
+  }
+  const noteTypeLabel = isPrivateNoteType(transaction.noteType) ? 'Private' : 'Public';
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
     `Amount, ${amount}`,
     `Recipient, ${transaction.recipientAddress}`,
-    `Note Type, ${capitalizeFirstLetter(transaction.noteType)}`
+    `Note Type, ${noteTypeLabel}`
   ];
 
   if (transaction.recallBlocks) {

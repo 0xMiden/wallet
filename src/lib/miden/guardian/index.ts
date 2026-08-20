@@ -22,7 +22,7 @@ import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { accountIdStringToSdk } from '../sdk/helpers';
+import { accountRefToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 /**
@@ -193,12 +193,17 @@ export class MultisigService {
    * window or a public, allocator-readable note (recallable send, Epoch bridge,
    * earn deposit) is built as a P2IDE send request and routed through
    * `createCustomProposal`.
+   *
+   * Ids go through `accountRefToSdk`, not the bech32-only parser: faucet ids in
+   * particular reach the wallet in both hex and bech32 form, and the sibling
+   * recallable-send path already accepts both — a hex id that the recallable
+   * path sends fine would throw here.
    */
   async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
     return withWasmClientLock(() =>
       this.multisig.createP2idProposal(
-        accountIdStringToSdk(recipientId).toString(),
-        accountIdStringToSdk(faucetId).toString(),
+        accountRefToSdk(recipientId).toString(),
+        accountRefToSdk(faucetId).toString(),
         amount,
         undefined,
         { noteType: NoteType.Private }

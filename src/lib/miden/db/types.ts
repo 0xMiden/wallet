@@ -304,6 +304,22 @@ export interface ITransaction {
    * `MAX_QUEUED_AGE` remains the terminal cap.
    */
   nextEligibleAt?: number;
+  /**
+   * Sticky: set once some attempt on this row reached a point from which a
+   * chain submit cannot be ruled out, and never unset. Guards the cached
+   * `requestBytes` of a guardian recallable `send` from being rebuilt, since
+   * those bytes pin the note id that makes the chain reject a duplicate —
+   * rebuilding them after a possible submit risks paying the recipient twice.
+   *
+   * A per-attempt `stage` cannot carry this: requeueing clears `stage`, so the
+   * signal survived exactly one retry, and the next failure at an early stage
+   * looked pre-submit and cleared the bytes anyway. "May have submitted" is a
+   * property of the row's history, not of the attempt currently running.
+   *
+   * Absent ⇒ false (backward compatible; pre-existing rows are treated as
+   * never-submitted, which is what the stage gate alone already assumed).
+   */
+  mayHaveSubmitted?: boolean;
 }
 
 export interface ISuccessTransactionOutput {

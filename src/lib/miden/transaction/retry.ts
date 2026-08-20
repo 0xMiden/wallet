@@ -94,11 +94,14 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * 'submitting' is stamped immediately before that call, and 'sending' may
  * enclose it.
  *
- * A missing stage is safe for a different reason than the rest: pickup stamps
- * 'syncing' then 'sending' before any request is built, so a row that never got
- * a stage never reached `ensureGuardianRecallableSendRequestBytes` and has no
- * bytes to clear. Included so the gate reads total rather than because such a
- * row needs rebuilding.
+ * A missing stage is included, but it does NOT prove anything on its own. A row
+ * requeued by this function is reset to `stage: undefined` while (on the
+ * post-submit branch) KEEPING its bytes, and `cancelTransaction` fails a row
+ * without writing a stage — so `cancelStaleQueuedTransactions` reaping that
+ * requeued row produces Failed + no stage + bytes present. The stage alone
+ * would read that as pre-submit and clear the very bytes the previous retry
+ * deliberately preserved. `mayHaveSubmitted` is what actually carries the
+ * signal across requeues; this set only classifies the CURRENT attempt.
  */
 const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
   'syncing',
@@ -112,8 +115,9 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
  * Retry a Failed transaction by resetting its row to `Queued` so the FIFO
  * processing loop picks it up again. The row keeps its id (and, for swaps, its
  * persisted `requestBytes` — the retry reuses the exact same request, which the
- * PSWAP flow requires; a `send`'s bytes are dropped when it failed pre-submit,
- * see below). `initiatedAt` is refreshed so the stale-queued TTL doesn't cancel
+ * PSWAP flow requires; a `send`'s bytes are dropped only while no attempt on the
+ * row could have submitted, see below). `initiatedAt` is refreshed so the
+ * stale-queued TTL doesn't cancel
  * the retry on sight, and `nextEligibleAt` is cleared so a stale
  * requeue-backoff can't delay the user's explicit retry.
  */
@@ -146,6 +150,11 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   // of returning the row to Queued, so it cannot be consulted from in there.
   const failedStage = tx.stage;
   const failedPreSubmit = failedStage === undefined || PRE_SUBMIT_STAGES.has(failedStage);
+  // Sticky OR: once any attempt got far enough that a submit can't be ruled out,
+  // every later attempt inherits that. Without the persisted half, the signal
+  // died with the `stage` reset below and the NEXT failure — at, say, 'syncing'
+  // — would clear bytes this retry just protected.
+  const mayHaveSubmitted = tx.mayHaveSubmitted === true || !failedPreSubmit;
 
   await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
     // `verifySendLanded` above makes a network round trip, so the row read at the
@@ -172,9 +181,8 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // bytes froze an absolute reclaim height and the outgoing asset as built at
     // first attempt, so a retry has to rebuild them to stand any chance of
     // succeeding. But they also pin the note id, which is the ONLY thing that
-    // makes the chain reject a duplicate — hence the stage gate; see
-    // `PRE_SUBMIT_STAGES` for why the stage is a sound discriminator and where
-    // it stops being one.
+    // makes the chain reject a duplicate — hence the gate; see
+    // `PRE_SUBMIT_STAGES` for what the stage does and does not prove.
     //
     // No other requeueable type may be cleared, whatever its stage. A swap's
     // bytes must be reused byte-identically (the PSWAP flow requires it). A
@@ -182,7 +190,11 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // cannot reproduce — the Epoch mandate binding, or the AggLayer B2AGG
     // destination — and behind an Epoch row the intent is already spent, so the
     // answer for a broken one is a new intent, not a fresh note.
-    if (dbTx.type === 'send' && failedPreSubmit) {
+    if (mayHaveSubmitted) {
+      // Persist BEFORE the stage is forgotten, so the next failure — which may
+      // land on an early stage and look pre-submit — still sees it.
+      dbTx.mayHaveSubmitted = true;
+    } else if (dbTx.type === 'send') {
       dbTx.requestBytes = undefined;
     }
   });

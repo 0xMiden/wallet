@@ -27,11 +27,13 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep accountIdStringToSdk simple — we only assert it was called with the
-// inputs we passed; the real implementation parses bech32 which needs WASM.
+// Keep the id parsers simple — we only assert they were called with the inputs
+// we passed; the real implementations parse bech32/hex, which needs WASM.
 const mockAccountIdStringToSdk = jest.fn((id: string) => ({ toString: () => `sdk(${id})` }));
+const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 jest.mock('../sdk/helpers', () => ({
-  accountIdStringToSdk: (...args: unknown[]) => mockAccountIdStringToSdk(...(args as [string]))
+  accountIdStringToSdk: (...args: unknown[]) => mockAccountIdStringToSdk(...(args as [string])),
+  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string]))
 }));
 
 const mockGetAccount = jest.fn();
@@ -222,12 +224,17 @@ describe('MultisigService', () => {
   });
 
   describe('proposal builders', () => {
-    it('createSendProposal normalizes recipient+faucet ids through accountIdStringToSdk', async () => {
+    // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
+    // the wallet in both hex and bech32 form, and the sibling recallable-send
+    // path already accepts both — a hex id it sends fine must not throw here.
+    it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
       const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
 
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
         noteType: 'Private'
       });

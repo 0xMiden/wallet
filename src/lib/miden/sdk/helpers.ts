@@ -51,11 +51,18 @@ export function walletAccountIdToSdk(id: string): AccountId {
  * a composite `<address>_<suffix>` (e.g. `mtst1…5068r3_qr7qqq9wr6w`). Reduce both
  * to the SDK account id derived from the address portion; fall back to the raw
  * address portion if it can't be parsed.
+ *
+ * Hex goes through `accountRefToSdk` for the same reason `walletAccountIdToSdk`
+ * does, and it matters more here: an unparseable id falls back to its own raw
+ * text, so a hex-form id would canonicalize to the hex string and never compare
+ * equal to the same account in bech32 form. `sameWalletAccountId` would then
+ * answer "different account" for one that is in fact the same — the exact
+ * guardian misroute (AUTH_UNAUTHORIZED) it exists to prevent.
  */
 export function canonicalWalletAccountId(id: string): string {
   const address = id.split('_')[0] ?? id;
   try {
-    return accountIdStringToSdk(address).toString();
+    return accountRefToSdk(address).toString();
   } catch {
     return address;
   }
@@ -109,7 +116,19 @@ export function accountRefToSdk(ref: string): AccountId {
  * largest slot (for a truthful "less than the amount to remove" error) when
  * no single slot does.
  */
+// wasm-bindgen narrows a JS BigInt to u64 by TRUNCATION, and it does so before
+// the SDK's own amount validation runs — so 2^64 arrives as 0 and 2^64 + 50 as
+// 50, building a note for a fraction of what the user approved instead of
+// failing. (Oversized values BELOW 2^64 are caught by the SDK and throw, which
+// is why this only has to cover the wrap.) The amount reaches here straight
+// from `BigInt(amount)` on a dApp-supplied string, so the bound is checked
+// where every send path funnels through rather than at each caller.
+const MAX_U64 = (1n << 64n) - 1n;
+
 function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: string, amount: bigint): FungibleAsset {
+  if (amount < 0n || amount > MAX_U64) {
+    throw new Error(`Send amount ${amount} is outside the representable range`);
+  }
   const faucetId = accountRefToSdk(faucetRef);
   const faucetHex = faucetId.toString();
   if (!account) {
@@ -145,6 +164,14 @@ function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: strin
  * Not every note-emitting path: the Epoch collateral note
  * (`buildEpochCollateralRequestBytes`) and the AggLayer B2AGG note build their
  * own requests because each carries an attachment this builder cannot express.
+ * They therefore do NOT get the vault-key derivation below, and the callback-flag
+ * bug this builder exists to fix is still latent in the Epoch one: it constructs
+ * `new FungibleAsset(...)`, which defaults to `AssetCallbackFlag.Disabled`, so a
+ * collateral faucet issuing callback-ENABLED assets would fail the kernel's
+ * remove-asset assertion. (B2AGG already picks its flag explicitly.) Not fixed
+ * here because the Epoch note is built from the Epoch SDK's mint callback, in a
+ * layer with no client to read the sender's vault from — closing it means
+ * threading an `Account` in from the caller.
  *
  * Building the note here rather than in `newSendTransactionRequest` reproduces
  * the Rust builder exactly — same script root, tag, storage and note type —

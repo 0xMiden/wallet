@@ -1036,6 +1036,83 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('Guardian recallable send: a 409 requeue KEEPS the bytes once the row is flagged mayHaveSubmitted', async () => {
+    // The "nothing reached the chain on a pre-submit requeue" argument above is
+    // about the attempt running right now, not about the row. A user Retry of a
+    // send that died post-submit keeps its bytes and stamps `mayHaveSubmitted`;
+    // the fresh attempt can then hit a 409 here. Clearing on the strength of
+    // THIS attempt's stage would draw a new note serial for a transfer that may
+    // already have landed — the double-send the flag exists to prevent.
+    jest.useFakeTimers();
+    try {
+      const txId = 'send-pending-conflict-flagged';
+      const frozen = new Uint8Array([61, 62, 63]);
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: 1000n,
+        noteType: 'public',
+        requestBytes: frozen,
+        mayHaveSubmitted: true,
+        extraInputs: { recallBlocks: 25 },
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => frozen });
+      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        getSyncHeight: jest.fn(async () => 100)
+      });
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client
+      });
+
+      const pending = generateTransaction(
+        Object.assign(new Transaction('guardian-acc', frozen), {
+          id: txId,
+          type: 'send',
+          amount: 1000n,
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public',
+          requestBytes: frozen,
+          mayHaveSubmitted: true,
+          extraInputs: { recallBlocks: 25 },
+          delegateTransaction: false
+        }),
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      expect(row.requestBytes).toBe(frozen);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian earn-deposit: submit lands but local apply fails — row is marked Failed (not Completed) so the awaiting caller stops waiting', async () => {
     // A Completed earn-deposit row without resultBytes would hang createEarnP2IDENote's
     // waitForTransactionCompletion (TransactionResult.deserialize(undefined) throws after

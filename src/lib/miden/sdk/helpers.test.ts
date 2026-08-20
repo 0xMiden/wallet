@@ -110,6 +110,16 @@ describe('miden sdk helpers', () => {
       // second still canonicalizes, so they must NOT coincidentally match.
       expect(sameWalletAccountId('rawid_suffix', 'mtst1qdef')).toBe(false);
     });
+
+    // A bech32-only parser sends hex down the unparseable path, where the id
+    // canonicalizes to its own raw text and can never equal the same account in
+    // bech32 form — answering "different account" for one that is the same, and
+    // misrouting a Guardian account through the non-guardian path.
+    it('canonicalizes a hex id instead of falling back to its raw text', () => {
+      (Address.fromBech32 as jest.Mock).mockReturnValueOnce({ accountId: () => 'shared-account-id' });
+      (AccountId.fromHex as jest.Mock).mockReturnValueOnce('shared-account-id');
+      expect(sameWalletAccountId('0xABCDEF', 'mtst1qabc')).toBe(true);
+    });
   });
 
   describe('accountRefToSdk', () => {
@@ -280,6 +290,40 @@ describe('miden sdk helpers', () => {
         expect.anything()
       );
       expect(Note.createP2IDNote).not.toHaveBeenCalled();
+    });
+
+    // wasm-bindgen truncates a BigInt to u64 before the SDK's own amount
+    // validation runs, so 2^64 would arrive as 0 and 2^64 + 50 as 50 — building
+    // a note for a fraction of the approved amount instead of failing. The
+    // amount reaches here straight from `BigInt(amount)` on a dApp string.
+    it.each([1n << 64n, (1n << 64n) + 50n, -1n])(
+      'rejects the out-of-range amount %p rather than wrapping it',
+      amount => {
+        expect(() =>
+          buildSendTransactionRequest(
+            accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+            sender,
+            recipient,
+            FAUCET_REF,
+            amount,
+            'Public' as any
+          )
+        ).toThrow('outside the representable range');
+        expect(Note.createP2IDNote).not.toHaveBeenCalled();
+      }
+    );
+
+    it('allows the largest representable amount', () => {
+      expect(() =>
+        buildSendTransactionRequest(
+          accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+          sender,
+          recipient,
+          FAUCET_REF,
+          (1n << 64n) - 1n,
+          'Public' as any
+        )
+      ).not.toThrow();
     });
   });
 });
