@@ -237,6 +237,7 @@ export default defineConfig({
     // exist in WKWebView/Capacitor. Without offscreen, there's nothing
     // to speculate against.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify('false'),
+    'process.env.TELEMETRY_INGEST_URL': JSON.stringify(process.env.TELEMETRY_INGEST_URL ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   }

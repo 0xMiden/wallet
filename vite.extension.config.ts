@@ -247,7 +247,8 @@ const sharedDefine = {
   // vite.background.config.ts.
   'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
   'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
-  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
+  'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+  'process.env.TELEMETRY_INGEST_URL': JSON.stringify(process.env.TELEMETRY_INGEST_URL ?? '')
 };
 
 export default defineConfig({
