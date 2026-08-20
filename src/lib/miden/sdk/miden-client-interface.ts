@@ -1458,15 +1458,21 @@ function isLocalProver(prover: TransactionProver): boolean {
 
 /**
  * Build the `(accountId, request)` tuple for a send transaction's execute
- * step, used by both the actual `sendTransaction` flow and the
- * speculation flow. Keeping this in a single function means the
- * Speculation params and the real-send params produce IDENTICAL
- * TransactionRequest WASM objects, which is what the cache hit relies on.
+ * step, used by both the actual `sendTransaction` flow and the speculation
+ * flow. Keeping this in a single function is what makes the two agree on the
+ * request they build from a given set of params.
  *
- * Note: WASM-bindgen value-consumption is real here — several WASM methods
- * consume `AccountId` arguments by value, so a fresh `AccountId` is allocated
- * for the subsequent `executeTransaction`. Don't refactor this to share
- * AccountIds across calls without re-checking the ownership semantics.
+ * The two requests are NOT byte-identical — the note's serial number is random,
+ * so no two builds of the same send ever match. The cache doesn't need them to:
+ * `speculationParamsHash` keys purely on the params, and a hit replays the
+ * cached execution + proof wholesale rather than rebuilding a request.
+ *
+ * Note: a fresh `AccountId` is allocated for the subsequent `executeTransaction`
+ * rather than sharing one. As of SDK 0.15.9 neither `executeTransaction` nor the
+ * note builders consume their `AccountId` by value (the generated glue reads
+ * `__wbg_ptr` without `__destroy_into_raw`), so this is belt-and-braces — but
+ * re-check the glue before relying on sharing, since a method that DOES move its
+ * argument leaves the JS handle nulled.
  */
 async function buildSendExecuteArgs(
   wasm: any,
@@ -1512,15 +1518,15 @@ function speculationParamsHash(p: SpeculationParams): string {
 /**
  * Mirror of the SDK's `resolveAccountRef` (js/utils.js) — converts a string
  * account identifier (hex or bech32) into the wasm-bindgen `AccountId` type
- * that lower-level methods like `executeTransaction` and
- * `newSendTransactionRequest` consume. The wallet stores account IDs as
- * bech32 (`mtst1...` for testnet), but in places (URL params, dApp inputs)
- * a `0x`-prefixed hex form may also appear, so handle both.
+ * that lower-level methods like `executeTransaction` and `getAccount` take.
+ * The wallet stores account IDs as bech32 (`mtst1...` for testnet), but in
+ * places (URL params, dApp inputs) a `0x`-prefixed hex form may also appear,
+ * so handle both.
  *
- * Note: each call returns a freshly-allocated `AccountId`. Multiple
- * wasm-bindgen WASM methods CONSUME their `AccountId` argument
- * (e.g. `newSendTransactionRequest` and `executeTransaction` both move
- * the value), so callers must allocate one per consume site.
+ * Note: each call returns a freshly-allocated `AccountId`. As of SDK 0.15.9 the
+ * methods used here borrow rather than move it, but some wasm-bindgen methods do
+ * move their argument (`exportAccountFile` is one) and leave the JS handle
+ * nulled, so allocating per call site keeps that distinction from mattering.
  */
 function resolveAccountId(wasm: any, ref: string): any {
   if (ref.startsWith('0x') || ref.startsWith('0X')) {

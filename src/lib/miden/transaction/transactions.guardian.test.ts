@@ -878,7 +878,78 @@ describe('generateTransaction — Guardian routing', () => {
       // Requeued (transient lock), not terminally Failed...
       expect(row.status).toBe(ITransactionStatus.Queued);
       // ...and the frozen absolute-height request was dropped so the next cycle rebuilds
-      // the note against a fresh sync height (send/swap keep theirs; earn must not).
+      // the note against a fresh sync height (swap keeps its bytes — the PSWAP flow
+      // requires byte-identical reuse; earn-deposit and send must not).
+      expect(row.requestBytes).toBeUndefined();
+      expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('Guardian recallable send: a still-pending 409 requeues AND drops the frozen requestBytes', async () => {
+    // Same rule as the earn-deposit case above, for the other type that freezes a
+    // request before proposing it. A recallable send's bytes pin an absolute reclaim
+    // height AND the outgoing asset as first built — so a wrong callback flag there
+    // would fail the kernel's remove-asset assertion on every requeue cycle for as
+    // long as the bytes survive. Nothing reached the chain on a pre-submit requeue,
+    // so dropping them is safe.
+    jest.useFakeTimers();
+    try {
+      const txId = 'send-pending-conflict';
+      const requestBytes = new Uint8Array([41, 42, 43]);
+      txStore.push({
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: 1000n,
+        noteType: 'public',
+        extraInputs: { recallBlocks: 25 },
+        delegateTransaction: false,
+        initiatedAt: Math.floor(Date.now() / 1000)
+      });
+
+      mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
+      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
+
+      const conflict = { status: 409, body: 'ConflictPendingDelta' };
+      const multisigService = {
+        createCustomProposal: jest.fn(async () => {
+          throw conflict;
+        }),
+        createSendProposal: jest.fn(),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      const client = Object.assign(makeClientApi(makeResult()), {
+        getSyncHeight: jest.fn(async () => 100)
+      });
+      mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+
+      const pending = generateTransaction(
+        Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+          id: txId,
+          type: 'send',
+          amount: 1000n,
+          secondaryAccountId: 'recipient',
+          faucetId: 'faucet',
+          noteType: 'public',
+          extraInputs: { recallBlocks: 25 },
+          delegateTransaction: false
+        }),
+        jest.fn(async () => new Uint8Array([2])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
       expect(row.requestBytes).toBeUndefined();
       expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
     } finally {

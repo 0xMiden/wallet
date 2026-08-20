@@ -213,7 +213,13 @@ async function requeueTransactionForRetry(
   // would strand the collateral at the Epoch allocator. Drop the cached request
   // so the next cycle rebuilds the P2IDE note against a fresh sync height. Safe:
   // nothing reached the chain on a pre-submit requeue.
-  if (txType === 'earn-deposit') {
+  //
+  // A guardian recallable `send` freezes the same absolute height, and freezes
+  // its asset too — built at first attempt, so a wrong callback flag there fails
+  // the kernel's remove-asset assertion on every cycle for as long as the bytes
+  // survive. Same rule, same pre-submit safety argument. `swap` is requeueable
+  // too and must NOT be cleared: the PSWAP flow requires byte-identical reuse.
+  if (txType === 'earn-deposit' || txType === 'send') {
     await Repo.transactions.where({ id: txId }).modify(t => {
       t.requestBytes = undefined;
     });

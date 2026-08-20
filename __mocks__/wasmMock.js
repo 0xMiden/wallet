@@ -46,7 +46,8 @@ module.exports = {
     Expected: 'Expected',
     Processing: 'Processing'
   },
-  // AssetCallbackFlag enum used by resolveHeldFungibleAsset callers
+  // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
+  // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
   AssetCallbackFlag: {
     Disabled: 0,
     Enabled: 1

@@ -27,9 +27,14 @@ export function accountIdStringToSdk(accountIdStr: string): AccountId {
  * Parse a wallet-account identifier into an SDK `AccountId`, accepting both
  * the bare bech32 address and the composite `WalletAccount.publicKey`
  * (`<address>_<suffix>`) — `Address.fromBech32` rejects the composite form.
+ *
+ * Hex is accepted too, via `accountRefToSdk`: this has to stay at least as
+ * permissive as the SDK's own `resolveAccountRef`, which every id handed to
+ * `transactions.*` goes through. A sender id that the SDK resolves but this
+ * rejects fails the send before it is built.
  */
 export function walletAccountIdToSdk(id: string): AccountId {
-  return accountIdStringToSdk(id.split('_')[0] ?? id);
+  return accountRefToSdk(id.split('_')[0] ?? id);
 }
 
 /**
@@ -87,14 +92,35 @@ export function accountRefToSdk(ref: string): AccountId {
  * for Disabled assets too, so every send uses this path. Mirrors
  * `resolveFungibleAssetFromVault` in @openzeppelin/miden-multisig-client's
  * p2id.ts.
+ *
+ * One faucet can occupy TWO vault slots — the flag is part of the key, so an
+ * Enabled and a Disabled balance from the same faucet do not merge. Matching
+ * on faucet id alone would then pick whichever slot the vault happens to
+ * enumerate first, which can be the one that cannot fund the note: the same
+ * kernel abort this function exists to prevent, just reached by a different
+ * route. So prefer a slot that covers `amount`, and only fall back to the
+ * largest slot (for a truthful "less than the amount to remove" error) when
+ * no single slot does.
  */
 function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: string, amount: bigint): FungibleAsset {
   const faucetId = accountRefToSdk(faucetRef);
   const faucetHex = faucetId.toString();
-  const held = account
-    ?.vault()
-    .fungibleAssets()
-    .find(asset => asset.faucetId().toString() === faucetHex);
+  if (!account) {
+    // Not expected on any send path — the sender's account is what the send is
+    // executed against. Log it, because the fallback below rebuilds the asset
+    // with the constructor's default Disabled flag and so silently reinstates
+    // the callback-asset bug rather than failing loudly.
+    console.warn('[send] sender account unavailable; building outgoing asset without its vault key');
+  }
+  const heldForFaucet = (account?.vault().fungibleAssets() ?? []).filter(
+    asset => asset.faucetId().toString() === faucetHex
+  );
+  const held =
+    heldForFaucet.find(asset => asset.amount() >= amount) ??
+    heldForFaucet.reduce<FungibleAsset | undefined>(
+      (largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset),
+      undefined
+    );
   if (!held) {
     return new FungibleAsset(faucetId, amount);
   }
@@ -102,12 +128,25 @@ function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: strin
 }
 
 /**
- * The single request builder for every wallet send: resolves the outgoing
- * asset from the sender's vault (callback flag included, see
+ * The single request builder for every P2ID/P2IDE wallet send: resolves the
+ * outgoing asset from the sender's vault (callback flag included, see
  * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
  * reclaim height is given — as the request's own output note. Guardian
  * recallable sends, the offscreen-prover path, and the high-level send all
  * route through this so they can't drift on asset construction again.
+ *
+ * Not every note-emitting path: the Epoch collateral note
+ * (`buildEpochCollateralRequestBytes`) and the AggLayer B2AGG note build their
+ * own requests because each carries an attachment this builder cannot express.
+ *
+ * Building the note here rather than in `newSendTransactionRequest` reproduces
+ * the Rust builder exactly — same script root, tag, storage and note type —
+ * with ONE difference: `createP2ID[E]Note` requires a `NoteAttachment`, and the
+ * 0.15 surface has no empty one (content is 1..=256 words), so `new
+ * NoteAttachment()` encodes the empty case as a single zero `Word` with the
+ * `none` scheme. The Rust path emitted zero attachments instead. Nothing on
+ * chain reads a P2ID attachment, but a reader that treats any attachment word
+ * as a payload must skip this one — see `attachmentOrderAndDepth`.
  */
 export function buildSendTransactionRequest(
   senderAccount: Account | undefined,

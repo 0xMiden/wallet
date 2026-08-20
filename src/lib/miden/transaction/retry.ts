@@ -67,9 +67,10 @@ export const isRequeueableTransaction = (tx: { status?: ITransactionStatus; type
  * Retry a Failed transaction by resetting its row to `Queued` so the FIFO
  * processing loop picks it up again. The row keeps its id (and, for swaps,
  * its persisted `requestBytes` — the retry reuses the exact same request,
- * which the PSWAP flow requires). `initiatedAt` is refreshed so the
- * stale-queued TTL doesn't cancel the retry on sight, and `nextEligibleAt`
- * is cleared so a stale requeue-backoff can't delay the user's explicit retry.
+ * which the PSWAP flow requires; a `send`'s bytes are dropped instead, see
+ * below). `initiatedAt` is refreshed so the stale-queued TTL doesn't cancel
+ * the retry on sight, and `nextEligibleAt` is cleared so a stale
+ * requeue-backoff can't delay the user's explicit retry.
  */
 /** Output-producing types whose Retry must first node-verify it didn't already
  *  land (double-send guard). Consume is excluded — it has its own input-note
@@ -112,12 +113,23 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;
     dbTx.displayIcon = ICON_BY_TYPE[dbTx.type] ?? 'DEFAULT';
-    // A plain send's cached request froze both an absolute reclaim height and
-    // the asset as built at first attempt (a wrong callback flag there fails
-    // the kernel's remove-asset assertion forever). Drop it so the retry
-    // rebuilds against current state. Swaps must NOT be cleared (the PSWAP
-    // flow requires byte-identical reuse) and a bridged-send's bytes are the
-    // pre-built bridge note itself.
+    // Only a GUARDIAN recallable send carries cached bytes for a `send` row
+    // (`ensureGuardianRecallableSendRequestBytes`) — the non-guardian path
+    // rebuilds its request on every call and never reads `requestBytes`. Those
+    // bytes froze both an absolute reclaim height and the asset as built at
+    // first attempt (a wrong callback flag there fails the kernel's
+    // remove-asset assertion forever). Drop them so the retry rebuilds against
+    // current state. Swaps must NOT be cleared (the PSWAP flow requires
+    // byte-identical reuse) and a bridged-send's bytes are the pre-built bridge
+    // note itself.
+    //
+    // Trade-off: reusing the bytes made a retry re-emit the SAME note id, which
+    // the chain would reject if the first attempt had actually landed. Rebuilding
+    // draws a fresh serial number, so that incidental guard is gone and this row
+    // now relies on `verifySendLanded` alone — exactly as every non-guardian send
+    // already did, since those never had bytes to reuse. `verifySendLanded` can
+    // only answer 'landed' or 'unknown', so it cannot be used to gate the clear
+    // without never clearing at all.
     if (dbTx.type === 'send') {
       dbTx.requestBytes = undefined;
     }
