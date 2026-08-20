@@ -8,11 +8,14 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
+import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
 import { formatDate } from './transactionUtils';
 
@@ -21,6 +24,7 @@ interface SwapDetailProps {
   requestedAmount: bigint;
   requestedDecimals?: number;
   requestedSymbol?: string;
+  requestedFaucetId?: string;
   filledAmount?: bigint;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
@@ -44,13 +48,16 @@ interface SwapNoteRowProps {
   transaction?: SwapSettlementTransaction;
   requestedDecimals?: number;
   requestedSymbol?: string;
+  requestedFaucetId?: string;
 }
 
 const progressPercentage = (filledAmount: bigint, requestedAmount: bigint): number => {
   if (requestedAmount <= 0n || filledAmount <= 0n) return 0;
   if (filledAmount >= requestedAmount) return 100;
 
-  return Number((filledAmount * 1000n) / requestedAmount) / 10;
+  // Truncating division would report any fill below a tenth of a percent as a
+  // flat 0 next to a non-zero filled amount, so keep the bar visibly non-empty.
+  return Number((filledAmount * 1000n) / requestedAmount) / 10 || 0.1;
 };
 
 const settlementTime = (completedAt: number | undefined): string | undefined => {
@@ -69,13 +76,25 @@ const SwapNoteRow: FC<SwapNoteRowProps> = ({
   kind,
   transaction,
   requestedDecimals,
-  requestedSymbol
+  requestedSymbol,
+  requestedFaucetId
 }) => {
   const { t } = useTranslation();
   const displayNoteIds = transaction?.noteIds ?? (noteId ? [noteId] : []);
   const consumedAt = settlementTime(transaction?.completedAt);
+  // A consume's `amount` covers only the assets sharing its first input note's
+  // faucet, and an expiry settlement bundles the requested-token paybacks with
+  // the offered-token tip. Labelling that sum with the requested token's symbol
+  // and decimals would misreport the offered remainder as funds received, so
+  // show it only once the consume's own faucet confirms which side it is.
+  const isRequestedToken =
+    transaction?.faucetId !== undefined &&
+    requestedFaucetId !== undefined &&
+    compareAccountIds(transaction.faucetId, requestedFaucetId);
   const receivedAmount =
-    transaction?.amount === undefined ? undefined : formatAmount(transaction.amount, requestedDecimals);
+    transaction?.amount === undefined || !isRequestedToken
+      ? undefined
+      : formatAmount(transaction.amount, requestedDecimals);
 
   switch (kind) {
     case 'settled':
@@ -182,6 +201,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   requestedAmount,
   requestedDecimals,
   requestedSymbol,
+  requestedFaucetId,
   filledAmount = 0n,
   orderState,
   trackingLoading,
@@ -206,7 +226,11 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
-  const swapTransactionId = entry.externalTxId ?? entry.txId;
+  const hasSettlementRows =
+    settledTransactions.length > 0 ||
+    reclaimedTransactions.length > 0 ||
+    settledNoteIds.length > 0 ||
+    reclaimedNoteIds.length > 0;
 
   return (
     <div data-testid="swap-order-card" className="flex min-h-0 flex-1 flex-col">
@@ -298,6 +322,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                     transaction={transaction}
                     requestedDecimals={requestedDecimals}
                     requestedSymbol={requestedSymbol}
+                    requestedFaucetId={requestedFaucetId}
                   />
                 ))}
               </div>
@@ -324,11 +349,22 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               </div>
             )}
             {showPendingRow && <SwapNoteRow kind="pending" />}
-            {!showPendingRow && settledNoteIds.length === 0 && reclaimedNoteIds.length === 0 && (
+            {!showPendingRow && !hasSettlementRows && (
               <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">{t('swapNoBundledNotes')}</p>
             )}
           </div>
         </section>
+
+        {entry.status === ITransactionStatus.Failed && entry.errorMessage && (
+          <section className="mt-6">
+            <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
+            <TransactionFailureCard
+              errorMessage={entry.errorMessage}
+              rawErrorMessage={entry.rawErrorMessage}
+              isCancelled={entry.isCancelled}
+            />
+          </section>
+        )}
 
         <section className="mt-6 pb-2">
           <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
@@ -336,16 +372,12 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <DetailRow label={t('date')}>
               <span className="text-sm font-medium text-text-primary-token">{formatDate(entry.timestamp)}</span>
             </DetailRow>
-            {swapTransactionId && (
+            {entry.externalTxId && (
               <DetailRow label={t('txIdLabel')}>
-                {entry.externalTxId ? (
-                  <ExternalLinkValue
-                    displayValue={<HashChip hash={entry.externalTxId} trimHash fill="currentColor" copyIcon={false} />}
-                    href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                  />
-                ) : (
-                  <HashChip hash={swapTransactionId} trimHash fill="currentColor" copyIcon={false} />
-                )}
+                <ExternalLinkValue
+                  displayValue={<HashChip hash={entry.externalTxId} trimHash fill="currentColor" copyIcon={false} />}
+                  href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                />
               </DetailRow>
             )}
             <DetailRow label={t('from')} isLast={consumeTransactions.length === 0}>
@@ -385,8 +417,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               className="max-w-none"
             />
           )}
+          {/* Dismisses the receipt — an order that already reached the DEX has no
+              cancel path, so it must not borrow the destructive Cancel label. */}
           {showCancelAction && (
-            <Button variant={ButtonVariant.Secondary} title={t('cancel')} onClick={onCancel} className="max-w-none" />
+            <Button variant={ButtonVariant.Secondary} title={t('close')} onClick={onCancel} className="max-w-none" />
           )}
         </div>
       )}

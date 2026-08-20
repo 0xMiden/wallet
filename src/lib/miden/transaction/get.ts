@@ -137,6 +137,11 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
   const reclaimed = new Set<string>();
   const settledTransactions: SwapSettlementTransaction[] = [];
   const reclaimedTransactions: SwapSettlementTransaction[] = [];
+  // The receipt numbers fill rows by position, so the order has to be the order
+  // they settled in — the Dexie scan yields rows by uuid, which would number a
+  // multi-fill order arbitrarily and renumber it when a later fill lands. A row
+  // without a completion stamp sorts last rather than first.
+  consumes.sort((a, b) => (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity));
   for (const tx of consumes) {
     const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
     const transaction = {

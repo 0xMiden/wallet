@@ -3595,7 +3595,7 @@
     }
   },
   "swapProgressPercent": {
-    "message": "$percentage$",
+    "message": "$percentage$%",
     "englishSource": "$percentage$%",
     "placeholders": {
       "percentage": {

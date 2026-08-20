@@ -56,6 +56,7 @@ import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
 import { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
+import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import {
   BRIDGE_STATUS_LABEL_KEY,
@@ -92,6 +93,7 @@ interface RequestedTokenInfo {
   amount: bigint;
   decimals?: number;
   symbol?: string;
+  faucetId?: string;
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -244,9 +246,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
-  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
-  // this reveals the latter on demand.
-  const [showFullError, setShowFullError] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
@@ -352,7 +351,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setRequestedToken({
           amount: extra.requestedAmount ?? 0n,
           decimals: swapToken?.decimals ?? requestedMeta?.decimals,
-          symbol: swapToken?.symbol ?? requestedMeta?.symbol
+          symbol: swapToken?.symbol ?? requestedMeta?.symbol,
+          faucetId: extra.requestedFaucetId
         });
         setSwapAutoConsume(extra.autoConsume ?? true);
         setOrderId(extra.orderId ?? null);
@@ -633,6 +633,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         ? 0n
         : requestedToken.amount - swapTracking.remainingRequested
       : undefined;
+  // A locally-observed fill is authoritative even when the lineage can't be
+  // resolved (a reinstalled or restored wallet no longer tracks the order, and
+  // the poll gives up after its cap). Without this a settled order reads
+  // "Filled" above a 0% bar claiming nothing was received.
+  const filledAmount =
+    filledRequested ?? (requestedToken && displayOrderState === 'filled' ? requestedToken.amount : undefined);
 
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
@@ -736,7 +742,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             requestedAmount={requestedToken.amount}
             requestedDecimals={requestedToken.decimals}
             requestedSymbol={requestedToken.symbol}
-            filledAmount={filledRequested}
+            requestedFaucetId={requestedToken.faucetId}
+            filledAmount={filledAmount}
             orderState={displayOrderState}
             trackingLoading={trackingLoading}
             settledNoteIds={settledNoteIds}
@@ -1014,33 +1021,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                   <div className="mt-5">
-                    <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
-                      <p
-                        data-testid="history-failure-reason"
-                        className={clsx(
-                          'px-4 py-3 text-sm font-medium wrap-break-word select-text',
-                          entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
-                        )}
-                      >
-                        {entry.errorMessage}
-                      </p>
-                      {entry.rawErrorMessage && (
-                        <div className="px-4 pb-3">
-                          <button
-                            type="button"
-                            className="text-sm font-medium text-text-muted underline"
-                            onClick={() => setShowFullError(v => !v)}
-                          >
-                            {showFullError ? t('hideFullError') : t('showFullError')}
-                          </button>
-                          {showFullError && (
-                            <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
-                              {entry.rawErrorMessage}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </DetailCard>
+                    <TransactionFailureCard
+                      errorMessage={entry.errorMessage}
+                      rawErrorMessage={entry.rawErrorMessage}
+                      isCancelled={entry.isCancelled}
+                    />
                   </div>
                 </div>
               )}

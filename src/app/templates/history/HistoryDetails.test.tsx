@@ -880,6 +880,78 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
 
+    it('omits the received amount when the consume settled a different faucet than the requested token', async () => {
+      // An expired order consumes its requested-token paybacks together with the
+      // offered-token tip, and the consume's amount covers only its first input
+      // note's faucet — so it can be the offered remainder, which must not be
+      // relabelled as funds received in the requested token.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-local-1',
+            transactionId: 'consume-chain-1',
+            noteIds: ['note-a'],
+            amount: 685n,
+            faucetId: 'offered-faucet',
+            completedAt: 1_700_000_120
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.queryByText(/^swapReceivedAmount_/)).toBeNull();
+      // The row itself still lists what the consume claimed.
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-a');
+    });
+
+    it('reports a locally-settled order as fully filled when the lineage is unresolvable', async () => {
+      // A reinstalled or restored wallet can no longer track the order, so the
+      // lineage poll returns null while the settlement notes prove it filled.
+      // The receipt must not read "Filled" above a 0% bar.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_1000_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    });
+
+    it('surfaces the failure reason and the raw error for a failed swap', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockGetTransactionById.mockResolvedValue({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        status: 3,
+        error: 'Swap request rejected',
+        rawError: 'Error: note script failed at cycle 4211'
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
+      expect(screen.getByTestId('history-failure-reason')).toHaveTextContent('Swap request rejected');
+      fireEvent.click(screen.getByText('showFullError'));
+      expect(screen.getByText('Error: note script failed at cycle 4211')).toBeInTheDocument();
+    });
+
     it('omits the reclaimed row when the order only settled', async () => {
       mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
       mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
