@@ -912,16 +912,33 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-a');
     });
 
-    it('reports a locally-settled order as fully filled when the lineage is unresolvable', async () => {
+    it('derives the filled amount from the settled consumes when the lineage is unresolvable', async () => {
       // A reinstalled or restored wallet can no longer track the order, so the
-      // lineage poll returns null while the settlement notes prove it filled.
-      // The receipt must not read "Filled" above a 0% bar.
+      // lineage poll returns null. The fill has to come from what this wallet
+      // actually consumed rather than from a 0% bar under a "Filled" label.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       mockTrackOrderId.mockResolvedValue(null);
       mockGetSwapSettlementNotes.mockResolvedValue({
-        settled: ['note-a'],
+        settled: ['note-a', 'note-b'],
         reclaimed: [],
-        settledTransactions: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['note-a'],
+            amount: 400n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          },
+          {
+            id: 'consume-2',
+            transactionId: 'chain-2',
+            noteIds: ['note-b'],
+            amount: 200n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_200
+          }
+        ],
         reclaimedTransactions: []
       });
       mockGetTransactionById.mockResolvedValue(
@@ -930,9 +947,95 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-status')).toHaveTextContent('orderStatusFilled');
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_1000_1000_ ETH');
-      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+    });
+
+    it('never claims a full fill for a partially filled order that settled at expiry', async () => {
+      // An expiry batch carrying any payback is tagged 'settle', so a PARTIAL
+      // fill reaches `settledOrderState === 'filled'`. Assuming the requested
+      // amount there would print a confident, wrong figure on the receipt.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['payback-note'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['payback-note', 'tip-note'],
+            amount: 300n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_300_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30');
+    });
+
+    it('leaves the fill unknown rather than assumed when no settled consume delivered the requested token', async () => {
+      // Offered-token tip only: nothing was received in the requested token, so
+      // the receipt must not synthesise a filled amount from the request.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['tip-note'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['tip-note'],
+            amount: 500n,
+            faucetId: 'offered-faucet',
+            completedAt: 1_700_000_100
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    });
+
+    it('resolves the offered side through the swap registry so the hero is not misscaled', async () => {
+      // The DEX faucets are usually absent from assetsMetadata, so the generic
+      // getTokenMetadata resolves the OFFERED side to Unknown at 6 decimals
+      // while the registry says 8. Reading the metadata decimals here scales the
+      // hero amount 100x. Encode the decimals into the formatter output so the
+      // scale, not just the symbol, is observable in the rendered hero.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { formatAmount } = require('lib/shared/format');
+      formatAmount.mockImplementation((amount: bigint, decimals?: number) => `${amount}@${decimals}`);
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string | undefined) =>
+        id === 'faucet-1' ? { symbol: 'IETH', decimals: 8 } : { symbol: 'ETH', decimals: 8 }
+      );
+      mockGetTransactionById.mockResolvedValue({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        amount: 500n
+      });
+
+      await renderAndLoad();
+
+      const hero = screen.getByTestId('swap-order-card').textContent ?? '';
+      expect(hero).toContain('500@8');
+      expect(hero).toContain('IETH');
+      expect(hero).not.toContain('500@6');
+      expect(hero).not.toContain('MID');
     });
 
     it('surfaces the failure reason and the raw error for a failed swap', async () => {

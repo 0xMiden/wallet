@@ -27,6 +27,7 @@ import {
   SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
+import { compareAccountIds } from 'lib/miden/activity/utils';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
@@ -290,6 +291,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       const earnWithdrawFields = earnWithdrawExtra
         ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
         : undefined;
+      // The DEX faucets are usually absent from assetsMetadata, so the generic
+      // `getTokenMetadata` above resolves a swap's OFFERED side to Unknown at 6
+      // decimals — which misscales the receipt hero, since the registry tokens
+      // are 8-decimal. Resolve the offered side through the swap registry the
+      // same way the requested side is resolved below; the swap hero used to get
+      // this from `TransactionSummaryBadge`, which resolves both sides.
+      const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
       const historyEntry = {
         address: tx.accountId,
         key: `completed-${tx.id}`,
@@ -300,9 +308,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         amount: earnWithdrawFields
           ? earnWithdrawFields.amount
           : tx.amount
-            ? formatAmount(tx.amount, tokenMetadata?.decimals)
+            ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
             : undefined,
-        token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+        token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
         earnWithdrawPhase: earnWithdrawExtra?.phase,
         earnDepositStatus: earnDepositExtra?.epochStatus,
         secondaryAddress: tx.secondaryAccountId,
@@ -633,12 +641,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         ? 0n
         : requestedToken.amount - swapTracking.remainingRequested
       : undefined;
-  // A locally-observed fill is authoritative even when the lineage can't be
-  // resolved (a reinstalled or restored wallet no longer tracks the order, and
-  // the poll gives up after its cap). Without this a settled order reads
-  // "Filled" above a 0% bar claiming nothing was received.
-  const filledAmount =
-    filledRequested ?? (requestedToken && displayOrderState === 'filled' ? requestedToken.amount : undefined);
 
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
@@ -681,6 +683,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
+  // With no resolvable lineage (a restored wallet no longer tracks the order,
+  // and the poll gives up after its cap) the only fill evidence is what this
+  // wallet actually consumed, so sum the settlement consumes that delivered the
+  // requested token. "A note settled" is emphatically not "the order filled":
+  // an expiry bundle carrying any payback is tagged 'settle' even for a partial
+  // fill, so the requested amount must never be assumed here.
+  const locallySettledRequested = settledTransactions.reduce(
+    (total, consume) =>
+      consume.amount !== undefined &&
+      consume.faucetId !== undefined &&
+      requestedToken?.faucetId !== undefined &&
+      compareAccountIds(consume.faucetId, requestedToken.faucetId)
+        ? total + consume.amount
+        : total,
+    0n
+  );
+  const filledAmount = filledRequested ?? (locallySettledRequested > 0n ? locallySettledRequested : undefined);
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =

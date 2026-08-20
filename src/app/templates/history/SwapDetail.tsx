@@ -10,6 +10,7 @@ import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
@@ -168,6 +169,18 @@ const SwapNoteRow: FC<SwapNoteRowProps> = ({
         </div>
       );
   }
+};
+
+/**
+ * Transaction hash, linked to the explorer for the network this build actually
+ * targets. `getExplorerTxUrl` returns undefined where no explorer exists
+ * (localnet, mainnet), so those builds show the hash without a dead link.
+ */
+const ExplorerTxValue: FC<{ txId: string }> = ({ txId }) => {
+  const explorerUrl = getExplorerTxUrl(txId);
+  const hash = <HashChip hash={txId} trimHash fill="currentColor" copyIcon={false} />;
+
+  return explorerUrl ? <ExternalLinkValue displayValue={hash} href={explorerUrl} /> : hash;
 };
 
 const orderStatusLabel = (state: SwapOrderState | null, trackingLoading: boolean): string => {
@@ -374,32 +387,19 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             </DetailRow>
             {entry.externalTxId && (
               <DetailRow label={t('txIdLabel')}>
-                <ExternalLinkValue
-                  displayValue={<HashChip hash={entry.externalTxId} trimHash fill="currentColor" copyIcon={false} />}
-                  href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
-                />
+                <ExplorerTxValue txId={entry.externalTxId} />
               </DetailRow>
             )}
             <DetailRow label={t('from')} isLast={consumeTransactions.length === 0}>
               {fromAccount}
             </DetailRow>
             {consumeTransactions.map((transaction, index) => {
-              const consumeTransactionId = transaction.transactionId ?? transaction.id;
               const label =
                 consumeTransactions.length === 1 ? t('consumeTxId') : t('consumeTxIdNumber', { number: index + 1 });
 
               return (
                 <DetailRow key={transaction.id} label={label} isLast={index === consumeTransactions.length - 1}>
-                  {transaction.transactionId ? (
-                    <ExternalLinkValue
-                      displayValue={
-                        <HashChip hash={transaction.transactionId} trimHash fill="currentColor" copyIcon={false} />
-                      }
-                      href={`https://testnet.midenscan.com/tx/${transaction.transactionId}`}
-                    />
-                  ) : (
-                    <HashChip hash={consumeTransactionId} trimHash fill="currentColor" copyIcon={false} />
-                  )}
+                  <ExplorerTxValue txId={transaction.transactionId ?? transaction.id} />
                 </DetailRow>
               );
             })}
