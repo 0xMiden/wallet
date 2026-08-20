@@ -45,6 +45,12 @@ export type GuardianNoteRecoveryProgress = {
   latestBlock?: number;
   /** `Date.now()` of the write, used to age out a record whose run died. */
   updatedAt?: number;
+  /**
+   * Whether the writing pass had seen zero source failures at the time of the
+   * write. Only a clean pass's watermark may be resumed from — see
+   * `resumePointFor`. Absent means "unknown", which is treated as not clean.
+   */
+  sourcesClean?: boolean;
 };
 
 function numberOrUndefined(value: unknown): number | undefined {
@@ -63,7 +69,8 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
     startBlock: numberOrUndefined(Reflect.get(value, 'startBlock')),
     syncedToBlock: numberOrUndefined(Reflect.get(value, 'syncedToBlock')),
     latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),
-    updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt'))
+    updatedAt: numberOrUndefined(Reflect.get(value, 'updatedAt')),
+    sourcesClean: Reflect.get(value, 'sourcesClean') === true ? true : undefined
   };
 }
 

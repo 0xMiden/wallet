@@ -541,7 +541,23 @@ export class MidenClientInterface {
     const clockSkewMarginSeconds = 600;
     const target = createdAtSeconds - clockSkewMarginSeconds;
     if (target <= 0) return { startBlock: 0, latestBlock };
-    if (latestHeader.timestamp() <= target) return { startBlock: latestBlock, latestBlock };
+    // Timestamps only ever NARROW the scan, and this scan runs once: whatever
+    // it skips is skipped forever, because a clean pass clears the one-shot
+    // pending flag. `createdAt` comes from the Guardian operator's clock and the
+    // headers come from the node, so every way those two can disagree is
+    // resolved by scanning MORE, never less.
+    if (latestHeader.timestamp() <= target) {
+      // The account claims to be newer than the chain tip, yet it demonstrably
+      // exists on that chain. One of the two clocks is wrong; starting at the
+      // tip would scan a single block, find nothing, and report success. A node
+      // that reports no tip timestamp at all lands here too, since `target` is
+      // positive by this point.
+      console.warn(
+        `[GuardianRecovery] Reported creation time is at or beyond the chain tip (tip ` +
+          `${latestHeader.timestamp()}, target ${target}); scanning from genesis instead`
+      );
+      return { startBlock: 0, latestBlock };
+    }
     const genesis = await header(0);
     if (genesis.timestamp() >= target) return { startBlock: 0, latestBlock };
     // Invariant: timestamp(lo) < target <= timestamp(hi).
@@ -563,7 +579,15 @@ export class MidenClientInterface {
       }
       const mid = lo + Math.floor((hi - lo) / 2);
       const midHeader = await header(mid);
-      if (midHeader.timestamp() < target) lo = mid;
+      const midTimestamp = midHeader.timestamp();
+      // The bisection is only valid over monotonically increasing timestamps.
+      // A zero or absent one breaks that invariant and would push `lo` past the
+      // account's real creation block, silently skipping its history.
+      if (midTimestamp <= 0) {
+        console.warn(`[GuardianRecovery] Block ${mid} reported no timestamp; scanning from genesis instead`);
+        return { startBlock: 0, latestBlock };
+      }
+      if (midTimestamp < target) lo = mid;
       else hi = mid;
     }
     return { startBlock: lo, latestBlock };
@@ -674,24 +698,40 @@ export class MidenClientInterface {
 
     let imported = 0;
     let failures = 0;
-    // A tag match whose body the node does not carry is a PRIVATE note: it is
-    // unreachable from here by design and belongs to the transport drain
-    // (source 1), so it is not counted as a failure of this source.
-    let skippedWithoutBody = 0;
+    // A PRIVATE tag match carries no body over RPC by design (the SDK documents
+    // `note` as undefined for private notes). It belongs to the transport drain
+    // (source 1), so it is not a failure of this source.
+    let skippedPrivate = 0;
+    let unexpected = 0;
     const fetchBatchSize = 100;
     for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
       const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
       const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
         retries: 0
       });
-      // A short or reordered response must not read as success for the ids it
-      // omitted, or the orchestrator clears the recovery flag over notes it
-      // never imported.
-      if (fetchedNotes.length < noteIds.length) failures += noteIds.length - fetchedNotes.length;
+      // Resolved BY ID, not by count. A response of the right length can still
+      // be the wrong notes — duplicates of one id, or ids never asked for —
+      // and counting length alone would read that as a clean chunk, letting
+      // the orchestrator clear the one-shot flag over notes never imported.
+      const requestedIds = new Set(noteIds.map(String));
+      const answeredIds = new Set<string>();
       for (const fetched of fetchedNotes) {
+        const noteId = String(fetched.noteId);
+        if (!requestedIds.has(noteId) || answeredIds.has(noteId)) {
+          unexpected++;
+          continue;
+        }
+        answeredIds.add(noteId);
         const inputNote = fetched.asInputNote();
         if (!inputNote) {
-          skippedWithoutBody++;
+          // A body-less PUBLIC note is the node failing to serve what it said
+          // it had, not an expected private note.
+          if (fetched.noteType === NoteType.Public) {
+            failures++;
+            console.warn(`[GuardianRecovery] Node returned public note ${noteId} without a body`);
+          } else {
+            skippedPrivate++;
+          }
           continue;
         }
         try {
@@ -702,10 +742,11 @@ export class MidenClientInterface {
           console.warn('[GuardianRecovery] Failed to import one public note:', error);
         }
       }
+      failures += noteIds.length - answeredIds.size;
     }
     console.log(
       `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches, ` +
-        `${imported} imported, ${skippedWithoutBody} without body, ${failures} failed`
+        `${imported} imported, ${skippedPrivate} private, ${unexpected} unrequested/duplicate, ${failures} failed`
     );
     return { imported, failures, saturated: false };
   }

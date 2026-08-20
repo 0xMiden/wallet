@@ -110,6 +110,13 @@ async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' 
 const MAX_PROPOSAL_NOTES = 500;
 
 /**
+ * Proposals inspected at all. `MAX_PROPOSAL_NOTES` bounds what is kept, which
+ * does not bound the work: a response listing a million proposals of the wrong
+ * type is rejected entry by entry, and that iteration is itself the cost.
+ */
+const MAX_PROPOSALS_EXAMINED = 1_000;
+
+/**
  * Proposal notes imported per offscreen op. The public backfill is chunked for
  * exactly this reason and the proposal import must be too: on mobile and
  * desktop `USE_OFFSCREEN_CLIENT` is off, so a single call runs inline and holds
@@ -178,18 +185,33 @@ async function fetchProposalNotePayload(
     const proposals = await context.guardian.getDeltaProposals(context.guardianAccountId);
     const proposalNoteBytes: Uint8Array[] = [];
     let undecodable = 0;
+    let unsupportedVersion = 0;
     let truncated = false;
-    for (const proposal of proposals) {
+    // The proposal list, and every note list inside it, is remote input: bound
+    // what is even LOOKED AT, not just what is kept. Otherwise an operator can
+    // spend the service worker's CPU on a response of a million entries that
+    // are all rejected.
+    if (proposals.length > MAX_PROPOSALS_EXAMINED) truncated = true;
+    for (const proposal of proposals.slice(0, MAX_PROPOSALS_EXAMINED)) {
       const metadata = proposal.deltaPayload.metadata;
-      if (metadata?.proposalType !== 'consume_notes' || metadata.consumeNotesMetadataVersion !== 2) continue;
-      for (const encodedNote of metadata.consumeNotesNotes ?? []) {
+      if (metadata?.proposalType !== 'consume_notes') continue;
+      if (metadata.consumeNotesMetadataVersion !== 2) {
+        // A consume proposal in a shape this build cannot read may still be
+        // carrying notes. Skipping it silently would let the pass finish clean
+        // and clear the one-shot flag over them, so it counts as a failed
+        // source and the recovery is retried by a build that understands it.
+        unsupportedVersion++;
+        continue;
+      }
+      const encodedNotes = metadata.consumeNotesNotes ?? [];
+      if (encodedNotes.length > MAX_PROPOSAL_NOTES) truncated = true;
+      for (const encodedNote of encodedNotes.slice(0, MAX_PROPOSAL_NOTES)) {
         if (proposalNoteBytes.length >= MAX_PROPOSAL_NOTES) {
           truncated = true;
           break;
         }
         if (typeof encodedNote !== 'string' || encodedNote.length > MAX_PROPOSAL_NOTE_B64_LENGTH) {
           undecodable++;
-          console.warn(`[GuardianRecovery] Skipping oversized/non-string proposal note for ${account.publicKey}`);
           continue;
         }
         // Decode per note: the payload is remote, and `b64ToU8` throws on
@@ -197,24 +219,29 @@ async function fetchProposalNotePayload(
         // collected from earlier proposals.
         try {
           proposalNoteBytes.push(b64ToU8(encodedNote));
-        } catch (error) {
+        } catch {
           undecodable++;
-          console.warn(`[GuardianRecovery] Skipping undecodable proposal note for ${account.publicKey}:`, error);
         }
       }
       if (truncated) break;
     }
     if (truncated) {
       console.warn(
-        `[GuardianRecovery] Guardian offered more than ${MAX_PROPOSAL_NOTES} proposal notes for ` +
-          `${account.publicKey}; importing the first ${MAX_PROPOSAL_NOTES} and keeping the recovery pending`
+        `[GuardianRecovery] Guardian offered more proposal notes than the ${MAX_PROPOSAL_NOTES} cap for ` +
+          `${account.publicKey}; importing what fits and keeping the recovery pending`
       );
     }
+    // Counted rather than logged per entry: a hostile payload would otherwise
+    // choose how many lines it writes to the console.
     console.log(
       `[GuardianRecovery] Pending proposals for ${account.publicKey}: ${proposals.length} proposals, ` +
-        `${proposalNoteBytes.length} embedded consume notes, ${undecodable} undecodable`
+        `${proposalNoteBytes.length} embedded consume notes, ${undecodable} undecodable, ` +
+        `${unsupportedVersion} of an unsupported version`
     );
-    return { proposalNoteBytes, proposalFetchFailed: undecodable > 0 || truncated };
+    return {
+      proposalNoteBytes,
+      proposalFetchFailed: undecodable > 0 || truncated || unsupportedVersion > 0
+    };
   } catch (error) {
     console.warn(`[GuardianRecovery] Pending proposal lookup failed for ${account.publicKey}:`, error);
     return { proposalNoteBytes: [], proposalFetchFailed: true };
@@ -283,6 +310,17 @@ const PUBLIC_BACKFILL_CHUNK_BLOCKS = 200_000;
 function resumePointFor(account: WalletAccount, progress: GuardianNoteRecoveryProgress | null): number | null {
   if (!progress || progress.accountId !== account.publicKey) return null;
   if (progress.step !== 'public' || progress.syncedToBlock === undefined) return null;
+  // `sourcesClean` is what makes the watermark trustworthy, and it must be
+  // present: the `finally` below only discards a failed pass's record on a
+  // GRACEFUL exit, and the service worker being evicted mid-run is a case the
+  // rest of this feature explicitly plans for. Without this check, a pass whose
+  // transport drain failed — or whose earlier backfill chunk failed while a
+  // later one advanced the watermark past it — is resumed, completes cleanly,
+  // and clears the one-shot flag over notes nothing ever imported.
+  //
+  // Staleness is deliberately NOT considered. An old record is exactly the case
+  // worth resuming: it means the run died rather than finished.
+  if (progress.sourcesClean !== true) return null;
   return progress.syncedToBlock;
 }
 
@@ -422,7 +460,8 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
         step: 'public',
         startBlock,
         syncedToBlock: startBlock,
-        latestBlock
+        latestBlock,
+        sourcesClean: result.sourceFailures === 0
       });
       let scannedToBlock = startBlock;
       // A work list rather than a fixed stride, because a chunk can come back
@@ -481,7 +520,11 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
           step: 'public',
           startBlock,
           syncedToBlock: scannedToBlock,
-          latestBlock
+          latestBlock,
+          // Re-stamped per chunk: a failure anywhere in this pass makes the
+          // watermark unusable as a resume point, including for a pass that
+          // never reaches its `finally` because the realm was evicted.
+          sourcesClean: result.sourceFailures === 0
         });
       }
     } catch (error) {

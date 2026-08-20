@@ -80,7 +80,7 @@ function reportedWatermarks() {
  * Re-applied with 0 before every test: this replaces the module mock's own
  * implementation, which `jest.clearAllMocks` does not restore.
  */
-function guardianOffersProposalNotes(count: number) {
+function guardianOffersProposalNotes(count: number, metadataVersion = 2) {
   jest.mocked(GuardianHttpClient).mockImplementation(
     () =>
       ({
@@ -91,13 +91,31 @@ function guardianOffersProposalNotes(count: number) {
             deltaPayload: {
               metadata: {
                 proposalType: 'consume_notes',
-                consumeNotesMetadataVersion: 2,
+                consumeNotesMetadataVersion: metadataVersion,
                 // 'AQID' decodes to [1, 2, 3] — `b64ToU8` is the real one here.
                 consumeNotesNotes: Array.from({ length: count }, () => 'AQID')
               }
             }
           }
         ])
+      }) as never
+  );
+}
+
+/** Makes the Guardian offer `count` note-less consume proposals. */
+function guardianOffersProposalCount(count: number) {
+  jest.mocked(GuardianHttpClient).mockImplementation(
+    () =>
+      ({
+        setSigner: jest.fn(),
+        getState: jest.fn().mockResolvedValue({ createdAt: '2026-01-01T00:00:00Z' }),
+        getDeltaProposals: jest.fn().mockResolvedValue(
+          Array.from({ length: count }, () => ({
+            deltaPayload: {
+              metadata: { proposalType: 'consume_notes', consumeNotesMetadataVersion: 2, consumeNotesNotes: [] }
+            }
+          }))
+        )
       }) as never
   );
 }
@@ -349,7 +367,8 @@ describe('detached recovery run', () => {
         startBlock: 0,
         syncedToBlock: 200_000,
         latestBlock: 400_000,
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        sourcesClean: true
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -377,7 +396,8 @@ describe('detached recovery run', () => {
         startBlock: 0,
         syncedToBlock: 200_000,
         latestBlock: 400_000,
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        sourcesClean: true
       });
       mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
 
@@ -388,6 +408,55 @@ describe('detached recovery run', () => {
       // Re-stamping the record at `transport` would throw away the watermark
       // this pass is resuming from if the pass then died.
       expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).not.toContain('transport');
+    });
+
+    // The `finally` that discards a failed pass's record only runs on a
+    // graceful exit. A service worker evicted mid-run leaves the record behind,
+    // and its watermark can already be past a chunk that FAILED — the work list
+    // advances the watermark for completed chunks regardless of an earlier
+    // failed one. Resuming that record would finish clean and clear the
+    // one-shot flag over notes nothing imported.
+    it.each([
+      ['a pass that had already failed a source', false],
+      ['a record written before health was tracked', undefined]
+    ])('refuses to resume from %s', async (_label, sourcesClean) => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockFetchProgress.mockResolvedValue({
+        accountId: account.publicKey,
+        step: 'public',
+        startBlock: 0,
+        syncedToBlock: 200_000,
+        latestBlock: 400_000,
+        updatedAt: Date.now(),
+        sourcesClean
+      } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // A full fresh pass: every source re-run, and the range resolved from the
+      // creation time rather than from the untrusted watermark.
+      expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+      expect(mockProxy.resolveRecoveryScanRange).toHaveBeenCalledWith(GUARDIAN_CREATED_AT_SECONDS);
+      expect(mockReportProgress.mock.calls.map(([progress]) => progress.step)).toContain('transport');
+    });
+
+    it('marks the checkpoint unusable as soon as a chunk fails', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 400_000 } as never);
+      mockProxy.recoverPublicNotesRange
+        .mockRejectedValueOnce(new Error('node unavailable'))
+        .mockResolvedValue({ imported: 0, failures: 0, saturated: false } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      // The later chunk succeeds and advances the watermark past the failed
+      // range, so every write from that point on must disown it.
+      const publicWrites = mockReportProgress.mock.calls
+        .map(([progress]) => progress)
+        .filter(progress => progress.step === 'public');
+      expect(publicWrites[publicWrites.length - 1]?.sourcesClean).toBe(false);
     });
 
     it('treats a realm teardown during the drain as a deferral', async () => {
@@ -585,6 +654,34 @@ describe('detached recovery run', () => {
       const account = pendingAccount({ coldPublicKey: '0xcold' });
       guardianOffersProposalNotes(5);
       mockProxy.importRecoveryNoteBytes.mockResolvedValue({ imported: 3, failures: 2 } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    // A consume proposal in a shape this build cannot read may still be
+    // carrying notes. Skipping it quietly would let the pass finish clean and
+    // clear the one-shot flag over them.
+    it.each([1, 3])('keeps the recovery pending for an unreadable metadata version %i', async version => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalNotes(5, version);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.importRecoveryNoteBytes).not.toHaveBeenCalled();
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
+
+    // Capping what is KEPT does not cap the work: a response listing a million
+    // proposals of the wrong type is rejected entry by entry, and that
+    // iteration is the cost. Going over the bound is a failed source, so the
+    // remainder is retried rather than silently dropped.
+    it('keeps the recovery pending when the Guardian lists more proposals than it will examine', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      guardianOffersProposalCount(1_500);
 
       await maybeStartGuardianRecovery(account);
       await drainDetachedRun();

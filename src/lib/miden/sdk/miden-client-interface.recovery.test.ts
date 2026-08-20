@@ -26,10 +26,21 @@ interface FakeRpc {
 let fakeRpc: FakeRpc;
 let noteImport: jest.Mock;
 
-/** A `FetchedNote`-shaped entry: `noteId`/`inclusionProof` are properties. */
-function fetchedNote(id: string, { withBody = true, proof = true } = {}) {
+const NOTE_TYPE_PRIVATE = 0;
+const NOTE_TYPE_PUBLIC = 1;
+
+/**
+ * A `FetchedNote`-shaped entry: `noteId`/`noteType`/`inclusionProof` are
+ * properties, `asInputNote()` a method. A body-less note defaults to PRIVATE,
+ * which is what the SDK documents a missing body to mean.
+ */
+function fetchedNote(
+  id: string,
+  { withBody = true, proof = true, noteType }: { withBody?: boolean; proof?: boolean; noteType?: number } = {}
+) {
   return {
     noteId: id,
+    noteType: noteType ?? (withBody ? NOTE_TYPE_PUBLIC : NOTE_TYPE_PRIVATE),
     inclusionProof: proof ? { proofFor: id } : undefined,
     asInputNote: () => (withBody ? { note: id } : undefined)
   };
@@ -48,6 +59,9 @@ async function loadClient(): Promise<RecoveryClientInterface> {
     ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
     RpcClient: jest.fn(() => fakeRpc),
     Endpoint: jest.fn(url => ({ url })),
+    // The shared wasm mock stands NoteType up as strings; the real enum is
+    // numeric and the accounting compares against it.
+    NoteType: { Private: NOTE_TYPE_PRIVATE, Public: NOTE_TYPE_PUBLIC },
     Address: { fromAccountId: jest.fn(() => ({ toNoteTag: () => NOTE_TAG })) },
     Note: { deserialize: jest.fn((bytes: Uint8Array) => ({ id: () => `note-${bytes[0]}` })) },
     InputNote: {
@@ -120,6 +134,48 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
         imported: 0,
         failures: 0,
+        saturated: false
+      });
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('counts a public note the node returned without a body', async () => {
+      // The SDK documents a missing body as the PRIVATE case; a public note with
+      // no body is the node failing to serve what it said it had.
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a', { withBody: false, noteType: NOTE_TYPE_PUBLIC })]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 1,
+        saturated: false
+      });
+    });
+
+    // A right-length response can still be the wrong notes. Counting length
+    // alone reads that as a clean chunk, and a clean chunk is what lets the
+    // orchestrator clear the one-shot flag.
+    it('counts a duplicated id as one answer, not two', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('a')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 1,
+        failures: 1,
+        saturated: false
+      });
+    });
+
+    it('counts an id it never asked for as no answer at all', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('substituted')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 1,
         saturated: false
       });
       expect(noteImport).not.toHaveBeenCalled();
@@ -319,11 +375,36 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       expect(startBlock).toBe(9_399);
     });
 
-    it('starts at the tip when the account is newer than every block', async () => {
+    // The scan runs once and a clean pass clears the one-shot flag, so every
+    // disagreement between the Guardian's clock and the node's has to widen the
+    // scan. Starting at the tip would scan one block, find nothing and report
+    // success.
+    it('scans from genesis when the account claims to be newer than the chain tip', async () => {
       fakeRpc.getBlockHeaderByNumber.mockResolvedValue(blockHeader(500, 1_000));
       const client = await loadClient();
 
-      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 500, latestBlock: 500 });
+      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+    });
+
+    it('scans from genesis when the node reports no tip timestamp', async () => {
+      fakeRpc.getBlockHeaderByNumber.mockResolvedValue(blockHeader(500, 0));
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+      expect(fakeRpc.getBlockHeaderByNumber).toHaveBeenCalledTimes(1);
+    });
+
+    it('abandons the search when a block reports no timestamp', async () => {
+      // The bisection is only sound over increasing timestamps; a zero would
+      // push the start block past the account's real creation block.
+      fakeRpc.getBlockHeaderByNumber.mockImplementation(async (blockNum?: number) => {
+        if (blockNum === undefined) return blockHeader(20_000, 20_000);
+        if (blockNum === 0) return blockHeader(0, 1);
+        return blockHeader(blockNum, 0);
+      });
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(10_000)).resolves.toEqual({ startBlock: 0, latestBlock: 20_000 });
     });
 
     it('scans from genesis when the chain is younger than the account timestamp', async () => {
