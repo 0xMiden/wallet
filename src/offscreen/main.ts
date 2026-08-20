@@ -458,6 +458,34 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(id);
   },
 
+  // Pending-note recovery chunks (guardian seed recovery). Each is a short op
+  // so the SW can interleave syncs/reads between chunks and report progress.
+  drainPrivateNoteTransport: async client => {
+    await client.drainPrivateNoteTransport();
+    return null;
+  },
+
+  importRecoveryNoteBytes: async (client, encodedProposalNotes: string[]) => {
+    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  resolveRecoveryScanRange: async (client, createdAtSeconds: number) => {
+    const result = await client.resolveRecoveryScanRange(createdAtSeconds);
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  recoverPublicNotesRange: async (
+    client,
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset?: number
+  ) => {
+    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
   // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
   // (offscreen) client's store — which is what makes the relay belong here: under

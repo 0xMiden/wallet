@@ -253,6 +253,9 @@ function resetControl() {
     })),
     clientGetInputNote: jest.fn(async (_id: string) => ({ metadata: () => ({ noteType: () => 1 }) })),
     clientImportNoteBytes: jest.fn(async (_bytes: Uint8Array) => '0ximportedid'),
+    clientDrainPrivateNoteTransport: jest.fn(async () => {}),
+    clientImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 1, failures: 0 })),
+    clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
     clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
     // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
@@ -306,6 +309,9 @@ function resetControl() {
       // offscreen-owned client; the DISPATCH reduces getInputNote in-realm.
       getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
       importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
+      drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+      importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
+      recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
       sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
       // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
       // reads drive directly.
@@ -1259,6 +1265,83 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Buffer.from(resp.resultB64, 'base64').toString('utf8')).toBe('0ximportedid');
+  });
+
+  it('dispatches proposal-note import and restores note bytes', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const encodedNotes = [Buffer.from([1, 2]).toString('base64'), Buffer.from([3]).toString('base64')];
+    const ret = capturedListener!(
+      callReq({ method: 'importRecoveryNoteBytes', argsB64: [encodeArg(encodedNotes)] }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientImportRecoveryNoteBytes).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientImportRecoveryNoteBytes.mock.calls[0][0]).toEqual([
+      new Uint8Array([1, 2]),
+      new Uint8Array([3])
+    ]);
+    const response = sendResponse.mock.calls[0][0];
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
+      imported: 1,
+      failures: 0
+    });
+  });
+
+  it('dispatches a public-backfill range with its bounds and note page', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(
+      callReq({
+        method: 'recoverPublicNotesRange',
+        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999), encodeArg(200)]
+      }),
+      {},
+      sendResponse
+    );
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 200);
+    const response = sendResponse.mock.calls[0][0];
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
+      imported: 2,
+      failures: 0
+    });
+  });
+
+  // An older service worker paired with a newer offscreen bundle sends three
+  // args; that has to mean the first page, not `undefined` reaching the SDK.
+  it('defaults a missing note page to the first one', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'recoverPublicNotesRange',
+        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 0);
+  });
+
+  it('dispatches the private-note transport drain with a null result', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    const ret = capturedListener!(callReq({ method: 'drainPrivateNoteTransport', argsB64: [] }), {}, sendResponse);
+    expect(ret).toBe(true);
+    await flush();
+
+    expect(G.__off.clientDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.ok).toBe(true);
+    expect(response.resultB64).toBeNull();
   });
 
   it('dispatches getSerializedInputNoteDetails → reduces each live record in-realm to the wire DTO array', async () => {

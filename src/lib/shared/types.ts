@@ -79,6 +79,8 @@ export enum WalletMessageType {
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
   ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
+  StartGuardianRecoveryRequest = 'START_GUARDIAN_RECOVERY_REQUEST',
+  StartGuardianRecoveryResponse = 'START_GUARDIAN_RECOVERY_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -419,6 +421,12 @@ export interface WalletAccount {
   // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
+  /**
+   * Set on adoption through Guardian seed recovery; the detached pending-note
+   * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once
+   * and clears it. Absent on accounts that were not seed-recovered.
+   */
+  guardianNoteRecoveryPending?: boolean;
   /**
    * Guardian operator endpoint this account is registered with — the
    * authoritative source of truth for endpoint resolution (#408). Set at create /
@@ -801,6 +809,16 @@ export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   applied: boolean;
 }
 
+export interface StartGuardianRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryRequest;
+  accountPublicKey: string;
+}
+
+export interface StartGuardianRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryResponse;
+  started: boolean;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -1021,6 +1039,7 @@ export type WalletRequest =
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
+  | StartGuardianRecoveryRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -1084,6 +1103,7 @@ export type WalletResponse =
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
+  | StartGuardianRecoveryResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

@@ -70,6 +70,10 @@
 - **Guardian is expected to fail on this line until guardian packages ship for 0.16.** The guardian's version line is independent of Miden's: the newest published `@openzeppelin/miden-multisig-client` (`0.16.2`) still declares `@miden-sdk/miden-sdk: ^0.15.8`, so every released guardian build targets the Miden 0.15 protocol. The wallet's dependency resolutions force it onto the wallet's own SDK, so installs succeed and the mismatch surfaces at runtime as divergent MASM procedure roots. Tracked in #522.
 ## 1.15.22 (TBD)
 
+### Features
+
+- [FEATURE][all] **Guardian seed recovery now recovers pending notes in the background.** After the mandatory hot-key rotation lands (and never while a transaction is in flight or the wallet is locked), the wallet drains the private-note transport, imports notes embedded in pending consume proposals, backfills public notes by the recovered account tag from the account's creation block, and then performs a normal sync. A non-dismissible home card shows each recovery step live, including the public-backfill block progress. A pass that could not import everything it found keeps the account marked so a later session retries it. Transaction-history recovery is out of scope until a Guardian release exposes canonical delta history to clients. (OpenZeppelin/guardian#357)
+
 ### Fixes
 
 - [FIX][extension] **The browser console is no longer flooded with wallet errors and warnings.** Two unrelated causes: the wallet reconnected to its background service worker once a second forever whenever that connection was unavailable — logging a "could not establish connection" error each time, in every open tab — and the extension pages each declared a preload for every code chunk they might need, which the browser warned about for each chunk it did not end up using. Reconnection now backs off and gives up when the page can never reach the extension again (after an update or reload), and the unused preload hints are gone.

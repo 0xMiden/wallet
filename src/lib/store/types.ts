@@ -166,6 +166,7 @@ export interface WalletActions {
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<boolean>;
+  startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 

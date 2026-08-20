@@ -2731,9 +2731,9 @@
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
 "@openzeppelin/guardian-client@^0.16.0":
-  version "0.16.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.16.0.tgz#72f5d058d519d301f368b223064909aaf0fc2c76"
-  integrity sha512-/ixcnXpLA4bPXvHMiANMS6+GaFPSiJkJohPSHYyk+t/bc1GGykUq4ZMhZyDY/pqSEnz5/70LWBBGplQklMFFoQ==
+  version "0.16.2"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.16.2.tgz#684003d8263a9e2944fa76eb1aa45e1398af0b3d"
+  integrity sha512-RT/A1GIsUiX+Ss1idmc3ayv6eRCJJFRrOdE/jjbf5mLc6FpxBIhda9nHKBbEPstx4gTtgNJnwvsxLFbubVeayg==
 
 "@openzeppelin/miden-multisig-client@^0.16.0":
   version "0.16.0"

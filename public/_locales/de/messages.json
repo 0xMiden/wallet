@@ -1698,6 +1698,34 @@
     "message": "Wir konnten Ihr Wallet nicht aufladen. Bitte versuchen Sie es erneut.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Kontowiederherstellung erkannt",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Privates „notes“ wird gescannt: Die Übertragung von „note“ wird entleert…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Privates „notes“ wird gescannt: „notes“ aus ausstehenden Vorschlägen werden importiert…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Synchronisierung der öffentlichen „notes“…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Synchronisierung der öffentlichen „notes“: Block-$current$ von $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Sie haben ausstehende „Notes“",
     "englishSource": "You have Pending Notes"

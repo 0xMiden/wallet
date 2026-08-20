@@ -1698,6 +1698,34 @@
     "message": "Нам не вдалося поповнити ваш гаманець. Спробуйте ще раз.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Виявлено спробу відновлення облікового запису",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Сканування приватного notes: вичерпування транспортного потоку note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Сканування приватного notes: імпорт notes із пропозицій, що очікують на розгляд…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Синхронізація публічного notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Синхронізація публічного notes: блок $current$ з $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є «Pending» (Notes)",
     "englishSource": "You have Pending Notes"

@@ -12,6 +12,15 @@ export function accountIdStringToSdk(accountIdStr: string): AccountId {
 }
 
 /**
+ * Parse a wallet-account identifier into an SDK `AccountId`, accepting both
+ * the bare bech32 address and the composite `WalletAccount.publicKey`
+ * (`<address>_<suffix>`) — `Address.fromBech32` rejects the composite form.
+ */
+export function walletAccountIdToSdk(id: string): AccountId {
+  return accountIdStringToSdk(id.split('_')[0] ?? id);
+}
+
+/**
  * Canonicalize a wallet-account identifier so the two id forms that meet inside
  * the wallet compare equal. dApp/adapter-initiated transactions arrive with the
  * bare bech32 address (e.g. `mtst1…5068r3`), whereas `WalletAccount.publicKey` is
