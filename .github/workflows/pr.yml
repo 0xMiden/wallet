@@ -94,9 +94,7 @@ jobs:
           comment: 'true'
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Generate Translation Files
         uses: borales/actions-yarn@v4
@@ -150,9 +148,7 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run ESLint
         uses: borales/actions-yarn@v4
@@ -209,9 +205,7 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run Coverage Check
         uses: borales/actions-yarn@v4

@@ -38,9 +38,7 @@ jobs:
       #     echo "${{ secrets.ENV }}" > .env
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run ESLint
         uses: borales/actions-yarn@v4
