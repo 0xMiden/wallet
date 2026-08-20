@@ -23,7 +23,18 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
+import {
+  GuardianSyncStatus,
+  ReportTelemetryEventRequest,
+  ReportTelemetryEventResponse,
+  SignEvmOperation,
+  WalletAccount,
+  WalletMessageType,
+  WalletSettings,
+  WalletState
+} from 'lib/shared/types';
+import { resolveTelemetryContext } from 'lib/telemetry/context';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -582,6 +593,13 @@ export async function processDApp(
     case MidenDAppMessageType.WaitForTransactionRequest:
       return withInited(() => waitForTransaction(req));
   }
+}
+
+export async function handleReportTelemetryEvent(
+  req: ReportTelemetryEventRequest
+): Promise<ReportTelemetryEventResponse> {
+  await sendEvent(req.event, resolveTelemetryContext());
+  return { type: WalletMessageType.ReportTelemetryEventResponse };
 }
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {

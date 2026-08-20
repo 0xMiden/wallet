@@ -1,5 +1,6 @@
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { TelemetryEvent } from 'lib/telemetry/types';
 import { WalletType } from 'screens/onboarding/types';
 
 export enum WalletMessageType {
@@ -130,7 +131,9 @@ export enum WalletMessageType {
   SpeculateSendRequest = 'SPECULATE_SEND_REQUEST',
   SpeculateSendResponse = 'SPECULATE_SEND_RESPONSE',
   SpeculateInvalidate = 'SPECULATE_INVALIDATE',
-  SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE'
+  SpeculateInvalidateResponse = 'SPECULATE_INVALIDATE_RESPONSE',
+  ReportTelemetryEventRequest = 'ReportTelemetryEventRequest',
+  ReportTelemetryEventResponse = 'ReportTelemetryEventResponse'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -294,6 +297,16 @@ export interface SpeculateInvalidate extends WalletMessageBase {
 
 export interface SpeculateInvalidateResponse extends WalletMessageBase {
   type: WalletMessageType.SpeculateInvalidateResponse;
+}
+
+export interface ReportTelemetryEventRequest extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventRequest;
+  /** Only the event. Version and platform are derived in the background. */
+  event: TelemetryEvent;
+}
+
+export interface ReportTelemetryEventResponse extends WalletMessageBase {
+  type: WalletMessageType.ReportTelemetryEventResponse;
 }
 
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
@@ -1024,7 +1037,8 @@ export type WalletRequest =
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
   | SpeculateSendRequest
-  | SpeculateInvalidate;
+  | SpeculateInvalidate
+  | ReportTelemetryEventRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1084,4 +1098,5 @@ export type WalletResponse =
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
   | SpeculateSendResponse
-  | SpeculateInvalidateResponse;
+  | SpeculateInvalidateResponse
+  | ReportTelemetryEventResponse;

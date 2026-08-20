@@ -211,6 +211,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       mgr?.invalidate();
       return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return await Actions.handleReportTelemetryEvent(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {
