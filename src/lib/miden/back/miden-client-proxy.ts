@@ -24,7 +24,7 @@ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
+import type { InputNoteDetails, RecoveryRangeResult } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -136,6 +136,20 @@ function readRecoverySaturated(method: string, parsed: unknown): boolean {
   const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'saturated') : undefined;
   if (typeof value !== 'boolean') {
     throw new Error(`${method}: offscreen document returned a malformed saturated`);
+  }
+  return value;
+}
+
+/**
+ * `nextNoteOffset` re-offers the same block range, so like `saturated` it can
+ * loop: absent means finished, and anything present that is not a non-negative
+ * integer throws rather than being coerced into a cursor that never advances.
+ */
+function readRecoveryNoteOffset(method: string, parsed: unknown): number | undefined {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'nextNoteOffset') : undefined;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${method}: offscreen document returned a malformed nextNoteOffset`);
   }
   return value;
 }
@@ -1054,21 +1068,23 @@ export const midenClientProxy = {
   async recoverPublicNotesRange(
     accountId: string,
     blockFrom: number,
-    blockTo: number
-  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
+    blockTo: number,
+    noteOffset = 0
+  ): Promise<RecoveryRangeResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
-        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo)
+        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset)
       );
     }
-    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo], {
+    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo, noteOffset], {
       deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
     });
     const parsed = parseRecoveryResult('recoverPublicNotesRange', resultB64);
     return {
       imported: readRecoveryCount('recoverPublicNotesRange', parsed, 'imported'),
       failures: readRecoveryCount('recoverPublicNotesRange', parsed, 'failures'),
-      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed)
+      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed),
+      nextNoteOffset: readRecoveryNoteOffset('recoverPublicNotesRange', parsed)
     };
   },
 

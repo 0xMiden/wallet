@@ -226,17 +226,46 @@ describe('Guardian pending-note recovery (SDK surface)', () => {
       expect(noteImport).not.toHaveBeenCalled();
     });
 
-    it('imports a dense range anyway once it is too narrow to split', async () => {
-      // The anti-infinite-split rule: a thousand notes in one block still have
-      // to be imported, and narrowing has stopped helping.
-      const many = Array.from({ length: 201 }, (_, i) => committedNote(`n${i}`));
+    // A range too narrow to split still has to be imported, but not all in one
+    // op: anyone can aim volume at a note tag, and one unbounded op either
+    // outlives its deadline (extension, then retried forever) or holds the only
+    // WASM mutex for its whole duration (mobile/desktop). So it pages by note.
+    it('pages a dense unsplittable range instead of importing it all at once', async () => {
+      const many = Array.from({ length: 450 }, (_, i) => committedNote(`n${i}`));
       fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
       fakeRpc.getNotesById.mockImplementation(async (ids: string[]) => ids.map(id => fetchedNote(id)));
       const client = await loadClient();
 
-      const result = await client.recoverPublicNotesRange('acct', 0, 999);
-      expect(result.saturated).toBe(false);
-      expect(result.imported).toBe(201);
+      const first = await client.recoverPublicNotesRange('acct', 0, 999);
+      expect(first).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 200 });
+
+      const second = await client.recoverPublicNotesRange('acct', 0, 999, first.nextNoteOffset);
+      expect(second).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 });
+
+      // The last page finishes the range: no cursor back.
+      const third = await client.recoverPublicNotesRange('acct', 0, 999, second.nextNoteOffset);
+      expect(third).toEqual({ imported: 50, failures: 0, saturated: false, nextNoteOffset: undefined });
+      expect(noteImport).toHaveBeenCalledTimes(450);
+    });
+
+    it('imports the notes of the requested page, not the first ones again', async () => {
+      const many = Array.from({ length: 250 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      fakeRpc.getNotesById.mockImplementation(async (ids: string[]) => ids.map(id => fetchedNote(id)));
+      const client = await loadClient();
+
+      await client.recoverPublicNotesRange('acct', 0, 999, 200);
+
+      expect(fakeRpc.getNotesById).toHaveBeenCalledWith(many.slice(200).map(note => note.noteId()));
+    });
+
+    it('does not page a range it can still narrow', async () => {
+      const many = Array.from({ length: 450 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      const client = await loadClient();
+
+      const result = await client.recoverPublicNotesRange('acct', 0, 200_000);
+      expect(result).toEqual({ imported: 0, failures: 0, saturated: true });
     });
 
     // One case per phrase the classifier accepts: these strings ARE the

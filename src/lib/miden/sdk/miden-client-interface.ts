@@ -163,6 +163,21 @@ export type FungibleAssetDetails = {
 };
 
 /**
+ * One public-backfill op's outcome. The two "come back for more" signals are
+ * mutually exclusive:
+ *
+ * `saturated` — the BLOCK RANGE was too big for one op; retry it as halves.
+ * `nextNoteOffset` — the range was fine but held more notes than one op imports;
+ * re-offer the SAME range starting at this note index. Absent means finished.
+ */
+export type RecoveryRangeResult = {
+  imported: number;
+  failures: number;
+  saturated: boolean;
+  nextNoteOffset?: number;
+};
+
+/**
  * Resolves note bytes to a {@link NoteFile} for import.
  *
  * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
@@ -610,20 +625,20 @@ export class MidenClientInterface {
   async recoverPublicNotesRange(
     accountId: string,
     blockFrom: number,
-    blockTo: number
-  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
+    blockTo: number,
+    noteOffset = 0
+  ): Promise<RecoveryRangeResult> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     const accountSdkId = walletAccountIdToSdk(accountId);
     const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
-    return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo);
+    return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo, noteOffset);
   }
 
   /**
-   * Span at or below which a range is imported whatever it holds. Note tags
-   * are a truncated commitment, so matches include other accounts' notes and
-   * an attacker can aim volume at a victim's tag — but a dense range still has
-   * to be imported eventually, and past this point narrowing has stopped
-   * helping (a single block cannot be split).
+   * Span at or below which a range is no longer narrowed. A dense range still
+   * has to be imported eventually, and past this point narrowing has stopped
+   * helping (a single block cannot be split); such a range is paged by note
+   * count instead, via `nextNoteOffset`.
    */
   private static readonly MIN_SPLIT_SPAN_BLOCKS = 1_000;
 
@@ -664,8 +679,9 @@ export class MidenClientInterface {
     rpc: RpcClient,
     noteTag: ReturnType<Address['toNoteTag']>,
     blockFrom: number,
-    blockTo: number
-  ): Promise<{ imported: number; failures: number; saturated: boolean }> {
+    blockTo: number,
+    noteOffset: number
+  ): Promise<RecoveryRangeResult> {
     const span = blockTo - blockFrom + 1;
     const splittable = span > MidenClientInterface.MIN_SPLIT_SPAN_BLOCKS;
 
@@ -684,17 +700,30 @@ export class MidenClientInterface {
       throw error;
     }
 
-    const committedNotes = syncInfo.notes();
-    if (splittable && committedNotes.length > MidenClientInterface.MAX_NOTES_PER_CHUNK) {
+    const allCommittedNotes = syncInfo.notes();
+    if (splittable && allCommittedNotes.length > MidenClientInterface.MAX_NOTES_PER_CHUNK) {
       // Nothing imported on purpose: the halves re-scan their own sub-ranges,
       // and importing a prefix here would only be repeated work (imports are
       // idempotent) while still holding the mutex for the whole prefix.
       console.log(
-        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches ` +
+        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${allCommittedNotes.length} tag matches ` +
           `exceeds ${MidenClientInterface.MAX_NOTES_PER_CHUNK} per op; asking the caller for a narrower range`
       );
       return { imported: 0, failures: 0, saturated: true };
     }
+
+    // Below the split floor a dense range cannot be narrowed further, so it is
+    // paged by NOTE instead: the op imports at most `MAX_NOTES_PER_CHUNK` and
+    // hands back where to continue. Without this, an unsplittable window holding
+    // thousands of matches — which anyone can arrange, since a note tag is a
+    // truncated commitment and volume can be aimed at a victim's — is one
+    // unbounded op: on the extension it outlives its deadline, the realm is
+    // killed, the orchestrator reads that as a deferral and retries the SAME
+    // window forever; on mobile and desktop it holds the only WASM mutex for as
+    // long as it takes.
+    const committedNotes = allCommittedNotes.slice(noteOffset, noteOffset + MidenClientInterface.MAX_NOTES_PER_CHUNK);
+    const consumedTo = noteOffset + committedNotes.length;
+    const nextNoteOffset = consumedTo < allCommittedNotes.length ? consumedTo : undefined;
 
     let imported = 0;
     let failures = 0;
@@ -745,10 +774,11 @@ export class MidenClientInterface {
       failures += noteIds.length - answeredIds.size;
     }
     console.log(
-      `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${committedNotes.length} tag matches, ` +
-        `${imported} imported, ${skippedPrivate} private, ${unexpected} unrequested/duplicate, ${failures} failed`
+      `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo} notes ${noteOffset}-${consumedTo} of ` +
+        `${allCommittedNotes.length} tag matches: ${imported} imported, ${skippedPrivate} private, ` +
+        `${unexpected} unrequested/duplicate, ${failures} failed`
     );
-    return { imported, failures, saturated: false };
+    return { imported, failures, saturated: false, nextNoteOffset };
   }
 
   async getAccount(accountId: string) {

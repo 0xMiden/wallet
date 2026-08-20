@@ -470,12 +470,12 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
       // still completed in ascending order and `scannedToBlock` stays a true
       // watermark. Each retry is its own offscreen op, which is the point: the
       // narrowing happens between ops, not inside one holding the WASM mutex.
-      const pending: Array<[number, number]> = [];
+      const pending: Array<[number, number, number]> = [];
       for (let blockFrom = startBlock; blockFrom <= latestBlock; blockFrom += PUBLIC_BACKFILL_CHUNK_BLOCKS) {
-        pending.push([blockFrom, Math.min(latestBlock, blockFrom + PUBLIC_BACKFILL_CHUNK_BLOCKS - 1)]);
+        pending.push([blockFrom, Math.min(latestBlock, blockFrom + PUBLIC_BACKFILL_CHUNK_BLOCKS - 1), 0]);
       }
       while (pending.length > 0) {
-        const [blockFrom, blockTo] = pending.shift()!;
+        const [blockFrom, blockTo, noteOffset] = pending.shift()!;
         const yielded = await shouldYield();
         if (yielded) {
           result.deferred = true;
@@ -483,21 +483,39 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
           return result;
         }
         try {
-          const chunk = await midenClientProxy.recoverPublicNotesRange(account.publicKey, blockFrom, blockTo);
+          const chunk = await midenClientProxy.recoverPublicNotesRange(
+            account.publicKey,
+            blockFrom,
+            blockTo,
+            noteOffset
+          );
           result.publicNotes += chunk.imported;
           result.sourceFailures += chunk.failures;
           if (chunk.saturated && blockTo > blockFrom) {
             const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
-            pending.unshift([blockFrom, midpoint], [midpoint + 1, blockTo]);
+            pending.unshift([blockFrom, midpoint, 0], [midpoint + 1, blockTo, 0]);
           } else if (chunk.saturated) {
             // Unsplittable and still saturated. The flag comes over the realm
             // boundary as JSON, so this is also the guard that keeps a bogus
             // `saturated` from looping forever on a one-block range.
             result.sourceFailures++;
             console.warn(`[GuardianRecovery] Block ${blockFrom} stayed saturated for ${account.publicKey}; skipping`);
+          } else if (chunk.nextNoteOffset !== undefined && chunk.nextNoteOffset > noteOffset) {
+            // The range fits but its notes do not: same range, next page. The
+            // strict advance is what makes this terminate — the offset crosses
+            // the realm boundary as JSON, and one that failed to move would
+            // re-run this page forever.
+            pending.unshift([blockFrom, blockTo, chunk.nextNoteOffset]);
           } else {
-            // Only a chunk that actually completed advances the reported
-            // progress, so the card never claims a range it skipped.
+            if (chunk.nextNoteOffset !== undefined) {
+              result.sourceFailures++;
+              console.warn(
+                `[GuardianRecovery] Blocks ${blockFrom}-${blockTo} asked to resume at note ` +
+                  `${chunk.nextNoteOffset}, which does not advance past ${noteOffset}; skipping the rest`
+              );
+            }
+            // Only a range that actually completed advances the reported
+            // progress, so the card never claims one it skipped or half-did.
             scannedToBlock = blockTo;
           }
         } catch (error) {

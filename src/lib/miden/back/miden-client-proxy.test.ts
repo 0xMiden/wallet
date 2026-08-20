@@ -295,7 +295,7 @@ describe('MidenClientProxy — flag routing', () => {
     expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
     expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
     expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
-    expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200);
+    expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
     expect(imported).toEqual({ imported: 2, failures: 0 });
     expect(scanRange).toEqual({ startBlock: 7, latestBlock: 99 });
     expect(publicCount).toEqual({ imported: 3, failures: 0 });
@@ -340,8 +340,53 @@ describe('MidenClientProxy — flag routing', () => {
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('recoverPublicNotesRange');
     expect(env.deadline_ms).toBe(60_000);
-    expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999']);
-    expect(result).toEqual({ imported: 5, failures: 1, saturated: false });
+    expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999', 's:0']);
+    expect(result).toEqual({ imported: 5, failures: 1, saturated: false, nextNoteOffset: undefined });
+  });
+
+  it('carries the note page offset and the cursor back over the boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(
+        JSON.stringify({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 })
+      ).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999, 200);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:"mtst1guardian"',
+      's:1000',
+      's:1999',
+      's:200'
+    ]);
+    expect(result).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 });
+  });
+
+  // Like `saturated`, the cursor re-offers the same range, so a value that is
+  // not a usable index has to throw rather than be coerced into one.
+  it.each([['not-a-number'], [-1], [1.5]])('rejects a malformed nextNoteOffset (%s)', async nextNoteOffset => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: false, nextNoteOffset })).toString(
+        'base64'
+      ),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed nextNoteOffset');
   });
 
   // `saturated` drives the caller's split loop, so a truthy non-boolean would

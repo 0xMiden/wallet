@@ -1256,13 +1256,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  it('dispatches a public-backfill range with its bounds and returns the import count', async () => {
+  it('dispatches a public-backfill range with its bounds and note page', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     const ret = capturedListener!(
       callReq({
         method: 'recoverPublicNotesRange',
-        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999)]
+        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999), encodeArg(200)]
       }),
       {},
       sendResponse
@@ -1270,12 +1270,30 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(ret).toBe(true);
     await flush();
 
-    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999);
+    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 200);
     const response = sendResponse.mock.calls[0][0];
     expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual({
       imported: 2,
       failures: 0
     });
+  });
+
+  // An older service worker paired with a newer offscreen bundle sends three
+  // args; that has to mean the first page, not `undefined` reaching the SDK.
+  it('defaults a missing note page to the first one', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'recoverPublicNotesRange',
+        argsB64: [encodeArg('mtst1guardian'), encodeArg(1000), encodeArg(200_999)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.clientRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 1000, 200_999, 0);
   });
 
   it('dispatches the private-note transport drain with a null result', async () => {

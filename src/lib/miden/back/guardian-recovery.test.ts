@@ -310,10 +310,11 @@ describe('detached recovery run', () => {
     await maybeStartGuardianRecovery(account);
     await drainDetachedRun();
 
+    // Each half is a fresh range, so each starts at note page 0.
     expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
-      [0, 1_999],
-      [0, 999],
-      [1_000, 1_999]
+      [0, 1_999, 0],
+      [0, 999, 0],
+      [1_000, 1_999, 0]
     ]);
     // Both halves landed, so the pass is clean and the flag clears.
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
@@ -328,9 +329,9 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
 
     expect(mockProxy.recoverPublicNotesRange.mock.calls.map(call => call.slice(1))).toEqual([
-      [0, 1],
-      [0, 0],
-      [1, 1]
+      [0, 1, 0],
+      [0, 0, 0],
+      [1, 1, 0]
     ]);
     // Two blocks it could not scan are two source failures, so the account
     // stays pending for a later retry rather than clearing over skipped notes.
@@ -560,7 +561,7 @@ describe('detached recovery run', () => {
     await drainDetachedRun();
 
     // Four chunks were queued; only the first ran.
-    expect(backfillRanges()).toEqual([[0, 199_999]]);
+    expect(backfillRanges()).toEqual([[0, 199_999, 0]]);
     expect(setPendingFlag).not.toHaveBeenCalled();
   });
 
@@ -614,6 +615,47 @@ describe('detached recovery run', () => {
 
     // The requeued range is only claimed as its halves land, in order.
     expect(reportedWatermarks()).toEqual([0, 0, 999, 1_999]);
+  });
+
+  describe('note paging within one range', () => {
+    it('re-offers the same range at the next note offset', async () => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 999 } as never);
+      mockProxy.recoverPublicNotesRange
+        .mockResolvedValueOnce({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 200 } as never)
+        .mockResolvedValue({ imported: 50, failures: 0, saturated: false } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange.mock.calls).toEqual([
+        [account.publicKey, 0, 999, 0],
+        [account.publicKey, 0, 999, 200]
+      ]);
+      // A half-paged range is not scanned, so the watermark waits for the page
+      // that finishes it.
+      expect(reportedWatermarks()).toEqual([0, 0, 999]);
+    });
+
+    // The cursor crosses the realm boundary as JSON. One that fails to advance
+    // would re-run the same page forever.
+    it.each([
+      ['stalls', 200],
+      ['goes backwards', 10]
+    ])('gives up on the rest of a range whose cursor %s', async (_label, nextNoteOffset) => {
+      const account = pendingAccount({ coldPublicKey: '0xcold' });
+      mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 999 } as never);
+      mockProxy.recoverPublicNotesRange
+        .mockResolvedValueOnce({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 200 } as never)
+        .mockResolvedValue({ imported: 0, failures: 0, saturated: false, nextNoteOffset } as never);
+
+      await maybeStartGuardianRecovery(account);
+      await drainDetachedRun();
+
+      expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(2);
+      // Notes were left unimported, so the flag has to stay set.
+      expect(setPendingFlag).not.toHaveBeenCalled();
+    });
   });
 
   describe('proposal note import', () => {

@@ -332,8 +332,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  recoverPublicNotesRange: async (client, accountId: string, blockFrom: number, blockTo: number) => {
-    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo);
+  recoverPublicNotesRange: async (
+    client,
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset?: number
+  ) => {
+    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
