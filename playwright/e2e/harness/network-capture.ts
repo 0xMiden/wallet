@@ -126,41 +126,58 @@ export async function attachServiceWorkerFetchCapture(
   walletLabel: 'A' | 'B',
   timeline: TimelineRecorder
 ): Promise<void> {
-  serviceWorker.on('console', msg => {
-    const text = msg.text();
-    if (!text.startsWith(SW_FETCH_LOG_PREFIX)) return;
-    try {
-      const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
-      const status: number = parsed.status ?? 0;
-      const err: string | undefined = parsed.err;
-      if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[net-obs] rpc ${parsed.method} status=${status} err=${(err ?? '').slice(0, 40)} realm=${String(parsed.realm).split('/').pop()}`
-        );
-      }
-      timeline.emit({
-        category: 'network_request',
-        severity: status >= 400 || err ? 'error' : 'info',
-        wallet: walletLabel,
-        message:
-          `${parsed.method} ${parsed.url} -> ${status}` +
-          (parsed.durationMs != null ? ` (${parsed.durationMs}ms)` : '') +
-          (err ? ` ERR ${err.slice(0, 120)}` : ''),
-        data: {
-          url: parsed.url,
-          method: parsed.method,
-          status,
-          durationMs: parsed.durationMs,
-          err,
-          networkCategory: parsed.category,
-          source: 'service_worker'
+  // Inside the guard, like the evaluate below. Attaching to a worker that has
+  // ALREADY gone (extension service workers are recycled aggressively, and a
+  // spec that kills the browser destroys them outright) throws a Playwright
+  // protocol error — "Object with guid handle@… was not bound in the
+  // connection" — and because callers invoke this fire-and-forget that becomes
+  // an unhandled rejection Playwright charges to whichever test is running.
+  // Losing capture on a dead worker is fine; failing the test for it is not.
+  try {
+    serviceWorker.on('console', msg => {
+      const text = msg.text();
+      if (!text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+      try {
+        const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
+        const status: number = parsed.status ?? 0;
+        const err: string | undefined = parsed.err;
+        if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[net-obs] rpc ${parsed.method} status=${status} err=${(err ?? '').slice(0, 40)} realm=${String(parsed.realm).split('/').pop()}`
+          );
         }
-      });
-    } catch {
-      // malformed log line — ignore
-    }
-  });
+        timeline.emit({
+          category: 'network_request',
+          severity: status >= 400 || err ? 'error' : 'info',
+          wallet: walletLabel,
+          message:
+            `${parsed.method} ${parsed.url} -> ${status}` +
+            (parsed.durationMs != null ? ` (${parsed.durationMs}ms)` : '') +
+            (err ? ` ERR ${err.slice(0, 120)}` : ''),
+          data: {
+            url: parsed.url,
+            method: parsed.method,
+            status,
+            durationMs: parsed.durationMs,
+            err,
+            networkCategory: parsed.category,
+            source: 'service_worker'
+          }
+        });
+      } catch {
+        // malformed log line — ignore
+      }
+    });
+  } catch (err) {
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'warn',
+      wallet: walletLabel,
+      message: `[SW-NET] console listener attach failed: ${err instanceof Error ? err.message : String(err)}`
+    });
+    return;
+  }
 
   try {
     await serviceWorker.evaluate(prefix => {
@@ -266,10 +283,16 @@ export async function attachServiceWorkerFetchCapture(
  * spawned by the page (current + future).
  */
 export function attachPageWorkersCapture(page: Page, walletLabel: 'A' | 'B', timeline: TimelineRecorder): void {
+  // `.catch`, not bare `void`: these are deliberately not awaited, so without a
+  // rejection handler a worker that dies mid-attach surfaces as an unhandled
+  // rejection and Playwright fails whichever test happens to be running. The
+  // callee guards its own Playwright calls; this is the backstop for anything
+  // it can't (a worker destroyed between `page.workers()` and the attach).
+  const attach = (worker: Worker): void => {
+    attachServiceWorkerFetchCapture(worker, walletLabel, timeline).catch(() => {});
+  };
   for (const worker of page.workers()) {
-    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
+    attach(worker);
   }
-  page.on('worker', worker => {
-    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
-  });
+  page.on('worker', attach);
 }
