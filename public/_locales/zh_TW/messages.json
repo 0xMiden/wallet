@@ -1698,6 +1698,34 @@
     "message": "我們無法為您的錢包充值。請重新嘗試。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "偵測到帳戶復原",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "正在掃描私有區塊鏈 notes：正在清空 note 傳輸通道……",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "正在掃描私有 notes：從待審議提案中匯入 notes……",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "正在同步公開區塊鏈 notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "同步公開區塊鏈 notes：$latest$ 的第 $current$ 個區塊",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待處理的 Notes",
     "englishSource": "You have Pending Notes"
