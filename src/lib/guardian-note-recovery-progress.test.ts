@@ -97,8 +97,8 @@ describe('guardian note recovery progress', () => {
     ).toBe(true);
   });
 
-  it('never ages out a record written before the timestamp existed', () => {
-    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'transport' })).toBe(false);
+  it('ages out a record with no timestamp, since every live writer stamps one', () => {
+    expect(isGuardianNoteRecoveryProgressStale({ accountId: '0xabc', step: 'transport' })).toBe(true);
   });
 
   it('clears the record when it belongs to the finishing account', async () => {

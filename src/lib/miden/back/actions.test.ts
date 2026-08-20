@@ -233,7 +233,9 @@ describe('actions', () => {
       maybeStartGuardianRecovery.mockResolvedValueOnce(true);
 
       await expect(startGuardianRecovery(account.publicKey)).resolves.toBe(true);
-      expect(maybeStartGuardianRecovery).toHaveBeenCalledWith(account, mockVault);
+      // No vault argument: the detached run resolves the live vault per use so
+      // a lock mid-run cannot be signed through.
+      expect(maybeStartGuardianRecovery).toHaveBeenCalledWith(account);
     });
 
     it('returns false without starting recovery when the account is missing', async () => {

@@ -403,16 +403,17 @@ export function useGuardianNoteRecoveryProgress(): GuardianNoteRecoveryProgress 
     };
   }, [accept, refresh]);
 
-  // Poll only while a recovery is actually in flight. Mobile and desktop have
-  // no storage events, so the poll is the only thing that advances the card
-  // there; on every platform it is also what ages out an abandoned record.
-  // Idle wallets — almost all of them, almost always — never poll at all.
-  const recoveryInFlight = progress !== null;
+  // Polls unconditionally, by necessity rather than preference: mobile and
+  // desktop get no storage events at all (`onStorageChanged` is a no-op there),
+  // and on the extension the listener is registered after an async import, so
+  // a write landing in that window is missed. Gating the poll on an
+  // already-observed record would let a recovery that starts after the first
+  // read stay invisible forever. The poll is also what ages out an abandoned
+  // record, and it only runs while the home view is mounted.
   useEffect(() => {
-    if (!recoveryInFlight) return;
     const interval = setInterval(refresh, 2000);
     return () => clearInterval(interval);
-  }, [recoveryInFlight, refresh]);
+  }, [refresh]);
 
   return progress;
 }

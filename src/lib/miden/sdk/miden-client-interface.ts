@@ -534,6 +534,12 @@ export class MidenClientInterface {
   }
 
   /**
+   * Narrowest span the bisection will retry. A span this small being refused
+   * as "too wide" means the node is not really complaining about the span.
+   */
+  private static readonly MIN_BISECT_SPAN_BLOCKS = 1_000;
+
+  /**
    * A node that refuses the requested span because it is too wide is retried
    * as two halves; anything else propagates. Rate limiting must NOT land here:
    * "429 Too Many Requests" would otherwise be read as a span complaint and
@@ -600,7 +606,13 @@ export class MidenClientInterface {
       );
       return { imported, failures };
     } catch (error) {
-      if (!MidenClientInterface.isBlockSpanTooWide(error) || blockFrom >= blockTo) throw error;
+      // Floored: without a floor a node that reports "span too wide" for every
+      // span bisects a 200k-block chunk into ~200k single-block RPCs, each one
+      // holding the WASM client. Below the floor the error is the caller's to
+      // count as a source failure so the recovery stays pending.
+      const span = blockTo - blockFrom + 1;
+      if (!MidenClientInterface.isBlockSpanTooWide(error) || span <= MidenClientInterface.MIN_BISECT_SPAN_BLOCKS)
+        throw error;
       const midpoint = blockFrom + Math.floor((blockTo - blockFrom) / 2);
       const firstHalf = await this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, midpoint);
       const secondHalf = await this.recoverPublicNotesInRange(rpc, noteTag, midpoint + 1, blockTo);

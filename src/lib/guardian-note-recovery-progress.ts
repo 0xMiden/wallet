@@ -53,15 +53,16 @@ export function normalizeGuardianNoteRecoveryProgress(value: unknown): GuardianN
 }
 
 /**
- * True when the record is old enough that its writer must be gone. A record
- * without `updatedAt` predates that field and is never aged out, so an
- * in-flight recovery across an extension update does not lose its card.
+ * True when the record is old enough that its writer must be gone. Every
+ * writer stamps `updatedAt`, so a record without one cannot be from a live run
+ * and is stale by definition — treating it as fresh instead would leave a
+ * permanent non-dismissible card with nothing able to clear it.
  */
 export function isGuardianNoteRecoveryProgressStale(
   progress: GuardianNoteRecoveryProgress,
   now: number = Date.now()
 ): boolean {
-  if (progress.updatedAt === undefined) return false;
+  if (progress.updatedAt === undefined) return true;
   return now - progress.updatedAt > GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS;
 }
 

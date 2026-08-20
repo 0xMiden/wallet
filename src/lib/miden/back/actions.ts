@@ -2,6 +2,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
   resolveGuardianDrift
@@ -49,22 +50,16 @@ import {
 // may not complete because it transitively depends on dapp.ts which imports frontend
 // modules that hang in SW context. Making queues lazy ensures they're available on
 // first use regardless of whether init_actions completed.
-//
-// Note: despite the name, `_unlockQueue` doubles as a general
-// single-writer serializer for any mutation that reads the accounts
-// list and writes it back after a WASM round-trip (import, unlock).
-// Keeping both on the same queue means they implicitly serialize
-// against each other too, which is the safer default.
 let _dappQueue: PQueue | undefined;
-let _unlockQueue: PQueue | undefined;
 function getDappQueue() {
   if (!_dappQueue) _dappQueue = new PQueue({ concurrency: 1 });
   return _dappQueue;
 }
-function getUnlockQueue() {
-  if (!_unlockQueue) _unlockQueue = new PQueue({ concurrency: 1 });
-  return _unlockQueue;
-}
+
+// The accounts-list single-writer serializer, shared with the detached Guardian
+// note recovery. Unlock and account import ride the same queue so they
+// implicitly serialize against each other too, which is the safer default.
+const getUnlockQueue = getAccountsWriteQueue;
 
 // Service worker cold-start race: in the Vite SW build, top-level await is
 // stripped so the `vault.ts` ESM module factory (`init_vault`) may not have
@@ -395,7 +390,9 @@ export function startGuardianRecovery(accountPublicKey: string) {
     const accounts = await vault.fetchAccounts();
     const account = accounts.find(acc => acc.publicKey === accountPublicKey);
     if (!account) return false;
-    return maybeStartGuardianRecovery(account, vault);
+    // No vault handed over: the run outlives this call by minutes and resolves
+    // the live vault at each point of use instead of capturing this one.
+    return maybeStartGuardianRecovery(account);
   });
 }
 
