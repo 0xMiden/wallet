@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Открыть",
+    "message": "Открыт",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заполнен",
+    "message": "Исполнен",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Восстановленный",
+    "message": "Возвращён",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частично исполнен",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частично исполнен, остаток возвращён",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заполнить кружки",

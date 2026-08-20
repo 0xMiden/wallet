@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "열기",
+    "message": "미체결",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "채워짐",
+    "message": "체결 완료",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "회수된",
+    "message": "회수 완료",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "부분 체결",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "부분 체결, 잔량 회수됨",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "라운드 채우기",

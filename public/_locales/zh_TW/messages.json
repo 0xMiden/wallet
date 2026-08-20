@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "開啟",
+    "message": "未成交",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "已填滿",
+    "message": "已成交",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "重獲",
+    "message": "已收回",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "部分成交",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "部分成交，剩餘已收回",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "填裝子彈",

@@ -71,46 +71,62 @@ export const ExternalLinkValue: FC<{
  * Confirmed / Failed / In Progress pill, driven by the transaction's actual
  * `status` (message-string sniffing broke for types whose completion message
  * wasn't in the known list — e.g. a completed swap's "Swapped").
+ *
+ * `swapSettlement` overrides it for a swap, because a swap row is Completed the
+ * moment the order note is created: the place-order transaction confirmed, the
+ * swap did not. The history list already draws that distinction, so without this
+ * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  */
-export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean; testId?: string }> = memo(
-  ({ status, isCancelled, testId }) => {
-    const { t } = useTranslation();
-    const isCompleted = status === ITransactionStatus.Completed;
-    const isFailed = status === ITransactionStatus.Failed;
+export const StatusPill: FC<{
+  status?: ITransactionStatus;
+  isCancelled?: boolean;
+  swapSettlement?: 'pending' | 'reclaimed';
+  testId?: string;
+}> = memo(({ status, isCancelled, swapSettlement, testId }) => {
+  const { t } = useTranslation();
+  const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
+  const isFailed = status === ITransactionStatus.Failed;
+  // A reclaimed order ended without delivering what was asked for, so it gets
+  // the same muted treatment as a cancellation — the history list already tones
+  // it that way.
+  const isMuted = isCancelled || swapSettlement === 'reclaimed';
 
-    const dotColor = isCancelled
-      ? 'bg-gray-400'
-      : isCompleted
-        ? 'bg-[#1A9C52]'
-        : isFailed
-          ? 'bg-status-negative'
-          : 'bg-blue-500';
-    const textColor = isCancelled
-      ? 'text-gray-500'
-      : isCompleted
-        ? 'text-[#1A9C52]'
-        : isFailed
-          ? 'text-status-negative'
-          : 'text-blue-500';
-    const label = isCancelled
-      ? t('cancelled')
-      : isCompleted
-        ? t('confirmed')
-        : isFailed
-          ? t('failed')
-          : t('inProgress');
+  const dotColor = isMuted
+    ? 'bg-gray-400'
+    : isCompleted
+      ? 'bg-[#1A9C52]'
+      : isFailed
+        ? 'bg-status-negative'
+        : 'bg-blue-500';
+  const textColor = isMuted
+    ? 'text-gray-500'
+    : isCompleted
+      ? 'text-[#1A9C52]'
+      : isFailed
+        ? 'text-status-negative'
+        : 'text-blue-500';
+  const label = isCancelled
+    ? t('cancelled')
+    : swapSettlement === 'reclaimed'
+      ? t('reclaimed')
+      : swapSettlement === 'pending'
+        ? t('pending')
+        : isCompleted
+          ? t('confirmed')
+          : isFailed
+            ? t('failed')
+            : t('inProgress');
 
-    return (
-      <div
-        data-testid={testId}
-        className={classNames(
-          'flex items-center gap-1 px-4 py-0.5 rounded-full',
-          isCancelled ? 'bg-gray-100' : 'bg-green-600/20'
-        )}
-      >
-        <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
-        <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
-      </div>
-    );
-  }
-);
+  return (
+    <div
+      data-testid={testId}
+      className={classNames(
+        'flex items-center gap-1 px-4 py-0.5 rounded-full',
+        isMuted ? 'bg-gray-100' : 'bg-green-600/20'
+      )}
+    >
+      <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
+      <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
+    </div>
+  );
+});

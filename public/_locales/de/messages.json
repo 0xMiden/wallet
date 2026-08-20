@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Öffnen",
+    "message": "Offen",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Gefüllt",
+    "message": "Ausgeführt",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Wiedergewonnen",
+    "message": "Zurückgeholt",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Teilweise ausgeführt",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Teilweise ausgeführt, Rest zurückgeholt",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Runden füllen",

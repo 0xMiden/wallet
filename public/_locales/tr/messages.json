@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Aç",
+    "message": "Açık",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Doldurulmuş",
+    "message": "Gerçekleşti",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Geri kazanılmış",
+    "message": "Geri alındı",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Kısmen gerçekleşti",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Kısmen gerçekleşti, kalan geri alındı",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Yuvarlakları doldur",

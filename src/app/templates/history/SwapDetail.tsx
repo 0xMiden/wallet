@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, memo } from 'react';
 
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
@@ -26,7 +26,9 @@ interface SwapDetailProps {
   requestedDecimals?: number;
   requestedSymbol?: string;
   requestedFaucetId?: string;
+  /** Undefined = unknown, which is not the same statement as zero. */
   filledAmount?: bigint;
+  isPartialFill?: boolean;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
   settledNoteIds: string[];
@@ -61,17 +63,23 @@ const progressPercentage = (filledAmount: bigint, requestedAmount: bigint): numb
   return Number((filledAmount * 1000n) / requestedAmount) / 10 || 0.1;
 };
 
+// Constructing an Intl formatter is the expensive part; a receipt with many
+// fills was building one per row per render.
+let timeFormatter: Intl.DateTimeFormat | undefined;
+
 const settlementTime = (completedAt: number | undefined): string | undefined => {
   if (completedAt === undefined) return undefined;
 
-  return new Intl.DateTimeFormat(undefined, {
+  timeFormatter ??= new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
-  }).format(new Date(completedAt * 1000));
+  });
+
+  return timeFormatter.format(new Date(completedAt * 1000));
 };
 
-const SwapNoteRow: FC<SwapNoteRowProps> = ({
+const SwapNoteRow = memo(function SwapNoteRow({
   noteId,
   number,
   kind,
@@ -79,7 +87,7 @@ const SwapNoteRow: FC<SwapNoteRowProps> = ({
   requestedDecimals,
   requestedSymbol,
   requestedFaucetId
-}) => {
+}: SwapNoteRowProps) {
   const { t } = useTranslation();
   const displayNoteIds = transaction?.noteIds ?? (noteId ? [noteId] : []);
   const consumedAt = settlementTime(transaction?.completedAt);
@@ -169,7 +177,7 @@ const SwapNoteRow: FC<SwapNoteRowProps> = ({
         </div>
       );
   }
-};
+});
 
 /**
  * Transaction hash, linked to the explorer for the network this build actually
@@ -183,23 +191,27 @@ const ExplorerTxValue: FC<{ txId: string }> = ({ txId }) => {
   return explorerUrl ? <ExternalLinkValue displayValue={hash} href={explorerUrl} /> : hash;
 };
 
-const orderStatusLabel = (state: SwapOrderState | null, trackingLoading: boolean): string => {
+// `isPartialFill` qualifies every state: an order can be open with some of the
+// request already matched, and a terminal one can have delivered part of the
+// request and returned the rest. Announcing either as a flat "Filled" overstates
+// what the user got.
+const orderStatusLabel = (state: SwapOrderState | null, trackingLoading: boolean, isPartialFill: boolean): string => {
   switch (state) {
     case 'filled':
-      return 'orderStatusFilled';
+      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusFilled';
     case 'reclaimed':
-      return 'orderStatusReclaimed';
+      return isPartialFill ? 'orderStatusPartiallyFilledReclaimed' : 'orderStatusReclaimed';
     case 'active':
-      return 'orderStatusActive';
+      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusActive';
     case null:
       return trackingLoading ? 'loading' : 'trackingUnavailable';
   }
 };
 
-const orderStatusTone = (state: SwapOrderState | null): string => {
+const orderStatusTone = (state: SwapOrderState | null, isPartialFill: boolean): string => {
   switch (state) {
     case 'filled':
-      return 'text-status-positive';
+      return isPartialFill ? 'text-status-pending' : 'text-status-positive';
     case 'reclaimed':
       return 'text-text-secondary-token';
     case 'active':
@@ -215,7 +227,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   requestedDecimals,
   requestedSymbol,
   requestedFaucetId,
-  filledAmount = 0n,
+  filledAmount,
+  isPartialFill = false,
   orderState,
   trackingLoading,
   settledNoteIds,
@@ -232,10 +245,13 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
-  const percentage = progressPercentage(filledAmount, requestedAmount);
+  const percentage = filledAmount === undefined ? 0 : progressPercentage(filledAmount, requestedAmount);
   const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
   const formattedRequested = formatAmount(requestedAmount, requestedDecimals);
-  const formattedFilled = formatAmount(filledAmount, requestedDecimals);
+  // An unknown fill (no lineage and no settlement consume in the requested
+  // token) is not a zero fill. Printing "0 of 1000" would assert that nothing
+  // arrived, which is a different and possibly false statement.
+  const formattedFilled = filledAmount === undefined ? '—' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
@@ -268,7 +284,12 @@ export const SwapDetail: FC<SwapDetailProps> = ({
           )}
 
           <div className="mt-2">
-            <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
+            <StatusPill
+              status={entry.status}
+              isCancelled={entry.isCancelled}
+              swapSettlement={entry.swapSettlement}
+              testId="history-status-pill"
+            />
           </div>
         </section>
 
@@ -309,10 +330,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
           <p
             data-testid="swap-order-status"
-            className={clsx('mt-1 text-xs font-semibold', orderStatusTone(orderState))}
+            className={clsx('mt-1 text-xs font-semibold', orderStatusTone(orderState, isPartialFill))}
             role="status"
           >
-            {t(orderStatusLabel(orderState, trackingLoading))}
+            {t(orderStatusLabel(orderState, trackingLoading, isPartialFill))}
           </p>
         </section>
 

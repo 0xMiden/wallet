@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Відкрити",
+    "message": "Відкрито",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заповнено",
+    "message": "Виконано",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Відновлений",
+    "message": "Повернено",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частково виконано",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частково виконано, залишок повернено",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заповнити кола",

@@ -30,7 +30,8 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
-  resolveSwapHistoryFields
+  resolveSwapHistoryFields,
+  swapSettlementOf
 } from './transactionUtils';
 
 type HistoryProps = {
@@ -358,23 +359,6 @@ function linkedPrimaryTxId(tx: ITransaction): string | undefined {
     tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
     tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
   );
-}
-
-/**
- * Settlement state for a completed swap order, driving the single swap row's
- * status chip; `undefined` renders Confirmed. Pending only for auto-consumed
- * orders that carry an explicit expiry (stamped since settlement shipped) and
- * have no settlement stamp yet — settled, legacy, and manual-claim orders all
- * fall through to Confirmed. A settledAt stamp wins over reclaimedAt (a batch
- * containing payback notes delivered funds even if the order later expired).
- */
-function swapSettlementOf(tx: ITransaction): 'pending' | 'reclaimed' | undefined {
-  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
-  const extra = tx.extraInputs ?? {};
-  if (extra.settledAt != null) return undefined;
-  if (extra.reclaimedAt != null) return 'reclaimed';
-  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
-  return undefined;
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

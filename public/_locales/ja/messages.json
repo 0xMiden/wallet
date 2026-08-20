@@ -3560,16 +3560,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "開く",
+    "message": "未約定",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "埋まった",
+    "message": "約定済み",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "再生された",
+    "message": "回収済み",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "一部約定",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "一部約定、残りを回収しました",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "ラウンドを埋める",

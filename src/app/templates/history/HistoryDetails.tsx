@@ -68,7 +68,8 @@ import {
   earnWithdrawAmountFields,
   earnWithdrawToneOf,
   formatDate,
-  isBridgeInEntry
+  isBridgeInEntry,
+  swapSettlementOf
 } from './transactionUtils';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
@@ -260,6 +261,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // suppressed in the history list (the swap row is the order's single trace),
   // so this page is where their notes stay visible.
   const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
+  // Read by the lineage poll to decide whether a stale 'active' is still worth
+  // chasing. A ref, not a dep: making it one would restart the poll — and its
+  // backoff — the moment the settlement it is racing arrives.
+  const settlementFoundRef = useRef(false);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
   // Guards the earn-withdraw delivery poller so it is (re)started at most once per
@@ -318,6 +323,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         noteType: tx.noteType,
         noteId: tx.outputNoteIds?.[0],
         externalTxId: tx.transactionId,
+        swapSettlement: swapSettlementOf(tx),
         faucetId: tx.faucetId,
         outputNoteIds: tx.outputNoteIds,
         txType: tx.type,
@@ -537,7 +543,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const BASE_INTERVAL_MS = 2000;
     const MAX_INTERVAL_MS = 30_000;
     const MAX_UNRESOLVED_POLLS = 20;
+    // Grace polls for a lineage still reporting 'active' after this wallet has
+    // already observed the settlement consume (~30s).
+    const MAX_STALE_ACTIVE_POLLS = 15;
     let unresolved = 0;
+    let staleActive = 0;
 
     // Exponential backoff for unresolved polls, capped; give up after the cap.
     const scheduleUnresolvedRetry = () => {
@@ -561,7 +571,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         } else if (result.state === 'active') {
           // Live and resolving; steady watch until a terminal state.
           unresolved = 0;
-          timer = setTimeout(poll, BASE_INTERVAL_MS);
+          // ...unless this wallet has already seen the settlement consume land.
+          // The lineage is then only being asked to catch up, and every poll
+          // takes the app-wide WASM lock. On mobile and desktop the screen stays
+          // mounted in the background, so an order whose lineage never leaves
+          // 'active' would hold that lock every 2s for as long as the app runs.
+          staleActive = settlementFoundRef.current ? staleActive + 1 : 0;
+          if (staleActive <= MAX_STALE_ACTIVE_POLLS) {
+            timer = setTimeout(poll, BASE_INTERVAL_MS);
+          }
         }
         // filled / reclaimed → terminal, stop polling.
       } catch (error) {
@@ -583,32 +601,56 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Settlement can land while this page is open (auto-consume runs on its own
   // 2s cycle), and the lineage poll above stops at a terminal state — usually
   // just *before* the settlement consume completes. So watch for the notes
-  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
-  // giving up after a cap so a manual-claim order doesn't poll forever.
+  // separately with cheap Dexie-only reads.
+  //
+  // Watching until the FIRST note arrived was not enough for the two cases that
+  // matter most. A multi-fill order keeps settling after that note, and stopping
+  // froze the receipt on fill 1 of n. And an order placed while the user watches
+  // does not settle until it expires — SWAP_ORDER_EXPIRY_SECONDS is 120, so a
+  // 20-poll/40s cap gave up a full minute before the batch it was waiting for.
+  // Keep reading until the order is terminal AND something has been observed,
+  // with a cap that outlives expiry.
   const settlementFound = Boolean(
     settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
   );
+  settlementFoundRef.current = settlementFound;
+  const settlementSettled = settlementFound && swapTracking != null && swapTracking.state !== 'active';
+  const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
   useEffect(() => {
-    if (orderId == null || settlementFound || !transaction) return;
+    if (orderId == null || settlementSettled || !transaction) return;
     const swapTxId = transaction.id;
     const POLL_INTERVAL_MS = 2000;
-    const MAX_POLLS = 20;
+    // Past the 120s expiry with room for the consume to prove and complete.
+    const MAX_POLLS = 90;
     let polls = 0;
     let cancelled = false;
+    let inFlight = false;
+    let seen = observedNoteCount;
 
     const timer = setInterval(async () => {
+      // `getSwapSettlementNotes` is an unindexed scan of the transactions table;
+      // on a large history one read can outlast the interval, and overlapping
+      // scans would queue up behind each other.
+      if (inFlight) return;
       polls += 1;
       if (polls > MAX_POLLS) {
         clearInterval(timer);
         return;
       }
+      inFlight = true;
       try {
         const notes = await getSwapSettlementNotes(swapTxId);
-        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
+        const count = notes.settled.length + notes.reclaimed.length;
+        // Only publish growth: re-setting an identical result would re-render
+        // the whole receipt every 2s on a fresh object identity.
+        if (!cancelled && count > seen) {
+          seen = count;
           setSettlementNotes(notes);
         }
       } catch (error) {
         console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
+      } finally {
+        inFlight = false;
       }
     }, POLL_INTERVAL_MS);
 
@@ -616,7 +658,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [orderId, settlementFound, transaction]);
+    // `observedNoteCount` is the poll's starting baseline, deliberately not a
+    // trigger: including it would restart the interval on every new note.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, settlementSettled, transaction]);
 
   // Reconcile the (potentially lagging) on-chain order lineage with settlement
   // this wallet has already observed: once the settlement/reclaim consume notes
@@ -632,7 +677,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       ? 'filled'
       : 'reclaimed'
     : null;
-  const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
+  // A terminal lineage is the authority on how the ORDER ended; the local
+  // settlement stamp only covers the lag while the lineage still says 'active'.
+  // Getting this backwards mislabels the protocol's most common partial-fill
+  // path: an expiry batch that carries any payback is tagged 'settle' (see
+  // `reconcileSwapOrderNotes`), so a 40%-filled order that expired — lineage
+  // 'reclaimed', per swap-partial-fill.spec.ts — was announced as "Filled".
+  const displayOrderState: SwapOrderState | null =
+    swapTracking && swapTracking.state !== 'active'
+      ? swapTracking.state
+      : (settledOrderState ?? swapTracking?.state ?? null);
   // How much of the requested amount has been filled so far, derived from the
   // original requested amount and the lineage's still-outstanding remainder.
   const filledRequested =
@@ -700,6 +754,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     0n
   );
   const filledAmount = filledRequested ?? (locallySettledRequested > 0n ? locallySettledRequested : undefined);
+  // Some of the requested token arrived, but not all of it. Reported separately
+  // from the order state because it qualifies every one of them: an active
+  // order can be partially filled, and so can a terminal (expired/reclaimed)
+  // one — the two together are the only honest reading of an expiry payback.
+  const isPartialFill =
+    requestedToken != null && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedToken.amount;
+  // `reconcileSwapOrderNotes` skips manual-consume orders, so this wallet's own
+  // claim is never tagged and `settlementFound` stays false for them. The route
+  // to the notes therefore has to survive the order reaching 'filled' — a
+  // fully-matched order whose paybacks are still sitting unconsumed is exactly
+  // when the user needs it, and it was the moment the button used to vanish.
+  // Only a reclaim leaves nothing to collect.
+  const showPendingNotesAction = !swapAutoConsume && !settlementFound && displayOrderState !== 'reclaimed';
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -763,6 +830,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             requestedSymbol={requestedToken.symbol}
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={filledAmount}
+            isPartialFill={isPartialFill}
             orderState={displayOrderState}
             trackingLoading={trackingLoading}
             settledNoteIds={settledNoteIds}
@@ -772,7 +840,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             approximateUsdAmount={approximateUsdAmount}
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
-            showPendingNotesAction={!swapAutoConsume && displayOrderState === 'active'}
+            showPendingNotesAction={showPendingNotesAction}
             showCancelAction={displayOrderState !== 'filled'}
             onOpenPendingNotes={() => navigate('/pending-notes')}
             onCancel={goBack}

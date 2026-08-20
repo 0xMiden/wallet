@@ -804,6 +804,8 @@
   "orderStatusActive": "Open",
   "orderStatusFilled": "Filled",
   "orderStatusReclaimed": "Reclaimed",
+  "orderStatusPartiallyFilled": "Partially filled",
+  "orderStatusPartiallyFilledReclaimed": "Partially filled, remainder reclaimed",
   "fillRounds": "Fill rounds",
   "amountFilled": "Filled",
   "swapAmountProgress": "$filled$ of $total$$symbol$ filled",

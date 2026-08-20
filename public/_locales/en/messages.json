@@ -3571,6 +3571,14 @@
     "message": "Reclaimed",
     "englishSource": "Reclaimed"
   },
+  "orderStatusPartiallyFilled": {
+    "message": "Partially filled",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Partially filled, remainder reclaimed",
+    "englishSource": "Partially filled, remainder reclaimed"
+  },
   "fillRounds": {
     "message": "Fill rounds",
     "englishSource": "Fill rounds"
