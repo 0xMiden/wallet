@@ -64,13 +64,23 @@ function dist2(a: [number, number, number], b: [number, number, number]): number
  * derived from it rather than assumed, so this works on a 2x iPhone, a 3x Pro
  * Max and an Android emulator at whatever density it booted with — without the
  * caller knowing the DPR.
+ *
+ * COORDINATE SPACES. `regionCss` is in the wallet webview's CSS space, while
+ * the screenshot is in device-screen space. Those two share an origin only when
+ * the webview is laid out edge-to-edge from the top of the screen — true on
+ * iOS, false on Android, where the WebView starts BELOW the system status bar
+ * and the screenshot therefore contains ~40 CSS px of chrome the webview knows
+ * nothing about. Horizontally both platforms are full-bleed, which is why
+ * `scale` can be derived from the width alone. Pass `offsetCss` to translate a
+ * region into screenshot space; `measureVerticalOffsetCss` measures it rather
+ * than assuming a per-platform constant.
  */
 export async function sampleRegion(
   screenshotPath: string,
   regionCss: Rect,
   cssViewport: { width: number; height: number },
   expected?: [number, number, number],
-  opts: { tolerance?: number; insetPx?: number } = {}
+  opts: { tolerance?: number; insetPx?: number; offsetCss?: { x?: number; y?: number } } = {}
 ): Promise<RegionStats> {
   const tolerance = opts.tolerance ?? 60;
   // Pull the sample in from the edges: anti-aliased corners, the capsule's
@@ -85,9 +95,11 @@ export async function sampleRegion(
   if (!imgW || !imgH) throw new Error(`[dapp-visual] unreadable screenshot: ${screenshotPath}`);
 
   const scale = imgW / cssViewport.width;
+  const offsetX = opts.offsetCss?.x ?? 0;
+  const offsetY = opts.offsetCss?.y ?? 0;
 
-  const left = Math.max(0, Math.round((regionCss.x + inset) * scale));
-  const top = Math.max(0, Math.round((regionCss.y + inset) * scale));
+  const left = Math.max(0, Math.round((regionCss.x + offsetX + inset) * scale));
+  const top = Math.max(0, Math.round((regionCss.y + offsetY + inset) * scale));
   const width = Math.max(1, Math.min(imgW - left, Math.round((regionCss.width - inset * 2) * scale)));
   const height = Math.max(1, Math.min(imgH - top, Math.round((regionCss.height - inset * 2) * scale)));
 
@@ -125,6 +137,83 @@ export async function sampleRegion(
     blankFraction: blank / pixels,
     sampled: { x: left, y: top, width, height }
   };
+}
+
+/**
+ * Measure how far down the screenshot the dApp's painted region actually starts,
+ * relative to where the wallet says its slot is — i.e. the vertical translation
+ * between the two coordinate spaces described on `sampleRegion`.
+ *
+ * WHY MEASURE rather than hardcode a per-platform status-bar height: the offset
+ * is a property of the device's system chrome (0 on iOS, ~40 CSS px on the CI
+ * Android emulator, different again on a device with a display cutout or a
+ * taller status bar). A constant would be wrong on the next runner image; the
+ * screenshot already contains the answer.
+ *
+ * HOW: scan downwards for the first row that is predominantly `color`. The strip
+ * sampled is the horizontal MIDDLE of the slot, which matters twice over — it
+ * skips the generation marker in the top-left corner (whose colour is
+ * deliberately not the dApp's), and it skips rounded webview corners.
+ *
+ * `searchBandCss` bounds how far this will follow the dApp. That bound is the
+ * point: a webview parked at genuinely the wrong place must fail an assertion,
+ * not be silently tracked. Callers get a thrown error, and the coarse
+ * whole-slot checks (`expectDappPainted` / `expectRelayoutMatchesSlot`) remain
+ * the oracles for position and size.
+ */
+export async function measureVerticalOffsetCss(
+  screenshotPath: string,
+  slotCss: Rect,
+  cssViewport: { width: number; height: number },
+  color: [number, number, number],
+  opts: { tolerance?: number; searchBandCss?: number; minRowFraction?: number } = {}
+): Promise<number> {
+  const tolerance = opts.tolerance ?? 60;
+  const band = opts.searchBandCss ?? 160;
+  const minRowFraction = opts.minRowFraction ?? 0.6;
+
+  const image = sharp(screenshotPath);
+  const meta = await image.metadata();
+  const imgW = meta.width ?? 0;
+  const imgH = meta.height ?? 0;
+  if (!imgW || !imgH) throw new Error(`[dapp-visual] unreadable screenshot: ${screenshotPath}`);
+
+  const scale = imgW / cssViewport.width;
+
+  // Centre half of the slot, horizontally.
+  const left = Math.max(0, Math.round((slotCss.x + slotCss.width * 0.25) * scale));
+  const width = Math.max(1, Math.min(imgW - left, Math.round(slotCss.width * 0.5 * scale)));
+  const top = Math.max(0, Math.round((slotCss.y - band) * scale));
+  const height = Math.max(1, Math.min(imgH - top, Math.round(band * 2 * scale)));
+
+  const { data, info } = await image
+    .extract({ left, top, width, height })
+    // Narrow horizontally only: row resolution is the measurement, so `fill`
+    // keeps every scanline instead of letting sharp shrink height to preserve
+    // the aspect ratio.
+    .resize({ width: Math.min(24, width), height, fit: 'fill' })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const channels = info.channels;
+  for (let row = 0; row < info.height; row++) {
+    let hits = 0;
+    for (let col = 0; col < info.width; col++) {
+      const o = (row * info.width + col) * channels;
+      const px: [number, number, number] = [data[o]!, data[o + 1]!, data[o + 2]!];
+      if (dist2(px, color) <= tolerance * tolerance) hits++;
+    }
+    if (hits / info.width >= minRowFraction) {
+      const foundCssY = (top + row) / scale;
+      return foundCssY - slotCss.y;
+    }
+  }
+
+  throw new Error(
+    `[dapp-visual] could not locate a row of rgb(${color.join(',')}) within ${band}px of the slot's top edge ` +
+      `(slot y=${Math.round(slotCss.y)}, searched device rows ${top}..${top + height} of ${screenshotPath}). ` +
+      `The dApp is not painted where the wallet says its slot is.`
+  );
 }
 
 /** Formats stats into a failure message that says what was on screen, so a red
