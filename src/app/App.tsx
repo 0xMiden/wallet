@@ -13,6 +13,7 @@ import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
 import { DappBrowserProvider } from 'app/providers/DappBrowserProvider';
+import { GuardianRecoveryProvider } from 'app/providers/GuardianRecoveryProvider';
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
@@ -63,11 +64,13 @@ const App: FC<AppProps> = ({ env }) => {
                     // when the user moves to a different tab.
                     <DappBrowserProvider>
                       <HotKeyRotationGate />
+                      <GuardianRecoveryProvider />
                       <PageRouter />
                     </DappBrowserProvider>
                   ) : (
                     <>
                       <HotKeyRotationGate />
+                      <GuardianRecoveryProvider />
                       <PageRouter />
                     </>
                   )}

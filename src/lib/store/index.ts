@@ -411,6 +411,15 @@ export const useWalletStore = create<WalletStore>()(
       return res.applied;
     },
 
+    startGuardianRecovery: async accountPublicKey => {
+      const res = await request({
+        type: WalletMessageType.StartGuardianRecoveryRequest,
+        accountPublicKey
+      });
+      assertResponse(res.type === WalletMessageType.StartGuardianRecoveryResponse);
+      return res.started;
+    },
+
     getPublicKeyForCommitment: async commitment => {
       const res = await request({
         type: WalletMessageType.GetPublicKeyForCommitmentRequest,

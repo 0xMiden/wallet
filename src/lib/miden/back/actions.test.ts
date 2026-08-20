@@ -15,6 +15,7 @@ import {
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
+  startGuardianRecovery,
   checkGuardianDrift,
   applyUserGuardianEndpoint,
   getAllDAppSessions,
@@ -77,6 +78,10 @@ jest.mock('lib/miden/back/guardian-drift', () => ({
   applyUserGuardianEndpoint: jest.fn()
 }));
 
+jest.mock('lib/miden/back/guardian-recovery', () => ({
+  maybeStartGuardianRecovery: jest.fn()
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     isExist: jest.fn(),
@@ -126,6 +131,11 @@ jest.mock('./dapp', () => ({
 }));
 
 jest.mock('webextension-polyfill', () => ({
+  runtime: {
+    onMessage: {
+      addListener: jest.fn()
+    }
+  },
   storage: {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true })
@@ -211,6 +221,30 @@ describe('actions', () => {
 
       const result = await isDAppEnabled();
       expect(result).toBe(true);
+    });
+  });
+
+  describe('startGuardianRecovery', () => {
+    it('starts recovery for the matching account', async () => {
+      const account = { publicKey: 'account-a' };
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([account]);
+      maybeStartGuardianRecovery.mockResolvedValueOnce(true);
+
+      await expect(startGuardianRecovery(account.publicKey)).resolves.toBe(true);
+      // No vault argument: the detached run resolves the live vault per use so
+      // a lock mid-run cannot be signed through.
+      expect(maybeStartGuardianRecovery).toHaveBeenCalledWith(account);
+    });
+
+    it('returns false without starting recovery when the account is missing', async () => {
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([]);
+
+      await expect(startGuardianRecovery('missing-account')).resolves.toBe(false);
+      expect(maybeStartGuardianRecovery).not.toHaveBeenCalled();
     });
   });
 
@@ -963,6 +997,7 @@ describe('actions', () => {
             waitForTransaction: jest.fn()
           }));
           jest.doMock('webextension-polyfill', () => ({
+            runtime: { onMessage: { addListener: jest.fn() } },
             storage: { local: { get: jest.fn().mockResolvedValue({ DAppEnabled: true }) } }
           }));
 

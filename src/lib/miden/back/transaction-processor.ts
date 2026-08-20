@@ -12,6 +12,7 @@ import {
 } from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { getAccountsWriteQueue } from './accounts-write-queue';
 import { getIntercom } from './defaults';
 import { accountsUpdated, withUnlocked } from './store';
 import type { Vault } from './vault';
@@ -128,19 +129,27 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // intercom-driven path; we don't route through Actions.swapHotKey here
     // because importing actions.ts drags webextension-polyfill into the
     // transaction-processor's init chain.
-    return withUnlockedVault(async ({ vault }) => {
-      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
-      accountsUpdated(updated);
-    });
+    // On the accounts write queue for the same reason the actions-level writers
+    // are: this is a read-modify-write of the whole accounts array, and a
+    // concurrent one (an account create, or the detached Guardian recovery
+    // clearing its flag) would drop one of the two writes.
+    return withUnlockedVault(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+        accountsUpdated(updated);
+      })
+    );
   },
   setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
-    return withUnlockedVault(async ({ vault }) => {
-      const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
-      accountsUpdated(updated);
-    });
+    return withUnlockedVault(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+        accountsUpdated(updated);
+      })
+    );
   }
 };
 

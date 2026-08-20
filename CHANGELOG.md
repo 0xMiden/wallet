@@ -5,6 +5,7 @@
 ### Features
 
 - [FEATURE][all] **Swap activity now has a dedicated live receipt.** The detail screen mirrors the swap flow with an offered-to-requested amount hero, an accessible Framer Motion amount-progress bar, and fill rows showing the real received amount, consumed time, and note ID without a decorative status icon. Transfer details include the swap transaction ID, source account, and every settlement-consume transaction ID. A manually consumed, active order links to Pending Notes; auto-consumed and terminal orders omit that shortcut, and a filled order no longer shows Cancel. The receipt intentionally avoids predicting a total fill count, which the order lineage cannot know in advance.
+- [FEATURE][all] **Guardian seed recovery now recovers pending notes in the background.** After the mandatory hot-key rotation lands (and never while a transaction is in flight or the wallet is locked), the wallet drains the private-note transport, imports notes embedded in pending consume proposals, backfills public notes by the recovered account tag from the account's creation block, and then performs a normal sync. A non-dismissible home card shows each recovery step live, including the public-backfill block progress. A pass that could not import everything it found keeps the account marked so a later session retries it. Transaction-history recovery is out of scope until a Guardian release exposes canonical delta history to clients. (OpenZeppelin/guardian#357)
 
 ### Fixes
 

@@ -136,6 +136,10 @@ function resetControl() {
     })),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
+    inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
+    inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
+    inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
+    inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -155,6 +159,10 @@ function resetControl() {
       // height + pswap lineage are reached through the raw `.client`.
       getInputNote: (...a: any[]) => G.__px.inlineGetInputNote(...a),
       importNoteBytes: (...a: any[]) => G.__px.inlineImportNoteBytes(...a),
+      drainPrivateNoteTransport: (...a: any[]) => G.__px.inlineDrainPrivateNoteTransport(...a),
+      importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
+      recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
+      resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
@@ -272,6 +280,175 @@ describe('MidenClientProxy — flag routing', () => {
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('boom in offscreen');
+  });
+
+  it('routes pending-note recovery chunks inline when the offscreen client is disabled', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const noteBytes = [new Uint8Array([1, 2]), new Uint8Array([3])];
+
+    await midenClientProxy.drainPrivateNoteTransport();
+    const imported = await midenClientProxy.importRecoveryNoteBytes(noteBytes);
+    const scanRange = await midenClientProxy.resolveRecoveryScanRange(1_700_000_000);
+    const publicCount = await midenClientProxy.recoverPublicNotesRange('mtst1guardian', 100, 200);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(4);
+    expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
+    expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
+    expect(imported).toEqual({ imported: 2, failures: 0 });
+    expect(scanRange).toEqual({ startBlock: 7, latestBlock: 99 });
+    expect(publicCount).toEqual({ imported: 3, failures: 0 });
+  });
+
+  it('routes proposal-note import through offscreen and preserves note bytes', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const sdkResult = { imported: 1, failures: 0 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(sdkResult)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.importRecoveryNoteBytes([new Uint8Array([7, 8, 9])]);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('importRecoveryNoteBytes');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual([`s:["${Buffer.from([7, 8, 9]).toString('base64')}"]`]);
+    expect(result).toEqual(sdkResult);
+  });
+
+  it('routes one public-backfill range through offscreen with its bounds', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 5, failures: 1, saturated: false })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('recoverPublicNotesRange');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999', 's:0']);
+    expect(result).toEqual({ imported: 5, failures: 1, saturated: false, nextNoteOffset: undefined });
+  });
+
+  it('carries the note page offset and the cursor back over the boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(
+        JSON.stringify({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 })
+      ).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999, 200);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:"mtst1guardian"',
+      's:1000',
+      's:1999',
+      's:200'
+    ]);
+    expect(result).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 });
+  });
+
+  // Like `saturated`, the cursor re-offers the same range, so a value that is
+  // not a usable index has to throw rather than be coerced into one.
+  it.each([['not-a-number'], [-1], [1.5]])('rejects a malformed nextNoteOffset (%s)', async nextNoteOffset => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: false, nextNoteOffset })).toString(
+        'base64'
+      ),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed nextNoteOffset');
+  });
+
+  // `saturated` drives the caller's split loop, so a truthy non-boolean would
+  // make it split forever instead of failing the chunk.
+  it('rejects a non-boolean saturated from the offscreen document', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: 'yes' })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed saturated');
+  });
+
+  it('routes the scan-range resolution through offscreen with its created-at seconds', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ startBlock: 1_000, latestBlock: 250_000 })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.resolveRecoveryScanRange(1_700_000_000);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('resolveRecoveryScanRange');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual(['s:1700000000']);
+    expect(result).toEqual({ startBlock: 1_000, latestBlock: 250_000 });
+  });
+
+  // A missing `failures` would make the orchestrator's accumulator NaN, and
+  // `NaN > 0` is false — reading as a clean pass over a chunk that reported
+  // nothing, which clears the one-shot recovery flag.
+  it.each([
+    ['a missing count', { imported: 4 }],
+    ['a non-numeric count', { imported: 4, failures: 'none' }],
+    ['a negative count', { imported: 4, failures: -1 }]
+  ])('rejects a recovery chunk payload with %s', async (_label, payload) => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(payload)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 0, 10);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed failures');
   });
 });
 

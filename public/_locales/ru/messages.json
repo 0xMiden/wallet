@@ -1698,6 +1698,34 @@
     "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Обнаружено восстановление учетной записи",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Сканирование частного notes: слив транспорта note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Сканирование частного реестра notes: импорт notes из ожидающих предложений…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Синхронизация публичного реестра notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Синхронизация публичной цепочки блоков notes: блок $current$ из $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас есть ожидающие квитанции (Notes)",
     "englishSource": "You have Pending Notes"

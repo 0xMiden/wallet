@@ -1698,6 +1698,34 @@
     "message": "Nie udało nam się zasilić Twojego portfela. Spróbuj ponownie.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Wykryto próbę odzyskania konta",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Skanowanie prywatnego adresu notes: opróżnianie transportu note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Skanowanie prywatnego notes: importowanie notes z oczekujących propozycji…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Synchronizacja publicznego notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Synchronizacja publicznego notes: blok $current$ z $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące „Notes”",
     "englishSource": "You have Pending Notes"
