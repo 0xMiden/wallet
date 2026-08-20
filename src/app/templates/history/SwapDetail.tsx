@@ -32,8 +32,12 @@ interface SwapDetailProps {
   isPartialFill?: boolean;
   orderState: SwapOrderState | null;
   trackingLoading: boolean;
-  settledNoteIds: string[];
-  reclaimedNoteIds: string[];
+  /**
+   * The consumes that claimed this order's notes. `getSwapSettlementNotes`
+   * fills these in the same pass that collects the note ids, so a note is never
+   * known without its owning consume — the receipt has no id-only fallback to
+   * render and needs none.
+   */
   settledTransactions: SwapSettlementTransaction[];
   reclaimedTransactions: SwapSettlementTransaction[];
   approximateUsdAmount?: string;
@@ -51,7 +55,6 @@ interface SwapDetailProps {
 }
 
 interface SwapNoteRowProps {
-  noteId?: string;
   number?: number;
   kind: 'settled' | 'reclaimed' | 'pending';
   transaction?: SwapSettlementTransaction;
@@ -86,7 +89,6 @@ const settlementTime = (completedAt: number | undefined): string | undefined => 
 };
 
 const SwapNoteRow = memo(function SwapNoteRow({
-  noteId,
   number,
   kind,
   transaction,
@@ -95,7 +97,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
   requestedFaucetId
 }: SwapNoteRowProps) {
   const { t } = useTranslation();
-  const displayNoteIds = transaction?.noteIds ?? (noteId ? [noteId] : []);
+  const displayNoteIds = transaction?.noteIds ?? [];
   const consumedAt = settlementTime(transaction?.completedAt);
   // A consume's `amount` covers only the assets sharing its first input note's
   // faucet, and an expiry settlement bundles the requested-token paybacks with
@@ -237,8 +239,6 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   isPartialFill = false,
   orderState,
   trackingLoading,
-  settledNoteIds,
-  reclaimedNoteIds,
   settledTransactions,
   reclaimedTransactions,
   approximateUsdAmount,
@@ -267,11 +267,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
-  const hasSettlementRows =
-    settledTransactions.length > 0 ||
-    reclaimedTransactions.length > 0 ||
-    settledNoteIds.length > 0 ||
-    reclaimedNoteIds.length > 0;
+  const hasSettlementRows = settledTransactions.length > 0 || reclaimedTransactions.length > 0;
 
   return (
     <div data-testid="swap-order-card" className="flex min-h-0 flex-1 flex-col">
@@ -281,7 +277,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             <TransactionIcon entry={entry} size="lg" />
           </div>
 
-          <div className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-surface-interactive px-4 font-heading text-2xl font-extrabold text-text-primary-token">
+          <div
+            data-testid="swap-order-hero"
+            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-surface-interactive px-4 font-heading text-2xl font-extrabold text-text-primary-token"
+          >
             <span className="truncate">{formattedOffered}</span>
             {entry.token && <span className="text-text-secondary-token">{entry.token}</span>}
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-tx-swap text-text-on-accent">
@@ -377,24 +376,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 ))}
               </div>
             )}
-            {settledTransactions.length === 0 && settledNoteIds.length > 0 && (
-              <div data-testid="swap-settled-notes">
-                {settledNoteIds.map((noteId, index) => (
-                  <SwapNoteRow key={noteId} noteId={noteId} number={index + 1} kind="settled" />
-                ))}
-              </div>
-            )}
             {reclaimedTransactions.length > 0 && (
               <div data-testid="swap-reclaimed-notes">
                 {reclaimedTransactions.map(transaction => (
                   <SwapNoteRow key={transaction.id} kind="reclaimed" transaction={transaction} />
-                ))}
-              </div>
-            )}
-            {reclaimedTransactions.length === 0 && reclaimedNoteIds.length > 0 && (
-              <div data-testid="swap-reclaimed-notes">
-                {reclaimedNoteIds.map(noteId => (
-                  <SwapNoteRow key={noteId} noteId={noteId} kind="reclaimed" />
                 ))}
               </div>
             )}

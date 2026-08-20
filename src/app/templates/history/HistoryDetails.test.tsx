@@ -247,6 +247,26 @@ const renderAndLoad = async (props: { transactionId?: string } = {}) => {
   return utils;
 };
 
+/**
+ * `getSwapSettlementNotes` collects a note id and the consume that claimed it in
+ * the same pass, so it never returns one without the other. Fixtures that named
+ * ids alone described a shape production cannot produce; give them the owning
+ * consume. `amount: undefined` keeps the derived fill unknown, which is what an
+ * ids-only fixture already meant.
+ */
+const settlementNotes = (settled: string[], reclaimed: string[] = []) => ({
+  settled,
+  reclaimed,
+  settledTransactions:
+    settled.length > 0
+      ? [{ id: 'settle-consume', transactionId: 'ext-settle', noteIds: settled, amount: undefined }]
+      : [],
+  reclaimedTransactions:
+    reclaimed.length > 0
+      ? [{ id: 'reclaim-consume', transactionId: 'ext-reclaim', noteIds: reclaimed, amount: undefined }]
+      : []
+});
+
 const rowByLabel = (label: string) =>
   Array.from(document.querySelectorAll('[data-testid="detail-row"]')).find(
     el => el.getAttribute('data-label') === label
@@ -264,7 +284,7 @@ beforeEach(() => {
   // cleanup hook can complete; only timer-based order polling needs faking.
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
 
-  mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
+  mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
   mockTokenPrices = { MID: { price: 2 } };
@@ -646,7 +666,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 1000n,
         remainingRequested: 1000n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
       mockGetTransactionById.mockResolvedValue(
         swapTx({
           orderId: 42n,
@@ -675,7 +695,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([]));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -794,7 +814,9 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_');
       expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
       expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
-      expect(screen.queryByText('swapProgressPercent')).not.toBeInTheDocument();
+      // Prefix match: the stubbed `t` renders this key as `swapProgressPercent_60`,
+      // so an exact-string query returns null whether the element is there or not.
+      expect(screen.queryByText(/^swapProgressPercent/)).toBeNull();
       // Two metadata calls: tx faucet + requested faucet.
       expect(mockGetTokenMetadata).toHaveBeenCalledWith('req-faucet');
     });
@@ -856,7 +878,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-x'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-x'], []));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
       );
@@ -942,7 +964,7 @@ describe('HistoryDetails', () => {
         remainingRequested: 0n
       });
       // ...but this wallet has already observed the settlement consume note.
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-x'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-x'], []));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -965,7 +987,7 @@ describe('HistoryDetails', () => {
         // Nothing was ever matched, so this is a plain reclaim.
         remainingRequested: 1000n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: [], reclaimed: ['note-r'] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes([], ['note-r']));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -988,7 +1010,7 @@ describe('HistoryDetails', () => {
       // Paybacks settled in one consume tick, the tip reclaimed in another — both
       // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
       // so this row must agree rather than showing "Reclaimed".
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-s'], reclaimed: ['note-r'] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-s'], ['note-r']));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -1223,7 +1245,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-a'], []));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -1251,7 +1273,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-a'], []));
       mockGetTransactionById.mockResolvedValue(
         swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
       );
@@ -1266,16 +1288,32 @@ describe('HistoryDetails', () => {
         await flush();
       }
 
+      // Bounded on both sides: without the lower bound the watch could stop the
+      // instant a settlement note appeared, and an order about to go terminal
+      // would never pick up its final state.
+      expect(mockTrackOrderId.mock.calls.length).toBeGreaterThanOrEqual(15);
       expect(mockTrackOrderId.mock.calls.length).toBeLessThanOrEqual(17);
     });
 
     it('lists the notes the suppressed settlement consumes claimed', async () => {
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a', 'note-b'], reclaimed: ['note-c'] });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a', 'note-b'],
+        reclaimed: ['note-c'],
+        settledTransactions: [
+          { id: 'c-1', transactionId: 'ext-1', noteIds: ['note-a'], amount: undefined },
+          { id: 'c-2', transactionId: 'ext-2', noteIds: ['note-b'], amount: undefined }
+        ],
+        reclaimedTransactions: [{ id: 'c-3', transactionId: 'ext-3', noteIds: ['note-c'], amount: undefined }]
+      });
       mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
 
       await renderAndLoad();
 
       expect(mockGetSwapSettlementNotes).toHaveBeenCalledWith('tx-1');
+      // Each consume gets its own numbered row, so a multi-fill receipt does not
+      // show N rows under one label.
+      expect(rowByLabel('consumeTxIdNumber_1')).toBeInTheDocument();
+      expect(rowByLabel('consumeTxIdNumber_2')).toBeInTheDocument();
       expect(
         Array.from(screen.getByTestId('swap-settled-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
           note => note.textContent
@@ -1318,9 +1356,23 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByText('swapReceivedAmount_685_ ETH')).toBeInTheDocument();
-      expect(screen.getByText(/^swapConsumedAt_/)).toBeInTheDocument();
+      // Pin the scale of the timestamp, not just its presence: reading the
+      // epoch-seconds field as milliseconds renders every fill at 1970 and a
+      // prefix match cannot see it. Formatted here from the same instant so the
+      // assertion does not depend on the runner's timezone.
+      const consumedAt = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).format(new Date(1_700_000_120 * 1000));
+      expect(screen.getByText(`swapConsumedAt_${consumedAt}`)).toBeInTheDocument();
       expect(rowByLabel('txIdLabel')).toHaveTextContent('swap-chain-1');
       expect(rowByLabel('consumeTxId')).toHaveTextContent('consume-chain-1');
+      // The consume row's hash has to stay a link to the explorer.
+      expect(rowByLabel('consumeTxId')?.querySelector('[data-testid="external-link"]')).toHaveAttribute(
+        'href',
+        expect.stringContaining('consume-chain-1') as unknown as string
+      );
       expect(rowByLabel('from')).toHaveTextContent('you (Mine)');
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
@@ -1394,6 +1446,8 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600_1000_ ETH');
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '60');
+      // 600 of 1000 is a partial fill, whatever the lineage would have said.
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
     });
 
     it('reports the fill as unknown, not as smaller, when a consume cannot be attributed', async () => {
@@ -1501,6 +1555,106 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
     });
 
+    it('reports nothing filled, not a negative fill, when the lineage owes more than was requested', async () => {
+      // `remainingRequested` comes from the lineage and the requested total from
+      // the persisted row; nothing guarantees they agree. Subtracting without a
+      // floor yields a negative filled amount and a negative aria-valuenow.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 1500n,
+        remainingRequested: 1500n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    });
+
+    it('says nothing has been bundled only when the fill is actually known', async () => {
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByText('swapNoBundledNotes')).toBeInTheDocument();
+    });
+
+    it('withholds the "nothing bundled" claim from a receipt that cannot see the fill', async () => {
+      // A restored wallet has no lineage and no tagged consumes, so it cannot
+      // tell whether the order settled long ago. Denying it outright is worse
+      // than saying nothing; the status line already reads "Not available".
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.queryByText('swapNoBundledNotes')).not.toBeInTheDocument();
+    });
+
+    it('offers no claim route for a legacy order that has already gone terminal', async () => {
+      // The missing `expiresAt` only strands an order that is still 'active':
+      // `reconcileSwapOrderNotes` skips on `active && !expired`, so a terminal
+      // order's paybacks are bundled on the next tick whether or not it carries
+      // an expiry. Reading the absent stamp as "never self-settles" therefore
+      // routed the user to Pending Notes for funds the wallet was about to claim.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'filled',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 0n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, expiresAt: undefined })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+    });
+
+    it('offers no claim route once a manual-consume order has been reclaimed', async () => {
+      // A reclaim returned the offered tip; there is nothing left to collect, so
+      // sending the user to Pending Notes would promise notes that do not exist.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
+      expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
+    });
+
     it('never claims a full fill for a partially filled order that settled at expiry', async () => {
       // An expiry batch carrying any payback is tagged 'settle', so a PARTIAL
       // fill reaches `settledOrderState === 'filled'`. Assuming the requested
@@ -1530,6 +1684,10 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_300_1000_ ETH');
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '30');
+      // The label has to agree with the bar: this is the ordinary outcome for a
+      // manual-claim or restored wallet, and "Filled" over a 30% bar is the
+      // exact statement this receipt exists to avoid.
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
     });
 
     it('shows an unknown fill as unknown, not as zero', async () => {
@@ -1594,6 +1752,38 @@ describe('HistoryDetails', () => {
       expect(hero).not.toContain('MID');
     });
 
+    it('scales and labels the requested side with the requested token, not the offered one', async () => {
+      // The requested faucet is a DEX faucet too, so it is subject to the same
+      // Unknown-at-6-decimals fallback as the offered side. `toContain` over the
+      // whole card cannot tell which side a symbol or a scale landed on, so pin
+      // the amounts to the requested token's own decimals and read the hero's
+      // two amount cells as an ordered pair.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { formatAmount } = require('lib/shared/format');
+      formatAmount.mockImplementation((amount: bigint, decimals?: number) => `${amount}@${decimals}`);
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string | undefined) =>
+        id === 'faucet-1' ? { symbol: 'IETH', decimals: 6 } : { symbol: 'ETH', decimals: 8 }
+      );
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 0n,
+        remainingRequested: 400n
+      });
+      mockGetTransactionById.mockResolvedValue({
+        ...swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }),
+        amount: 500n
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_600@8_1000@8_ ETH');
+      // Read as an ordered pair: each side keeps its own scale AND its own
+      // symbol, so neither can be reading the other's metadata.
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('500@6IETH1000@8ETH');
+    });
+
     it('surfaces the failure reason and the raw error for a failed swap', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       mockGetTransactionById.mockResolvedValue({
@@ -1612,7 +1802,7 @@ describe('HistoryDetails', () => {
     });
 
     it('omits the reclaimed row when the order only settled', async () => {
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-a'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-a'], []));
       mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
 
       await renderAndLoad();
@@ -1636,7 +1826,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
 
       // Auto-consume completes after the page mounted.
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-late'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-late'], []));
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
@@ -1675,7 +1865,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       // First consume lands while the page watches; the lineage is already terminal.
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-1'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-1'], []));
       await act(async () => {
         jest.advanceTimersByTime(2000);
       });
@@ -1683,7 +1873,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-1');
 
       // Its sibling lands two ticks later.
-      mockGetSwapSettlementNotes.mockResolvedValue({ settled: ['note-1', 'note-2'], reclaimed: [] });
+      mockGetSwapSettlementNotes.mockResolvedValue(settlementNotes(['note-1', 'note-2'], []));
       await act(async () => {
         jest.advanceTimersByTime(4000);
       });

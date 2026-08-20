@@ -291,7 +291,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
-  const [swapSelfSettles, setSwapSelfSettles] = useState(true);
+  const [swapAutoConsume, setSwapAutoConsume] = useState(true);
+  const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
   const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   // Notes claimed by this order's settlement consumes. Those consume rows are
@@ -406,10 +407,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
       if (tx.type === 'swap') {
         const extra: SwapExtraInputs = tx.extraInputs ?? {};
-        // The DEX faucets are usually absent from assetsMetadata (where
-        // getTokenMetadata would fall back to MIDEN), so resolve via the
-        // swap-token registry first. Resolve it before an order id exists as
-        // well, so queued/failed swaps still have a complete receipt hero.
+        // The DEX faucets are usually absent from assetsMetadata, where
+        // getTokenMetadata falls back to the Unknown placeholder and its
+        // decimals, so resolve via the swap-token registry first. Resolve it
+        // before an order id exists as well, so queued and failed swaps still
+        // have a complete receipt hero.
         const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
         const requestedMeta =
           !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
@@ -420,16 +422,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           symbol: swapToken?.symbol ?? requestedMeta?.symbol,
           faucetId: extra.requestedFaucetId
         });
-        // Whether the wallet will ever settle this order without the user. Both
-        // conditions are required: `reconcileSwapOrderNotes` skips
-        // manual-consume orders outright, and it only bundles an 'active'
-        // order's notes once the order expires — an order persisted before
-        // expiry stamps existed has no `expiresAt`, is therefore never deemed
-        // expired, and so its paybacks are never claimed automatically. Reading
-        // `autoConsume` alone hid the manual route from exactly those orders,
-        // leaving a partially filled legacy swap with funds it never offered a
-        // way to collect.
-        setSwapSelfSettles((extra.autoConsume ?? true) && extra.expiresAt != null);
+        setSwapAutoConsume(extra.autoConsume ?? true);
+        setSwapExpiresAt(extra.expiresAt ?? null);
         setOrderId(extra.orderId ?? null);
       }
 
@@ -619,7 +613,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
   // `null`/error result (not-yet-trackable or an order this client can't
   // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 2s forever. A genuinely `active` order resets the
+  // hammering the lock every 3s forever. A genuinely `active` order resets the
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
@@ -683,7 +677,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           // The lineage is then only being asked to catch up, and every poll
           // takes the app-wide WASM lock. On mobile and desktop the screen stays
           // mounted in the background, so an order whose lineage never leaves
-          // 'active' would hold that lock every 2s for as long as the app runs.
+          // 'active' would hold that lock every 3s for as long as the app runs.
           staleActive = settlementFoundRef.current ? staleActive + 1 : 0;
           if (staleActive <= MAX_STALE_ACTIVE_POLLS) {
             timer = setTimeout(poll, BASE_INTERVAL_MS);
@@ -709,16 +703,18 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     };
   }, [orderId, transactionId]);
 
-  // Settlement can land while this page is open (auto-consume runs on its own
-  // 2s cycle), and the lineage poll above stops at a terminal state — usually
-  // just *before* the settlement consume completes. So watch for the notes
-  // separately with cheap Dexie-only reads.
+  // Settlement can land while this page is open (auto-consume runs on the
+  // background sync's own cadence), and the lineage poll above stops at a
+  // terminal state — usually just *before* the settlement consume completes. So
+  // watch for the notes separately with cheap Dexie-only reads.
   //
   // Watching until the FIRST note arrived was not enough for the two cases that
   // matter most. A multi-fill order keeps settling after that note, and stopping
   // froze the receipt on fill 1 of n. And an order placed while the user watches
-  // does not settle until it expires — SWAP_ORDER_EXPIRY_SECONDS is 120, so a
-  // 20-poll/40s cap gave up a full minute before the batch it was waiting for.
+  // does not settle until it expires — SWAP_ORDER_EXPIRY_SECONDS defaults to
+  // 120, so a 20-poll/40s cap gave up a full minute before the batch it was
+  // waiting for. An order carrying a longer `expirySeconds` still outlasts even
+  // the raised cap; the receipt then relies on a revisit rather than this watch.
   // Keep reading until the order is terminal AND something has been observed,
   // with a cap that outlives expiry.
   const settlementFound = Boolean(
@@ -798,15 +794,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId, settlementSettled, settlementGrace, transaction]);
 
-  // Reconcile the (potentially lagging) on-chain order lineage with settlement
-  // this wallet has already observed: once the settlement/reclaim consume notes
-  // are seen locally, the order is terminal regardless of what the lineage poll
-  // still reports. Otherwise the status sits on "Active" with a per-poll
-  // flickering spinner after the swap has actually settled (#486).
-  // A settle consume outranks a reclaim one — funds were received — matching
-  // `repairSettlementStamp`'s precedence so this row agrees with the swap-row
-  // chip when an order carries both kinds (e.g. paybacks settled one tick, tip
-  // reclaimed another).
+  // What this wallet's own consumes suggest, used only to cover the lag while
+  // the lineage still says 'active' — otherwise the status sat on "Active" after
+  // the swap had actually settled (#486). A settle consume outranks a reclaim
+  // one, matching `repairSettlementStamp`, for an order carrying both kinds
+  // (paybacks settled one tick, tip reclaimed another).
   const settledOrderState: SwapOrderState | null = settlementFound
     ? settlementNotes && settlementNotes.settled.length > 0
       ? 'filled'
@@ -869,8 +861,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         : isOutboundTransfer
           ? entry?.secondaryAddress
           : entry?.address;
-  const settledNoteIds = settlementNotes?.settled ?? [];
-  const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
   // With no resolvable lineage (a restored wallet no longer tracks the order,
@@ -889,13 +879,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // one — the two together are the only honest reading of an expiry payback.
   const isPartialFill =
     requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
-  // `reconcileSwapOrderNotes` skips manual-consume orders, so this wallet's own
-  // claim is never tagged and `settlementFound` stays false for them. The route
-  // to the notes therefore has to survive the order reaching 'filled' — a
-  // fully-matched order whose paybacks are still sitting unconsumed is exactly
-  // when the user needs it, and it was the moment the button used to vanish.
-  // Only a reclaim leaves nothing to collect.
-  const showPendingNotesAction = !swapSelfSettles && !settlementFound && displayOrderState !== 'reclaimed';
+  // Whether the wallet will collect this order's notes on its own.
+  // `reconcileSwapOrderNotes` declines in exactly two situations: the user chose
+  // manual consume, or the order is still 'active' and not yet expired. The
+  // second only becomes permanent without an `expiresAt` — an order persisted
+  // before expiry stamping is never deemed expired, so it waits forever. A
+  // terminal order needs no expiry; its paybacks are claimed on the next tick
+  // either way. An unresolvable lineage counts as possibly-open, because
+  // stranding funds is worse than offering a route to none.
+  const orderMayStillBeOpen = displayOrderState === 'active' || displayOrderState === null;
+  const walletWillClaimNotes = swapAutoConsume && !(orderMayStillBeOpen && swapExpiresAt == null);
+  // The route has to survive the order reaching 'filled': a fully matched
+  // manual-consume order whose paybacks sit unconsumed is exactly when the user
+  // needs it. Only a reclaim leaves nothing to collect.
+  const showPendingNotesAction = !walletWillClaimNotes && !settlementFound && displayOrderState !== 'reclaimed';
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
@@ -962,8 +959,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             isPartialFill={isPartialFill}
             orderState={displayOrderState}
             trackingLoading={trackingLoading}
-            settledNoteIds={settledNoteIds}
-            reclaimedNoteIds={reclaimedNoteIds}
             settledTransactions={settledTransactions}
             reclaimedTransactions={reclaimedTransactions}
             approximateUsdAmount={approximateUsdAmount}
