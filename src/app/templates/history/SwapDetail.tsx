@@ -77,7 +77,9 @@ const progressPercentage = (filledAmount: bigint, requestedAmount: bigint): numb
 let timeFormatter: Intl.DateTimeFormat | undefined;
 
 const settlementTime = (completedAt: number | undefined): string | undefined => {
-  if (completedAt === undefined) return undefined;
+  // Falsy, not just undefined: a zero stamp is an unwritten one, and formatting
+  // it dates the fill to 1970.
+  if (!completedAt) return undefined;
 
   timeFormatter ??= new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
@@ -104,10 +106,12 @@ const SwapNoteRow = memo(function SwapNoteRow({
   // the offered-token tip. Labelling that sum with the requested token's symbol
   // and decimals would misreport the offered remainder as funds received, so
   // show it only once the consume's own faucet confirms which side it is.
-  const isRequestedToken =
-    transaction?.faucetId !== undefined &&
-    requestedFaucetId !== undefined &&
-    compareAccountIds(transaction.faucetId, requestedFaucetId);
+  // A blank faucet is a half-written row (queued by `settleSwapOrders`, marked
+  // Completed by the reaper without a stamp), not a mismatch — either way this
+  // withholds the amount rather than mislabelling it.
+  const isRequestedToken = Boolean(
+    transaction?.faucetId && requestedFaucetId && compareAccountIds(transaction.faucetId, requestedFaucetId)
+  );
   const receivedAmount =
     transaction?.amount === undefined || !isRequestedToken
       ? undefined
@@ -192,8 +196,15 @@ const SwapNoteRow = memo(function SwapNoteRow({
  * targets. `getExplorerTxUrl` returns undefined where no explorer exists
  * (localnet, mainnet), so those builds show the hash without a dead link.
  */
-const ExplorerTxValue: FC<{ txId: string }> = ({ txId }) => {
-  const explorerUrl = getExplorerTxUrl(txId);
+/**
+ * `onChain` says whether this id is a chain transaction id at all. A consume
+ * that the reaper marked Completed never received one, and falling back to the
+ * local row's UUID published a Dexie id under "Consume tx ID" with a live
+ * explorer link behind it — an on-chain identity the receipt does not have, and
+ * a dead link. Degrade to a plain hash, the way an unknown network already does.
+ */
+const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChain = true }) => {
+  const explorerUrl = onChain ? getExplorerTxUrl(txId) : undefined;
   const hash = <HashChip hash={txId} trimHash fill="currentColor" copyIcon={false} />;
 
   return explorerUrl ? <ExternalLinkValue displayValue={hash} href={explorerUrl} /> : hash;
@@ -428,7 +439,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
               return (
                 <DetailRow key={transaction.id} label={label} isLast={index === consumeTransactions.length - 1}>
-                  <ExplorerTxValue txId={transaction.transactionId ?? transaction.id} />
+                  <ExplorerTxValue
+                    txId={transaction.transactionId ?? transaction.id}
+                    onChain={transaction.transactionId !== undefined}
+                  />
                 </DetailRow>
               );
             })}

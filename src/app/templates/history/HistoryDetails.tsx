@@ -115,9 +115,14 @@ const locallySettledRequestedAmount = (
   for (const consume of settledTransactions) {
     // Tri-state on purpose: `false` is "another token, contributes nothing",
     // `undefined` is "no faucet recorded, so it may well have been the
-    // requested one" — not the same answer.
-    const deliveredRequested =
-      consume.faucetId === undefined ? undefined : compareAccountIds(consume.faucetId, requestedFaucetId);
+    // requested one" — not the same answer. The blank string counts as
+    // unrecorded: `settleSwapOrders` queues its consume rows with `faucetId: ''`
+    // and the reaper (`verifyStuckTransactionsFromNode`) can mark such a row
+    // Completed without ever stamping the real faucet. `compareAccountIds('', x)`
+    // is false, so reading the field as present made a settlement that DID
+    // deliver funds subtract itself from the fill and state the shortfall as
+    // fact.
+    const deliveredRequested = consume.faucetId ? compareAccountIds(consume.faucetId, requestedFaucetId) : undefined;
     if (deliveredRequested === false) continue;
     if (deliveredRequested === undefined || consume.amount === undefined) return undefined;
     total += consume.amount;
@@ -125,6 +130,55 @@ const locallySettledRequestedAmount = (
 
   return total;
 };
+
+/**
+ * How much of the requested token has arrived, as the tightest figure the
+ * receipt can stand behind.
+ *
+ * Both inputs are lower bounds, and either one can be the stale one. The
+ * lineage's remainder is read off the order's current tip, so a lineage that has
+ * not yet synced a fill still reports the whole request outstanding — the same
+ * lag that used to leave the STATUS on "Active" after settlement (#486). Taking
+ * the lineage first therefore let it assert a confident ZERO over a payback this
+ * wallet had already consumed and was listing three rows further down, and the
+ * false zero then stripped the "partially filled" qualifier too, upgrading a
+ * partial fill to a full one. The local sum, for its part, counts only consumes
+ * this wallet tagged, so it misses anything claimed elsewhere. Neither can
+ * exceed the truth, so the larger of the two is the honest answer.
+ */
+const filledRequestedAmount = (
+  fromLineage: bigint | undefined,
+  fromLocalConsumes: bigint | undefined
+): bigint | undefined => {
+  // A local sum of zero is no evidence at all: it is what an order with no
+  // tagged consumes looks like, which is not the same as a fill of zero.
+  const local = fromLocalConsumes !== undefined && fromLocalConsumes > 0n ? fromLocalConsumes : undefined;
+  if (fromLineage === undefined) return local;
+  if (local === undefined) return fromLineage;
+  return fromLineage > local ? fromLineage : local;
+};
+
+const settlementCount = (notes: SwapSettlementNotes | null): number =>
+  notes === null ? -1 : notes.settled.length + notes.reclaimed.length;
+
+/**
+ * Identifies WHAT a settlement read saw, not just how much. A row's `amount` can
+ * arrive later than its note ids (the reaper completes a consume without
+ * stamping one, and a partially attributed row reports none at all), so counting
+ * notes alone left a receipt showing "—" for a fill whose amount a later read
+ * had resolved.
+ */
+const settlementSignature = (notes: SwapSettlementNotes): string =>
+  [...notes.settledTransactions, ...notes.reclaimedTransactions]
+    .map(consume => `${consume.id}:${consume.noteIds.join('|')}:${consume.amount ?? ''}:${consume.faucetId ?? ''}`)
+    .join(';');
+
+const sameTracking = (a: SwapOrderTracking | null, b: SwapOrderTracking): boolean =>
+  a !== null &&
+  a.state === b.state &&
+  a.currentDepth === b.currentDepth &&
+  a.remainingOffered === b.remainingOffered &&
+  a.remainingRequested === b.remainingRequested;
 
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
@@ -262,23 +316,25 @@ function formatFiatDisplayAmount(
  * lineage's terminal transition instead, which arrives whenever expiry does.
  */
 const shouldWatchSettlement = ({
-  trackingLoading,
   lineageState,
   lineageAbandoned,
   settlementFound,
   autoConsume,
   settlementGrace
 }: {
-  trackingLoading: boolean;
   lineageState: SwapOrderState | null;
   lineageAbandoned: boolean;
   settlementFound: boolean;
   autoConsume: boolean;
   settlementGrace: boolean;
 }): boolean => {
-  if (trackingLoading || settlementGrace) return true;
-  if (lineageState === null) return !lineageAbandoned;
+  if (settlementGrace) return true;
   if (lineageState === 'active') return true;
+  // Still establishing the lineage, or gave up on it. Watch only while nothing
+  // has been recorded yet: `setOrderId` commits before the notes read and before
+  // the row, so an already-settled receipt would otherwise open a scan in the
+  // gap before the first lineage answer arrives.
+  if (lineageState === null) return !settlementFound && !lineageAbandoned;
   return !settlementFound && autoConsume;
 };
 
@@ -476,14 +532,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         // error branch offers no retry.
         try {
           const notes = await getSwapSettlementNotes(tx.id);
-          // Never trade observed settlement for an empty read: this load may have
-          // queried the table before the consume was written, while the poller's
-          // later result is already on screen.
-          if (
-            !superseded() &&
-            (notes.settled.length > 0 || notes.reclaimed.length > 0 || !settlementFoundRef.current)
-          ) {
-            setSettlementNotes(notes);
+          // Settlement only ever accumulates, so treat it as monotonic: this load
+          // may have queried the table before a consume was written while the
+          // poller's later result is already on screen. Guarding only against an
+          // EMPTY read was not enough — a snapshot with one of two consumes, from
+          // a write in flight or a sync rewriting rows, is just as stale, and it
+          // took a fill row back off the screen for good, since the poller only
+          // publishes counts above what it last saw.
+          if (!superseded()) {
+            setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
           }
         } catch (error) {
           console.error('[HistoryDetails] Failed to read swap settlement notes:', {
@@ -701,6 +758,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     // times over the retry schedule, reflowing everything under it. After one
     // answer we know the state; a retry is not new information.
     let firstAttempt = true;
+    let resolvedOnce = false;
 
     async function poll() {
       if (cancelled) return;
@@ -708,24 +766,38 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       try {
         const result = await trackOrderId(trackedOrderId);
         if (cancelled) return;
-        setSwapTracking(result);
         if (result === null) {
           // Not yet trackable / not found — back off and eventually give up.
+          // Never published over a state already known: `trackOrderId` answers
+          // null for a transient sync hole as well as for an untrackable order,
+          // and retracting a live 'active' to "Not available" also unmounted the
+          // pending row and the progress bar, then re-animated the bar from zero
+          // when the next poll succeeded.
+          if (!resolvedOnce) setSwapTracking(null);
           scheduleUnresolvedRetry();
-        } else if (result.state === 'active') {
-          // Live and resolving; steady watch until a terminal state.
-          unresolved = 0;
-          // ...unless this wallet has already seen the settlement consume land.
-          // The lineage is then only being asked to catch up, and every poll
-          // takes the app-wide WASM lock. On mobile and desktop the screen stays
-          // mounted in the background, so an order whose lineage never leaves
-          // 'active' would hold that lock every 3s for as long as the app runs.
-          staleActive = settlementFoundRef.current ? staleActive + 1 : 0;
-          if (staleActive <= MAX_STALE_ACTIVE_POLLS) {
-            timer = setTimeout(poll, BASE_INTERVAL_MS);
+        } else {
+          resolvedOnce = true;
+          // Each poll allocates a fresh object, which React cannot bail out of,
+          // so an order sitting at 'active' re-rendered the whole receipt every
+          // couple of seconds for nothing.
+          setSwapTracking(previous => (sameTracking(previous, result) ? previous : result));
+
+          if (result.state === 'active') {
+            // Live and resolving; steady watch until a terminal state.
+            unresolved = 0;
+            // ...unless this wallet has already seen the settlement consume land.
+            // The lineage is then only being asked to catch up, and every poll
+            // takes the app-wide WASM lock. On mobile and desktop the screen
+            // stays mounted in the background, so an order whose lineage never
+            // leaves 'active' would hold that lock every 2s for as long as the
+            // app runs.
+            staleActive = settlementFoundRef.current ? staleActive + 1 : 0;
+            if (staleActive <= MAX_STALE_ACTIVE_POLLS) {
+              timer = setTimeout(poll, BASE_INTERVAL_MS);
+            }
           }
+          // filled / reclaimed → terminal, stop polling.
         }
-        // filled / reclaimed → terminal, stop polling.
       } catch (error) {
         console.error('[HistoryDetails] Failed to track swap order:', error);
         if (!cancelled) scheduleUnresolvedRetry();
@@ -751,8 +823,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // watch for the notes separately. Each read is an UNINDEXED scan of the
   // transactions table, which is what makes the question of when to stop worth
   // this much care.
+  // Counts consume ROWS as well as note ids. The two are built together, but a
+  // consume recorded with no note ids at all yields a row and no id — and then a
+  // receipt that renders a fill row while reporting no settlement found, which
+  // also defeats the bound on the lineage poll (it is what caps a lineage stuck
+  // on 'active'). Deriving from both keeps them from disagreeing.
   const settlementFound = Boolean(
-    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
+    settlementNotes &&
+    (settlementNotes.settled.length ||
+      settlementNotes.reclaimed.length ||
+      settlementNotes.settledTransactions.length ||
+      settlementNotes.reclaimedTransactions.length)
   );
   settlementFoundRef.current = settlementFound;
   const lineageState = swapTracking?.state ?? null;
@@ -771,13 +852,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   }, [lineageState]);
   const settlementGrace = settlementSettled && watchedUnsettledRef.current;
   const watchSettlement = shouldWatchSettlement({
-    trackingLoading,
     lineageState,
     lineageAbandoned,
     settlementFound,
     autoConsume: swapAutoConsume,
     settlementGrace
   });
+  const transactionRowId = transaction?.id ?? null;
   const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
   // What the first read saw, so that "settlement landed while the user watched"
   // can be told apart from "this receipt was already settled when it opened".
@@ -789,19 +870,27 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const settlementLandedWhileOpen =
     baselineNoteCountRef.current !== null && observedNoteCount > baselineNoteCountRef.current;
   useEffect(() => {
-    if (orderId == null || !transaction) return;
+    if (orderId == null || !transactionRowId) return;
     if (!watchSettlement) return;
-    const swapTxId = transaction.id;
+    const swapTxId = transactionRowId;
     const POLL_INTERVAL_MS = 2000;
-    // Long enough for the default 120s expiry plus the consume's proving. Once
-    // the order is terminal and something has been seen, only a short tail
-    // remains — room for a sibling consume, not a standing scan.
-    const MAX_POLLS = settlementGrace ? 5 : 90;
+    // Enough to cover the default 120s expiry plus the consume's proving. While
+    // the order is still open the budget follows its own expiry instead, because
+    // `expirySeconds` is per-row: a five-minute order left open used to lose
+    // every consume that landed after the fixed cap. Once the order is terminal
+    // and something has been seen, only a short tail remains — room for a
+    // sibling consume, not a standing scan.
+    const DEFAULT_MAX_POLLS = 90;
+    const untilExpiry =
+      lineageState === 'active' && swapExpiresAt !== null
+        ? Math.ceil((swapExpiresAt * 1000 - Date.now()) / POLL_INTERVAL_MS) + 30
+        : 0;
+    const MAX_POLLS = settlementGrace ? 5 : Math.max(DEFAULT_MAX_POLLS, untilExpiry);
     let polls = 0;
     let cancelled = false;
     let inFlight = false;
     let loggedFailure = false;
-    let seen = observedNoteCount;
+    let seenSignature = settlementNotes === null ? null : settlementSignature(settlementNotes);
 
     const timer = setInterval(async () => {
       // `getSwapSettlementNotes` is an unindexed scan of the transactions table;
@@ -816,12 +905,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       inFlight = true;
       try {
         const notes = await getSwapSettlementNotes(swapTxId);
-        const count = notes.settled.length + notes.reclaimed.length;
-        // Only publish growth: re-setting an identical result would re-render
-        // the whole receipt every 2s on a fresh object identity.
-        if (!cancelled && count > seen) {
-          seen = count;
-          setSettlementNotes(notes);
+        // Publish anything that reads differently, not merely anything longer.
+        // Counting notes meant a row whose `amount` resolved on a later read —
+        // routine, since the reaper completes a consume without stamping one —
+        // never reached the screen, leaving a receipt stuck on "—" for a fill it
+        // could now state. Identical reads are still dropped: re-setting them
+        // would re-render the whole receipt every 2s on a fresh identity.
+        const signature = settlementSignature(notes);
+        if (!cancelled && signature !== seenSignature) {
+          seenSignature = signature;
+          setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
         }
       } catch (error) {
         // Same reasoning as the lineage poll: this ticks every 2s for up to 90
@@ -840,14 +933,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       clearInterval(timer);
     };
-    // `observedNoteCount` is the poll's starting baseline, deliberately not a
-    // trigger: including it would restart the interval on every new note.
-    // `lineageState` IS a trigger even though the predicate above may not change
-    // with it: an order that outlived this poll's cap while active has to get a
-    // fresh budget when its lineage finally reports terminal, which is where a
-    // long `expirySeconds` lands.
+    // `settlementNotes` is the poll's starting baseline, deliberately not a
+    // trigger: including it would restart the interval on every new note, which
+    // also resets the poll budget. The row id is the dependency rather than the
+    // row itself for the same reason — Dexie hands back a new object on every
+    // reload, and depending on it meant a receipt that reloads never reached its
+    // cap at all.
+    // `lineageState` IS a trigger even though the predicate may not change with
+    // it: an order that outlived this poll's budget while active has to get a
+    // fresh one when its lineage finally reports terminal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, watchSettlement, settlementGrace, lineageState, transaction]);
+  }, [orderId, watchSettlement, settlementGrace, lineageState, swapExpiresAt, transactionRowId]);
 
   // The hero pill reads the persisted settlement stamp, so that one order cannot
   // say "Pending" in the history list and "Confirmed" on its own receipt. But
@@ -953,9 +1049,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // an expiry bundle carrying any payback is tagged 'settle' even for a partial
   // fill, so the requested amount must never be assumed here.
   const locallySettledRequested = locallySettledRequestedAmount(settledTransactions, requestedToken?.faucetId);
-  const filledAmount =
-    filledRequested ??
-    (locallySettledRequested !== undefined && locallySettledRequested > 0n ? locallySettledRequested : undefined);
+  const filledAmount = filledRequestedAmount(filledRequested, locallySettledRequested);
   // Some of the requested token arrived, but not all of it. Reported separately
   // from the order state because it qualifies every one of them: an active
   // order can be partially filled, and so can a terminal (expired/reclaimed)
@@ -974,8 +1068,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const walletWillClaimNotes = swapAutoConsume && !(orderMayStillBeOpen && swapExpiresAt == null);
   // The route has to survive the order reaching 'filled': a fully matched
   // manual-consume order whose paybacks sit unconsumed is exactly when the user
-  // needs it. Only a reclaim leaves nothing to collect.
-  const showPendingNotesAction = !walletWillClaimNotes && !settlementFound && displayOrderState !== 'reclaimed';
+  // needs it. A reclaim is a statement about the OFFERED tip being taken back,
+  // and the payback notes carrying whatever was matched are an independent P2ID
+  // chain — Pending Notes claims per group, so a user can take the tip back and
+  // leave the paybacks sitting there. Only a reclaim with a known-zero fill
+  // leaves nothing to collect.
+  const nothingWasMatched = displayOrderState === 'reclaimed' && filledAmount !== undefined && filledAmount === 0n;
+  const showPendingNotesAction = !walletWillClaimNotes && !settlementFound && !nothingWasMatched;
   const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =

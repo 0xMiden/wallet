@@ -1261,6 +1261,131 @@ describe('HistoryDetails', () => {
       expect(mockGetSwapSettlementNotes.mock.calls.length).toBe(readsAfterLoad);
     });
 
+    it('does not retract a known lineage state when a later poll comes back empty', async () => {
+      // `trackOrderId` answers null for a transient sync hole as well as for an
+      // untrackable order. Publishing that over a live 'active' retracted the
+      // status to "Not available", unmounted the pending row and the progress
+      // bar, and re-animated the bar from zero when the next poll succeeded.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId
+        .mockResolvedValueOnce({
+          orderId: '42',
+          state: 'active',
+          currentDepth: 1,
+          remainingOffered: 600n,
+          remainingRequested: 600n
+        })
+        .mockResolvedValue(null);
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
+
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(4000);
+        });
+        await flush();
+      }
+
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+    });
+
+    it('does not let a shorter settlement read take a fill row back off the screen', async () => {
+      // Settlement only accumulates, so a read returning one of two completed
+      // consumes is stale — a Dexie write in flight, or a sync rewriting rows.
+      // Guarding only against an EMPTY read let a smaller non-empty snapshot
+      // through, and the poller never repaired it because it publishes only what
+      // reads differently from the last thing IT saw.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      const consume = (id: string, note: string) => ({
+        id,
+        transactionId: `chain-${id}`,
+        noteIds: [note],
+        amount: 200n,
+        faucetId: 'req-faucet',
+        completedAt: 1_700_000_100
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a', 'note-b'],
+        reclaimed: [],
+        settledTransactions: [consume('c1', 'note-a'), consume('c2', 'note-b')],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
+      );
+
+      await renderAndLoad();
+      expect(screen.getByText('swapFillNote_2')).toBeInTheDocument();
+
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [consume('c1', 'note-a')],
+        reclaimedTransactions: []
+      });
+      for (let i = 0; i < 4; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(3000);
+        });
+        await flush();
+      }
+
+      expect(screen.getByText('swapFillNote_2')).toBeInTheDocument();
+    });
+
+    it('picks up a re-attribution that leaves the note count unchanged', async () => {
+      // `getSwapSettlementNotes` gives each note to the EARLIEST consume that
+      // claimed it, so a consume completing out of order takes a note off the row
+      // that was showing it and changes the amount attributed to the order —
+      // without changing how many notes are known. Publishing only on a growing
+      // count left the receipt reporting the superseded figure.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [
+          { id: 'late-consume', transactionId: 'chain-2', noteIds: ['note-a'], amount: 300n, faucetId: 'req-faucet' }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_300_1000_ ETH');
+
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [
+          { id: 'early-consume', transactionId: 'chain-1', noteIds: ['note-a'], amount: 500n, faucetId: 'req-faucet' }
+        ],
+        reclaimedTransactions: []
+      });
+      for (let i = 0; i < 3; i++) {
+        await act(async () => {
+          jest.advanceTimersByTime(2000);
+        });
+        await flush();
+      }
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_500_1000_ ETH');
+    });
+
     it('does not scan for a terminal order whose notes only the user can claim', async () => {
       // Nothing is coming for a manual-consume order that already went terminal:
       // the wallet will not claim its notes on a schedule, so there is no event
@@ -1706,6 +1831,141 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
       expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    });
+
+    it('does not let a lagging lineage assert zero over a fill it is already listing', async () => {
+      // `remainingRequested` is read off the order's CURRENT tip, so a lineage
+      // that has not yet synced the fill still reports the whole request
+      // outstanding. That is the same lag that used to leave the status on
+      // "Active" after settlement (#486) — but the rule that a local settle
+      // consume outranks it was only ever applied to the STATE. Taking the
+      // lineage's number first let it state a confident zero over a payback this
+      // wallet had consumed and was showing three rows further down, and the
+      // false zero stripped the partial-fill qualifier too, upgrading a 40% fill
+      // to "Filled".
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'active',
+        currentDepth: 1,
+        remainingOffered: 1000n,
+        remainingRequested: 1000n
+      });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['payback-note'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['payback-note'],
+            amount: 400n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '40');
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
+      expect(screen.getByText('swapReceivedAmount_400_ ETH')).toBeInTheDocument();
+    });
+
+    it('reports the fill as unknown when a settlement consume never recorded its faucet', async () => {
+      // `settleSwapOrders` queues its consume rows with `faucetId: ''`, and both
+      // the stuck-transaction reaper and the killed-consume path can mark such a
+      // row Completed without ever stamping the real faucet. Reading the blank
+      // string as a mismatch made a settlement that DID deliver funds subtract
+      // itself from the fill, and the receipt stated the shortfall as fact.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue(null);
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a', 'note-b'],
+        reclaimed: [],
+        settledTransactions: [
+          {
+            id: 'consume-1',
+            transactionId: 'chain-1',
+            noteIds: ['note-a'],
+            amount: 400n,
+            faucetId: 'req-faucet',
+            completedAt: 1_700_000_100
+          },
+          {
+            id: 'consume-2',
+            transactionId: 'chain-2',
+            noteIds: ['note-b'],
+            amount: 300n,
+            faucetId: '',
+            completedAt: 1_700_000_200
+          }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
+      expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
+    });
+
+    it('keeps the claim route for a partly filled order whose tip was reclaimed', async () => {
+      // "Reclaimed" is a statement about the offered TIP being taken back. The
+      // payback notes carrying whatever was matched are an independent P2ID
+      // chain, and Pending Notes claims per group — so a manual-claim user can
+      // take the tip back and leave the matched funds sitting there. Reading the
+      // order's ending as "nothing left to collect" removed the only route to
+      // them from a receipt that was simultaneously reporting a 40% fill.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockTrackOrderId.mockResolvedValue({
+        orderId: '42',
+        state: 'reclaimed',
+        currentDepth: 1,
+        remainingOffered: 600n,
+        remainingRequested: 600n
+      });
+      mockGetTransactionById.mockResolvedValue(
+        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
+      );
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_400_1000_ ETH');
+      expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilledReclaimed');
+      expect(screen.getByText('swapOpenPendingNotes')).toBeInTheDocument();
+    });
+
+    it('does not link a local row id to the explorer as though it were on chain', async () => {
+      // A consume the reaper marked Completed never received a chain id, and
+      // falling back to the Dexie UUID published it under "Consume tx ID" with a
+      // live explorer link — an identity the receipt does not have, and a dead
+      // link.
+      mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
+      mockGetSwapSettlementNotes.mockResolvedValue({
+        settled: ['note-a'],
+        reclaimed: [],
+        settledTransactions: [
+          { id: 'local-uuid-2f8c', transactionId: undefined, noteIds: ['note-a'], amount: undefined }
+        ],
+        reclaimedTransactions: []
+      });
+      mockGetTransactionById.mockResolvedValue(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
+
+      await renderAndLoad();
+
+      const row = rowByLabel('consumeTxId');
+      expect(row).toHaveTextContent('local-uuid-2f8c');
+      expect(row?.querySelector('[data-testid="external-link"]')).toBeNull();
     });
 
     it('reports nothing filled, not a negative fill, when the lineage owes more than was requested', async () => {
