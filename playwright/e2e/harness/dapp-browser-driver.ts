@@ -19,7 +19,7 @@
 import { expect } from '@playwright/test';
 
 import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
-import { describeStats, sampleRegion, type Rect } from './dapp-visual';
+import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
 
 /** The slice of a mobile page object this driver needs. */
 export interface DappDriverTarget {
@@ -421,8 +421,20 @@ export class DappBrowserDriver {
    * colour is derived from the report count the server has actually received,
    * so this compares two independent facts: what the page says it has drawn,
    * and what the screen is showing.
+   *
+   * The marker is only 96 CSS px tall, which makes this the one assertion in
+   * the suite that is sensitive to the wallet-CSS → screenshot translation (see
+   * `sampleRegion`). On Android the device screenshot includes the system
+   * status bar above the WebView, so sampling at the wallet's untranslated slot
+   * origin straddles the marker's top edge and reads a blend of marker and
+   * wallet chrome — ~49% match against a 0.6 threshold, i.e. a "STALE frame"
+   * failure on a perfectly correct product (seen on main, run 32324361381).
+   * So measure the translation from the dApp's own painted top edge first. That
+   * keeps the comparison honest: the geometry is located via the dApp's BODY
+   * colour, and the generation colour is what gets asserted.
    */
   async expectFreshFrame(dappId: string, label: string): Promise<void> {
+    const dapp = fixtureDapp(dappId);
     const report = this.server.lastReport(dappId);
     expect(report, `[${label}] ${dappId} has never reported, so no generation is expected yet`).toBeTruthy();
     const expected = GENERATION_COLORS[(report!.seq - 1) % GENERATION_COLORS.length]!;
@@ -433,13 +445,18 @@ export class DappBrowserDriver {
     const viewport = await this.cssViewport();
     const shot = await this.capture(`${label}-generation`);
 
+    const offsetY = await measureVerticalOffsetCss(shot, slot, viewport, dapp.rgb);
     const marker = {
       x: slot.x,
       y: slot.y,
       width: GENERATION_MARKER_PX,
       height: GENERATION_MARKER_PX
     };
-    const stats = await sampleRegion(shot, marker, viewport, expected, { tolerance: 70, insetPx: 12 });
+    const stats = await sampleRegion(shot, marker, viewport, expected, {
+      tolerance: 70,
+      insetPx: 12,
+      offsetCss: { y: offsetY }
+    });
 
     expect(
       stats.matchFraction,
