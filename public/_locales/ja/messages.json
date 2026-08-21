@@ -4098,6 +4098,10 @@
     "message": "消費された",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note タイプ",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "トランザクションID",
     "englishSource": "Transaction ID"

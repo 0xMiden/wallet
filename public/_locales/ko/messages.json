@@ -4098,6 +4098,10 @@
     "message": "소모됨",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note 유형",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "거래 ID",
     "englishSource": "Transaction ID"

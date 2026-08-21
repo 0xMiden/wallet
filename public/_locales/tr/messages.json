@@ -4098,6 +4098,10 @@
     "message": "Tüketilen",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note Tür",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "İşlem Kimliği",
     "englishSource": "Transaction ID"

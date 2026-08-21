@@ -4098,6 +4098,10 @@
     "message": "消耗",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note 类型",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "交易 ID",
     "englishSource": "Transaction ID"

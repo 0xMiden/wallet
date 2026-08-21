@@ -4098,6 +4098,10 @@
     "message": "Consommé",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note Type",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "Identifiant de transaction",
     "englishSource": "Transaction ID"

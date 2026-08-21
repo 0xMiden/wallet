@@ -4098,6 +4098,10 @@
     "message": "Спожито",
     "englishSource": "Consumed"
   },
+  "noteTypeLabel": {
+    "message": "Note Тип",
+    "englishSource": "Note Type"
+  },
   "sourceTx": {
     "message": "Ідентифікатор транзакції",
     "englishSource": "Transaction ID"
