@@ -1024,4 +1024,18 @@ describe('HistoryView earn-deposit status chip', () => {
     expect(row).toHaveAttribute('data-status-label', 'pending');
     expect(row).toHaveAttribute('data-status-tone', 'pending');
   });
+  // date-fns THROWS on an Invalid Date, so one unusable timestamp used to take
+  // the whole list down rather than just its own row. `Number.isFinite` alone is
+  // not enough — 1e300 is finite and still overflows the Date range.
+  describe('an unusable timestamp', () => {
+    it.each([
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['out of Date range', 1e300]
+    ])('still renders the row when the timestamp is %s', (_label, timestamp) => {
+      expect(() => render(<HistoryView {...baseProps} entries={[makeEntry({ timestamp })]} />)).not.toThrow();
+
+      expect(screen.getAllByTestId('history-item')).toHaveLength(1);
+    });
+  });
 });

@@ -175,6 +175,26 @@ describe('updateBalancesFromSyncData', () => {
       expect(persisted).toBe(false);
     });
 
+    // The guard that matters here is on the `asset.metadata` branch: a placeholder
+    // arriving ON the sync payload is the one that would otherwise be written.
+    // The no-metadata case exercises a different branch that never writes at all.
+    it('is not persisted when the placeholder arrives on the sync payload', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+
+      await updateBalancesFromSyncData('account-1', [
+        {
+          faucetId: FOREIGN,
+          amountBaseUnits: '1000',
+          metadata: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+        }
+      ]);
+
+      const wrote = (calls: [Record<string, unknown>][]) => calls.some(([written]) => written && FOREIGN in written);
+
+      expect(wrote(setTokensBaseMetadata.mock.calls)).toBe(false);
+      expect(useWalletStore.getState().assetsMetadata[FOREIGN]).toBeUndefined();
+    });
+
     it('still lists the token so the holding does not vanish', async () => {
       await updateBalancesFromSyncData('account-1', [{ faucetId: FOREIGN, amountBaseUnits: '1000' }]);
 

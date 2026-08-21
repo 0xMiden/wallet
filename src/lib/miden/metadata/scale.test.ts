@@ -50,6 +50,14 @@ describe('hasKnownScale', () => {
     expect(hasKnownScale({ decimals: 18, symbol: 'Unknown', name: 'Unknown' })).toBe(true);
   });
 
+  // The genuine collision: a faucet named "Unknown" that really does have 6
+  // decimals is byte-for-byte the placeholder. `fetchTokenMetadata` stamps
+  // `scaleIsUnknown: false` on anything the chain answered for, and that word
+  // has to beat the shape test — otherwise this token can never be quantified.
+  it('trusts a real faucet indistinguishable from the placeholder by shape', () => {
+    expect(hasKnownScale({ decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: false })).toBe(true);
+  });
+
   it('trusts the empty placeholder, which states 0 decimals rather than guessing', () => {
     expect(hasKnownScale(EMPTY_ASSET_METADATA)).toBe(true);
   });

@@ -34,6 +34,10 @@ export function hasKnownScale(metadata: AssetMetadata | undefined): boolean {
   // whether an absent record means "native" or "unknown", then ask this.
   if (metadata === undefined) return false;
   if (metadata.scaleIsUnknown === true) return false;
+  // An explicit `false` is the faucet's own word, and it outranks the shape
+  // test below — which cannot tell a token genuinely named "Unknown" with 6
+  // decimals from the placeholder it happens to look like.
+  if (metadata.scaleIsUnknown === false) return true;
   return !isUnmarkedPlaceholder(metadata);
 }
 
