@@ -202,13 +202,20 @@ describe('requeueFailedTransaction — cached requestBytes', () => {
     }
   );
 
-  it("drops a send's bytes when the row never reached the loop (no stage)", async () => {
-    const row = failedRow({ type: 'send', stage: undefined, requestBytes: bytes() });
+  // A missing stage looks like "never ran" and is the opposite. Bytes only
+  // exist once the row got past the 'syncing'/'sending' stamps, so a row that
+  // has them AND no stage was reset by an earlier requeue — and what it was
+  // reset from is precisely what is unknown. Rows written by an older build
+  // reach this with no `mayHaveSubmitted` to fall back on.
+  it("KEEPS a send's bytes when the stage is missing but bytes exist", async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: undefined, requestBytes: kept });
     wireRow(row);
 
     await requeueFailedTransaction('tx-1');
 
-    expect(row.requestBytes).toBeUndefined();
+    expect(row.requestBytes).toBe(kept);
+    expect(row.mayHaveSubmitted).toBe(true);
   });
 
   // 'sending' is the one that looks safe and is not. It is stamped before the
@@ -349,12 +356,17 @@ describe('requeueFailedTransaction — mayHaveSubmitted is sticky', () => {
     expect(row.requestBytes).toBe(kept);
   });
 
-  it('never unsets the flag', async () => {
-    const row = failedRow({ type: 'send', stage: 'executing', mayHaveSubmitted: true });
+  // Asserted through its consequence, not the field: a test that only checked
+  // `mayHaveSubmitted` were still true would pass even with the sticky half of
+  // the gate deleted, since nothing ever writes `false`.
+  it('never unsets the flag, so the bytes stay protected on a pre-submit failure', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: 'executing', requestBytes: kept, mayHaveSubmitted: true });
     wireRow(row);
 
     await requeueFailedTransaction('tx-1');
 
+    expect(row.requestBytes).toBe(kept);
     expect(row.mayHaveSubmitted).toBe(true);
   });
 });

@@ -131,6 +131,9 @@ jest.mock('shared/logger', () => ({
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'private';
 jest.mock('../helpers', () => ({
+  // Real `isPrivateNoteType`: it decides whether a completed send relays its
+  // note file to the recipient, so stubbing it would make that branch vacuous.
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 

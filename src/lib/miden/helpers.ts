@@ -44,6 +44,25 @@ export const isPrivateNoteType = (noteType: NoteType | NoteTypeString | string |
   throw new Error(`Unknown note type: "${String(noteType)}". Expected "public" or "private".`);
 };
 
+/**
+ * Normalize any accepted note-type form to the `'public' | 'private'` string
+ * that is actually PERSISTED on a transaction row and compared against
+ * downstream.
+ *
+ * Needed because the two representations are not interchangeable once stored.
+ * `isPrivateNoteType` accepts the SDK's numeric enum, so a numeric value can
+ * reach the request builder and correctly produce a Private note — but the row
+ * then holds `0`, and `completeSendTransaction` decides whether to relay the
+ * note file with `tx.noteType === NoteTypeEnum.Private`, a STRING compare that
+ * `0` fails. The note would be built private and never delivered, leaving the
+ * recipient unable to see or consume it. Normalizing at the boundary keeps the
+ * stored form canonical so those compares cannot silently miss.
+ *
+ * Throws on an unrecognized value, like `isPrivateNoteType`.
+ */
+export const toPersistedNoteType = (noteType: NoteType | NoteTypeString | string | null | undefined): NoteTypeString =>
+  isPrivateNoteType(noteType) ? NoteTypeEnum.Private : NoteTypeEnum.Public;
+
 // The chain doesn't commit to a fixed cadence, so recall-height → wall-clock
 // conversion is an estimate for display only.
 export const ESTIMATED_MS_PER_BLOCK = 3_000;

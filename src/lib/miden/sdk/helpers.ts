@@ -87,7 +87,13 @@ export function sameWalletAccountId(a: string, b: string): boolean {
  */
 export function accountRefToSdk(ref: string): AccountId {
   if (ref.startsWith('0x') || ref.startsWith('0X')) {
-    return AccountId.fromHex(ref);
+    // Lowercased prefix: `AccountId.fromHex` requires a literal '0x' and rejects
+    // '0X…' outright ("hex encoded data must start with 0x"), even though the
+    // hex DIGITS are case-insensitive. Without this the '0X' arm routes straight
+    // to a guaranteed throw — and in `canonicalWalletAccountId`, which swallows
+    // that throw and falls back to the raw text, it would make the same account
+    // in '0X' and bech32 form compare as two different accounts.
+    return AccountId.fromHex(`0x${ref.slice(2)}`);
   }
   return accountIdStringToSdk(ref);
 }
@@ -116,18 +122,21 @@ export function accountRefToSdk(ref: string): AccountId {
  * largest slot (for a truthful "less than the amount to remove" error) when
  * no single slot does.
  */
-// wasm-bindgen narrows a JS BigInt to u64 by TRUNCATION, and it does so before
-// the SDK's own amount validation runs — so 2^64 arrives as 0 and 2^64 + 50 as
-// 50, building a note for a fraction of what the user approved instead of
-// failing. (Oversized values BELOW 2^64 are caught by the SDK and throw, which
-// is why this only has to cover the wrap.) The amount reaches here straight
-// from `BigInt(amount)` on a dApp-supplied string, so the bound is checked
-// where every send path funnels through rather than at each caller.
-const MAX_U64 = (1n << 64n) - 1n;
+// The SDK's own documented ceiling for a fungible asset amount ("an amount above
+// the maximum fungible asset amount, `2^63 - 2^31`" — FungibleAsset.fromVaultKey
+// in miden_client_web.d.ts). The SDK enforces it, so this bound exists for what
+// the SDK CANNOT catch: wasm-bindgen narrows a JS BigInt at the boundary, so a
+// value at or above 2^64 is truncated BEFORE any validation runs — 2^64 arrives
+// as 0 and 2^64 + 50 as 50, quietly building a note for a fraction of what the
+// user approved. Checking the real maximum here (rather than merely the wrap
+// point) also means the wallet owns the error message. The amount reaches this
+// function straight from `BigInt(amount)` on a dApp-supplied string, and every
+// send funnels through here, so this is the one place worth checking.
+const MAX_FUNGIBLE_ASSET_AMOUNT = (1n << 63n) - (1n << 31n);
 
 function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: string, amount: bigint): FungibleAsset {
-  if (amount < 0n || amount > MAX_U64) {
-    throw new Error(`Send amount ${amount} is outside the representable range`);
+  if (amount < 0n || amount > MAX_FUNGIBLE_ASSET_AMOUNT) {
+    throw new Error(`Send amount ${amount} is outside the representable range (0..${MAX_FUNGIBLE_ASSET_AMOUNT})`);
   }
   const faucetId = accountRefToSdk(faucetRef);
   const faucetHex = faucetId.toString();
@@ -141,6 +150,10 @@ function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: strin
   const heldForFaucet = (account?.vault().fungibleAssets() ?? []).filter(
     asset => asset.faucetId().toString() === faucetHex
   );
+  // Prefer a slot that can fund the whole amount. When two slots of the same
+  // faucet both could, this decides which CALLBACK FLAG the outgoing asset
+  // carries — the largest-slot fallback below would otherwise pick by size and
+  // could hand back the wrong variant.
   const held =
     heldForFaucet.find(asset => asset.amount() >= amount) ??
     heldForFaucet.reduce<FungibleAsset | undefined>(
@@ -148,7 +161,23 @@ function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: strin
       undefined
     );
   if (!held) {
+    // The local vault shows nothing from this faucet. Usually stale local state
+    // rather than a real shortfall, so this still builds the request and lets
+    // the kernel decide — but the asset it builds carries the constructor's
+    // default Disabled flag, which is precisely the bug this function exists to
+    // fix. Log it: otherwise a "failed to remove the fungible asset from the
+    // vault" lands with nothing to distinguish it from the original defect.
+    console.warn('[send] no vault slot for this faucet; building outgoing asset without a vault key');
     return new FungibleAsset(faucetId, amount);
+  }
+  if (held.amount() < amount) {
+    // No SINGLE slot covers the amount. The sum across slots may well, because
+    // one faucet occupies a separate slot per callback flag and this builder
+    // emits a single-slot asset — so the kernel's remove-asset assertion will
+    // reject a request that the user's total balance looks able to fund. Left
+    // as a warning rather than a hard failure: local vault state can lag the
+    // chain, and refusing here would block a send that a fresher view allows.
+    console.warn('[send] no single vault slot can fund this amount; the balance may be split across callback flags');
   }
   return FungibleAsset.fromVaultKey(held.vaultKey(), amount);
 }

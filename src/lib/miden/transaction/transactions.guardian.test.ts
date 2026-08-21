@@ -368,9 +368,70 @@ describe('generateTransaction — Guardian routing', () => {
       provider
     );
 
-    expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
+    expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, 'Public');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  // The note type used to be hardcoded Private here regardless of the row, so a
+  // Public guardian send emitted a private note — and since the ROW still said
+  // 'public', `completeSendTransaction` skipped the relay, leaving the
+  // recipient with a note they were never sent and no reclaim window for the
+  // sender. Both directions are asserted so a re-hardcoding of either fails.
+  it.each([
+    ['private', 'Private'],
+    ['public', 'Public']
+  ])('Guardian plain send: proposes a %p note, matching the row the user approved', async (rowType, expected) => {
+    const txId = `send-guardian-notetype-${rowType}`;
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      noteType: rowType,
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-nt' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      createCustomProposal: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        noteType: rowType,
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, expected);
   });
 
   it.each([
@@ -666,7 +727,6 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-syncfail-proposal' })),
@@ -909,7 +969,6 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
@@ -988,7 +1047,6 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
@@ -1064,7 +1122,6 @@ describe('generateTransaction — Guardian routing', () => {
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => frozen });
-      mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
       const conflict = { status: 409, body: 'ConflictPendingDelta' };
       const multisigService = {
@@ -1135,7 +1192,6 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-applyfail-proposal', nonce: 5 })),
@@ -1204,7 +1260,6 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
-    mockCreateWasmWebClient.mockResolvedValue({ getAccount: jest.fn(async () => undefined), terminate: jest.fn() });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'earn-canon-proposal', nonce: 6 })),
@@ -3124,7 +3179,7 @@ describe('generateTransaction — Guardian routing', () => {
       provider as never
     );
 
-    expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n);
+    expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, 'Public');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).not.toBe(ITransactionStatus.Failed);
   });

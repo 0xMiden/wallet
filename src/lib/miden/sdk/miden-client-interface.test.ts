@@ -1629,11 +1629,21 @@ describe('MidenClientInterface', () => {
       const txResult = {
         serialize: () => new Uint8Array([0xa, 0xb])
       };
+      // A marker account, NOT undefined: this is the offscreen/speculation path,
+      // which is the shipping default, and it is where the sender's vault key
+      // (callback flag included) has to reach the builder. With `undefined` here
+      // the builder falls through to `new FungibleAsset(...)` — the default
+      // Disabled flag, i.e. the exact bug this PR fixes — and nothing notices.
+      const senderAccount = { tag: 'sender-account' };
       const inner = {
         executeTransaction: jest.fn(async () => txResult),
-        getAccount: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => senderAccount),
         newSendTransactionRequest: jest.fn(async () => ({ kind: 'request' }))
       };
+      const buildSendTransactionRequest = jest.fn(() => ({
+        kind: 'request',
+        serialize: () => new Uint8Array([1])
+      }));
       const proveViaOffscreen = jest.fn(async () => ({
         provenBytes: new Uint8Array([0xc, 0xd]).buffer,
         durationMs: 5
@@ -1652,7 +1662,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+        buildSendTransactionRequest
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -1670,23 +1680,40 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
+      // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+      // suffix before parsing, or the bech32 parser sees a string it can reject.
       const entry = await client.executeAndProveForSpeculation({
-        accountId: 'mtst1sender',
+        accountId: 'mtst1sender_qr7qqq9wr6w',
         recipientAccountId: '0xrecipient',
         faucetId: 'mtst1faucet',
         noteType: 'private',
         amount: 250n
       });
 
-      expect(entry.paramsHash).toBe('mtst1sender|0xrecipient|mtst1faucet|private|250');
+      expect(entry.paramsHash).toBe('mtst1sender_qr7qqq9wr6w|0xrecipient|mtst1faucet|private|250');
       expect(entry.txResultBytes).toEqual(new Uint8Array([0xa, 0xb]));
       expect(new Uint8Array(entry.provenBytes)).toEqual(new Uint8Array([0xc, 0xd]));
 
       // Account ID resolution: accounts beginning with 0x → fromHex,
-      // otherwise → fromBech32.
+      // otherwise → fromBech32, and the composite suffix is stripped first.
       expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
       expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xrecipient');
       expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
+
+      // The whole point of the PR on the DEFAULT send path: the sender's account
+      // — and therefore its vault key, callback flag included — reaches the
+      // builder. Passing `undefined` here falls back to `new FungibleAsset(...)`
+      // and its default Disabled flag, which is the bug being fixed.
+      expect(inner.getAccount).toHaveBeenCalled();
+      expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+        senderAccount,
+        expect.anything(),
+        expect.anything(),
+        'mtst1faucet',
+        250n,
+        'Private',
+        undefined
+      );
     });
   });
 

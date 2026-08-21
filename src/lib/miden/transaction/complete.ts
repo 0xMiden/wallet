@@ -29,7 +29,7 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -482,7 +482,17 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
-  if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
+  // Via `isPrivateNoteType`, not a bare `=== NoteTypeEnum.Private` string
+  // compare: a row can carry the SDK's NUMERIC note type (the enum is accepted
+  // wherever a note type is taken, and `Private` is `0`), and a string compare
+  // answers "public" for it. That would build a private note and then skip the
+  // relay below — the recipient never learns the note exists, and the "missing
+  // full note" guard is skipped too, so it fails silently rather than loudly.
+  // The dApp boundary normalizes before persisting; this is the backstop for
+  // any other producer.
+  const isPrivateSend = isPrivateNoteType(tx.noteType);
+
+  if (isPrivateSend && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access.
     // The SDK persists the relay payload to its durable outbox before invoking
     // transport (miden-client#2127); if the transport call fails, the SDK
@@ -519,7 +529,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // is the source of truth — subsequent sync_state will reconcile.
       console.warn('Pre-transport step failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
-  } else if (tx.noteType === NoteTypeEnum.Private && (!note || !noteId)) {
+  } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',

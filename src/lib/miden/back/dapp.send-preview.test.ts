@@ -142,6 +142,21 @@ jest.mock('lib/miden/back/vault', () => ({
  */
 jest.unmock('lib/i18n/numbers');
 
+/**
+ * The shared wasm mock stubs `NoteType` as the STRINGS 'Private'/'Public', but
+ * the real SDK enum is NUMERIC with `Private = 0`. Note-type validation is the
+ * subject of one of the describes below, and under the string stub two of its
+ * cases are wrong: a miscased `'Private'` would compare equal to the enum and be
+ * accepted, and the numeric `0` a page can actually send would not be
+ * recognized at all. Override with the real values so the boundary is tested
+ * against what production sees — the same thing `lib/miden/helpers.test.ts`
+ * does, and for the same reason.
+ */
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+  NoteType: { Private: 0, Public: 1 }
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 import { requestSendTransaction, requestConsumeTransaction, requestTransaction } from './dapp';
 
@@ -319,15 +334,44 @@ describe('dApp send approval: the note type must resolve before the user is aske
   const noteTypeRow = (confirmation: CapturedConfirmation): string | undefined =>
     confirmation.transactionMessages?.find(message => message.startsWith('Note Type, '));
 
+  // The numeric cases are the SDK enum a page may legitimately send. They must
+  // normalize to the persisted STRING before the row is written: everything
+  // downstream compares the string, including the private-note relay in
+  // `completeSendTransaction`, so a stored `0` would build a private note and
+  // then silently skip delivering it to the recipient.
   it.each([
     ['private', 'Note Type, Private'],
-    ['public', 'Note Type, Public']
+    ['public', 'Note Type, Public'],
+    [0, 'Note Type, Private'],
+    [1, 'Note Type, Public']
   ])('renders the resolved label for %p', async (noteType, expected) => {
     await expect(
       requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
     ).rejects.toThrow(DECLINED);
 
     expect(noteTypeRow(capturedConfirmation())).toBe(expected);
+  });
+
+  it.each([
+    [0, 'private'],
+    [1, 'public'],
+    ['private', 'private']
+  ])('normalizes %p to the persisted string %p before initiating', async (noteType, persisted) => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+
+    await requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1');
+
+    // initiateSendTransaction(sender, recipient, faucet, noteType, amount, …)
+    expect(mockInitiateSendTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      persisted,
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
   });
 
   // Built inline rather than through `sendRequest`: a default parameter fires
@@ -376,12 +420,11 @@ describe('dApp send approval: the note type must resolve before the user is aske
   });
 
   // An unrecognized value must not quietly become public either — that is the
-  // silent privacy downgrade `isPrivateNoteType` exists to stop. Miscased
-  // variants ('Private') belong in `helpers.test.ts`, which pins the REAL
-  // numeric enum; the shared wasm mock stubs `NoteType.Private` as the string
-  // 'Private', so that one value resolves here for a reason that does not exist
-  // in production.
-  it.each(['PRIVATE', 'secret', ''])('rejects the unrecognized note type %p', async noteType => {
+  // silent privacy downgrade `isPrivateNoteType` exists to stop. 'Private' is
+  // included because a miscased string is the likeliest real mistake, and it is
+  // only distinguishable from the enum once `NoteType` carries its real numeric
+  // values (see the override at the top of this file).
+  it.each(['Private', 'PRIVATE', 'secret', '', 2, -1])('rejects the unrecognized note type %p', async noteType => {
     await expect(
       requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);

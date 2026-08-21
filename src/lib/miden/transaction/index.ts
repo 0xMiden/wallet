@@ -971,8 +971,20 @@ const generateGuardianTransaction = async (
           service.createCustomProposal(requestBytes, 'recallable_send')
         );
       } else {
+        // Same coercion as the recallable branch above. This used to be
+        // hardcoded Private, which broke a Public guardian send two ways at
+        // once: the note went out private although the review screen (and a
+        // dApp's preview) said Public, and because the ROW still said 'public',
+        // `completeSendTransaction` skipped the private-note relay — so the
+        // recipient was never handed the note file and could not see or consume
+        // it, on a plain P2ID with no reclaim window for the sender either.
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
+          service.createSendProposal(
+            sendTx.secondaryAccountId,
+            sendTx.faucetId,
+            BigInt(sendTx.amount),
+            isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
+          )
         );
       }
       break;

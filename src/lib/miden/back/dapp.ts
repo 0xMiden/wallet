@@ -72,7 +72,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { isPrivateNoteType } from '../helpers';
+import { toPersistedNoteType } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -1242,6 +1242,19 @@ const generatePromisifySendTransaction = async (
 
   let transactionMessages: string[] = [];
   try {
+    // Normalize the note type ONCE, before anything reads it. It crosses
+    // postMessage from an untrusted page, so its type is a claim rather than a
+    // guarantee, and the wallet accepts both the persisted 'public'/'private'
+    // strings and the SDK's numeric enum. Everything downstream compares the
+    // STRING form — including the private-note relay in
+    // `completeSendTransaction` — so persisting a numeric `0` would build a
+    // Private note and then skip its delivery, leaving the recipient unable to
+    // ever see it. A missing or unrecognized value throws, which the catch
+    // below turns into InvalidParams before the user is prompted.
+    if (req.transaction.noteType === undefined || req.transaction.noteType === null) {
+      throw new Error('noteType is required');
+    }
+    req.transaction.noteType = toPersistedNoteType(req.transaction.noteType) as typeof req.transaction.noteType;
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
@@ -1705,26 +1718,17 @@ function isAllowedNetwork() {
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
   const tokenMetadata = await getTokenMetadata(transaction.faucetId);
   const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
-  // `noteType` is required by the SendTransaction contract, but it arrives over
-  // postMessage from an untrusted page, where the type is a claim rather than a
-  // guarantee. Resolve it the same way the request builder will: an omitted or
-  // unrecognized value used to render "Note Type, undefined" here and then
-  // resolve to PUBLIC downstream, so the user approved a send whose privacy the
-  // prompt never stated. `isPrivateNoteType` throws on an unrecognized value and
-  // the caller turns that into InvalidParams before any prompt is shown; an
-  // omitted one is rejected here for the same reason. Deriving the label from
-  // the resolved value (rather than echoing the input) keeps the consent surface
-  // and the note that gets built from ever disagreeing.
-  if (transaction.noteType === undefined || transaction.noteType === null) {
-    throw new Error('noteType is required');
-  }
-  const noteTypeLabel = isPrivateNoteType(transaction.noteType) ? 'Private' : 'Public';
+  // `noteType` was normalized to the persisted 'public'/'private' string by the
+  // caller, which also rejected a missing or unrecognized one — so the label
+  // below states what will actually be built rather than echoing whatever the
+  // page sent. This text is the user's consent surface, and it used to be able
+  // to read "Note Type, undefined" for a send that then went out public.
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
     `Amount, ${amount}`,
     `Recipient, ${transaction.recipientAddress}`,
-    `Note Type, ${noteTypeLabel}`
+    `Note Type, ${capitalizeFirstLetter(transaction.noteType)}`
   ];
 
   if (transaction.recallBlocks) {

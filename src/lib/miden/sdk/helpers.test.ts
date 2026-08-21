@@ -158,6 +158,8 @@ describe('miden sdk helpers', () => {
     // whose toString is what the vault slots are matched against.
     const FAUCET_REF = '0xfaucet';
     const FAUCET_HEX = 'accountId-0xfaucet';
+    /** The SDK's documented maximum fungible asset amount. */
+    const MAX_AMOUNT = (1n << 63n) - (1n << 31n);
 
     it('rebuilds the asset from the held vault key so the callback flag survives', () => {
       const request = buildSendTransactionRequest(
@@ -191,6 +193,23 @@ describe('miden sdk helpers', () => {
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
     });
 
+    // The discriminating case: the slot that can fund is NOT the largest. Both
+    // slots cover 50, so what the preference actually decides is which CALLBACK
+    // FLAG the outgoing asset carries — pick by size instead and the note is
+    // built against the wrong vault slot.
+    it('prefers the funding slot even when a larger slot exists', () => {
+      buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 60n, 'enabled'), vaultAsset(FAUCET_HEX, 500n, 'disabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        50n,
+        'Private' as any
+      );
+
+      expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 50n);
+    });
+
     it('falls back to the largest slot when no single slot covers the amount', () => {
       buildSendTransactionRequest(
         accountHolding(vaultAsset(FAUCET_HEX, 10n, 'disabled'), vaultAsset(FAUCET_HEX, 60n, 'enabled')) as any,
@@ -202,6 +221,21 @@ describe('miden sdk helpers', () => {
       );
 
       // Largest slot, so the resulting kernel error names the real shortfall.
+      expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
+    });
+
+    // Same fallback, slots in DESCENDING order, so the reduce has to keep its
+    // running best rather than take the last one it sees.
+    it('falls back to the largest slot regardless of vault order', () => {
+      buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 60n, 'enabled'), vaultAsset(FAUCET_HEX, 10n, 'disabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any
+      );
+
       expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
     });
 
@@ -292,11 +326,14 @@ describe('miden sdk helpers', () => {
       expect(Note.createP2IDNote).not.toHaveBeenCalled();
     });
 
-    // wasm-bindgen truncates a BigInt to u64 before the SDK's own amount
-    // validation runs, so 2^64 would arrive as 0 and 2^64 + 50 as 50 — building
-    // a note for a fraction of the approved amount instead of failing. The
-    // amount reaches here straight from `BigInt(amount)` on a dApp string.
-    it.each([1n << 64n, (1n << 64n) + 50n, -1n])(
+    // The SDK's documented ceiling is 2^63 - 2^31, which it enforces itself —
+    // but it cannot catch a value at or above 2^64, because wasm-bindgen
+    // truncates the BigInt at the boundary BEFORE validation runs: 2^64 arrives
+    // as 0 and 2^64 + 50 as 50, building a note for a fraction of the approved
+    // amount without error. The amount comes straight from `BigInt(amount)` on
+    // a dApp-supplied string. (The mock accepts anything, so only the wallet's
+    // own bound is under test here.)
+    it.each([MAX_AMOUNT + 1n, 1n << 63n, 1n << 64n, (1n << 64n) + 50n, -1n])(
       'rejects the out-of-range amount %p rather than wrapping it',
       amount => {
         expect(() =>
@@ -313,14 +350,14 @@ describe('miden sdk helpers', () => {
       }
     );
 
-    it('allows the largest representable amount', () => {
+    it('allows the largest amount the SDK accepts', () => {
       expect(() =>
         buildSendTransactionRequest(
           accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
           sender,
           recipient,
           FAUCET_REF,
-          (1n << 64n) - 1n,
+          MAX_AMOUNT,
           'Public' as any
         )
       ).not.toThrow();

@@ -996,7 +996,14 @@ export class MidenClientInterface {
         isPrivateNoteType(noteType) ? NoteType.Private : NoteType.Public,
         reclaimAfter
       );
-      const { result } = await this.client.transactions.submit(accountId, request, { prover });
+      // The same canonical id the vault was read with. Handing the raw one here
+      // would let the account the request is EXECUTED against diverge from the
+      // account its asset's vault key came from — the mismatch that silently
+      // reinstates the callback-flag bug — and would reject composite forms the
+      // read above accepts.
+      const { result } = await this.client.transactions.submit(walletAccountIdToSdk(accountId).toString(), request, {
+        prover
+      });
       return result;
     }, dbTransaction.delegateTransaction);
   }

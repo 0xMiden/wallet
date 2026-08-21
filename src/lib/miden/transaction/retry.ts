@@ -94,14 +94,18 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * 'submitting' is stamped immediately before that call, and 'sending' may
  * enclose it.
  *
- * A missing stage is included, but it does NOT prove anything on its own. A row
- * requeued by this function is reset to `stage: undefined` while (on the
- * post-submit branch) KEEPING its bytes, and `cancelTransaction` fails a row
- * without writing a stage — so `cancelStaleQueuedTransactions` reaping that
- * requeued row produces Failed + no stage + bytes present. The stage alone
- * would read that as pre-submit and clear the very bytes the previous retry
- * deliberately preserved. `mayHaveSubmitted` is what actually carries the
- * signal across requeues; this set only classifies the CURRENT attempt.
+ * A missing stage is deliberately NOT in this set, because for a row that has
+ * cached bytes it proves the opposite of what it looks like. Pickup stamps
+ * 'syncing' then 'sending' before any request is built, so a row can only hold
+ * bytes if it got past those — a missing stage on such a row therefore means
+ * the stage was RESET by a requeue, not that nothing ever ran, and the history
+ * it was reset from is exactly what is unknown. (A row that genuinely never
+ * reached the loop has no bytes, so excluding it costs nothing: the clear it
+ * misses is a no-op.) This matters for rows written by an older build, which
+ * carry no `mayHaveSubmitted` at all: `cancelTransaction` fails a row without
+ * writing a stage, so `cancelStaleQueuedTransactions` reaping a requeued row
+ * leaves Failed + no stage + bytes, and reading that as pre-submit would
+ * rebuild the note id of a transfer that may already have landed.
  */
 const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
   'syncing',
@@ -149,7 +153,7 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   // Read off the pre-reset row: the modify callback below clears `stage` as part
   // of returning the row to Queued, so it cannot be consulted from in there.
   const failedStage = tx.stage;
-  const failedPreSubmit = failedStage === undefined || PRE_SUBMIT_STAGES.has(failedStage);
+  const failedPreSubmit = failedStage !== undefined && PRE_SUBMIT_STAGES.has(failedStage);
   // Sticky OR: once any attempt got far enough that a submit can't be ruled out,
   // every later attempt inherits that. Without the persisted half, the signal
   // died with the `stage` reset below and the NEXT failure — at, say, 'syncing'
