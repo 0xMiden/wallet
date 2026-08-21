@@ -24,7 +24,6 @@
  */
 import { expect, type Page } from '@playwright/test';
 
-import { dismissTelemetryConsent } from './telemetry-consent';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 /**
@@ -224,22 +223,17 @@ export async function recoverViaForgotPassword(
     );
   }
 
-  await wallet.completeHotKeyRotation();
-
-  // Last, not before the gate. A recovered wallet routes to the telemetry
-  // consent prompt (`postCreationRoute`), but `HotKeyRotationGate` is a sibling
-  // of `PageRouter` in `App.tsx` and renders as a `fixed inset-0` scrim over
-  // whatever route is mounted — so the prompt is on screen, and unclickable,
-  // for the whole of the rotation. A short poll is enough here because the gate
-  // clearing already proves registration finished long ago.
+  // Also declines the telemetry consent prompt a recovered wallet routes to
+  // (`postCreationRoute`), which `HotKeyRotationGate`'s `fixed inset-0` scrim
+  // has been covering for the whole rotation — see `completeHotKeyRotation`.
   //
-  // NOT in `submitRecoveryFromSeed` above, even though that is where the
-  // confirmation click lives: it returns with registration deliberately IN
-  // FLIGHT, and its other caller (`guardian-forgot-password.spec.ts`) drives a
-  // recovery that FAILS and must stay on the confirmation screen. There is no
-  // consent prompt on that path, and a wait for one would be dead time in the
-  // test whose whole point is the failure surface.
-  await dismissTelemetryConsent(wallet.page);
+  // Deliberately not in `submitRecoveryFromSeed` above, even though that is
+  // where the confirmation click lives: it returns with registration in flight,
+  // and its other caller (`guardian-forgot-password.spec.ts`) drives a recovery
+  // that FAILS and must stay on the confirmation screen. There is no consent
+  // prompt on that path, and a wait for one would be dead time in the test
+  // whose whole point is the failure surface.
+  await wallet.completeHotKeyRotation();
 }
 
 /**

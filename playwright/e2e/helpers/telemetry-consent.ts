@@ -26,6 +26,39 @@ const PROMPT_SELECTOR = `[data-testid="${TELEMETRY_CONSENT_TESTID}"]`;
 const DECLINE_SELECTOR = `[data-testid="${TELEMETRY_CONSENT_DECLINE_TESTID}"]`;
 
 /**
+ * `HotKeyRotationGate.tsx`'s scrim — the one thing in the app that can render
+ * ON TOP of the consent prompt. See {@link ROTATION_GATE_HINT}.
+ */
+const ROTATION_GATE_SELECTOR = '[data-testid="hot-key-rotation-gate"]';
+
+/**
+ * Attached to the failure when the decline click is blocked by the rotation
+ * gate, because the raw Playwright message for it ("element is not stable",
+ * repeated until the timeout) names neither the scrim nor the fix.
+ *
+ * `HotKeyRotationGate` is a sibling of `PageRouter` in `App.tsx` and paints a
+ * `fixed inset-0 z-[9999]` scrim over whatever route is mounted. A Guardian
+ * wallet adopted from a seed phrase is flagged `requiresHotKeyRotation`
+ * (`Vault.spawn`'s `recoveredCold` branch) at the same store update that ends a
+ * driver's post-`register()` readiness wait — so on that one path the prompt is
+ * on screen, and unclickable, from before it is even routed to until the
+ * rotation lands on-chain.
+ *
+ * Waiting that out is deliberately NOT this function's job. A rotation proves
+ * an on-chain `replace_signer` and is bounded by nothing a timeout here could
+ * be sized against; and the specs that drive rotation faults need the gate
+ * still standing when their recovery call returns, so blocking on it here would
+ * deadlock them. `completeHotKeyRotation()` — which every path that raises the
+ * gate already awaits, and which resolves exactly when the gate detaches —
+ * dismisses the prompt instead.
+ */
+const ROTATION_GATE_HINT =
+  `the HotKeyRotationGate scrim is up, so the prompt is covered and cannot be clicked. Dismissal on a ` +
+  `rotating wallet belongs to completeHotKeyRotation(), which runs it the moment the gate detaches — this ` +
+  `call site must not attempt it itself. Do NOT "fix" this with force: true (it would press a button no ` +
+  `user could reach) or with a longer timeout (a rotation is network-bound and has no fixed duration).`;
+
+/**
  * Ceiling for "is the prompt on screen?". Short ON PURPOSE: the prompt is
  * OPTIONAL (see `dismissTelemetryConsent`), so this is the price every run that
  * never sees it pays, and it must stay negligible against a caller's test
@@ -96,6 +129,13 @@ export interface DismissTelemetryConsentOptions {
  * is therefore a normal outcome, reported as `false`; anything OTHER than "it
  * never showed up" propagates.
  *
+ * Requires the prompt to be REACHABLE when called: this presses a real button
+ * and does not wait out anything covering it. On the one path where something
+ * does — a Guardian seed recovery, behind `HotKeyRotationGate` — the caller that
+ * owns the rotation dismisses the prompt instead, and a call made too early
+ * fails naming that (see {@link ROTATION_GATE_HINT}) rather than as an
+ * anonymous actionability timeout.
+ *
  * @returns true if the prompt was found and declined, false if it never appeared.
  */
 export async function dismissTelemetryConsent(
@@ -127,7 +167,19 @@ async function dismissViaLocators(page: Page, timeoutMs: number, nextSurface: st
 
   if (!(await prompt.isVisible())) return false;
 
-  await prompt.locator(DECLINE_SELECTOR).click({ timeout: CONSENT_ACTION_TIMEOUT_MS });
+  try {
+    await prompt.locator(DECLINE_SELECTOR).click({ timeout: CONSENT_ACTION_TIMEOUT_MS });
+  } catch (error) {
+    // Re-checked on failure rather than guarded before the click: the gate can
+    // mount in the window between the prompt becoming visible and the click
+    // landing, so a pre-flight check would leave exactly this diagnosis missing
+    // from the interleaving most likely to produce it. Costs nothing when the
+    // click succeeds.
+    if (error instanceof errors.TimeoutError && (await page.locator(ROTATION_GATE_SELECTOR).isVisible())) {
+      throw new Error(`dismissTelemetryConsent: could not decline — ${ROTATION_GATE_HINT}`);
+    }
+    throw error;
+  }
   // Declining navigates to `postOnboardingRoute()`, which unmounts the prompt.
   // Waiting for that means a caller resumes on the next screen rather than
   // mid-transition.

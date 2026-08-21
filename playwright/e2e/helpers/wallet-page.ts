@@ -197,11 +197,16 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * production uses — so the vault's import-recovery scan (`Vault.spawn`) probes
    * the RIGHT guardian instead of falling back to the network default. Pass it
    * whenever the recovery must target a specific operator on a fresh profile.
+   * Resolves at the home surface with the rotation still IN FLIGHT — the gate
+   * up, and the telemetry consent prompt standing behind it — because the specs
+   * on this path drive that rotation themselves. Every one of them must
+   * therefore await `completeHotKeyRotation()`, which is what clears both.
    *
    * `viaUI: true` — drives the real recovery journey: Welcome → "Recover your
    * account" → 12-word seed grid → submit → (extension: full password step,
    * unavoidable off-mobile) → ImportRecoveryMethod (probe-detected or manual)
-   * → Continue → Confirmation → submit → `completeHotKeyRotation()`.
+   * → Continue → Confirmation → submit → `completeHotKeyRotation()`, which this
+   * branch awaits itself.
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
   /**
@@ -221,6 +226,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * flag clears only once `replace_signer` lands on-chain). Throws if the
    * gate instead reaches its terminal-failure surface (`hot-key-rotation-failed`)
    * within the timeout, or if the gate never appears at all.
+   *
+   * Then declines the one-time telemetry consent prompt, if one is up. A wallet
+   * only reaches this gate by having been recovered, and a recovered wallet's
+   * route IS that prompt — with the gate's `fixed inset-0 z-[9999]` scrim on top
+   * of it, so the gate detaching is the first moment it can be answered. Callers
+   * get a wallet that is rotated AND on its post-onboarding surface; none of them
+   * need to dismiss the prompt themselves.
    */
   completeHotKeyRotation(): Promise<void>;
   /**
@@ -528,19 +540,45 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
     }
 
-    // After the readiness wait, not before it: a short poll placed ahead of it
-    // would be racing a `register()` that is allowed to run for two minutes.
-    // Still raced against `explore-page` rather than trusted to be instant,
-    // because the wait above can resolve on `currentAccount.publicKey` — which
-    // the service worker's own StateUpdated broadcast can publish while
-    // `Welcome.tsx` is still inside `waitForReadyState`, i.e. seconds before it
-    // navigates anywhere. Note that arm can no longer be the winning signal on a
-    // profile with no stored choice: the consent route is where the flow lands
-    // first, and `explore-page` only follows the decline below.
-    await dismissTelemetryConsent(this.page, {
-      nextSurface: '[data-testid="explore-page"]',
-      timeoutMs: 60_000
-    });
+    // Recovering a Guardian account from a seed is the one bypass call whose
+    // wallet comes back flagged `requiresHotKeyRotation` (`Vault.spawn`'s
+    // `recoveredCold` branch — creates mint their own hot key, and an OffChain
+    // seed import has no guardian and so no device-bound hot key to replace).
+    // That flag raises `HotKeyRotationGate` on the very store update the
+    // readiness wait above ends on, i.e. the consent prompt spends its whole
+    // life on this path underneath a `fixed inset-0 z-[9999]` scrim.
+    //
+    // So the prompt is handed to whoever awaits the rotation:
+    // `completeHotKeyRotation()` declines it the instant the gate detaches,
+    // which is the first instant it is clickable. Nothing here can wait for
+    // that itself — `recoverGuardianFromSeed({ viaUI: false })` MUST return
+    // with the gate still standing, because its callers are the rotation-fault
+    // specs that then drive the gate (observe the terminal-failure surface,
+    // click Retry, or kill the wallet mid-rotation). Blocking on it here would
+    // deadlock the very tests it is meant to unblock, and there is no timeout
+    // to size against an on-chain `replace_signer` anyway.
+    //
+    // The handoff cannot be skipped: raising the gate and awaiting
+    // `completeHotKeyRotation()` are the same condition seen from two ends — a
+    // caller that leaves the gate un-awaited never gets a usable wallet at all,
+    // with or without a consent prompt on top.
+    const rotationGateOwnsThePrompt = opts.walletType === 'guardian' && !!opts.seed?.length;
+
+    if (!rotationGateOwnsThePrompt) {
+      // After the readiness wait, not before it: a short poll placed ahead of it
+      // would be racing a `register()` that is allowed to run for two minutes.
+      // Still raced against `explore-page` rather than trusted to be instant,
+      // because the wait above can resolve on `currentAccount.publicKey` — which
+      // the service worker's own StateUpdated broadcast can publish while
+      // `Welcome.tsx` is still inside `waitForReadyState`, i.e. seconds before it
+      // navigates anywhere. Note that arm can no longer be the winning signal on a
+      // profile with no stored choice: the consent route is where the flow lands
+      // first, and `explore-page` only follows the decline below.
+      await dismissTelemetryConsent(this.page, {
+        nextSurface: '[data-testid="explore-page"]',
+        timeoutMs: 60_000
+      });
+    }
 
     const address = await this.getAccountAddress();
 
@@ -937,20 +975,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     // A seed-only recovery can never recover the device-bound hot key, so the
     // recovered account always carries requiresHotKeyRotation — see
-    // HotKeyRotationGate.tsx.
+    // HotKeyRotationGate.tsx. This also clears the consent prompt the gate was
+    // covering, which is why neither recovery branch dismisses it itself.
     await this.completeHotKeyRotation();
-
-    // The rotation gate is a `fixed inset-0` scrim rendered above whatever route
-    // is mounted, and a recovered wallet's route is the consent prompt — so the
-    // prompt is only reachable once the gate has gone. Same ordering as
-    // `recoverViaForgotPassword`.
-    await dismissTelemetryConsent(this.page);
   }
 
   /**
    * Observe the `HotKeyRotationGate` blocking overlay to its cleared
-   * (unmounted) state. Throws if it instead reaches its terminal-failure
-   * surface within the timeout.
+   * (unmounted) state, then decline the telemetry consent prompt it was
+   * covering. Throws if it instead reaches its terminal-failure surface within
+   * the timeout.
    */
   async completeHotKeyRotation(): Promise<void> {
     const gate = this.page.getByTestId('hot-key-rotation-gate');
@@ -965,6 +999,21 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
         })
     ]);
+
+    // Every wallet that raises this gate got here by being RECOVERED, and a
+    // recovered wallet's route is the one-time consent prompt — which the scrim
+    // has been sitting on top of, unclickable, for the whole rotation. The gate
+    // detaching is therefore both the rotation's completion signal and the
+    // first moment the prompt can be answered, so the two belong in one place
+    // rather than repeated at each of the recovery paths that await this.
+    //
+    // This is what makes the rotation's own duration irrelevant: no timeout
+    // here is waiting for the network, only for a button already on screen.
+    // Absence is fine and costs the helper's short poll — a rotation reached by
+    // switching to an already-flagged account (rather than by finishing a
+    // recovery) has no prompt behind it, and neither does a profile that
+    // already carries a stored telemetry choice.
+    await dismissTelemetryConsent(this.page);
   }
 
   /**
