@@ -1,6 +1,6 @@
 import * as Repo from 'lib/miden/repo';
 
-import { verifySendLanded } from './cancel';
+import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { completeVerifiedLandedTransaction } from './helper';
 import {
   IEarnWithdrawExtraInputs,
@@ -222,7 +222,12 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
       //     the snapshot would clear the bytes of a send that had just
       //     broadcast. IndexedDB serializes the two writes, so by the time this
       //     callback runs the flag is committed and visible.
-      if (dbTx.mayHaveSubmitted === true || !failedPreSubmit) {
+      //   - `cancelledInFlightAt` — a Cancel that fired while the pipeline was
+      //     still running, before any leaf could stamp a crossing. Unlike the
+      //     flag above this one expires (see its docstring): a stale "maybe"
+      //     would pin the request forever and brick a send that failed early
+      //     into replaying it.
+      if (dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit) {
         // Persist BEFORE the stage is forgotten, so the next failure — which may
         // land on an early stage and look pre-submit — still sees it.
         dbTx.mayHaveSubmitted = true;

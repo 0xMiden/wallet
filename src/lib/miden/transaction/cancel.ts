@@ -16,7 +16,7 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
-import { markMayHaveSubmitted, updateTransactionStatus } from './helper';
+import { clearCancelledInFlight, markCancelledInFlight, updateTransactionStatus } from './helper';
 import { notifyBackgroundTransactionFailed } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
@@ -75,42 +75,69 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
 };
 
 /**
- * Fail a row from OUTSIDE its pipeline, recording that a submit can no longer
- * be ruled out.
+ * Fail a row from OUTSIDE its pipeline, noting that the pipeline is still
+ * running and may yet submit.
  *
- * The Cancel button and the stuck reaper do not abort the work already in
- * flight — they only mark the row. The pipeline runs on and can still submit,
- * and both writes that would have recorded it are refused because the row is
- * now terminal: the `setStage('submitting')` the guard reads, and the
- * completion write that captures the transaction id. The row is left frozen at
- * whichever pre-submit stage the cancel caught it in, and Retry reads exactly
- * that as proof nothing was broadcast — then rebuilds the request with a fresh
- * note serial and pays the recipient twice.
+ * A cancel marks the row; it does not abort the work in flight. The pipeline
+ * runs on and can still submit, and both writes that would have recorded that
+ * are refused because the row is now terminal: the `setStage('submitting')` the
+ * retry guard reads, and the completion write that captures the transaction id.
+ * The row is left frozen at whichever pre-submit stage the cancel caught it in,
+ * and Retry reads exactly that as proof nothing was broadcast — then rebuilds
+ * the request with a fresh note serial and pays the recipient twice.
  *
- * The leaf's own crossing stamp closes that gap only from the moment it runs.
- * A cancel during execute or prove lands before it, and that window is seconds
- * to minutes — precisely when a user reaches for Cancel. Recording the
- * uncertainty at the cancel is what covers the whole in-flight span.
+ * The leaves stamp `mayHaveSubmitted` before submitting, through the terminal
+ * row, so a crossing that happens IS recorded. But only from the moment the
+ * leaf reaches it: a cancel during execute or prove lands earlier, and Retry is
+ * one tap away on the same screen. `cancelledInFlightAt` covers that window and
+ * then expires — see its docstring for why a sticky flag here was wrong.
  *
- * Deliberately NOT used by the pipeline's own catch handlers. By the time those
- * run the pipeline has stopped, and had it submitted, the leaf would already
- * have stamped. Leaving them unflagged is what still lets a genuine execute or
- * prove failure rebuild its request — the rebuild this guard exists to gate,
- * not to prevent.
+ * Deliberately NOT used by the pipeline's own catch handlers, which instead
+ * CLEAR the marker: by the time those run the pipeline has stopped, and had it
+ * submitted the leaf already stamped. That asymmetry is what still lets a
+ * genuine execute or prove failure rebuild its request — the rebuild this guard
+ * exists to gate, not to prevent.
  */
 const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
   // Only a `send` has cached bytes this protects, and only an in-flight row has
   // a pipeline to outlive the cancel. A Queued row was never picked up.
   if (tx.type === 'send' && tx.status === ITransactionStatus.GeneratingTransaction) {
     // Before the cancel: if that throws, the row is still guarded.
-    await markMayHaveSubmitted(tx.id);
+    await markCancelledInFlight(tx.id);
   }
+  await cancelTransaction(tx, error);
+};
+
+/**
+ * Fail a row from INSIDE its pipeline's catch. The pipeline has stopped, so a
+ * submit is no longer merely possible — resolve the in-flight marker a
+ * concurrent Cancel may have left, and let the request be rebuilt.
+ *
+ * Safe because the ordering is one-way: a leaf stamps `mayHaveSubmitted` before
+ * it submits, so any attempt that got that far is already recorded on a field
+ * this does not touch.
+ */
+export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
+  await clearCancelledInFlight(tx.id);
   await cancelTransaction(tx, error);
 };
 
 export const cancelTransactionById = async (id: string, error: any) => {
   const tx = await Repo.transactions.where({ id }).first();
   if (tx) await cancelWhilePipelineMayStillRun(tx, error);
+};
+
+/**
+ * True while `cancelledInFlightAt` still means "the pipeline might submit".
+ *
+ * Bounded by the same threshold the stuck reaper uses, which is the app's own
+ * statement of the longest a pipeline can plausibly still be alive. Past it the
+ * marker is stale and must not keep pinning a request, or a send that failed
+ * early is bricked into replaying it forever.
+ */
+export const pipelineMayStillBeRunning = (cancelledInFlightAt: number | undefined): boolean => {
+  if (cancelledInFlightAt === undefined) return false;
+  return Math.floor(Date.now() / 1000) - cancelledInFlightAt <= MAX_WAIT_BEFORE_CANCEL;
 };
 
 /**
@@ -160,9 +187,13 @@ export const cancelStuckTransactions = async () => {
       const hidden = tx.processingStartedAt ? hiddenSecondsForTx(tx.processingStartedAt) : 0;
       return isTransactionStuck(tx.processingStartedAt, nowSeconds, hidden, MAX_WAIT_BEFORE_CANCEL);
     })
-    // The reaper takes rows that are still processing, so their pipelines are
-    // by definition not known to have stopped.
-    .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
+    // NOT `cancelWhilePipelineMayStillRun`. A row this reaper takes has already
+    // exceeded `MAX_WAIT_BEFORE_CANCEL`, which is precisely the app's threshold
+    // for "no pipeline can still be alive" — so marking it in-flight would be
+    // false, and a false "maybe submitted" pins the cached request and bricks a
+    // send that failed early into replaying it. A submit this row DID reach is
+    // recorded on `mayHaveSubmitted` by the leaf, which is not stage-dependent.
+    .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
 };

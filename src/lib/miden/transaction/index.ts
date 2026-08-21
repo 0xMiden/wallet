@@ -29,7 +29,7 @@ import { logger } from 'shared/logger';
 import {
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
-  cancelTransaction,
+  cancelTransactionAfterPipelineStopped,
   verifyConsumeLanded
 } from './cancel';
 import {
@@ -411,7 +411,7 @@ export const generateTransaction = async (
           '[Guardian] earn-deposit submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:',
           error
         );
-        await cancelTransaction(transaction, error);
+        await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
       }
       if (
@@ -579,7 +579,7 @@ export const generateTransaction = async (
       // cancelTransaction below. CONSUME only — send/swap/execute have no post-kill
       // node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransaction(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error);
     }
     return;
   }
@@ -1503,7 +1503,7 @@ export const generateTransactionsLoop = async (
         logger.warning(
           'Earn-deposit submitted but local apply failed; marking Failed so the awaiting caller stops waiting'
         );
-        if (tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+        if (tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
         return false;
       }
 
@@ -1544,7 +1544,7 @@ export const generateTransactionsLoop = async (
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
     return false;
   }
 };

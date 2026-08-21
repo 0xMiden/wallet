@@ -190,6 +190,35 @@ export const markMayHaveSubmitted = async (id: string) => {
 };
 
 /**
+ * Record that this row was failed from outside its own pipeline while that
+ * pipeline was still running, so the retry guard treats a submit as possible
+ * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why
+ * this is separate from — and expires unlike — `mayHaveSubmitted`.
+ *
+ * Guard-free for the same reason as `markMayHaveSubmitted`: the cancel it
+ * accompanies is what makes the row terminal.
+ */
+export const markCancelledInFlight = async (id: string) => {
+  const at = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.cancelledInFlightAt = at;
+  });
+};
+
+/**
+ * Resolve the above: the pipeline has stopped, so a submit is no longer merely
+ * possible. Called from the pipeline's own catch. If it HAD submitted, the leaf
+ * stamped `mayHaveSubmitted` before doing so and the guard holds on that
+ * instead — which is what makes clearing this safe, and what lets a genuine
+ * execute or prove failure rebuild its request rather than replaying a bad one.
+ */
+export const clearCancelledInFlight = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.cancelledInFlightAt = undefined;
+  });
+};
+
+/**
  * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
  * the SW-inline WASM client, used by the transaction loop to DEFER a
  * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).

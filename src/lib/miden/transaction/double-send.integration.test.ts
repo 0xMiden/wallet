@@ -25,7 +25,12 @@
  */
 import * as Repo from 'lib/miden/repo';
 
-import { cancelTransaction, cancelTransactionById } from './cancel';
+import {
+  cancelStuckTransactions,
+  cancelTransaction,
+  cancelTransactionAfterPipelineStopped,
+  cancelTransactionById
+} from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
 import { requeueFailedTransaction } from './retry';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
@@ -337,7 +342,10 @@ describe('a cancel that does not stop the pipeline says so', () => {
 
     const row = await read('mid-prove');
     expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.cancelledInFlightAt).toEqual(expect.any(Number));
+    // Not the sticky flag: nothing has submitted, and saying so permanently is
+    // what bricked the row in the first version of this guard.
+    expect(row.mayHaveSubmitted).toBeUndefined();
   });
 
   it('keeps the bytes when Retry lands before the leaf ever reached its stamp', async () => {
@@ -371,7 +379,7 @@ describe('a cancel that does not stop the pipeline says so', () => {
 
     await cancelTransactionById('never-picked-up', 'user cancelled');
 
-    expect((await read('never-picked-up')).mayHaveSubmitted).toBeUndefined();
+    expect((await read('never-picked-up')).cancelledInFlightAt).toBeUndefined();
   });
 
   // The counterweight. If every failure were flagged, the rebuild this guard
@@ -383,12 +391,119 @@ describe('a cancel that does not stop the pipeline says so', () => {
 
     // What the pipeline's catch does: it has already stopped, and had it
     // submitted the leaf would have stamped.
-    await cancelTransaction(tx, new Error('prover exploded'));
+    await cancelTransactionAfterPipelineStopped(tx, new Error('prover exploded'));
     await requeueFailedTransaction('prove-died');
 
     const row = await read('prove-died');
     expect(row.mayHaveSubmitted).toBeUndefined();
     expect(row.requestBytes).toBeUndefined();
+  });
+});
+
+/**
+ * The marker says "we do not yet know", so something has to make it stop
+ * saying that — otherwise it is a sticky flag again, and a send that failed
+ * early has its request pinned forever and replays it on every retry. Which is
+ * exactly the request the callback-asset fix in this change needs to REBUILD.
+ *
+ * Two things resolve it, and both are exercised here.
+ */
+describe('the in-flight marker resolves, so a bad request is not pinned forever', () => {
+  it('the pipeline\u2019s own catch clears a concurrent cancel\u2019s marker', async () => {
+    const tx = inFlightSend('cancel-then-die', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+
+    // User cancels while it proves; the prove then genuinely fails.
+    await cancelTransactionById('cancel-then-die', 'user cancelled');
+    expect((await read('cancel-then-die')).cancelledInFlightAt).toEqual(expect.any(Number));
+
+    await cancelTransactionAfterPipelineStopped(await read('cancel-then-die'), new Error('prover exploded'));
+
+    const row = await read('cancel-then-die');
+    expect(row.cancelledInFlightAt).toBeUndefined();
+
+    // And so the request is rebuilt rather than replayed.
+    await requeueFailedTransaction('cancel-then-die');
+    expect((await read('cancel-then-die')).requestBytes).toBeUndefined();
+  });
+
+  it('but not when the leaf stamped a real crossing first — that flag is sticky', async () => {
+    const tx = inFlightSend('cancel-then-submit-then-die', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionById('cancel-then-submit-then-die', 'user cancelled');
+    // The leaf carried on past the cancel and broadcast.
+    await markMayHaveSubmitted('cancel-then-submit-then-die');
+    // Then the post-submit apply blew up and the catch ran.
+    await cancelTransactionAfterPipelineStopped(await read('cancel-then-submit-then-die'), new Error('apply failed'));
+
+    await requeueFailedTransaction('cancel-then-submit-then-die');
+
+    const row = await read('cancel-then-submit-then-die');
+    expect(row.cancelledInFlightAt).toBeUndefined();
+    expect(row.mayHaveSubmitted).toBe(true);
+    // The bytes that pin the note id survive, so the chain rejects the duplicate.
+    expect(row.requestBytes).toBeDefined();
+  });
+
+  it('lapses on its own when no catch ever runs, as when the worker is recycled', async () => {
+    const tx = inFlightSend('worker-died', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+    await cancelTransactionById('worker-died', 'user cancelled');
+
+    // Nothing cleared it, because the pipeline that would have is gone. Age it
+    // past the window in which a pipeline could still be alive.
+    await Repo.transactions.where({ id: 'worker-died' }).modify(r => {
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - 60 * 60 * 24;
+    });
+
+    await requeueFailedTransaction('worker-died');
+
+    expect((await read('worker-died')).requestBytes).toBeUndefined();
+  });
+});
+
+/**
+ * Regression: the reaper takes rows that have ALREADY outlived
+ * `MAX_WAIT_BEFORE_CANCEL` — the app's own threshold for "no pipeline can still
+ * be running" — so treating them as maybe-in-flight is not conservative, it is
+ * false. Doing so pinned the cached request of every stuck send, and since
+ * nothing ever unset it the row replayed the identical failing request on every
+ * retry, forever.
+ */
+describe('the stuck reaper does not pin the request of a send it reaps', () => {
+  it('lets a send that wedged while executing rebuild on retry', async () => {
+    const tx = inFlightSend('reaped', {
+      stage: 'executing',
+      // Stuck: picked up over the 30-minute desktop threshold ago.
+      processingStartedAt: Math.floor(Date.now() / 1000) - 60 * 60
+    });
+    await Repo.transactions.add(tx);
+
+    await cancelStuckTransactions();
+
+    const reaped = await read('reaped');
+    expect(reaped.status).toBe(ITransactionStatus.Failed);
+    expect(reaped.cancelledInFlightAt).toBeUndefined();
+    expect(reaped.mayHaveSubmitted).toBeUndefined();
+
+    await requeueFailedTransaction('reaped');
+    expect((await read('reaped')).requestBytes).toBeUndefined();
+  });
+
+  it('still keeps them when the leaf recorded a crossing before it wedged', async () => {
+    const tx = inFlightSend('reaped-submitted', {
+      stage: 'executing',
+      processingStartedAt: Math.floor(Date.now() / 1000) - 60 * 60
+    });
+    await Repo.transactions.add(tx);
+    // The leaf's stamp is not stage-dependent and survives the reap.
+    await markMayHaveSubmitted('reaped-submitted');
+
+    await cancelStuckTransactions();
+    await requeueFailedTransaction('reaped-submitted');
+
+    expect((await read('reaped-submitted')).requestBytes).toBeDefined();
   });
 });
 

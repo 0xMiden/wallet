@@ -327,6 +327,39 @@ export interface ITransaction {
    * read conservatively from the stage and the presence of cached bytes.
    */
   mayHaveSubmitted?: boolean;
+  /**
+   * Unix seconds at which this row was failed from OUTSIDE its own pipeline —
+   * the Cancel button — while that pipeline was still running. Not the same
+   * claim as `mayHaveSubmitted`, and deliberately not merged into it.
+   *
+   * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
+   * do not yet know whether one will: the cancel marks the row but does not
+   * abort the work, so the pipeline runs on and may still submit. The leaves
+   * stamp `mayHaveSubmitted` before submitting and their writes go through a
+   * terminal row, so a crossing that occurs IS recorded — but only from the
+   * moment the leaf reaches it. Between the cancel and that stamp the row looks
+   * pre-submit, and a retry in that window would rebuild the request and pay
+   * twice. This field covers exactly that gap.
+   *
+   * It has to expire, which is why it is a timestamp rather than a boolean. The
+   * first version of this guard was a sticky flag, and a sticky "maybe" is
+   * indistinguishable from "yes" forever: a send that failed while proving got
+   * its bytes pinned permanently, so every retry replayed the identical bad
+   * request instead of rebuilding it — defeating the callback-asset fix this
+   * whole change exists for, and freezing an absolute reclaim height that a
+   * later attempt could land already past. So:
+   *
+   *   - the pipeline's own catch CLEARS it, because reaching that catch proves
+   *     the pipeline stopped; if it had submitted, the leaf already stamped
+   *     `mayHaveSubmitted` and the guard holds on that instead;
+   *   - failing that, it lapses after `MAX_WAIT_BEFORE_CANCEL`, the app's own
+   *     definition of the longest a pipeline can plausibly still be alive.
+   *
+   * The stuck reaper deliberately does NOT set it: a row it takes has by
+   * definition already exceeded that same maximum, so its pipeline is not
+   * "maybe running", and a submit it did reach is on `mayHaveSubmitted`.
+   */
+  cancelledInFlightAt?: number;
 }
 
 export interface ISuccessTransactionOutput {
