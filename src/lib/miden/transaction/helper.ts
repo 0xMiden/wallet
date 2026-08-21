@@ -11,20 +11,9 @@ import { getMidenClient } from '../sdk/miden-client';
 /**
  * Feature flag: is the offscreen WASM client active? Read as a module constant
  * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}.
- *
- * The default is SPLIT by bundle, and the split matters HERE more than anywhere:
- * `vite.background.config.ts` defaults `MIDEN_USE_OFFSCREEN_CLIENT` to `'true'`, and
- * the service worker is the only bundle that runs `safeGenerateTransactionsLoop` on
- * the extension: every front-side driver (`GeneratingTransaction`,
- * `HotKeyRotationGate`, `OrphanedTransactionRecovery`) checks `isExtension()` first
- * and returns — so it is the only bundle that ever calls
- * {@link readLastAuthReason}. On a default Chrome build the `return undefined` branch
- * below is therefore the one that executes; it is not the exotic path.
- * `vite.extension.config.ts` (popup/side panel), `vite.contentScripts.config.ts` and
- * `vite.desktop.config.ts` default it `'false'`, and `vite.mobile.config.ts` hardcodes
- * `'false'` — on mobile/desktop the loop runs front-side against the inline client,
- * which is where the flag-off branch stays live.
+ * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
+ * the service-worker bundle that runs the transaction loop, OFF elsewhere and
+ * hardcoded OFF on mobile — see the defines in the vite configs.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
@@ -184,6 +173,108 @@ export const setTransactionStage = async (
       if (!tx.stageTimestamps) tx.stageTimestamps = {};
       if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
     }
+  });
+};
+
+/**
+ * Reconcile a Failed row that the node says actually LANDED.
+ *
+ * Separate from {@link updateTransactionStatus} because that function's terminal
+ * guard makes this impossible through it: `requeueFailedTransaction` only ever
+ * runs on a Failed row, so its "provably on chain — complete it instead of
+ * resubmitting" branch threw `Transaction already in a finalized state` every
+ * single time, and the UI surfaced that string as the retry error. The row then
+ * stayed Failed for a send that had succeeded, with no way to reconcile it.
+ *
+ * The guard itself is right and stays: it stops a LATE error downgrading a
+ * finalized row. Promoting Failed → Completed on node evidence is the opposite
+ * operation — deliberate, evidence-backed, and the only thing standing between
+ * an ambiguous post-submit abort and a second payment — so it gets its own
+ * narrow door rather than a hole in that one. Refuses to touch an
+ * already-Completed row, which needs no reconciling.
+ */
+export const completeVerifiedLandedTransaction = async (
+  id: string,
+  otherValues: Partial<ITransaction> = {}
+): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Failed) return;
+    Object.assign(tx, otherValues);
+    tx.status = ITransactionStatus.Completed;
+    tx.stage = 'complete';
+    // The failure is no longer the row's story; leaving it behind renders a
+    // completed transaction with an error on it.
+    tx.error = undefined;
+    tx.rawError = undefined;
+  });
+};
+
+/**
+ * Record that this row's pipeline reached the point where a broadcast can no
+ * longer be ruled out — the sticky half of the double-send guard that
+ * `requeueFailedTransaction` reads before dropping a send's cached request.
+ *
+ * Unlike `setTransactionStage` this deliberately does NOT skip terminal rows,
+ * and that exemption is the entire reason it exists. Nothing aborts a running
+ * pipeline when its row is failed out from under it — the Cancel button and the
+ * stale-queued reaper both go through `cancelTransaction`, which writes
+ * `Failed` and no stage — so the pipeline runs on and submits. The
+ * `setStage('submitting')` that would have recorded the crossing is exactly what
+ * the terminal guard suppresses, leaving the row frozen at whichever pre-submit
+ * stage it happened to hold when the cancel landed. Retry then reads that stage
+ * as proof nothing was broadcast, rebuilds the request, and mints a SECOND
+ * payment for a transfer already on chain. Writing the flag through a guard-free
+ * modify is what makes the record outlive that race.
+ */
+export const markMayHaveSubmitted = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * Record that this row was failed from outside its own pipeline while that
+ * pipeline was still running, so the retry guard treats a submit as possible
+ * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why
+ * this is separate from — and expires unlike — `mayHaveSubmitted`.
+ *
+ * Guard-free as to the TERMINAL state, for the same reason as
+ * `markMayHaveSubmitted`: the cancel it accompanies is what makes the row
+ * terminal, so it cannot wait for that.
+ *
+ * It does test the in-flight condition, and does so in here rather than at the
+ * call site, because the two have to be one write. The caller decides from a row
+ * it read earlier; if the pipeline's own catch lands in between, that catch
+ * resolves the marker and THEN this writes a fresh one — onto a row whose
+ * pipeline is now provably dead, with the only thing that would have cleared it
+ * already run. The row is then refused for the marker's full lifetime for no
+ * reason. Re-reading the status inside the `modify` closes that window: Dexie
+ * runs it against the committed row.
+ */
+export const markCancelledInFlight = async (id: string) => {
+  const at = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction) return;
+    tx.cancelledInFlightAt = at;
+  });
+};
+
+/**
+ * Resolve the above: the pipeline has stopped, so a submit is no longer merely
+ * possible. Called from the pipeline's own catch, and what lets a genuine execute
+ * or prove failure rebuild its request rather than replaying a bad one.
+ *
+ * On the guardian paths a submit that HAD happened is recorded on
+ * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
+ * instead and clearing this loses nothing. A plain send stamps nothing, so
+ * clearing genuinely returns it to "no evidence either way" — correct for the
+ * failures that reach here (the pipeline stopped, and the aborted-op case is
+ * routed to the flag instead), but not a claim that a crossing was recorded
+ * elsewhere. See `cancelTransactionAfterPipelineStopped`.
+ */
+export const clearCancelledInFlight = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.cancelledInFlightAt = undefined;
   });
 };
 

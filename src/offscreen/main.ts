@@ -396,6 +396,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // Node-authoritative commit state of one tx id, backing the send/swap
+  // idempotent-retry guard. A plain string union, so JSON like the DTO reads
+  // above. Its absence here was not neutral: the SW-side stub returned
+  // 'not-found', which `verifySendLanded` maps to 'unknown' — "cannot prove it
+  // landed" — and the retry proceeds on that. So on the flag-on path, which is
+  // the default in the service worker, the guard could never fire and a Failed
+  // row whose submit had actually landed was resubmitted.
+  getTransactionCommitState: async (client, txId: string) => {
+    const state = await client.getTransactionCommitState(txId);
+    return new TextEncoder().encode(JSON.stringify(state));
+  },
+
   // Consumable notes (issue #260, slice 4). The RECLAIM GATE
   // (`consumableAfterBlock() <= getSyncHeight()`) lives inside
   // `getConsumableNoteDtos` → so running it HERE, in the offscreen realm that

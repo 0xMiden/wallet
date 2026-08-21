@@ -113,9 +113,11 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
+// Spread the real module — see the note in dapp.coverage.test.ts: the send
+// flow's authorization gate needs `sameWalletAccountId` to exist.
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32',
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  getBech32AddressFromAccountId: () => 'bech32'
 }));
 
 jest.mock('./simulate-custom-tx', () => ({

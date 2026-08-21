@@ -143,8 +143,6 @@ describe('C1 regression: requestSendTransaction preview error', () => {
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      // The connected account: a mismatched sender is rejected before the preview
-      // is ever built, which would mask the preview-error branch under test.
       senderAddress: 'miden-account-1',
       recipientAddress: 'recipient',
       faucetId: 'faucet',

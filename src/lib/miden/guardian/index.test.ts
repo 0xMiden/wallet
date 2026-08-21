@@ -27,11 +27,11 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep accountIdStringToSdk simple — we only assert it was called with the
-// inputs we passed; the real implementation parses bech32 which needs WASM.
-const mockAccountIdStringToSdk = jest.fn((id: string) => ({ toString: () => `sdk(${id})` }));
+// Keep the id parser simple — we only assert it was called with the inputs we
+// passed; the real implementation parses bech32/hex, which needs WASM.
+const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 jest.mock('../sdk/helpers', () => ({
-  accountIdStringToSdk: (...args: unknown[]) => mockAccountIdStringToSdk(...(args as [string]))
+  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string]))
 }));
 
 const mockGetAccount = jest.fn();
@@ -222,16 +222,35 @@ describe('MultisigService', () => {
   });
 
   describe('proposal builders', () => {
-    it('createSendProposal normalizes recipient+faucet ids through accountIdStringToSdk', async () => {
+    // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
+    // the wallet in both hex and bech32 form, and the sibling recallable-send
+    // path already accepts both — a hex id it sends fine must not throw here.
+    it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
+      const proposal = await service.createSendProposal('rec', 'fauc', 1000n, 'Private' as never);
 
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
         noteType: 'Private'
       });
       expect(proposal).toEqual({ kind: 'p2id' });
+    });
+
+    // Was hardcoded Private, so a Public guardian send emitted a private note
+    // the recipient was never handed — the row said 'public', so the relay in
+    // completeSendTransaction was skipped too.
+    it('createSendProposal forwards the caller-resolved note type', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.createSendProposal('rec', 'fauc', 1000n, 'Public' as never);
+
+      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
+        noteType: 'Public'
+      });
     });
 
     it('createConsumeNotesProposal forwards note ids untouched', async () => {

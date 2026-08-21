@@ -36,6 +36,12 @@ export interface GeneratingTransactionProps {
   onViewExplorer?: () => void;
   /** Retry a FAILED tx from the failure footer (#483). Shown only when `canRetry`. */
   onRetry?: () => void;
+  /**
+   * Retry a send the wallet cannot verify either way, on the user's word that it
+   * did not arrive. Provided only after a plain Retry has been refused for that
+   * reason, so the warning is always read before this can be tapped.
+   */
+  onRetryAnyway?: () => void;
   /** Whether the failed tx can be retried (requeueable / resubmittable). */
   canRetry?: boolean;
   /** True while a retry is in flight — drives the Retry button spinner. */

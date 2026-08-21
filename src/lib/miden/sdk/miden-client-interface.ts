@@ -44,7 +44,13 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
-import { getBech32AddressFromAccountId, walletAccountIdToSdk } from './helpers';
+import {
+  accountRefToSdk,
+  buildPswapCreateRequest,
+  buildSendTransactionRequest,
+  getBech32AddressFromAccountId,
+  walletAccountIdToSdk
+} from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
@@ -57,6 +63,7 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
 import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
+import { isPrivateNoteType } from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -991,7 +998,9 @@ export class MidenClientInterface {
                 accountId,
                 recipientAccountId: secondaryAccountId,
                 faucetId,
-                noteType: noteType === 'private' ? 'private' : 'public',
+                // Same coercion the request builder uses, so the key can't say
+                // 'public' for a note built Private (and vice versa).
+                noteType: isPrivateNoteType(noteType) ? 'private' : 'public',
                 amount: BigInt(amount)
               }
             : undefined;
@@ -1040,8 +1049,13 @@ export class MidenClientInterface {
         return request.serialize();
       })) as Uint8Array;
       await onStage?.('executing');
+      // The canonical id, which is what `buildSendExecuteArgs` read the vault
+      // under. Executing against the raw `accountId` would let the account the
+      // request runs on diverge from the one its asset's vault key came from —
+      // the mismatch that silently reinstates the callback-flag bug — and would
+      // reject the composite `<address>_<suffix>` form the read accepts.
       const executed = await this.client.transactions.executeRequest(
-        accountId,
+        walletAccountIdToSdk(accountId).toString(),
         TransactionRequest.deserialize(requestBytes)
       );
       await onStage?.('proving');
@@ -1201,23 +1215,47 @@ export class MidenClientInterface {
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
-    const offer = { token: faucetId, amount };
-    const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
+    const withInner = (
+      this.client as unknown as {
+        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+      }
+    )._withInnerWebClient;
+    if (typeof withInner !== 'function') {
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+    }
 
     return proveWithFallback(async (prover, attempt) => {
-      // `pswapCreate` is opaque: it builds the PSWAP request, executes, proves,
-      // submits and applies inside one SDK call, so there is no seam at which to
-      // mark the point of no return. Mark it BEFORE the call — a whole-op retry
-      // would build a SECOND PSWAP note (a fresh note serial) and lock the offered
-      // asset twice. The cost is that a swap gets no delegated→local prove
-      // fallback; a duplicated swap note is unrecoverable, a failed swap is not.
+      // `transactions.pswapCreate` would build, prove and submit in one call, but
+      // it builds the offered asset from faucet id + amount and so always offers
+      // the Disabled callback variant — see `buildPswapCreateRequest`. Split the
+      // build out so the note can be re-emitted against the vault key the
+      // creator actually holds, then submit that instead.
+      //
+      // The canonical id for both the vault read and the submit, for the reason
+      // spelled out on the send path above: the account a request is EXECUTED
+      // against must be the one its asset's vault key came from.
+      const canonicalId = walletAccountIdToSdk(accountId).toString();
+      const creatorAccount = await this.client.accounts.get(canonicalId);
+      const reference = (await withInner.call(this.client, async (inner: any) =>
+        inner.newPswapCreateTransactionRequest(
+          walletAccountIdToSdk(accountId),
+          accountRefToSdk(faucetId),
+          BigInt(amount),
+          accountRefToSdk(extraInputs.requestedFaucetId),
+          BigInt(extraInputs.requestedAmount),
+          NoteType.Public,
+          NoteType.Public
+        )
+      )) as TransactionRequest;
+      const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
+      // Point of no return. `submit` executes, proves and submits in one call, so
+      // a whole-op retry past here would draw a fresh serial from
+      // `newPswapCreateTransactionRequest` above, build a SECOND PSWAP note and
+      // lock the offered asset twice. Marking it costs this swap its
+      // delegated→local prove fallback; a duplicated swap note is unrecoverable,
+      // a failed swap is not.
       attempt.markSubmitting();
-      const { result } = await this.client.transactions.pswapCreate({
-        account: accountId,
-        offer,
-        request,
-        prover
-      });
+      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
       return result;
     }, transaction.delegateTransaction);
   }
@@ -1621,15 +1659,21 @@ function isLocalProver(prover: TransactionProver): boolean {
 
 /**
  * Build the `(accountId, request)` tuple for a send transaction's execute
- * step, used by both the actual `sendTransaction` flow and the
- * speculation flow. Keeping this in a single function means the
- * Speculation params and the real-send params produce IDENTICAL
- * TransactionRequest WASM objects, which is what the cache hit relies on.
+ * step, used by both the actual `sendTransaction` flow and the speculation
+ * flow. Keeping this in a single function is what makes the two agree on the
+ * request they build from a given set of params.
  *
- * Note: WASM-bindgen value-consumption is real here. `newSendTransactionRequest`
- * consumes `senderId` by value; we allocate a fresh `AccountId` for the
- * subsequent `executeTransaction`. Don't refactor this to share AccountIds
- * across calls without re-checking the wasm-bindgen ownership semantics.
+ * The two requests are NOT byte-identical — the note's serial number is random,
+ * so no two builds of the same send ever match. The cache doesn't need them to:
+ * `speculationParamsHash` keys purely on the params, and a hit replays the
+ * cached execution + proof wholesale rather than rebuilding a request.
+ *
+ * Note: a fresh `AccountId` is allocated for the subsequent `executeTransaction`
+ * rather than sharing one. As of SDK 0.15.9 neither `executeTransaction` nor the
+ * note builders consume their `AccountId` by value (the generated glue reads
+ * `__wbg_ptr` without `__destroy_into_raw`), so this is belt-and-braces — but
+ * re-check the glue before relying on sharing, since a method that DOES move its
+ * argument leaves the JS handle nulled.
  */
 async function buildSendExecuteArgs(
   wasm: any,
@@ -1643,19 +1687,23 @@ async function buildSendExecuteArgs(
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
-  const tokenId = resolveAccountId(wasm, faucetId);
   // noteType arrives as either an SDK enum (real send) or a literal
-  // 'public'/'private' string (speculation). Handle both.
-  const isPrivate = noteType === 'private' || (typeof noteType === 'object' && noteType === wasm.NoteType.Private);
-  const nt = isPrivate ? wasm.NoteType.Private : wasm.NoteType.Public;
-  const request: TransactionRequest = await inner.newSendTransactionRequest(
+  // 'public'/'private' string (speculation) — `isPrivateNoteType` takes both and
+  // throws on anything else rather than silently downgrading to public. The
+  // enum is numeric (`Private = 0`), so the former `typeof === 'object'` arm
+  // never matched and every non-'private' value fell through to public.
+  const nt = isPrivateNoteType(noteType) ? wasm.NoteType.Private : wasm.NoteType.Public;
+  // The sender's local account supplies the outgoing asset's vault key
+  // (callback flag included) — see `buildSendTransactionRequest`.
+  const senderAccount = await inner.getAccount(resolveAccountId(wasm, senderAccountId));
+  const request = buildSendTransactionRequest(
+    senderAccount ?? undefined,
     senderId,
     receiverId,
-    tokenId,
-    nt,
+    faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
-    reclaimAfter ?? null,
-    null
+    nt,
+    reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };
@@ -1673,19 +1721,31 @@ function speculationParamsHash(p: SpeculationParams): string {
 /**
  * Mirror of the SDK's `resolveAccountRef` (js/utils.js) — converts a string
  * account identifier (hex or bech32) into the wasm-bindgen `AccountId` type
- * that lower-level methods like `executeTransaction` and
- * `newSendTransactionRequest` consume. The wallet stores account IDs as
- * bech32 (`mtst1...` for testnet), but in places (URL params, dApp inputs)
- * a `0x`-prefixed hex form may also appear, so handle both.
+ * that lower-level methods like `executeTransaction` and `getAccount` take.
+ * The wallet stores account IDs as bech32 (`mtst1...` for testnet), but in
+ * places (URL params, dApp inputs) a `0x`-prefixed hex form may also appear,
+ * so handle both.
  *
- * Note: each call returns a freshly-allocated `AccountId`. Multiple
- * wasm-bindgen WASM methods CONSUME their `AccountId` argument
- * (e.g. `newSendTransactionRequest` and `executeTransaction` both move
- * the value), so callers must allocate one per consume site.
+ * The composite `WalletAccount.publicKey` form (`<address>_<suffix>`) is reduced
+ * to its address first, exactly as `walletAccountIdToSdk` does for the SW-side
+ * path — every caller here passes an ACCOUNT id, and `Address.fromBech32` only
+ * parses the composite form for suffixes whose routing parameters happen to
+ * decode. Ids without a `_` are unaffected. This matters most for the sender
+ * account read (`getAccount`): without the split, a composite id could throw
+ * where nothing read the account at all before.
+ *
+ * Note: each call returns a freshly-allocated `AccountId`. As of SDK 0.15.9 the
+ * methods used here borrow rather than move it, but some wasm-bindgen methods do
+ * move their argument (`exportAccountFile` is one) and leave the JS handle
+ * nulled, so allocating per call site keeps that distinction from mattering.
  */
 function resolveAccountId(wasm: any, ref: string): any {
-  if (ref.startsWith('0x') || ref.startsWith('0X')) {
-    return wasm.AccountId.fromHex(ref);
+  const address = ref.split('_')[0] ?? ref;
+  if (address.startsWith('0x') || address.startsWith('0X')) {
+    // Lowercase the prefix for the same reason `accountRefToSdk` does: the hex
+    // DIGITS are case-insensitive but `fromHex` requires a literal '0x' and
+    // throws on '0X…', so the uppercase arm led straight to a guaranteed throw.
+    return wasm.AccountId.fromHex(`0x${address.slice(2)}`);
   }
-  return wasm.AccountId.fromBech32(ref);
+  return wasm.AccountId.fromBech32(address);
 }

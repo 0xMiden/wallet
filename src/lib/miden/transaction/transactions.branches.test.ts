@@ -158,6 +158,7 @@ jest.mock('shared/logger', () => ({
 }));
 
 jest.mock('../helpers', () => ({
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => 'public'
 }));
 

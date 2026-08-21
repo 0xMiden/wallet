@@ -189,9 +189,13 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(250), 2)).toBe('2.5');
   });
 
-  it('falls back to a single zero-pad when decimals is not positive', () => {
-    // decimals === 0 => numZeros forced to 1; documents the real (quirky) output.
-    expect(formatBigInt(BigInt(5), 0)).toBe('0.05');
+  it('renders whole units verbatim for a zero-decimal faucet', () => {
+    // Previously this documented the quirk instead of fixing it: `-decimals` was
+    // `-0`, `slice(0, -0)` returned the empty string, and 5 came out as "0.05" —
+    // two orders of magnitude off. It is rendered on the dApp approval sheet
+    // beside the amount being sent, so it has to be the amount.
+    expect(formatBigInt(BigInt(5), 0)).toBe('5');
+    expect(formatBigInt(BigInt(100), 0)).toBe('100');
   });
 });
 
@@ -200,9 +204,47 @@ describe('stringToBigInt', () => {
     expect(stringToBigInt('1.5', 6)).toBe(BigInt(1_500_000));
   });
 
-  it('rounds to avoid float precision drift', () => {
+  it('does not drift on values a float cannot hold', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
+    // The regression: `parseFloat('1.000001') * 1e18` is 1000000999999999872,
+    // 128 base units short of the amount the review screen displayed.
+    expect(stringToBigInt('1.000001', 18)).toBe(1_000_001_000_000_000_000n);
+    expect(stringToBigInt('123456789.123456789', 18)).toBe(123_456_789_123_456_789_000_000_000n);
+    // Exact at any width, where the float path lost the low digits entirely.
+    expect(stringToBigInt('9007199254740993', 0)).toBe(9_007_199_254_740_993n);
+  });
+
+  it('truncates digits finer than the faucet can represent', () => {
     expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
+    expect(stringToBigInt('0.999', 2)).toBe(BigInt(99));
+    // Never rounds up: an outgoing amount must not exceed what was typed.
+    expect(stringToBigInt('1.999999', 2)).toBe(BigInt(199));
+  });
+
+  it.each([
+    ['no fractional part', '5', 3, 5000n],
+    ['a bare leading point', '.5', 2, 50n],
+    ['a trailing point', '5.', 2, 500n],
+    ['zero', '0', 6, 0n],
+    ['zero decimals', '1234', 0, 1234n],
+    ['a negative amount', '-1.5', 2, -150n],
+    ['an explicit plus', '+1.5', 2, 150n],
+    ['surrounding whitespace', '  1.5  ', 2, 150n],
+    ['exponent notation, as a number input can produce', '1e3', 2, 100000n],
+    ['a negative exponent', '1.5e-2', 4, 150n]
+  ])('handles %s', (_label, input, decimals, expected) => {
+    expect(stringToBigInt(input as string, decimals as number)).toBe(expected);
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['whitespace only', '   '],
+    ['a bare point', '.'],
+    ['letters', 'abc'],
+    ['a partial number', '1.2.3'],
+    ['a currency symbol', '$5']
+  ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
+    expect(() => stringToBigInt(input as string, 2)).toThrow();
   });
 });
 
