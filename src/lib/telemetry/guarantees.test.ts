@@ -1041,19 +1041,23 @@ const EGRESS_APIS: readonly Api[] = [
  * Third-party origins the shipped HTML documents may reach, each with the
  * reason it is tolerated.
  *
- * Google Fonts is a real third-party request and is listed here rather than
- * hidden: on mobile and desktop it discloses the user's IP address and
- * User-Agent to Google every time a window opens. It sets no cookie and
- * carries no identifier, and the extension's MV3 page CSP blocks it outright,
- * so it is not the cross-site *tracking* the wallet promises against — but it
- * is the only third-party fetch in the product, and serving Inter and Nunito
- * locally the way Geist already is would remove it. Until then it is a known,
- * reviewed exception, and anything that is not on this list is not.
+ * Deliberately empty: the entry documents reach no third party at all.
+ *
+ * They used to. `fonts.googleapis.com` and `fonts.gstatic.com` were listed
+ * here, because six of the eight documents carried Google Fonts `<link>` tags
+ * that disclosed the user's IP address and User-Agent to Google on every
+ * launch, before the consent prompt had asked anything. That set no cookie and
+ * carried no identifier, so it was not the cross-site *tracking* the wallet
+ * promises against — but a wallet that promises "no tracking across other apps
+ * or sites" and then phones a third party to draw its own headings is not
+ * worth arguing about. Inter and Nunito are served from the bundle now (see the
+ * `@font-face` block in `src/main.css`), so the exception is gone and the
+ * assertion below forbids what it used to permit.
+ *
+ * Adding an entry back is a decision to ship a third-party fetch, and the
+ * reason string is where it gets justified to whoever reads this next.
  */
-const ALLOWED_THIRD_PARTY_ORIGINS: ReadonlyMap<string, string> = new Map([
-  ['https://fonts.googleapis.com', 'Google Fonts stylesheet for Inter and Nunito'],
-  ['https://fonts.gstatic.com', 'Google Fonts font files']
-]);
+const ALLOWED_THIRD_PARTY_ORIGINS: ReadonlyMap<string, string> = new Map<string, string>();
 
 const DOCUMENT_URL = /(?:src|href)\s*=\s*"([^"]+)"/g;
 
@@ -1104,22 +1108,25 @@ describe('no stray egress', () => {
       captured(document.text, DOCUMENT_URL).map(url => ({ document: document.path, url }))
     );
 
-    // Every document references a local script and a local icon at minimum, so
+    // Every document references a local script, and most a local icon too, so
     // a count in single digits means the extractor has stopped extracting and
-    // the assertion below is passing over unread files.
+    // the assertion below is passing over unread files. The real count is 28
+    // across 15 documents — it was 52 while the Google Fonts tags were in, and
+    // dropping them is what ate the headroom. Raise the floor if that count
+    // grows; do not lower it to fit a scan that has started missing files.
     expect(referenced.length).toBeGreaterThan(20);
 
     expect(
       referenced
         .filter(reference => isThirdParty(reference.url))
         .map(reference => ({
-          document: reference.document,
+          ...reference,
           origin: new URL(reference.url.startsWith('//') ? `https:${reference.url}` : reference.url).origin
         }))
         .filter(reference => !ALLOWED_THIRD_PARTY_ORIGINS.has(reference.origin))
         .map(
           reference =>
-            `${reference.document} loads a resource from ${reference.origin}. A third-party tag in an entry document reaches out on every launch, which is cross-site tracking whatever the tag claims to do. Serve the asset locally, or add the origin to ALLOWED_THIRD_PARTY_ORIGINS with the reason it is tolerable.`
+            `${reference.document} loads ${reference.url}, reaching ${reference.origin}. A third-party tag in an entry document reaches out on every launch, which is cross-site tracking whatever the tag claims to do. Serve the asset locally — see the \`@font-face\` block in \`src/main.css\` for how Inter and Nunito were brought in-bundle — or add the origin to ALLOWED_THIRD_PARTY_ORIGINS with the reason it is tolerable.`
         )
     ).toEqual([]);
   });
