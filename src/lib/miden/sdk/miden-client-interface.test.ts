@@ -190,6 +190,137 @@ describe('MidenClientInterface', () => {
     await client.newTransaction('acc-id', new Uint8Array([1, 2]));
   });
 
+  describe('the SDK observation sink', () => {
+    /**
+     * Every option `MidenClientInterface.create` may pass. Pinned as an exact
+     * set rather than as a set of `objectContaining` assertions, because the
+     * property that matters here is an ABSENCE: the SDK's high-fidelity
+     * observation channel is opt-in at construction, and the wallet's promise
+     * is that it never asks for it. A guard naming that flag would itself
+     * break `guarantees.test.ts`, which forbids the name anywhere in `src`.
+     * An exact key set forbids it — and anything else new — without naming it.
+     */
+    const CREATE_OPTION_KEYS = ['keystore', 'noteTransportUrl', 'observer', 'proverUrl', 'rpcUrl', 'seed', 'useWorker'];
+
+    async function createAndCaptureOptions() {
+      const createMock = jest.fn(async (_options: Record<string, unknown>) => buildFakeMidenClient());
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        MidenClient: { create: createMock, createMock: jest.fn() },
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'localnet',
+        getEffectiveRpcUrl: () => 'rpc-local',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      await MidenClientInterface.create({});
+      const options: Record<string, unknown> = createMock.mock.calls[0]?.[0] ?? {};
+      return options;
+    }
+
+    it('registers an observer at client construction', async () => {
+      expect(typeof (await createAndCaptureOptions()).observer).toBe('function');
+    });
+
+    it('passes exactly the options it means to, so no observation flag can be added unnoticed', async () => {
+      expect(Object.keys(await createAndCaptureOptions()).sort()).toEqual(CREATE_OPTION_KEYS);
+    });
+
+    /**
+     * Drive a delegated consume whose SDK call reports one prove step, the way
+     * the real client does from inside `transactions.consume`. Returns the
+     * prove ring so the caller can assert what the attempt collected.
+     */
+    async function runProveWithObservation(options: { failFirstCall?: boolean } = {}) {
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const proveTelemetry = await import('./prove-telemetry');
+      proveTelemetry.__resetProveTelemetryForTest();
+
+      let call = 0;
+      const consume = jest.fn(async () => {
+        call++;
+        const failed = options.failFirstCall === true && call === 1;
+        proveTelemetry.recordSdkProveStep({ durationMs: failed ? 8_000 : 2_000, failed });
+        if (failed) throw new Error('remote prover unreachable');
+        return { txId: 'tx-id', result: fakeTransactionResult };
+      });
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient({ transactions: { consume } }) as any, 'net');
+      await client.consumeNoteId({
+        accountId: 'acc-id',
+        noteId: 'note-1',
+        type: 'consume',
+        delegateTransaction: true
+      } as any);
+
+      return proveTelemetry;
+    }
+
+    it('attributes the SDK-measured prove step to the wallet prove attempt around it', async () => {
+      const proveTelemetry = await runProveWithObservation();
+      const ring = proveTelemetry.getProveTelemetry();
+
+      expect(ring).toHaveLength(1);
+      expect(ring[0]?.proveStepMs).toBe(2_000);
+      expect(ring[0]?.proveStepFailed).toBeUndefined();
+    });
+
+    it('sums both prove steps across a delegate failure and its local re-prove', async () => {
+      const proveTelemetry = await runProveWithObservation({ failFirstCall: true });
+      const ring = proveTelemetry.getProveTelemetry();
+
+      expect(ring).toHaveLength(1);
+      expect(ring[0]?.fellBack).toBe(true);
+      expect(ring[0]?.proveStepMs).toBe(10_000);
+      expect(ring[0]?.proveStepFailed).toBe(true);
+    });
+
+    it('closes the attempt when the prove throws, so a later step is not attributed to it', async () => {
+      jest.doMock('@miden-sdk/miden-sdk', () => ({
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const proveTelemetry = await import('./prove-telemetry');
+      proveTelemetry.__resetProveTelemetryForTest();
+
+      const consume = jest.fn(async () => {
+        throw new Error('note has already been consumed');
+      });
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient({ transactions: { consume } }) as any, 'net');
+
+      await expect(
+        client.consumeNoteId({ accountId: 'a', noteId: 'n', type: 'consume', delegateTransaction: false } as any)
+      ).rejects.toThrow('note has already been consumed');
+
+      // Had the failed attempt been left open, this step would arrive in an
+      // ambiguous two-attempt window and be dropped rather than attributed.
+      const next = proveTelemetry.beginProveAttempt();
+      proveTelemetry.recordSdkProveStep({ durationMs: 5_000, failed: false });
+      const entry = next.record({ path: 'local', durationMs: 10, fellBack: false });
+      expect(entry?.proveStepMs).toBe(5_000);
+    });
+  });
+
   it('creates client from existing MidenClient using fromClient', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

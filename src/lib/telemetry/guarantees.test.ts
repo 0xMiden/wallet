@@ -1011,8 +1011,16 @@ describe('the background service worker never imports the telemetry barrel', () 
     // Widen this list only on purpose. `crash.ts`, `redact.ts` and
     // `report-flow.ts` are frontend code: the worker has no window, and
     // `report-flow` is the module the barrel pulls React in through.
+    //
+    // `sdk-observer.ts` is here deliberately: the Miden client is constructed
+    // in the worker, so the module that binds its observation sink has to be
+    // loadable there. It reaches nothing but `lib/miden/sdk/prove-telemetry`,
+    // which the worker already loads, and its being in this list rather than
+    // reached through the barrel is the whole point of importing it by deep
+    // path from `miden-client-interface.ts`.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/context.ts',
+      'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
       'src/lib/telemetry/types.ts'
