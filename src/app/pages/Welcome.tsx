@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
@@ -13,6 +13,7 @@ import { isDesktop, isMobile } from 'lib/platform';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
@@ -130,6 +131,47 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+
+  // Telemetry for the onboarding flow the user is currently walking through.
+  // Held in a ref rather than state because settling it must never re-render.
+  const flowRef = useRef<FlowHandle | null>(null);
+
+  // Entering a path starts a flow. Re-entering after backing out cancels the
+  // abandoned one first, so a single mount can never leave two flows open.
+  const beginOnboardingFlow = useCallback((flow: 'create' | 'import') => {
+    flowRef.current?.cancel();
+    flowRef.current = beginFlow(flow);
+  }, []);
+
+  // The handle is idempotent, but clearing the ref keeps a later settle from
+  // being attributed to a flow that has already ended.
+  const settleOnboardingFlow = useCallback((settle: (handle: FlowHandle) => void) => {
+    const handle = flowRef.current;
+    if (!handle) return;
+    flowRef.current = null;
+    settle(handle);
+  }, []);
+
+  // Back navigation only abandons the flow when it leaves onboarding for the
+  // welcome screen; every other `back` target is a step *within* the flow.
+  const cancelOnLeavingOnboarding = useCallback(
+    (target: string) => {
+      if (target !== '/') return;
+      settleOnboardingFlow(handle => handle.cancel());
+    },
+    [settleOnboardingFlow]
+  );
+
+  // An unmount with the flow still open is an abandonment we can actually see,
+  // so record it as cancelled rather than leaving an unmatched `started`. A
+  // flow already settled above is unaffected — the ref is null by then.
+  useEffect(
+    () => () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    },
+    []
+  );
 
   // Check hardware security availability on mount
   useEffect(() => {
@@ -268,6 +310,7 @@ const Welcome: FC = () => {
     (async () => {
       try {
         await register();
+        settleOnboardingFlow(handle => handle.complete());
         // Move to the dedicated handoff route, which survives the Ready
         // transition and shows the "Open wallet" button. Crucially we do NOT
         // waitForReadyState here — pushing Ready into the store first would
@@ -277,14 +320,16 @@ const Welcome: FC = () => {
         // Fall back to the classic click-to-create flow: the confirmation
         // button reverts to running register() in-tab on the next tap.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        settleOnboardingFlow(handle => handle.fail(classifyError(error)));
         setConfirmPhase('failed');
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow]);
 
   const onAction = async (action: OnboardingAction) => {
     switch (action.id) {
       case 'choose-protection':
+        beginOnboardingFlow('create');
         setOnboardingType(OnboardingType.Create);
         // Biometric is unavailable on the extension/desktop, so the
         // choose-protection screen has only one real option — skip it and go
@@ -345,6 +390,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
+        beginOnboardingFlow('import');
         // Recovery is seed-phrase only — jump straight to the seed entry screen.
         setOnboardingType(OnboardingType.Import);
         navigate('/#import-from-seed');
@@ -413,6 +459,7 @@ const Welcome: FC = () => {
           // This fixes a race condition where navigation happens before state is Ready
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
+          settleOnboardingFlow(handle => handle.complete());
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
           // like Create does, instead of always entering in-tab (#428).
@@ -420,6 +467,7 @@ const Welcome: FC = () => {
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          settleOnboardingFlow(handle => handle.fail(classifyError(error)));
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -441,6 +489,7 @@ const Welcome: FC = () => {
         break;
       case 'back':
         if (step === OnboardingStep.SelectWalletType || step === OnboardingStep.ChooseProtection) {
+          cancelOnLeavingOnboarding('/');
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
@@ -448,7 +497,9 @@ const Welcome: FC = () => {
           } else {
             // The choose-protection screen is skipped when biometric is
             // unavailable, so backing out of passcode setup returns to Welcome.
-            navigate(biometricProtectionSupported() ? '/#choose-protection' : '/');
+            const target = biometricProtectionSupported() ? '/#choose-protection' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           }
         } else if (step === OnboardingStep.ChooseGuardian) {
           if (protectionMethod === 'biometric') {
@@ -463,7 +514,9 @@ const Welcome: FC = () => {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
             // biometric-without-hardware path lands here from choose-guardian.
-            navigate(isMobile() ? '/#choose-guardian' : '/');
+            const target = isMobile() ? '/#choose-guardian' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           } else {
             navigate('/#import-from-seed');
           }
@@ -474,6 +527,7 @@ const Welcome: FC = () => {
             navigate(isMobile() ? '/#setup-passcode' : '/#create-password');
           }
         } else if (step === OnboardingStep.ImportFromSeed) {
+          cancelOnLeavingOnboarding('/');
           navigate('/');
         }
         break;

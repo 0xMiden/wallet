@@ -79,6 +79,14 @@ jest.mock('lib/miden/front', () => ({
   useMidenContext: () => mockMiden
 }));
 
+// App-lifecycle telemetry (`open` / `return`) is a leaf concern here and has its
+// own suite; stub it so it cannot disturb the `resolveRootView` call-order
+// assertions below, while still letting us assert PageRouter feeds it the ctx.
+const mockUseAppLifecycleTelemetry = jest.fn();
+jest.mock('app/hooks/useAppLifecycleTelemetry', () => ({
+  useAppLifecycleTelemetry: (ctx: unknown) => mockUseAppLifecycleTelemetry(ctx)
+}));
+
 // The loading spinner shown during MV3 cold-start (before hydration).
 jest.mock('app/a11y/RootSuspenseFallback', () => ({
   __esModule: true,
@@ -530,5 +538,23 @@ describe('app/PageRouter — scroll & history side effects', () => {
     renderAt('/', ready, Woozie.HistoryAction.Push);
     expect(scrollToMock).toHaveBeenCalledWith(0, 0);
     expect(resetHistoryPositionMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('app/PageRouter — app-lifecycle telemetry', () => {
+  it('feeds the wallet readiness ctx to the lifecycle telemetry hook', () => {
+    renderAt('/', ready);
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: true, locked: false, hydrated: true })
+    );
+  });
+
+  it('reports the un-hydrated cold-start ctx so the open flow stays pending', () => {
+    renderAt('/some/cold-start/path', { locked: false, ready: false, hydrated: false });
+
+    expect(mockUseAppLifecycleTelemetry).toHaveBeenCalledWith(
+      expect.objectContaining({ ready: false, locked: false, hydrated: false })
+    );
   });
 });

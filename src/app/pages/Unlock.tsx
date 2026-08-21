@@ -12,6 +12,7 @@ import { Numpad } from 'components/Numpad';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => {
@@ -29,6 +30,29 @@ const LOCK_TIME = 60_000;
 const LAST_ATTEMPT = 3;
 
 const checkTime = (i: number) => (i < 10 ? '0' + i : i);
+
+/**
+ * Report one unlock ATTEMPT, not one visit to this screen.
+ *
+ * A rejected password is retryable, so a screen-scoped flow could only ever
+ * complete or be abandoned: settling it as errored would make the eventual
+ * successful retry a no-op on the (idempotent) handle, and a successful unlock
+ * would vanish from the funnel. Scoping the flow to the attempt keeps every
+ * attempt a matched started/ended pair whose duration is the time actually
+ * spent unlocking. Abandoning the screen without ever attempting is not an
+ * unlock flow at all — that case is already visible as an `open` flow that
+ * resolved to the unlock view.
+ */
+async function reportUnlockAttempt(attempt: () => Promise<unknown>): Promise<void> {
+  const flow: FlowHandle = beginFlow('unlock');
+  try {
+    await attempt();
+    flow.complete();
+  } catch (error) {
+    flow.fail(classifyError(error));
+    throw error;
+  }
+}
 
 const getTimeLeft = (start: number, end: number) => {
   const isPositiveTime = start + end - Date.now() < 0 ? 0 : start + end - Date.now();
@@ -86,7 +110,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting desktop hardware unlock (Touch ID)...');
-            await unlock();
+            await reportUnlockAttempt(() => unlock());
             setAttempt(1);
             navigate('/');
             return;
@@ -98,7 +122,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
-            await unlock();
+            await reportUnlockAttempt(() => unlock());
             setAttempt(1);
             navigate('/');
             return;
@@ -143,7 +167,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
       try {
         if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-        await unlock(passcode);
+        await reportUnlockAttempt(() => unlock(passcode));
 
         setAttempt(1);
 
@@ -226,7 +250,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const onRetryHardwareUnlock = useCallback(async () => {
     try {
-      await unlock();
+      await reportUnlockAttempt(() => unlock());
       setAttempt(1);
       navigate('/');
     } catch (err) {

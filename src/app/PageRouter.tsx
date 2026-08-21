@@ -2,6 +2,7 @@ import React, { FC, useLayoutEffect, useMemo } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
+import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
@@ -389,6 +390,11 @@ const PageRouter: FC = () => {
     }),
     [appEnv.popup, appEnv.fullPage, miden]
   );
+
+  // The `open` / `return` telemetry flows live here rather than in `app/App`
+  // because this is the first component that can read wallet readiness — `App`
+  // is what mounts `MidenProvider`.
+  useAppLifecycleTelemetry(ctx);
 
   return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 };

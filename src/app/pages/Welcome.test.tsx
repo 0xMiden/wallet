@@ -123,6 +123,38 @@ jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
+// Telemetry: every beginFlow() call records the flow name and hands back a fresh
+// spy handle, so a test can assert both WHICH flows were begun and how each one
+// was settled. classifyError is stubbed to a constant so the assertions pin the
+// call site's wiring rather than re-testing the classifier (own suite).
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const mockFlowHandles: Array<{ flow: string; handle: TelemetryHandle }> = [];
+const mockBeginFlow = jest.fn((flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  mockFlowHandles.push({ flow, handle });
+  return handle;
+});
+const mockClassifyError = jest.fn<string, [unknown]>(() => 'unknown');
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: (error: unknown) => mockClassifyError(error)
+}));
+
+const flowsBegun = () => mockFlowHandles.map(entry => entry.flow);
+
+// Throwing accessor (rather than a `!`) so a missing flow fails with a message
+// that names the flow instead of a TypeError on undefined.
+function handleFor(flow: string): TelemetryHandle {
+  const entry = mockFlowHandles.find(candidate => candidate.flow === flow);
+  if (!entry)
+    throw new Error(`no telemetry flow was begun for '${flow}' (begun: ${flowsBegun().join(', ') || 'none'})`);
+  return entry.handle;
+}
+
+// Every argument that reached the telemetry layer, for the privacy assertions.
+const telemetryCallArgs = () =>
+  JSON.stringify([mockBeginFlow.mock.calls, mockClassifyError.mock.calls, mockFlowHandles.map(e => e.flow)]);
+
 // WalletStatus is a tiny numeric enum used only to detect the Ready state.
 jest.mock('lib/shared/types', () => ({
   WalletStatus: { Idle: 0, Locked: 1, Ready: 2 }
@@ -134,11 +166,13 @@ const IDLE = 0;
 // --- Harness helpers -------------------------------------------------------
 
 let rerenderFn: (ui: React.ReactElement) => void;
+let unmountFn: () => void;
 
 async function renderWelcome() {
   await act(async () => {
     const result = render(<Welcome />);
     rerenderFn = result.rerender;
+    unmountFn = result.unmount;
   });
   // Flush the mount-time hardware-security check (dynamic import + setState).
   await act(async () => {
@@ -172,6 +206,8 @@ const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFlowHandles.length = 0;
+  mockClassifyError.mockReturnValue('unknown');
   mockHash = '';
   mockCanHandoff = false;
   mockFlowProps.current = null;
@@ -1133,5 +1169,205 @@ describe('Welcome — E2E onboarding bypass', () => {
       true, // import → ownMnemonic drives Vault.spawn's recovery branch
       'http://localhost:3001'
     );
+  });
+});
+
+// ===========================================================================
+// Telemetry — the `create` and `import` getting-started flows
+// ===========================================================================
+
+describe('Welcome — telemetry', () => {
+  it('begins the create flow when the user picks the create path', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+
+    expect(mockBeginFlow.mock.calls.length).toBeGreaterThan(0);
+    expect(flowsBegun()).toEqual(['create']);
+  });
+
+  it('begins the import flow when the user picks the import path', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockBeginFlow.mock.calls.length).toBeGreaterThan(0);
+    expect(flowsBegun()).toEqual(['import']);
+  });
+
+  it('does not begin any flow merely by landing on the welcome screen', async () => {
+    await renderWelcome();
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('completes the create flow once registration reaches the ready wallet', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await dispatch({ id: 'confirmation' });
+
+    // Guard against a vacuous pass: registration really did run to completion.
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    const handle = handleFor('create');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+    expect(handle.fail).not.toHaveBeenCalled();
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('completes the import flow once a guardian recovery registration succeeds', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    const handle = handleFor('import');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+    expect(handle.fail).not.toHaveBeenCalled();
+  });
+
+  it('reports errored with a broad kind when registration throws', async () => {
+    const boom = new Error('rpc unavailable');
+    mockRegisterWallet.mockRejectedValue(boom);
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClassifyError).toHaveBeenCalledWith(boom);
+    const handle = handleFor('import');
+    expect(handle.fail).toHaveBeenCalledWith('unknown');
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('cancels the flow when the user backs out of onboarding entirely', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+
+    // Backing out of seed entry returns to the welcome screen — i.e. out of the flow.
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    const handle = handleFor('import');
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('cancels a still-open flow when the screen unmounts', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    const handle = handleFor('create');
+    expect(handle.cancel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      unmountFn();
+    });
+
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a completed flow untouched on unmount', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await dispatch({ id: 'confirmation' });
+    const handle = handleFor('create');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      unmountFn();
+    });
+
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('re-entering a path after backing out begins a fresh flow rather than reusing the old one', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'back' });
+    await setHash('');
+    await dispatch({ id: 'choose-protection' });
+
+    expect(flowsBegun()).toEqual(['import', 'create']);
+    expect(handleFor('import').cancel).toHaveBeenCalledTimes(1);
+    expect(handleFor('create').cancel).not.toHaveBeenCalled();
+  });
+
+  it('cancels the previous flow when a path is switched without backing out first', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'choose-protection' });
+
+    // Never two open flows for one mount: the abandoned one is settled.
+    expect(flowsBegun()).toEqual(['import', 'create']);
+    expect(handleFor('import').cancel).toHaveBeenCalledTimes(1);
+    expect(handleFor('create').cancel).not.toHaveBeenCalled();
+  });
+
+  it('never passes the seed phrase or password to the telemetry layer', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'abandon abandon abandon abandon' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'correct-horse-battery' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://secret-guardian.example' }
+    });
+    await dispatch({ id: 'confirmation' });
+
+    // Positive fact first: telemetry really was exercised on this path.
+    expect(flowsBegun()).toEqual(['import']);
+    expect(handleFor('import').complete).toHaveBeenCalledTimes(1);
+
+    const seen = telemetryCallArgs();
+    expect(seen).not.toContain('abandon');
+    expect(seen).not.toContain('correct-horse-battery');
+    expect(seen).not.toContain('secret-guardian');
+  });
+
+  it('completes the create flow when the side-panel handoff auto-creates the wallet', async () => {
+    mockCanHandoff = true;
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports errored when the side-panel auto-create fails', async () => {
+    mockCanHandoff = true;
+    mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    const handle = handleFor('create');
+    expect(handle.fail).toHaveBeenCalledWith('unknown');
+    expect(handle.complete).not.toHaveBeenCalled();
   });
 });

@@ -53,6 +53,35 @@ jest.mock('lib/miden/types', () => ({
   }
 }));
 
+// Telemetry: each beginFlow() records the flow name and returns a fresh spy
+// handle, so a test can assert how many unlock attempts were reported and how
+// each one was settled. classifyError is stubbed to a constant — the real
+// classifier has its own suite.
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const mockFlowHandles: Array<{ flow: string; handle: TelemetryHandle }> = [];
+const mockBeginFlow = jest.fn((flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  mockFlowHandles.push({ flow, handle });
+  return handle;
+});
+const mockClassifyError = jest.fn<string, [unknown]>(() => 'auth');
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: (error: unknown) => mockClassifyError(error)
+}));
+
+const flowsBegun = () => mockFlowHandles.map(entry => entry.flow);
+
+// Throwing accessor (rather than a `!`) so a missing attempt fails with a
+// message naming what was actually begun.
+function attempt(index: number): TelemetryHandle {
+  const entry = mockFlowHandles[index];
+  if (!entry) throw new Error(`no unlock attempt at index ${index} (begun: ${flowsBegun().join(', ') || 'none'})`);
+  return entry.handle;
+}
+
+const telemetryCallArgs = () => JSON.stringify([mockBeginFlow.mock.calls, mockClassifyError.mock.calls]);
+
 // Stateful useLocalStorage: real React state seeded from `mockLsStore`, with a
 // stable setter (so the memoized callbacks in Unlock keep referential
 // identity). `useMidenContext` hands back the shared unlock spy.
@@ -211,6 +240,11 @@ beforeEach(() => {
   mockIsMobile = false;
   mockCompact = false;
   mockLsStore = {};
+
+  mockFlowHandles.length = 0;
+  mockBeginFlow.mockClear();
+  mockClassifyError.mockClear();
+  mockClassifyError.mockReturnValue('auth');
 
   mockUnlock.mockReset();
   mockNavigate.mockReset();
@@ -634,5 +668,184 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockBioHasKey).toHaveBeenCalledTimes(1);
     expect(mockUnlock).not.toHaveBeenCalled();
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Telemetry — the `unlock` flow
+//
+// A flow is reported per unlock ATTEMPT rather than per screen mount: a wrong
+// password is retryable, so a mount-scoped flow could only ever complete or be
+// abandoned, and settling it as errored would make the eventual successful
+// retry a no-op on the idempotent handle. Per-attempt keeps every attempt a
+// matched started/ended pair with a meaningful duration.
+// ---------------------------------------------------------------------------
+describe('Unlock — telemetry', () => {
+  it('does not report an unlock flow just for showing the screen', async () => {
+    mockIsExtension = true;
+    await renderUnlock();
+
+    expect(screen.getByTestId('unlock-password')).toBeInTheDocument();
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('reports a completed unlock when the typed password is accepted', async () => {
+    mockIsExtension = true;
+    mockUnlock.mockResolvedValue(undefined);
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'hunter2' }
+    });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledWith('hunter2');
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(attempt(0).complete).toHaveBeenCalledTimes(1);
+    expect(attempt(0).fail).not.toHaveBeenCalled();
+  });
+
+  it('reports errored with a broad kind when the password is rejected', async () => {
+    mockIsExtension = true;
+    const boom = new Error('bad password');
+    mockUnlock.mockRejectedValue(boom);
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'wrong' }
+    });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(mockClassifyError).toHaveBeenCalledWith(boom);
+    expect(attempt(0).fail).toHaveBeenCalledWith('auth');
+    expect(attempt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed attempt and a later successful one as two separate flows', async () => {
+    mockIsExtension = true;
+    mockUnlock.mockRejectedValueOnce(new Error('bad password')).mockResolvedValue(undefined);
+    const { container } = await renderUnlock();
+
+    const input = container.querySelector('#unlock-password') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'wrong' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+
+    fireEvent.change(input, { target: { value: 'right' } });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(2);
+    expect(flowsBegun()).toEqual(['unlock', 'unlock']);
+    // The retry's success is NOT swallowed by the first attempt's failure.
+    expect(attempt(0).fail).toHaveBeenCalledWith('auth');
+    expect(attempt(1).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a completed unlock for an accepted mobile passcode', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(false);
+    mockUnlock.mockResolvedValue(undefined);
+    const { container } = await renderUnlock();
+
+    for (const digit of '123456') {
+      fireEvent.click(container.querySelector(`[data-testid="digit-${digit}"]`) as HTMLButtonElement);
+    }
+    await advance(200);
+
+    expect(mockUnlock).toHaveBeenCalledWith('123456');
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(attempt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a completed unlock for a successful mount-time hardware unlock', async () => {
+    mockIsDesktop = true;
+    mockDesktopHasKey.mockResolvedValue(true);
+    mockUnlock.mockResolvedValue(undefined);
+
+    await renderUnlock();
+
+    expect(mockUnlock).toHaveBeenCalledWith();
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(attempt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a flow when there is no hardware key to attempt', async () => {
+    mockIsDesktop = true;
+    mockDesktopHasKey.mockResolvedValue(false);
+
+    await renderUnlock();
+
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('reports errored when the mount-time biometric unlock fails', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    const boom = new Error('biometric cancelled');
+    mockUnlock.mockRejectedValue(boom);
+    mockHasPasswordProtector.mockResolvedValue(true);
+
+    await renderUnlock();
+
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(mockClassifyError).toHaveBeenCalledWith(boom);
+    expect(attempt(0).fail).toHaveBeenCalledWith('auth');
+    expect(attempt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('reports the biometric retry as its own flow, completed on success', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled')).mockResolvedValue(undefined);
+    mockHasPasswordProtector.mockResolvedValue(false);
+
+    const { container } = await renderUnlock();
+    expect(flowsBegun()).toEqual(['unlock']); // the failed mount attempt
+
+    fireEvent.click(container.querySelector('#retry-biometric') as HTMLButtonElement);
+    await flushMicro();
+
+    expect(mockUnlock).toHaveBeenCalledTimes(2);
+    expect(flowsBegun()).toEqual(['unlock', 'unlock']);
+    expect(attempt(0).fail).toHaveBeenCalledWith('auth');
+    expect(attempt(1).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports errored when the biometric retry also fails', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockUnlock.mockRejectedValue(new Error('always fails'));
+    mockHasPasswordProtector.mockResolvedValue(false);
+
+    const { container } = await renderUnlock();
+    fireEvent.click(container.querySelector('#retry-biometric') as HTMLButtonElement);
+    await flushMicro();
+
+    expect(flowsBegun()).toEqual(['unlock', 'unlock']);
+    expect(attempt(1).fail).toHaveBeenCalledWith('auth');
+    expect(attempt(1).complete).not.toHaveBeenCalled();
+  });
+
+  it('never passes the entered password to the telemetry layer', async () => {
+    mockIsExtension = true;
+    mockUnlock.mockRejectedValue(new Error('bad password'));
+    const { container } = await renderUnlock();
+
+    fireEvent.change(container.querySelector('#unlock-password') as HTMLInputElement, {
+      target: { value: 'super-secret-passphrase' }
+    });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await advance(500);
+
+    // Positive fact first: telemetry really was exercised on this path.
+    expect(flowsBegun()).toEqual(['unlock']);
+    expect(attempt(0).fail).toHaveBeenCalledWith('auth');
+
+    expect(telemetryCallArgs()).not.toContain('super-secret-passphrase');
   });
 });
