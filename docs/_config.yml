@@ -10,3 +10,5 @@ permalink: pretty
 exclude:
   - README.md
   - ios-cdp-bridge.md
+  - telemetry-limitations.md
+  - telemetry-store-declarations.md
