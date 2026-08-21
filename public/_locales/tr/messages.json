@@ -750,10 +750,6 @@
     "message": "Tekrar dene",
     "englishSource": "Retry"
   },
-  "retryAnyway": {
-    "message": "Yine de yeniden dene",
-    "englishSource": "Retry anyway"
-  },
   "maximalAmount": {
     "message": "Maximal: $amount$",
     "englishSource": "Maximal: $amount$",
