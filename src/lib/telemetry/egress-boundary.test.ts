@@ -1,0 +1,727 @@
+import { act, renderHook } from '@testing-library/react';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
+
+import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
+import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
+import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
+import { request } from 'lib/miden/front';
+import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
+import { WalletMessageType } from 'lib/shared/types';
+import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
+
+import { resolveTelemetryContext } from './context';
+import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
+import { encodingVariantsOf } from './egress-guard';
+import { beginFlow, classifyError } from './report-flow';
+import { WIRE_KEYS } from './serialize';
+import { sendEvent } from './sink';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryResult } from './types';
+
+/**
+ * The adversarial anti-leak guard, asserted at the two egress boundaries rather
+ * than at any call site.
+ *
+ * Every earlier task defended privacy where it instrumented — Welcome, Unlock,
+ * the send flow, the crash reporter. Those defences are per-site, and the next
+ * person to instrument a flow will not read any of them. This file asserts the
+ * invariant once, downstream of all of them, so a leak fails the build no
+ * matter which call site introduced it:
+ *
+ * 1. Product events — `sendEvent`, the single consent-gated egress point, over
+ *    its real `fetch` transport.
+ * 2. Crash reports — a real `@sentry/browser` client, over its real fetch
+ *    transport, so what is asserted is the actual envelope on the wire and not
+ *    an argument to a mocked `captureException`.
+ *
+ * Nothing here mocks the telemetry stack. `fetch` is the only thing replaced,
+ * because `fetch` IS the wire.
+ */
+
+// The frontend→background hop is the intercom, which cannot run in Jest. The
+// mock below replaces the hop only, then hands the event to the real background
+// gate exactly as `handleReportTelemetryEvent` does.
+jest.mock('lib/miden/front', () => ({ request: jest.fn() }));
+
+// Partial, never wholesale: a wholesale mock strips `getThemeSetting`, which a
+// transitive import calls at module scope and which takes the suite down before
+// a single test runs.
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isTelemetryEnabledAsync: jest.fn()
+}));
+
+// Partial for the same reason: `resolveTelemetryContext` reads `isIOS`/
+// `isAndroid` from this module, and stubbing those away would stop the guard
+// from seeing the real `platform` value that goes on the wire.
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => true
+}));
+
+jest.mock('@capacitor/app', () => ({
+  App: { addListener: jest.fn(() => Promise.resolve({ remove: jest.fn() })) }
+}));
+
+// The repo-wide manual mock at `__mocks__/nanoid.ts` hands every suite the
+// constant `id`, which would collapse every flow onto one identifier and hide a
+// flowId that carried something it should not.
+jest.mock('nanoid', () => {
+  let issued = 0;
+  return { nanoid: () => `flow-${++issued}` };
+});
+
+// ---------------------------------------------------------------------------
+// The poison corpus.
+//
+// Realistic in format, because a leak check against `SECRET_VALUE_1` proves
+// nothing about a payload built from a real address. Every value below is
+// something this wallet actually holds.
+// ---------------------------------------------------------------------------
+
+const PHRASE_12 = 'avoid leave side crush call gasp confirm deal student link chunk interest';
+const PHRASE_24 =
+  'echo cross route trophy art call defy cat swift tail moral right follow mansion arm intact pulp frame truck connect cotton throw release play';
+
+/**
+ * Only ever asserted inside the URL that carries it, because on its own
+ * `user:password` is a context-free secret (see `CONTEXTUAL_POISON`) — it is
+ * `https://` in front of it that gives `redact.ts` something to recognise.
+ */
+const RPC_CREDENTIALS = 'midenuser:s3cr3tpassw0rd';
+
+/**
+ * Secrets dense enough that a surviving fragment is still the secret: half a
+ * private key is a brute force that finishes, and half an address still names
+ * the account. These are checked in sliding windows as well as whole, so a
+ * scrubber that mangles a value without destroying it cannot pass.
+ */
+const HIGH_ENTROPY_POISON = {
+  privateKeyHex: '0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+  authSecretKey: '7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520',
+  // Every Miden bech32 flavour: mainnet, testnet, devnet, localnet.
+  addressMainnet: 'mm1aqsjql4cyylvpu2d2cwpxumpvvw5depe',
+  addressTestnet: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe',
+  addressDevnet: 'mdev1aqsjql4cyylvpu2d2cwpxumpvvw5depe',
+  addressLocalnet: 'mlcl1aqsjql4cyylvpu2d2cwpxumpvvw5depe',
+  // The composite `<address>_<routing suffix>` form `WalletAccount.publicKey`
+  // takes (`src/utils/miden.ts`).
+  compositePublicKey: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w',
+  noteId: '0x9f8e7d6c5b4a39281706f5e4d3c2b1a0',
+  transactionId: '0x00112233445566778899aabbccddeeff'
+};
+
+/**
+ * Structural secrets that are not windowed: the phrases get word windows
+ * instead, the quantities are shorter than a window, and the full RPC URL
+ * deliberately keeps its host and path (`redact.ts` treats those as diagnosis),
+ * so windowing it would flag the redactor's intended output.
+ */
+const WHOLE_VALUE_POISON = {
+  mnemonic12: PHRASE_12,
+  mnemonic24: PHRASE_24,
+  amount: '4242424242',
+  balance: '918273645500000',
+  apiKey: 'sk_live_998877',
+  rpcUrlWithCredentials: `https://${RPC_CREDENTIALS}@rpc.testnet.miden.io/v1?apiKey=sk_live_998877`
+};
+
+/**
+ * Values with a shape of their own — a bech32 prefix, a hex run, a digit run, a
+ * URL's userinfo. These must not survive anywhere, in any encoding, however
+ * they are framed.
+ */
+const STRUCTURAL_POISON = { ...HIGH_ENTROPY_POISON, ...WHOLE_VALUE_POISON };
+
+/**
+ * Values with no shape at all. `hunter2correcthorsebatterystaple` is
+ * indistinguishable from a request id, a filename, or a feature flag, so no
+ * pattern scrubber can recognise one standing on its own — only the key beside
+ * it betrays it, which is exactly why `SENSITIVE_KEY_PARTS` and the assignment
+ * rule in `redact.ts` exist.
+ *
+ * So these are asserted in the forms the wallet can actually produce: named in
+ * an assignment, or held under a sensitive key in a structure. Nothing in `src`
+ * throws an error whose message is a bare credential — the closest is
+ * `Welcome.tsx`'s "Missing password or seed phrase", which names neither — and
+ * an unframed credential in a crash message would be a bug at the throw site
+ * that this boundary cannot see.
+ */
+const CONTEXTUAL_POISON = {
+  password: 'hunter2correcthorsebatterystaple',
+  passcode: '246813579'
+};
+
+const POISON = { ...STRUCTURAL_POISON, ...CONTEXTUAL_POISON, rpcCredentials: RPC_CREDENTIALS };
+
+/**
+ * Four-word windows of each phrase, checked alongside the whole phrases.
+ *
+ * A substring check for the full 12 words is defeated by a payload that carries
+ * half of it, and half a phrase plus a second crash is still a recovered
+ * wallet. Four is the run `redact.ts` treats as seed material, so anything this
+ * catches is something that module already considers a phrase.
+ */
+function wordWindows(phrase: string, size: number): string[] {
+  const words = phrase.split(' ');
+  const windows: string[] = [];
+  for (let i = 0; i + size <= words.length; i++) windows.push(words.slice(i, i + size).join(' '));
+  return windows;
+}
+
+/**
+ * Sliding fragments of a dense secret.
+ *
+ * A whole-value check calls a scrubber that mangles a private key — redacting
+ * the one digit run inside it and leaving the other fifty characters — a pass.
+ * Overlapping windows make any surviving run of 23 characters or more fail.
+ */
+const WINDOW = 16;
+const STRIDE = 8;
+
+function charWindows(value: string): string[] {
+  const windows: string[] = [];
+  for (let i = 0; i + WINDOW <= value.length; i += STRIDE) windows.push(value.slice(i, i + WINDOW));
+  return windows;
+}
+
+const FORBIDDEN: readonly string[] = [
+  ...Object.values(POISON),
+  ...wordWindows(PHRASE_12, 4),
+  ...wordWindows(PHRASE_24, 4),
+  ...[...Object.values(HIGH_ENTROPY_POISON), RPC_CREDENTIALS].flatMap(charWindows)
+];
+
+/** Precomputed once: ~14 values x ~12 encodings, rechecked by several tests. */
+const FORBIDDEN_VARIANTS: ReadonlyArray<{ value: string; variant: string }> = FORBIDDEN.flatMap(value =>
+  encodingVariantsOf(value).map(variant => ({ value, variant }))
+);
+
+/**
+ * Errors carrying poison, wrapped three deep.
+ *
+ * The `cause` chain is the shape a caught object most often takes here — every
+ * layer rewraps — and it is the exact path a success-only privacy assertion
+ * misses, because the outer error is innocuous and the inner one is not.
+ */
+function poisonedError(outer: string): Error {
+  const root = new Error(`recovery phrase rejected: ${POISON.mnemonic12}`);
+  const middle = new Error(
+    `could not load account ${POISON.compositePublicKey} (key ${POISON.privateKeyHex}, password=${POISON.password}, passcode=${POISON.passcode})`,
+    { cause: root }
+  );
+  return new Error(`${outer} — endpoint ${POISON.rpcUrlWithCredentials}, amount ${POISON.amount}`, { cause: middle });
+}
+
+// ---------------------------------------------------------------------------
+// The wire.
+// ---------------------------------------------------------------------------
+
+interface CapturedRequest {
+  url: string;
+  body: string;
+}
+
+const captured: CapturedRequest[] = [];
+
+function bodyToText(body: unknown): string {
+  if (typeof body === 'string') return body;
+  if (ArrayBuffer.isView(body)) return new TextDecoder().decode(body);
+  if (body === undefined || body === null) return '';
+  return JSON.stringify(body);
+}
+
+/**
+ * Installed once and never reswapped: Sentry caches the fetch implementation it
+ * resolves, so replacing the stub per test would leave the crash transport
+ * writing into an array nobody reads — and a leak assertion over an empty array
+ * passes.
+ */
+const fetchStub = (input: unknown, init?: { body?: unknown }): Promise<{ status: number; headers: Headers }> => {
+  captured.push({ url: String(input), body: bodyToText(init?.body) });
+  return Promise.resolve({ status: 200, headers: new Headers() });
+};
+
+const INGEST_URL = 'https://ingest.telemetry.invalid/v1/events';
+const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
+
+const wireText = (): string => captured.map(entry => `${entry.url}\n${entry.body}`).join('\n');
+
+/** Flush the fire-and-forget reporting chain, plus Sentry's transport buffer. */
+async function flushEgress(): Promise<void> {
+  for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 5));
+}
+
+function parsePayload(text: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(text);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`telemetry body is not a JSON object: ${text}`);
+  }
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed)) payload[key] = value;
+  return payload;
+}
+
+const eventPayloads = (): Record<string, unknown>[] =>
+  captured.filter(entry => entry.url === INGEST_URL).map(entry => parsePayload(entry.body));
+
+/** Names every leaked value rather than just failing, so a red build diagnoses itself. */
+function leaksIn(haystack: string): string[] {
+  return FORBIDDEN_VARIANTS.filter(({ variant }) => haystack.includes(variant)).map(
+    ({ value, variant }) => `leaked "${value}" encoded as "${variant}"`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Driving the real flows.
+// ---------------------------------------------------------------------------
+
+/**
+ * Written as a `Record` over the union so TypeScript, not a reviewer, is what
+ * notices a twelfth flow: adding one to `TelemetryFlow` fails `yarn ts` here
+ * until it is driven.
+ */
+const EVERY_FLOW: Record<TelemetryFlow, TelemetryFlow> = {
+  open: 'open',
+  unlock: 'unlock',
+  create: 'create',
+  import: 'import',
+  recover: 'recover',
+  return: 'return',
+  fund: 'fund',
+  receive_share: 'receive_share',
+  send: 'send',
+  note_handle: 'note_handle',
+  activity_view: 'activity_view'
+};
+
+const EVERY_RESULT: Record<TelemetryResult, TelemetryResult> = {
+  completed: 'completed',
+  cancelled: 'cancelled',
+  errored: 'errored'
+};
+
+const EVERY_ERROR_KIND: Record<TelemetryErrorKind, TelemetryErrorKind> = {
+  network: 'network',
+  rpc: 'rpc',
+  proving: 'proving',
+  validation: 'validation',
+  storage: 'storage',
+  auth: 'auth',
+  timeout: 'timeout',
+  unknown: 'unknown'
+};
+
+const FLOWS: readonly TelemetryFlow[] = Object.values(EVERY_FLOW);
+const RESULTS: readonly TelemetryResult[] = Object.values(EVERY_RESULT);
+const ERROR_KINDS: readonly TelemetryErrorKind[] = Object.values(EVERY_ERROR_KIND);
+
+const LOADING = { locked: false, ready: false, hydrated: false };
+const UNLOCK = { locked: true, ready: true, hydrated: true };
+const APP = { locked: false, ready: true, hydrated: true };
+
+/** Swallow the rethrow: the wrappers pass a caller's error straight back through. */
+async function swallowRejection(attempt: () => Promise<unknown>): Promise<void> {
+  await attempt().then(
+    () => undefined,
+    () => undefined
+  );
+}
+
+/**
+ * Exercise every instrumented flow through the code the call sites actually
+ * call — the lifecycle hook, the fund and note-claim wrappers, the module-scoped
+ * send handle, and `beginFlow` for the page-level flows — on the success, the
+ * cancellation and the error path, with poison in every error.
+ *
+ * The pages themselves are not rendered: a page adds a `beginFlow` call and
+ * nothing else to this chain, which is the whole reason the guard sits at the
+ * boundary. What must be real is everything downstream of that call, and all of
+ * it is.
+ */
+async function driveEveryInstrumentedFlow(): Promise<void> {
+  // `open` completing, and `return` beginning on foreground and completing once
+  // the wallet is usable again.
+  const lifecycle = renderHook(props => useAppLifecycleTelemetry(props), { initialProps: LOADING });
+  lifecycle.rerender(UNLOCK);
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  lifecycle.rerender(APP);
+  lifecycle.unmount();
+
+  // `open` cancelled: the app shell went away while still booting.
+  renderHook(() => useAppLifecycleTelemetry(LOADING)).unmount();
+
+  // `return` cancelled: foregrounded onto the lock screen, then left.
+  const abandonedReturn = renderHook(props => useAppLifecycleTelemetry(props), { initialProps: UNLOCK });
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  abandonedReturn.unmount();
+
+  // `fund`: completed, errored on a poisoned rejection, then abandoned.
+  const fund = renderHook(() => useFundTelemetry());
+  await act(async () => {
+    await fund.result.current(() => Promise.resolve('deposit accepted'));
+  });
+  await act(async () => {
+    await swallowRejection(() => fund.result.current(() => Promise.reject(poisonedError('rpc deposit failed'))));
+  });
+  fund.unmount();
+
+  // `note_handle`: completed, errored on a poisoned rejection, then abandoned.
+  const claim = renderHook(() => useReportNoteClaim());
+  await act(async () => {
+    await claim.result.current(() => Promise.resolve('claim queued'));
+  });
+  await act(async () => {
+    await swallowRejection(() => claim.result.current(() => Promise.reject(poisonedError('network claim failed'))));
+  });
+  // A claim still in flight when the surface goes away: the unmount has to
+  // settle it as abandoned rather than leave an unmatched `started`.
+  await act(async () => {
+    void swallowRejection(() => claim.result.current(() => new Promise(() => undefined)));
+    claim.unmount();
+  });
+
+  // `send`: the module-scoped handle, settled three ways.
+  enterSendFlow();
+  settleSendFlow(handle => handle.complete());
+  enterSendFlow();
+  settleSendFlow(handle => handle.cancel());
+  enterSendFlow();
+  settleSendFlow(handle => handle.fail(classifyError(poisonedError('proving failed'))));
+
+  // The page-level flows, driven exactly as their call sites drive them.
+  for (const flow of FLOWS) {
+    beginFlow(flow).complete();
+    beginFlow(flow).cancel();
+    beginFlow(flow).fail(classifyError(poisonedError('storage quota exceeded')));
+  }
+
+  await flushEgress();
+}
+
+// ---------------------------------------------------------------------------
+
+const consentOn = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
+const consentOff = () => jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+
+let originalFetch: PropertyDescriptor | undefined;
+
+beforeAll(() => {
+  originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  Object.defineProperty(globalThis, 'fetch', { value: fetchStub, writable: true, configurable: true });
+});
+
+afterAll(() => {
+  if (originalFetch === undefined) Reflect.deleteProperty(globalThis, 'fetch');
+  else Object.defineProperty(globalThis, 'fetch', originalFetch);
+});
+
+beforeEach(() => {
+  captured.length = 0;
+  process.env.TELEMETRY_INGEST_URL = INGEST_URL;
+  process.env.SENTRY_DSN = SENTRY_DSN;
+  // `send-telemetry` holds its handle module-scoped, so a flow left open by the
+  // previous test would otherwise settle inside this one.
+  settleSendFlow(handle => handle.cancel());
+  jest.mocked(request).mockImplementation(async req => {
+    // What `handleReportTelemetryEvent` in `lib/miden/back/actions` does: hand
+    // the event to the real consent gate with a background-derived context.
+    if (req.type === WalletMessageType.ReportTelemetryEventRequest) {
+      await sendEvent(req.event, resolveTelemetryContext());
+    }
+    return { type: WalletMessageType.ReportTelemetryEventResponse };
+  });
+});
+
+afterEach(async () => {
+  stopCrashReporting();
+  await flushEgress();
+  jest.clearAllMocks();
+});
+
+describe('product-event egress', () => {
+  it('sends something at all, so every absence assertion below can fail', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+    expect(eventPayloads().length).toBeGreaterThan(0);
+  });
+
+  it('reaches only the configured ingest endpoint', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+    expect(new Set(captured.map(entry => entry.url))).toEqual(new Set([INGEST_URL]));
+  });
+
+  it('reports every flow, on the success, cancellation and error path', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const payloads = eventPayloads();
+    // Per flow, not merely across all of them: an error path that stopped being
+    // driven would otherwise hide behind some other flow's `errored`, and the
+    // error path is where a caught object is most likely to be passed on whole.
+    const reported: Record<string, string[]> = {};
+    for (const flow of FLOWS) {
+      reported[flow] = [
+        ...new Set(
+          payloads.flatMap(payload =>
+            payload.flow === flow && typeof payload.result === 'string' ? [payload.result] : []
+          )
+        )
+      ].sort();
+    }
+
+    const expected: Record<string, string[]> = {};
+    for (const flow of FLOWS) expected[flow] = [...RESULTS].sort();
+    expect(reported).toEqual(expected);
+  });
+
+  it('leaks no forbidden value, in any encoding, on any path', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    expect(eventPayloads().length).toBeGreaterThan(0);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('puts exactly the allowlisted keys on the wire and nothing else', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const payloads = eventPayloads();
+    expect(payloads.length).toBeGreaterThan(0);
+    // Exactly, not merely a subset: a field added to the payload has to fail
+    // here rather than ship silently, and an optional key that stops being
+    // emitted has to fail too.
+    const observed = new Set(payloads.flatMap(payload => Object.keys(payload)));
+    expect([...observed].sort()).toEqual([...WIRE_KEYS].sort());
+  });
+
+  it('carries no nested structure that a value could hide inside', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const nested = eventPayloads().flatMap(payload =>
+      Object.entries(payload).flatMap(([key, value]) =>
+        typeof value === 'string' || typeof value === 'number' ? [] : [`${key} is ${typeof value}`]
+      )
+    );
+    expect(nested).toEqual([]);
+  });
+
+  it('carries no string value beyond the closed unions, the version and the flow id', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const allowed = new Set<string>([
+      ...FLOWS,
+      ...RESULTS,
+      ...ERROR_KINDS,
+      'started',
+      'ended',
+      'extension',
+      'ios',
+      'android'
+    ]);
+
+    const unexpected = eventPayloads().flatMap(payload =>
+      Object.entries(payload).flatMap(([key, value]) => {
+        if (typeof value !== 'string') return [];
+        if (key === 'appVersion') return /^\d+\.\d+\.\d+$/.test(value) ? [] : [`appVersion=${value}`];
+        // nanoid's alphabet: no spaces, so no phrase; bounded, so no blob.
+        if (key === 'flowId') return /^[A-Za-z0-9_-]{1,32}$/.test(value) ? [] : [`flowId=${value}`];
+        return allowed.has(value) ? [] : [`${key}=${value}`];
+      })
+    );
+    expect(unexpected).toEqual([]);
+  });
+
+  it('holds the allowlist across the entire event type space, not just the paths driven above', async () => {
+    consentOn();
+    const context = resolveTelemetryContext();
+
+    const events: TelemetryEvent[] = FLOWS.flatMap(flow => [
+      { phase: 'started', flow, flowId: 'sweep' },
+      ...RESULTS.map((result): TelemetryEvent => ({ phase: 'ended', flow, flowId: 'sweep', result, durationMs: 12.7 })),
+      ...ERROR_KINDS.map(
+        (errorKind): TelemetryEvent => ({
+          phase: 'ended',
+          flow,
+          flowId: 'sweep',
+          result: 'errored',
+          errorKind,
+          durationMs: 3.2
+        })
+      )
+    ]);
+
+    for (const event of events) await sendEvent(event, context);
+    await flushEgress();
+
+    const payloads = eventPayloads();
+    expect(payloads).toHaveLength(events.length);
+    const outside = payloads.flatMap(payload => Object.keys(payload).filter(key => !WIRE_KEYS.includes(key)));
+    expect(outside).toEqual([]);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+});
+
+describe('crash-report egress', () => {
+  it('sends an envelope at all, so every absence assertion below can fail', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(new Error('rpc endpoint returned status'));
+    await flushEgress();
+
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('rpc endpoint returned status');
+  });
+
+  it('leaks no forbidden value from a wrapped-error cause chain, in any encoding', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(poisonedError('send failed'));
+    await flushEgress();
+
+    expect(captured.length).toBeGreaterThan(0);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('leaks no forbidden value from a poisoned stack', async () => {
+    consentOn();
+    initCrashReporting();
+    const error = new Error('sync failed');
+    error.name = `Error${POISON.compositePublicKey}`;
+    error.stack = [
+      `Error: sync failed for ${POISON.addressMainnet}`,
+      `    at load (chrome-extension://abc/accounts/${POISON.addressTestnet}/index.js:1:2)`,
+      `    at restore (file:///${PHRASE_12.split(' ').join('/')}/index.js:3:4)`
+    ].join('\n');
+    captureCrash(error);
+    await flushEgress();
+
+    expect(captured.length).toBeGreaterThan(0);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it.each(Object.entries(STRUCTURAL_POISON))(
+    'leaks no forbidden value when %s is the whole message, raw or encoded',
+    async (_name, value) => {
+      consentOn();
+      initCrashReporting();
+      captureCrash(new Error(value));
+      // Base64 and percent-encoded forms of the same value, since a caught
+      // network error routinely carries an encoded request body or path.
+      captureCrash(new Error(`request body ${btoa(value)}`));
+      captureCrash(new Error(`request path ${encodeURIComponent(value)}`));
+      captureCrash(new Error(`response ${JSON.stringify({ detail: value })}`));
+      await flushEgress();
+
+      expect(captured.length).toBeGreaterThan(0);
+      expect(leaksIn(wireText())).toEqual([]);
+    }
+  );
+
+  it.each(Object.entries(CONTEXTUAL_POISON))('leaks no %s when it is named, raw or encoded', async (name, value) => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(new Error(`unlock rejected: ${name}=${value}`));
+    captureCrash(new Error(`unlock rejected: "${name}": "${value}"`));
+    captureCrash(new Error(`unlock rejected: ${name}=${btoa(value)}`));
+    captureCrash(new Error(`unlock rejected: ${name}=${encodeURIComponent(value)}`));
+    await flushEgress();
+
+    expect(captured.length).toBeGreaterThan(0);
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('leaks no credentials out of an RPC URL, raw or encoded', async () => {
+    consentOn();
+    initCrashReporting();
+    const url = POISON.rpcUrlWithCredentials;
+    captureCrash(new Error(`GET ${url} failed`));
+    captureCrash(new Error(`GET ${btoa(url)} failed`));
+    captureCrash(new Error(`GET ${encodeURIComponent(url)} failed`));
+    await flushEgress();
+
+    expect(captured.length).toBeGreaterThan(0);
+    // Not just the whole URL: the userinfo has to go even though the host and
+    // path deliberately stay, so this is where the credentials are checked.
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('reaches only the configured Sentry host', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(poisonedError('send failed'));
+    await flushEgress();
+
+    const hosts = new Set(captured.map(entry => new URL(entry.url).host));
+    expect(hosts).toEqual(new Set(['o0.ingest.de.sentry.io']));
+  });
+});
+
+describe('the boundary is the only way out', () => {
+  // Everything above asserts what leaves through the two egress points. This
+  // asserts that there are only two — a call site that opened a third would be
+  // invisible to every assertion in this file, and no amount of scrubbing at
+  // the boundary helps if the payload never passes through it.
+  const SRC = resolve(__dirname, '..', '..');
+
+  function sourceFiles(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return entry.name === '__mocks__' ? [] : sourceFiles(path);
+      if (!/\.tsx?$/.test(entry.name) || /\.(test|spec)\.tsx?$/.test(entry.name)) return [];
+      return [path];
+    });
+  }
+
+  const importers = (pattern: RegExp): string[] =>
+    sourceFiles(SRC)
+      .filter(path => pattern.test(readFileSync(path, 'utf8')))
+      .map(path => relative(SRC, path).split(sep).join('/'))
+      .sort();
+
+  it('has one consent-gated sender, reached from one place outside the telemetry module', () => {
+    expect(importers(/\bsendEvent\b/)).toEqual(['lib/miden/back/actions.ts', 'lib/telemetry/sink.ts']);
+  });
+
+  it('confines the crash-reporting SDK to the module that scrubs before it', () => {
+    expect(importers(/from '@sentry\//)).toEqual(['lib/telemetry/crash.ts']);
+  });
+});
+
+describe('consent boundary', () => {
+  it('sends nothing at all — product events or crash reports — with consent off', async () => {
+    consentOff();
+    initCrashReporting();
+    captureCrash(poisonedError('send failed'));
+    await driveEveryInstrumentedFlow();
+
+    expect(captured).toEqual([]);
+  });
+
+  it('sends both once consent is granted, so the silence above is the gate and not a broken driver', async () => {
+    consentOn();
+    initCrashReporting();
+    captureCrash(poisonedError('send failed'));
+    await driveEveryInstrumentedFlow();
+
+    expect(eventPayloads().length).toBeGreaterThan(0);
+    expect(captured.filter(entry => entry.url !== INGEST_URL).length).toBeGreaterThan(0);
+  });
+
+  it('sends nothing when the consent check itself fails', async () => {
+    jest.mocked(isTelemetryEnabledAsync).mockRejectedValue(new Error('storage unavailable'));
+    initCrashReporting();
+    captureCrash(poisonedError('send failed'));
+    await driveEveryInstrumentedFlow();
+
+    expect(captured).toEqual([]);
+  });
+});
