@@ -36,7 +36,7 @@ When the setting is on, the App reports the start and the end of a small set of 
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
 
-Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`bread-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
+Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
 
 **We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal — a combination of them narrows a crowd down to a person — and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
 

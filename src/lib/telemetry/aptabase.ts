@@ -34,7 +34,7 @@ import { TelemetryErrorKind, TelemetryFlow, TelemetryPlatform, TelemetryResult, 
  * SDKs use. Versioned separately from the app so a change to the mapping below
  * is visible on the receiving side.
  */
-export const APTABASE_SDK_VERSION = 'bread-wallet-aptabase@1.0.0';
+export const APTABASE_SDK_VERSION = 'miden-wallet-aptabase@1.0.0';
 
 /**
  * `<flow>_<phase>` — for example `send_started`, `unlock_ended`.

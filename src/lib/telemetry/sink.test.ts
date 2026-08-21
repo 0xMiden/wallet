@@ -184,7 +184,7 @@ describe('the real Aptabase transport', () => {
       isDebug: true,
       osName: 'extension',
       appVersion: '1.15.21',
-      sdkVersion: 'bread-wallet-aptabase@1.0.0'
+      sdkVersion: 'miden-wallet-aptabase@1.0.0'
     });
     expect(envelope.props).toEqual({});
     expect(Object.keys(envelope).sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);

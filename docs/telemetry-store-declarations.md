@@ -50,7 +50,7 @@ Aptabase's `props` is an open object and the type system stops helping there:
 | `systemProps.osName` | `platform` |
 | `systemProps.appVersion` | `appVersion` |
 | `systemProps.isDebug` | `NODE_ENV !== 'production'` |
-| `systemProps.sdkVersion` | The constant `bread-wallet-aptabase@1.0.0` |
+| `systemProps.sdkVersion` | The constant `miden-wallet-aptabase@1.0.0` |
 | `timestamp` | ISO 8601 send time |
 
 Two departures from how Aptabase's own SDKs fill this in, both deliberate:
