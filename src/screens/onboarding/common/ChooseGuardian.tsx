@@ -30,6 +30,9 @@ export interface ChooseGuardianScreenProps {
   hideHeader?: boolean;
   // When true, show a "custom Guardian URL" field below the provider grid.
   allowCustomEndpoint?: boolean;
+  // Submission error from the caller, rendered above the Continue button so it
+  // stays inside this screen's scroll container.
+  error?: string | null;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -39,7 +42,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   description,
   submitLabel,
   hideHeader = false,
-  allowCustomEndpoint = false
+  allowCustomEndpoint = false,
+  error = null
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -219,6 +223,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         )}
 
         <div className="w-full flex flex-col items-center gap-4 pt-6 mt-auto shrink-0">
+          {error && (
+            <p className="text-red-500 text-xs text-center select-text break-words" role="alert">
+              {error}
+            </p>
+          )}
           <Button
             data-testid="choose-guardian-continue"
             title={submitLabel ?? t('continue')}
