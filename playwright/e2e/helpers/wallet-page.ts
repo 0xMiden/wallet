@@ -1130,7 +1130,20 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // whole browser out from under a live page can leave a response carrying a
     // JSHandle to arrive after the handle was disposed, which Playwright reports
     // as "Object with guid handle@… was not bound in the connection" and
-    // charges to the test.
+    // charges to the test. The `requestfinished` capture
+    // (`harness/network-capture.ts`) cannot be hardened against that from its
+    // own listener -- see the comment there -- so this ordering is the only
+    // lever for it.
+    //
+    // This is a deliberate fidelity trade: a real process crash grants no
+    // orderly page teardown, whereas this lets `pagehide`/`visibilitychange`
+    // run. It is safe only because no wallet code persists state on those --
+    // the `visibilitychange` listeners (`useForegroundRefresh`, `useClaimNotes`)
+    // just drive refresh polling, and `useBeforeUnload` only calls
+    // `preventDefault` (and `page.close()` defaults to `runBeforeUnload: false`,
+    // so it never fires). If the wallet ever gains a teardown flush, this
+    // ordering would start hiding exactly the data-loss bug the browser-crash
+    // spec exists to catch, and it must be revisited then.
     const browser = this.page.context().browser();
     if (!this.page.isClosed()) {
       await this.page.close().catch(() => {});

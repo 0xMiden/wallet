@@ -2,9 +2,13 @@ import React, { FC, ReactNode } from 'react';
 
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
+import { useTranslation } from 'react-i18next';
 
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+
+/** Extra batch-claim assets rendered inline before the row collapses to a count. */
+const EXTRA_ASSET_PREVIEW_COUNT = 2;
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
 export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
@@ -30,6 +34,10 @@ export interface ActivityRowProps {
      * `value` carries its own sign like the primary `value`. `key` must be stable
      * and unique (the source faucet id): two faucets can format to the same
      * amount and to the same symbol, since an unresolvable one reads "Unknown".
+     *
+     * Only the first `EXTRA_ASSET_PREVIEW_COUNT` render; the remainder collapse
+     * to a "+N more" count, so pass these in the order worth showing. The row is
+     * a fixed single line and the detail view lists every asset anyway.
      */
     extra?: { key: string; value: string; symbol?: string }[];
   };
@@ -105,11 +113,19 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   testId,
   entryKey
 }) => {
+  const { t } = useTranslation();
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
     onClick();
   };
+  // A "Claim All" can sweep up any number of distinct assets, and this row has a
+  // fixed single line for them; past a couple the amount column starves the
+  // title beside it. Show the largest few and count the rest — the row opens the
+  // detail view, which lists every asset in full.
+  const extra = amount?.extra ?? [];
+  const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
+  const extraOverflowCount = extra.length - visibleExtra.length;
   return (
     <div
       data-testid={testId}
@@ -159,7 +175,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
                 The test id is indexed so each asset stays individually addressable —
                 a repeated one makes `getByTestId` ambiguous under strict mode. */}
-            {amount.extra?.map((line, index) => (
+            {visibleExtra.map((line, index) => (
               <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span className="text-heading-gray">, </span>
@@ -167,6 +183,11 @@ export const ActivityRow: FC<ActivityRowProps> = ({
                 {line.symbol ? <span className="text-heading-gray">{` ${line.symbol}`}</span> : null}
               </span>
             ))}
+            {extraOverflowCount > 0 && (
+              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+                {t('andMoreAssets', { count: extraOverflowCount })}
+              </span>
+            )}
           </span>
         )}
         {status && (

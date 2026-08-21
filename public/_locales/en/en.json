@@ -735,6 +735,8 @@
   "restoreDappCard": "Restore $name$",
   "closeDappCard": "Close $name$",
   "showAllDapps": "+$count$ more parked dApps",
+  "showAllNotes": "+$count$ more",
+  "andMoreAssets": " +$count$ more",
   "dappLoadFailed": "Can't load this dApp",
   "dappLoadFailedHint": "Check your connection and try again.",
   "dappBrowserCapsule": "dApp browser header",

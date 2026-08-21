@@ -465,20 +465,24 @@ export class ConsumeTransaction implements ITransaction {
     // Surface the note type in history only when it is known and uniform
     // across the batch — a mixed private/public claim has no single answer.
     this.noteType = first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
-    // Display amount: sum of the notes sharing the first note's faucet. Notes
-    // of other faucets in a mixed batch aren't reflected here (display only).
-    this.amount =
-      first.amount !== ''
-        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
-        : undefined;
     // Keyed rather than scanned: a Claim All is uncapped, and anyone can send the
     // account notes, so the batch length is not ours to bound.
     const totals = new Map<string, bigint>();
     for (const note of list) {
-      if (note.amount === '' || note.faucetId === '') continue;
+      if (note.amount === '') continue;
       totals.set(note.faucetId, (totals.get(note.faucetId) ?? 0n) + BigInt(note.amount));
     }
-    this.assetTotals = totals.size > 0 ? Array.from(totals, ([faucetId, amount]) => ({ faucetId, amount })) : undefined;
+    // Display amount: sum of the notes sharing the first note's faucet. Notes of
+    // other faucets in a mixed batch aren't reflected here (display only). Read
+    // off the same map rather than re-scanning, so the headline amount can never
+    // disagree with its own entry in `assetTotals`.
+    this.amount = first.amount !== '' ? totals.get(first.faucetId) : undefined;
+    // A note with no faucet has no identifiable asset, so it can carry a headline
+    // amount but never its own per-faucet total.
+    const identifiedTotals = Array.from(totals, ([faucetId, amount]) => ({ faucetId, amount })).filter(
+      total => total.faucetId !== ''
+    );
+    this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';

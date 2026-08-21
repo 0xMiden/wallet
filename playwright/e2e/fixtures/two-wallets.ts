@@ -194,6 +194,11 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
   };
 }
 
+// How long a screen-change capture waits for the page to paint before skipping
+// the frame. Long enough to cover a post-reload React mount, short enough that
+// a dead page never stalls the capture handler.
+const PAINT_WAIT_MS = 1500;
+
 /**
  * Bind the app's reactive screen-change signal (`window.__e2eScreenChanged`,
  * emitted when `MIDEN_E2E_TEST=true`) to a best-effort screenshot capture.
@@ -219,17 +224,31 @@ export async function installScreenCapture(page: Page, label: string, outputDir:
     // spec on main at d77bc51d / run 32478703603; the trace shows this very
     // waitForFunction ending at the error timestamp). A serialised boolean
     // carries no handle, so there is nothing to be unbound.
-    const deadline = Date.now() + 1500;
-    for (;;) {
-      if (page.isClosed()) return;
-      const painted = await page
-        .evaluate(() => !!document.body && document.body.innerText.trim().length > 0)
-        .catch(() => undefined);
-      if (painted === undefined) return; // page/context gone mid-wait
-      if (painted) break;
-      if (Date.now() >= deadline) return;
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+    //
+    // The polling stays IN the page rather than looping `evaluate` from the
+    // driver. `page.evaluate` takes no timeout (the protocol call has no such
+    // field, unlike `waitForFunction`), so a driver-side loop that checks its
+    // deadline after each await has no hard bound at all — one slow round-trip
+    // parks this handler indefinitely, which is the same shape of teardown
+    // failure being fixed. In-page polling also costs one round-trip instead of
+    // one per 100ms tick.
+    if (page.isClosed()) return;
+    const painted = await page
+      .evaluate(
+        (timeoutMs: number) =>
+          new Promise<boolean>(resolve => {
+            const deadline = Date.now() + timeoutMs;
+            const check = () => {
+              if (!!document.body && document.body.innerText.trim().length > 0) return resolve(true);
+              if (Date.now() >= deadline) return resolve(false);
+              setTimeout(check, 100);
+            };
+            check();
+          }),
+        PAINT_WAIT_MS
+      )
+      .catch(() => false); // page/context gone mid-wait
+    if (!painted) return;
     if (page.isClosed()) return;
     await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
   };

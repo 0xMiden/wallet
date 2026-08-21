@@ -40,6 +40,7 @@ import {
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -268,14 +269,42 @@ const shouldWatchSettlement = ({
   return !settlementFound && autoConsume;
 };
 
-/** Right-aligned stack of trimmed, copyable note ids. */
-const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
-  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
-    {noteIds.map(noteId => (
-      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
-    ))}
-  </div>
-);
+// A "Claim All" consumes every claimable note at once, so this list is bounded
+// only by how many notes the user had waiting -- unbounded in practice. Render a
+// screenful and put the rest behind a tap.
+const NOTE_ID_PREVIEW_COUNT = 5;
+
+/** Right-aligned stack of trimmed, copyable note ids, collapsed past a preview. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const overflowCount = noteIds.length - NOTE_ID_PREVIEW_COUNT;
+  const isCollapsed = !expanded && overflowCount > 0;
+  const visibleNoteIds = isCollapsed ? noteIds.slice(0, NOTE_ID_PREVIEW_COUNT) : noteIds;
+
+  const handleExpand = useCallback(() => {
+    hapticLight();
+    setExpanded(true);
+  }, []);
+
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+      {visibleNoteIds.map(noteId => (
+        <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+      ))}
+      {isCollapsed && (
+        <button
+          type="button"
+          onClick={handleExpand}
+          data-testid={`${testId}-show-all`}
+          className="text-sm font-medium text-heading-gray underline transition-opacity active:opacity-60"
+        >
+          {t('showAllNotes', { count: overflowCount })}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const AccountDisplay: FC<{
   address: string | undefined;
