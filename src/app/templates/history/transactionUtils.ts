@@ -33,8 +33,16 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
       // Fall back rather than reject. Every entry on a history page is resolved
       // under one `Promise.all`, so letting a single unresolvable faucet throw
       // would blank the ENTIRE page — and a batch claim's secondary faucets are
-      // precisely the ones the wallet has never held metadata for.
-      const metadata = await getTokenMetadata(total.faucetId).catch(() => DEFAULT_TOKEN_METADATA);
+      // precisely the ones the wallet has never held metadata for. Logged with
+      // both ids because the fallback renders a plausible "Unknown" amount at
+      // default decimals, which is indistinguishable from correct output.
+      const metadata = await getTokenMetadata(total.faucetId).catch((error: unknown) => {
+        console.warn(
+          `Falling back to unknown-token metadata for faucet ${total.faucetId} on transaction ${tx.id}`,
+          error
+        );
+        return DEFAULT_TOKEN_METADATA;
+      });
       return {
         faucetId: total.faucetId,
         amount: formatAmount(total.amount, metadata.decimals),

@@ -555,6 +555,7 @@
   "amountMustBeLessThanBalance": "Amount must be less than balance",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
   "autoConsumeSettingsDescription": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
+  "encryptedWalletFileExporting": "Creating your wallet file…",
   "encryptedWalletFileExportFailedTitle": "Export Failed",
   "encryptedWalletFileExportFailedDesc": "Your wallet file could not be created, so nothing was saved. Please try exporting again.",
   "encryptedWalletFileExportedTitle1": "Encrypted Wallet File",

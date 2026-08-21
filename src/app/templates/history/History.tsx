@@ -113,11 +113,19 @@ const History = memo<HistoryProps>(
         }
         setRestEntries(allRestEntries);
       } catch (error) {
-        // Clearing the flag in `finally` is what makes this recoverable: the
-        // guard above returns early while `isLoading` is set, so leaking it on a
-        // rejection would kill pagination for the rest of the session with no
-        // way back short of remounting.
-        console.error('Failed to load more history entries', error);
+        // Stop paging on failure. Clearing `isLoading` without this would spin:
+        // the infinite scroller re-arms on every parent render (and SWR re-renders
+        // this on a timer), so a persistently failing page would be retried for
+        // the rest of the session. Leaving `isLoading` set instead would wedge
+        // pagination permanently, so neither flag alone is the answer — the list
+        // keeps everything already loaded and simply stops extending.
+        console.error(
+          `Failed to load history page ${page} (offset ${offset}, limit ${limit}) for ${address}${
+            tokenId ? ` token ${tokenId}` : ''
+          }`,
+          error
+        );
+        setHasMore(false);
       } finally {
         setIsLoading(false);
       }

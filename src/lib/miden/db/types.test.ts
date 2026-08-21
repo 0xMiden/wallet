@@ -106,6 +106,19 @@ describe('transaction models', () => {
       expect(mixed.noteType).toBeUndefined();
     });
 
+    // 'unknown' is what `claimable-notes`/`settlement` produce when the node did
+    // not report a storage mode. It agrees with itself across the batch, so only
+    // the explicit check keeps it off the row — otherwise the details card grows
+    // a "Note type: unknown" line that tells the user nothing.
+    it('reports no note type when the batch agrees only on not knowing', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', type: 'unknown' }),
+        note({ id: 'n2', type: 'unknown' })
+      ]);
+
+      expect(tx.noteType).toBeUndefined();
+    });
+
     it('rejects an empty batch rather than constructing a note-less consume', () => {
       expect(() => new ConsumeTransaction('acc', [])).toThrow('ConsumeTransaction requires at least one note');
     });

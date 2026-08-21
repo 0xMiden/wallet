@@ -122,8 +122,10 @@ describe('resolveConsumeExtraAmounts', () => {
       ])
     );
 
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]!.faucetId).toBe('faucet-b');
+    // Asserting the fallback's contents, not just that it resolved: the row still
+    // has to render a labelled amount, so a fallback with no symbol or decimals
+    // would show a bare number under a blank token.
+    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: 'fmt(10,6)', token: 'Unknown' }]);
   });
 });
 

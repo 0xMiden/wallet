@@ -34,7 +34,17 @@ const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol
 jest.mock('lib/miden/metadata', () => ({
   get MIDEN_METADATA() {
     return mockMidenMeta;
-  }
+  },
+  // Real value. `useReceiptAmount` routes a claim through
+  // `formatConsumeAssetParts`, whose whole point is that an unresolved
+  // NON-native faucet reads Unknown rather than MIDEN.
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6 }
+}));
+
+let mockNativeAssetId: string | null = null;
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId
 }));
 
 jest.mock('lib/shared/format', () => ({
@@ -70,6 +80,7 @@ describe('TransactionSuccess', () => {
   beforeEach(() => {
     mockState.assetsMetadata = {};
     mockMidenMeta.symbol = 'MIDEN';
+    mockNativeAssetId = null;
   });
 
   const renderInto = async (element: React.ReactElement) => {
@@ -178,6 +189,34 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('Consumed');
     expect(container.textContent).toContain('Transaction ID');
 
+    act(() => root.unmount());
+  });
+
+  // This receipt REPLACES the in-progress summary badge on the same screen a
+  // second later. Resolving its amount from the scalar `amount`/`faucetId` pair
+  // made the displayed total shrink at the moment of success — "20 AAA, 10
+  // Unknown" while claiming, then "20 AAA" once it landed.
+  it('reports every faucet a batch claim swept up, matching the in-progress badge', async () => {
+    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 6 } };
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 20n,
+          faucetId: 'faucet-a',
+          secondaryAccountId: 'mtst1apsender_addr1234',
+          assetTotals: [
+            { faucetId: 'faucet-a', amount: 20n },
+            { faucetId: 'faucet-b', amount: 10n }
+          ]
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('20 AAA, 10 Unknown');
+    // The dropped-secondary bug rendered exactly this instead.
+    expect(container.textContent).not.toContain('20 AAA MIDEN');
     act(() => root.unmount());
   });
 

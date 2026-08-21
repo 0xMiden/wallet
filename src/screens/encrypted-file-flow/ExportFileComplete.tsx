@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
+import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { useMidenContext } from 'lib/miden/front';
@@ -89,7 +90,11 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           dialogTitle: t('saveEncryptedWalletFile')
         });
       } catch (error) {
+        // Rethrow: on mobile the share sheet IS the delivery — the cache file is
+        // not reachable by the user — so swallowing this reports a backup that
+        // does not exist anywhere they can find it.
         console.error('Failed to export file on mobile:', error);
+        throw error;
       }
     } else {
       // On desktop, use standard download approach
@@ -108,23 +113,51 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     }
   }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
 
-  // This screen announces "Exported!" the moment it mounts, so an unhandled
-  // rejection here tells the user a backup exists when no file was ever written
-  // — the one failure a backup flow must never report as success.
-  const [exportError, setExportError] = useState(false);
+  // "Exported!" is a claim about a file on disk, so it waits for the write to
+  // actually land. Rendering it on mount — as this screen used to — tells the
+  // user a backup exists while the export is still running, and keeps telling
+  // them so if it then fails: the one thing a backup flow must never do.
+  const [exportState, setExportState] = useState<'pending' | 'success' | 'error'>('pending');
+
+  // Exactly once per mount. `getExportFile` is a `useCallback` over values that
+  // include `exportableAccounts` — a `useMemo` over the context's `accounts` —
+  // so its identity is only as stable as that array's. Any re-render that
+  // reseats it would otherwise re-run the WHOLE export: re-derive the mnemonic,
+  // re-encrypt, and on mobile open a second share sheet for a file the user was
+  // already handed. The state update below makes such a re-render certain.
+  const exportStartedRef = useRef(false);
 
   useEffect(() => {
+    if (exportStartedRef.current) return;
+    exportStartedRef.current = true;
+
     let cancelled = false;
-    getExportFile().catch((error: unknown) => {
-      console.error('Failed to export encrypted wallet file:', error);
-      if (!cancelled) setExportError(true);
-    });
+    getExportFile().then(
+      () => {
+        if (!cancelled) setExportState('success');
+      },
+      (error: unknown) => {
+        console.error('Failed to export encrypted wallet file:', error);
+        if (!cancelled) setExportState('error');
+      }
+    );
     return () => {
       cancelled = true;
     };
   }, [getExportFile]);
 
-  if (exportError) {
+  if (exportState === 'pending') {
+    return (
+      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
+        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-4">
+          <ActivitySpinner />
+          <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (exportState === 'error') {
     return (
       <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
         <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">

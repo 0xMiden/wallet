@@ -12,7 +12,19 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/miden/metadata', () => ({
-  MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 }
+  MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 },
+  // Real values. A claim's secondary faucets are exactly the ones the wallet has
+  // no metadata for, so the unresolved fallback is load-bearing here, not filler.
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6 }
+}));
+
+// The native faucet is the ONE unresolved faucet that may read MIDEN; every
+// other must read Unknown. Drive it per-test rather than through the real
+// module's process-lifetime memo cache.
+let mockNativeAssetId: string | null = null;
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId
 }));
 
 jest.mock('lib/shared/format', () => ({
@@ -95,6 +107,7 @@ describe('useTransactionSummaryBadgeContent', () => {
 
   beforeEach(() => {
     mockState.assetsMetadata = {};
+    mockNativeAssetId = null;
   });
 
   const Probe: React.FC<{ tx?: ITransaction }> = ({ tx }) => {
@@ -142,6 +155,71 @@ describe('useTransactionSummaryBadgeContent', () => {
   it('returns undefined for a consume without an amount', async () => {
     const { container, root } = await renderProbe(baseTransaction({ type: 'consume' }));
     expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  // A "Claim All" sweeps up every claimable note, so a batch spanning faucets is
+  // the normal case, not an edge one. Listing only `assetTotals[0]` understates
+  // what arrived — the row would say "20 AAA" for a claim that also brought 10 B.
+  it('lists every faucet of a batch claim, not just the row faucet', async () => {
+    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 20n,
+        faucetId: 'faucet-a',
+        assetTotals: [
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: 'faucet-b', amount: 10n }
+        ]
+      })
+    );
+
+    // Secondary faucet has no metadata (the wallet has never held it) → Unknown,
+    // NOT MIDEN: naming a foreign token after the native one misstates the asset.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, 10 Unknown');
+    act(() => root.unmount());
+  });
+
+  it('labels an unresolved faucet MIDEN only when it IS the native faucet', async () => {
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 4n,
+        faucetId: 'faucet-native',
+        assetTotals: [
+          { faucetId: 'faucet-native', amount: 4n },
+          { faucetId: 'faucet-b', amount: 6n }
+        ]
+      })
+    );
+
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN, 6 Unknown');
+    act(() => root.unmount());
+  });
+
+  // Legacy rows predate `assetTotals`; they must still summarise from the scalar
+  // pair rather than silently losing their pill.
+  it('falls back to the scalar amount/faucet for a legacy consume row', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1', assetTotals: [] })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
+    act(() => root.unmount());
+  });
+
+  // `ConsumeTransaction` produces exactly this row for a note with no faucet id:
+  // a headline amount, no `assetTotals` (see `db/types.test.ts`). Summarising it
+  // needs a token name, and the only one available would be the native symbol —
+  // so it renders nothing rather than claiming an unidentified asset is MIDEN.
+  it('renders no summary for a claim whose asset cannot be attributed to a faucet', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 4n, faucetId: '', assetTotals: undefined })
+    );
+
+    expect(container.querySelector('[data-testid="lhs"]')).toBeNull();
     act(() => root.unmount());
   });
 

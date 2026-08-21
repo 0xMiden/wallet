@@ -137,10 +137,12 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt => {
 const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
 
 /**
- * A transaction row nests two or three levels. The bound only exists so a
- * malformed file fails here, in the pure mapping step, rather than surviving the
- * walk and blowing up later inside `bulkAdd` — which runs after `importDb` has
- * already dropped the existing database.
+ * A transaction row nests two or three levels. The bound exists so a malformed
+ * file fails here, in the pure mapping step, instead of surviving the walk to
+ * become a partial write — and so a hostile dump cannot recurse the walker into
+ * a stack overflow. `importDb` replaces the table atomically, so a failure at
+ * either point costs the user nothing; failing early just keeps the reason close
+ * to the cause.
  */
 const MAX_WALK_DEPTH = 64;
 

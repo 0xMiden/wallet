@@ -21,7 +21,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <div data-testid="icon">{name}</div>,
-  IconName: { Success: 'Success' }
+  IconName: { Success: 'Success', Close: 'Close' }
 }));
 
 jest.mock('components/Button', () => ({
@@ -161,9 +161,36 @@ describe('ExportFileComplete', () => {
   // Rendering
   // -------------------------------------------------------------------------
 
+  // "Exported!" is only rendered once the file has actually been written, so
+  // every success assertion has to let the export settle first. Before the
+  // screen showed a spinner, it claimed success on mount — while the export was
+  // still running, and even if it then failed.
+  it('shows progress until the export lands, then the success screen', async () => {
+    renderComponent();
+
+    expect(screen.getByText('encryptedWalletFileExporting')).toBeInTheDocument();
+    expect(screen.queryByText('encryptedWalletFileExportedTitle1')).not.toBeInTheDocument();
+
+    await screen.findByText('encryptedWalletFileExportedTitle1');
+    expect(screen.queryByText('encryptedWalletFileExporting')).not.toBeInTheDocument();
+  });
+
+  it('runs the export once even though finishing it re-renders the screen', async () => {
+    // `getExportFile` closes over `exportableAccounts`, whose identity is only as
+    // stable as the context array behind it. Without a mount guard, the re-render
+    // caused by reporting success re-runs the entire export — re-deriving the
+    // mnemonic, re-encrypting, and on mobile opening a second share sheet.
+    renderComponent();
+    await screen.findByText('encryptedWalletFileExportedTitle1');
+
+    expect(mockEncryptJson).toHaveBeenCalledTimes(1);
+    expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
+  });
+
   it('renders the success icon, titles, descriptions and the Done button', async () => {
     renderComponent();
 
+    await screen.findByText('encryptedWalletFileExportedTitle1');
     expect(screen.getByTestId('icon')).toHaveTextContent('Success');
     expect(screen.getByText('encryptedWalletFileExportedTitle1')).toBeInTheDocument();
     expect(screen.getByText('encryptedWalletFileExportedTitle2')).toBeInTheDocument();
@@ -192,21 +219,19 @@ describe('ExportFileComplete', () => {
     ];
 
     renderComponent();
+    await screen.findByText('encryptedWalletFileExportedTitle1');
 
     // Two accounts have hdIndex < 0 → the warning surfaces "2".
     expect(screen.getByText('encryptedFileImportedAccountsOmitted:2')).toBeInTheDocument();
-
-    await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
   });
 
   it('invokes onDone when the Done button is clicked', async () => {
     const onDone = jest.fn();
     renderComponent({ onDone });
+    await screen.findByText('encryptedWalletFileExportedTitle1');
 
     fireEvent.click(screen.getByTestId('done-button'));
     expect(onDone).toHaveBeenCalledTimes(1);
-
-    await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
   });
 
   // -------------------------------------------------------------------------
@@ -335,6 +360,60 @@ describe('ExportFileComplete', () => {
 
     // Share is never reached when the write throws.
     expect(mockShare).not.toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  // -------------------------------------------------------------------------
+  // Failure surface — this screen announces "Exported!" on mount, so a failure
+  // that is only logged tells the user a backup exists when no file was written.
+  // -------------------------------------------------------------------------
+
+  it('replaces the success screen with a failure screen when the export throws', async () => {
+    const error = new Error('Do not know how to serialize a BigInt');
+    mockExportDb.mockRejectedValue(error);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent();
+
+    await waitFor(() => expect(screen.getByText('encryptedWalletFileExportFailedTitle')).toBeInTheDocument());
+
+    // The success claim is gone — not merely accompanied by an error.
+    expect(screen.queryByText('encryptedWalletFileExportedTitle1')).not.toBeInTheDocument();
+    expect(screen.getByText('encryptedWalletFileExportFailedDesc')).toBeInTheDocument();
+    expect(screen.getByTestId('icon')).toHaveTextContent('Close');
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export encrypted wallet file:', error);
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('still offers a way out of the failure screen', async () => {
+    mockExportDb.mockRejectedValue(new Error('quota exceeded'));
+    const onDone = jest.fn();
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent({ onDone });
+
+    await waitFor(() => expect(screen.getByText('encryptedWalletFileExportFailedTitle')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('done-button'));
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('reports failure when the mobile write/share leg fails', async () => {
+    // On mobile the share sheet IS the delivery — the cache file is not reachable
+    // by the user — so a failure there means no backup exists anywhere they can
+    // find it, however far the encryption got.
+    mockIsMobile.mockReturnValue(true);
+    mockWriteFile.mockRejectedValue(new Error('disk full'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent();
+
+    await screen.findByText('encryptedWalletFileExportFailedTitle');
+    expect(screen.queryByText('encryptedWalletFileExportedTitle1')).not.toBeInTheDocument();
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export file on mobile:', expect.any(Error));
 
     consoleErrorSpy.mockRestore();
   });
