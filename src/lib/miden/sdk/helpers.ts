@@ -148,9 +148,13 @@ export function accountRefToSdk(accountRef: string): AccountId {
 // send funnels through here, so this is the one place worth checking.
 const MAX_FUNGIBLE_ASSET_AMOUNT = (1n << 63n) - (1n << 31n);
 
-function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: string, amount: bigint): FungibleAsset {
+export function resolveHeldFungibleAsset(
+  account: Account | undefined,
+  faucetRef: string,
+  amount: bigint
+): FungibleAsset {
   if (amount < 0n || amount > MAX_FUNGIBLE_ASSET_AMOUNT) {
-    throw new Error(`Send amount ${amount} is outside the representable range (0..${MAX_FUNGIBLE_ASSET_AMOUNT})`);
+    throw new Error(`Asset amount ${amount} is outside the representable range (0..${MAX_FUNGIBLE_ASSET_AMOUNT})`);
   }
   const faucetId = accountRefToSdk(faucetRef);
   const faucetHex = faucetId.toString();
@@ -204,17 +208,13 @@ function resolveHeldFungibleAsset(account: Account | undefined, faucetRef: strin
  * recallable sends, the offscreen-prover path, and the high-level send all
  * route through this so they can't drift on asset construction again.
  *
- * Not every note-emitting path: the Epoch collateral note
- * (`buildEpochCollateralRequestBytes`) and the AggLayer B2AGG note build their
- * own requests because each carries an attachment this builder cannot express.
- * They therefore do NOT get the vault-key derivation below, and the callback-flag
- * bug this builder exists to fix is still latent in the Epoch one: it constructs
- * `new FungibleAsset(...)`, which defaults to `AssetCallbackFlag.Disabled`, so a
- * collateral faucet issuing callback-ENABLED assets would fail the kernel's
- * remove-asset assertion. (B2AGG already picks its flag explicitly.) Not fixed
- * here because the Epoch note is built from the Epoch SDK's mint callback, in a
- * layer with no client to read the sender's vault from — closing it means
- * threading an `Account` in from the caller.
+ * Not every note-emitting path routes through this builder: the Epoch collateral
+ * note (`buildEpochCollateralRequestBytes`) and the AggLayer B2AGG note build
+ * their own requests, because each carries an attachment this builder cannot
+ * express. They do still resolve their outgoing asset the same way — Epoch calls
+ * `resolveHeldFungibleAsset` directly, and B2AGG picks its flag explicitly — so
+ * the callback-flag bug is closed on every path that removes an asset from a
+ * vault, not just the ones shaped like a send.
  *
  * Building the note here rather than in `newSendTransactionRequest` reproduces
  * the Rust builder exactly — same script root, tag, storage and note type —

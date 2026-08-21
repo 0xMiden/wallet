@@ -33,7 +33,7 @@ import {
   cancelTransactionById
 } from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
-import { requeueFailedTransaction } from './retry';
+import { isUnverifiableSendRetryError, requeueFailedTransaction } from './retry';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 
 jest.mock('../back/background-notification', () => ({
@@ -907,6 +907,85 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
 
     await requeueFailedTransaction('reaped-later');
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
+  });
+});
+
+// A guard whose only outcome is a permanently broken row gets worked around: the
+// Retry button never hides, so it throws the same error on every tap, and the way
+// out is to send again by hand — the double payment the guard exists to prevent.
+// The wallet cannot tell whether the send landed; the user can see it in their
+// balance, so it asks them.
+describe('a refused send is not a dead end', () => {
+  const refused = async (id: string) => {
+    await Repo.transactions.add(
+      inFlightSend(id, { stage: 'sending', status: ITransactionStatus.Failed, requestBytes: undefined })
+    );
+    await markMayHaveSubmitted(id);
+  };
+
+  it('refuses by default, with an error the UI can tell apart from any other', async () => {
+    await refused('ack-1');
+
+    await expect(requeueFailedTransaction('ack-1')).rejects.toMatchObject({
+      name: 'UnverifiableSendRetryError'
+    });
+    expect(isUnverifiableSendRetryError(new Error('something else'))).toBe(false);
+  });
+
+  it('proceeds once the user confirms the send never arrived', async () => {
+    await refused('ack-2');
+
+    await requeueFailedTransaction('ack-2', { acknowledgeUnverifiedSend: true });
+
+    expect((await read('ack-2')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  // Retracted, not stepped over: the user has ruled the crossing out, so a LATER
+  // failure on this row must be judged on its own evidence. Leaving the flag set
+  // would refuse the next retry for a crossing that has been disproved.
+  it('clears the markers rather than bypassing them', async () => {
+    await refused('ack-3');
+    await Repo.transactions.where({ id: 'ack-3' }).modify(r => {
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000);
+    });
+
+    await requeueFailedTransaction('ack-3', { acknowledgeUnverifiedSend: true });
+
+    const row = await read('ack-3');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.cancelledInFlightAt).toBeUndefined();
+  });
+
+  it('is retryable again after the acknowledged attempt fails once more', async () => {
+    await refused('ack-4');
+    await requeueFailedTransaction('ack-4', { acknowledgeUnverifiedSend: true });
+    await Repo.transactions.where({ id: 'ack-4' }).modify(r => {
+      r.status = ITransactionStatus.Failed;
+      r.stage = 'sending';
+    });
+
+    // No acknowledgement needed this time: nothing records a crossing any more.
+    await requeueFailedTransaction('ack-4');
+    expect((await read('ack-4')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  // The acknowledgement is scoped to the refusal it answers, and must not become a
+  // general override of the other guards.
+  it('does not requeue a landed transaction just because the flag is passed', async () => {
+    await refused('ack-5');
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('ack-5', { acknowledgeUnverifiedSend: true });
+
+    expect((await read('ack-5')).status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('does not make a non-retryable type retryable', async () => {
+    await Repo.transactions.add(inFlightSend('ack-6', { type: 'earn-deposit', status: ITransactionStatus.Failed }));
+
+    await expect(requeueFailedTransaction('ack-6', { acknowledgeUnverifiedSend: true })).rejects.toThrow(
+      /not retryable/
+    );
   });
 });
 

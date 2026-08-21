@@ -17,6 +17,7 @@ import {
   getSwapSettlementNotes,
   getTransactionById,
   isRequeueableTransaction,
+  isUnverifiableSendRetryError,
   isUserCancelledTransaction,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
@@ -256,6 +257,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [showFullError, setShowFullError] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
   // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
   // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -416,27 +418,34 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // row to replay — the whole withdrawal is resubmitted as a BRAND NEW Epoch
   // intent (fresh nonce) reusing this same row, so the page just reloads it in
   // place rather than navigating.
-  const handleRetry = useCallback(async () => {
-    if (!entry) return;
-    setIsRetrying(true);
-    setRetryError(null);
-    try {
-      if (entry.txType === 'earn-withdraw') {
-        await retryEarnWithdrawReceive(transactionId);
-        await loadTransaction();
-      } else {
-        await requeueFailedTransaction(transactionId);
-        requestSWTransactionProcessing();
-        navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-        return; // navigating away — leave the spinner as-is
+  const handleRetry = useCallback(
+    async (acknowledgeUnverifiedSend = false) => {
+      if (!entry) return;
+      setIsRetrying(true);
+      setRetryError(null);
+      setNeedsSendAcknowledgement(false);
+      try {
+        if (entry.txType === 'earn-withdraw') {
+          await retryEarnWithdrawReceive(transactionId);
+          await loadTransaction();
+        } else {
+          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
+          requestSWTransactionProcessing();
+          navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+          return; // navigating away — leave the spinner as-is
+        }
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to retry transaction:', error);
+        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        // See the same branch in `GeneratingTransaction`: the wallet cannot tell
+        // whether this send landed, so it asks the one party who can.
+        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
+      } finally {
+        setIsRetrying(false);
       }
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to retry transaction:', error);
-      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsRetrying(false);
-    }
-  }, [entry, loadTransaction, t, transactionId]);
+    },
+    [entry, loadTransaction, t, transactionId]
+  );
 
   // The initiating context's background poller may be gone (extension popup closed),
   // so this page (re)starts the delivery poller AND reloads the row on an interval —
@@ -1210,9 +1219,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               title={t('retry')}
               isLoading={isRetrying}
               disabled={isRetrying}
-              onClick={handleRetry}
+              onClick={() => handleRetry(false)}
               className="max-w-none"
             />
+            {/* Only after the refusal above has been shown, so the warning is
+                always read first. */}
+            {needsSendAcknowledgement && (
+              <Button
+                data-testid="history-retry-anyway-button"
+                variant={ButtonVariant.Secondary}
+                title={t('retryAnyway')}
+                isLoading={isRetrying}
+                disabled={isRetrying}
+                onClick={() => handleRetry(true)}
+                className="mt-2 max-w-none"
+              />
+            )}
           </div>
         )}
       </div>

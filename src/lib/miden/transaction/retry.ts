@@ -135,7 +135,50 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
  * the retry on sight, and `nextEligibleAt` is cleared so a stale
  * requeue-backoff can't delay the user's explicit retry.
  */
-export const requeueFailedTransaction = async (txId: string): Promise<void> => {
+/**
+ * Thrown when a send cannot be retried safely and the wallet has no way to find
+ * out whether it landed. Its own class, rather than a bare `Error`, so the UI can
+ * tell this apart from an ordinary retry failure and offer the one thing that can
+ * actually resolve it — see `RetryOptions.acknowledgeUnverifiedSend`.
+ */
+export class UnverifiableSendRetryError extends Error {
+  constructor() {
+    super(
+      'This send may already have reached the network, and there is no way to confirm it. ' +
+        'Retrying could send it twice. Check your balance first — if it did not go through, you can retry anyway.'
+    );
+    this.name = 'UnverifiableSendRetryError';
+  }
+}
+
+/**
+ * Matched by `name`, not `instanceof`: the retry can be driven from the UI bundle
+ * or the service worker, which do not share a class identity.
+ */
+export const isUnverifiableSendRetryError = (error: unknown): boolean =>
+  error instanceof Error && error.name === 'UnverifiableSendRetryError';
+
+export interface RetryOptions {
+  /**
+   * Proceed even though a submit cannot be ruled out, because the USER has
+   * confirmed it did not happen.
+   *
+   * The refusal exists because the wallet cannot distinguish "failed before
+   * submitting" from "submitted and then lost the answer" on a plain send. The
+   * user can: the funds either left their balance or they did not. Without this
+   * the guard has no exit at all — nothing clears `mayHaveSubmitted`, and the
+   * Retry button stays on screen throwing the same error forever, which is the
+   * kind of dead end people work around by sending again by hand, i.e. the exact
+   * double payment the guard is for.
+   *
+   * Taking it as a signal that the premise is FALSE, so both markers are cleared
+   * rather than merely bypassed: a later failure on this row must be judged on its
+   * own evidence, not on a crossing the user has just ruled out.
+   */
+  acknowledgeUnverifiedSend?: boolean;
+}
+
+export const requeueFailedTransaction = async (txId: string, options: RetryOptions = {}): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx) throw new Error(`Transaction ${txId} not found`);
   if (!isRequeueableTransaction(tx)) {
@@ -201,10 +244,16 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     tx.transactionId === undefined &&
     (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt))
   ) {
-    throw new Error(
-      'This send may already have reached the network, and there is no way to confirm it. ' +
-        'Retrying could send it twice. Check your balance and start a new send if it did not go through.'
-    );
+    if (!options.acknowledgeUnverifiedSend) {
+      throw new UnverifiableSendRetryError();
+    }
+    // The user has ruled the crossing out, so retract it rather than stepping
+    // over it — see `RetryOptions.acknowledgeUnverifiedSend`. Before the requeue
+    // below, since that reads both fields to decide what to keep.
+    await Repo.transactions.where({ id: txId }).modify(dbTx => {
+      dbTx.mayHaveSubmitted = undefined;
+      dbTx.cancelledInFlightAt = undefined;
+    });
   }
 
   // Read off the pre-reset row: the modify callback below clears `stage` as part
