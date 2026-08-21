@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
+import { dismissTelemetryConsent } from './telemetry-consent';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 // Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
@@ -527,6 +528,20 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       );
     }
 
+    // After the readiness wait, not before it: a short poll placed ahead of it
+    // would be racing a `register()` that is allowed to run for two minutes.
+    // Still raced against `explore-page` rather than trusted to be instant,
+    // because the wait above can resolve on `currentAccount.publicKey` — which
+    // the service worker's own StateUpdated broadcast can publish while
+    // `Welcome.tsx` is still inside `waitForReadyState`, i.e. seconds before it
+    // navigates anywhere. Note that arm can no longer be the winning signal on a
+    // profile with no stored choice: the consent route is where the flow lands
+    // first, and `explore-page` only follows the decline below.
+    await dismissTelemetryConsent(this.page, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
+
     const address = await this.getAccountAddress();
 
     // The bypass's Welcome.tsx effect stashes the mnemonic it actually used
@@ -924,6 +939,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx.
     await this.completeHotKeyRotation();
+
+    // The rotation gate is a `fixed inset-0` scrim rendered above whatever route
+    // is mounted, and a recovered wallet's route is the consent prompt — so the
+    // prompt is only reachable once the gate has gone. Same ordering as
+    // `recoverViaForgotPassword`.
+    await dismissTelemetryConsent(this.page);
   }
 
   /**

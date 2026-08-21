@@ -120,6 +120,20 @@ describe('app/pages/HelpImproveWallet', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
+  it('is the chain the E2E suites drive: decline by test id, land on the handoff screen', () => {
+    mockPostOnboardingRoute = '/finish-side-panel';
+    renderPrompt();
+
+    // `dismissTelemetryConsent` (playwright/e2e/helpers/telemetry-consent.ts)
+    // clicks exactly this id and then expects the prompt to unmount onto the
+    // handoff screen, which is what the Chrome smoke test asserts next.
+    fireEvent.click(screen.getByTestId('help-improve-wallet-decline'));
+
+    expect(isTelemetryEnabled()).toBe(false);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+  });
+
   it('leaves consent off, and records no choice, when the prompt is abandoned', () => {
     const { unmount } = renderPrompt();
 

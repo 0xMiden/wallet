@@ -82,6 +82,44 @@ describe('HelpImproveWalletScreen', () => {
     expect(screen.getByTestId('onboarding-help-improve-wallet')).toBeInTheDocument();
   });
 
+  // The E2E suites have to get past this screen on every profile that has never
+  // answered, and both buttons carry nothing but a localized title — which makes
+  // the harness's only hook a copy string that this very file pins as changeable
+  // for legal reasons. These two ids are what `dismissTelemetryConsent`
+  // (playwright/e2e/helpers/telemetry-consent.ts) drives, so they are part of the
+  // contract, not decoration.
+  it('exposes both choices to the E2E harness by test id', () => {
+    renderScreen();
+
+    expect(screen.getByTestId('help-improve-wallet-accept')).toHaveTextContent(ACCEPT_LABEL);
+    expect(screen.getByTestId('help-improve-wallet-decline')).toHaveTextContent(DECLINE_LABEL);
+  });
+
+  it('puts the ids on the buttons themselves, inside the container the harness polls for', () => {
+    renderScreen();
+    const prompt = screen.getByTestId('onboarding-help-improve-wallet');
+
+    for (const testId of ['help-improve-wallet-accept', 'help-improve-wallet-decline']) {
+      const button = screen.getByTestId(testId);
+      expect(button.tagName).toBe('BUTTON');
+      // The harness scopes the click to the container, so an id that escaped it
+      // would be found by `getByTestId` here and by nothing there.
+      expect(prompt.contains(button)).toBe(true);
+    }
+  });
+
+  it('declining by test id is what records the refusal — the path the E2E suites take', () => {
+    const onSubmit = jest.fn();
+    renderScreen({ onSubmit });
+
+    fireEvent.click(screen.getByTestId('help-improve-wallet-decline'));
+
+    expect(isTelemetryEnabled()).toBe(false);
+    expect(hasTelemetryChoice()).toBe(true);
+    expect(mockInitCrashReporting).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it('asks rather than assumes: nothing is recorded or started by rendering the prompt', () => {
     renderScreen();
 
