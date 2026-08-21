@@ -1,3 +1,4 @@
+import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 import {
@@ -99,13 +100,86 @@ export function isTelemetryEnabled() {
 }
 
 /**
+ * The Firefox data-collection permission the wallet declares as optional. Must
+ * stay in step with `data_collection_permissions.optional` in
+ * `public/manifest.v2.json` and `public/manifest.json`.
+ */
+const TECHNICAL_AND_INTERACTION = 'technicalAndInteraction';
+
+/**
+ * Whether the *browser* permits data collection, independently of our own
+ * setting.
+ *
+ * Firefox 140+ asks the user whether the extension may collect
+ * `technicalAndInteraction` data — at install time, and again in `about:addons`
+ * → Permissions and data. That is a second consent sitting beside "Share usage
+ * data", and two consents that can disagree is a defect, so both have to say
+ * yes before anything is sent.
+ *
+ * **How "this browser has no such concept" is told apart from "this browser
+ * said no".** This is the whole difficulty, and getting it backwards fails
+ * silently in one of two directions: read an absent mechanism as a refusal and
+ * telemetry dies everywhere including Chrome and mobile, with no error; read a
+ * refusal as an absent mechanism and we collect from someone who explicitly
+ * declined. Neither shows up as a crash.
+ *
+ * The discriminator is therefore NOT whether the call throws — Chrome would
+ * reject an unknown `data_collection` key passed to `permissions.contains()`,
+ * so keying off a throw is exactly the trap. It is the **presence of the
+ * `data_collection` key in the `permissions.getAll()` response**, which is the
+ * mechanism Mozilla documents for feature-detecting this experience at runtime:
+ *
+ * - **Key absent** — the browser does not implement data-collection consent at
+ *   all (Chrome, any Firefox below 140). There is no browser-level answer to
+ *   honour, so this gate abstains and the wallet's own setting decides.
+ * - **Key present** — the browser implements it and its answer is
+ *   authoritative. Granted only if the array actually names our data type. An
+ *   empty array is a refusal, not an absence, and that is the distinction the
+ *   key's presence buys us.
+ *
+ * Everything else fails **closed**: a non-extension context aside, a throw, a
+ * rejected promise, or a `data_collection` that is not an array all return
+ * false, because an error reading a permission must never read as permission
+ * granted.
+ *
+ * Off-extension (mobile, desktop) there is no extension permission model to
+ * consult, so this abstains rather than failing closed. Abstaining is not
+ * failing open: the caller still requires the wallet's own setting to be on.
+ */
+async function isDataCollectionPermitted(): Promise<boolean> {
+  if (!isExtension()) return true;
+
+  try {
+    const browser = await import('webextension-polyfill').then(m => m.default);
+    const granted = await browser.permissions.getAll();
+    const dataCollection = granted.data_collection;
+
+    if (dataCollection === undefined) return true;
+
+    // Not `dataCollection.includes(...)` alone: a bare string would satisfy
+    // `includes` and read as granted.
+    return Array.isArray(dataCollection) && dataCollection.includes(TECHNICAL_AND_INTERACTION);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Service-worker-safe read of the telemetry consent toggle. The background is
- * the single consent gate for every send, so this is the authoritative read.
+ * the single consent gate for every send, so this is the authoritative read,
+ * and it is the one place the browser-level permission is ANDed in — both
+ * egress points (`lib/telemetry/sink` and `lib/telemetry/crash`) call this, so
+ * there is one gate to audit rather than a discipline applied twice.
+ *
  * Defaults to OFF on read-miss — unlike auto-consume, a missing mirror here
  * must fail closed.
+ *
+ * The local read comes first deliberately: it is cheap and it is false for
+ * almost everyone, so the common opted-out path never touches an extension API.
  */
-export function isTelemetryEnabledAsync(): Promise<boolean> {
-  return readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);
+export async function isTelemetryEnabledAsync(): Promise<boolean> {
+  if (!(await readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY))) return false;
+  return isDataCollectionPermitted();
 }
 
 /**

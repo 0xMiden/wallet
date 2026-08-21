@@ -125,17 +125,27 @@ Nothing else is declared: no `personallyIdentifyingInfo`, no
 
 **Two things to know when submitting.**
 
-*Known gap, needs a follow-up ticket.* Firefox shows its own checkbox for
-`technicalAndInteraction` in the install prompt, and the user can toggle it in
-`about:addons` → Permissions and data. The wallet's code does not read that
-browser-level permission — it gates on its own setting only
-(`isTelemetryEnabledAsync`). So a user who declines at the Firefox prompt and
-then turns **Share usage data** on in Settings would be collected from while the
-browser-level answer was no. Two consents that can disagree is a defect, not a
-disclosure problem, and the fix belongs in the consent gate: read
-`permissions.contains({ data_collection: ['technicalAndInteraction'] })`
-alongside the setting on Firefox. Declaring the category is still strictly better
-than not declaring it, which is why it is in the manifest now.
+*The browser-level answer is honoured, not just declared.* Firefox shows its own
+checkbox for `technicalAndInteraction` in the install prompt, and the user can
+toggle it afterwards in `about:addons` → Permissions and data. That is a second
+consent sitting beside **Share usage data**, and two consents that can disagree
+would be a defect, so `isTelemetryEnabledAsync` in `src/lib/settings/helpers.ts`
+ANDs them: nothing is sent unless both say yes. A user who declines at the
+Firefox prompt is not collected from however the in-app toggle is set.
+
+The check reads `permissions.getAll()` rather than
+`permissions.contains({ data_collection: [...] })`, for one specific reason.
+Telling *"this browser has no such concept"* apart from *"this browser said no"*
+is the whole difficulty, and `contains()` cannot do it: Chrome rejects an unknown
+`data_collection` key, so a thrown error would mean both "Chrome" and "something
+broke", and treating a throw as a refusal would silently disable telemetry on
+Chrome. `getAll()` distinguishes them by **the presence of the `data_collection`
+key** in its response, which is the mechanism Mozilla documents for
+feature-detecting this experience at runtime — absent key means the browser does
+not implement it and our own setting decides; present key means its answer is
+authoritative, and an empty array is a refusal rather than an absence. Everything
+else — a throw, a rejected promise, a non-array value — fails closed. See
+`src/lib/telemetry/browser-consent.test.ts` for the matrix.
 
 *No `strict_min_version` was added.* Firefox below 140 does not render the
 built-in consent UI, and Mozilla's transitional rule for those versions is that

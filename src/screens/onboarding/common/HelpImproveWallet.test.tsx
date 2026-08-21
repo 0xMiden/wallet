@@ -106,6 +106,22 @@ describe('HelpImproveWalletScreen', () => {
     expect(body).toHaveTextContent(/your platform/i);
   });
 
+  it('names crash reporting, which this same setting also turns on', () => {
+    renderScreen();
+    const body = screen.getByTestId('help-improve-wallet-disclosure');
+
+    // The disclosure described the product events well and never mentioned
+    // crash reports, so a user could accept this prompt without being told
+    // stack traces would be sent. One setting, two kinds of data: both have to
+    // be named for the consent to be informed.
+    expect(body).toHaveTextContent(/if the app crashes/i);
+    expect(body).toHaveTextContent(/crash report/i);
+    // What is in one, in the terms a non-engineer can act on.
+    expect(body).toHaveTextContent(/where it happened in the code/i);
+    // And that it is scrubbed first — the reason sending one is acceptable.
+    expect(body).toHaveTextContent(/scrubbed to remove sensitive data/i);
+  });
+
   it('names what is NOT collected, including the things a wallet must never send', () => {
     renderScreen();
     const body = screen.getByTestId('help-improve-wallet-disclosure');

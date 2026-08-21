@@ -15,6 +15,8 @@ The App collects nothing about you unless you turn on **Share usage data**, whic
 
 You are asked once, after you create or import a wallet, and you can say no. Whatever you choose then, you can change it at any time in **Settings → General → Help improve Wallet**. Turning it off stops sending: the setting is checked before every single send, so nothing that was waiting gets sent later.
 
+**On Firefox, there is a second switch, and both have to be on.** Firefox asks separately whether the extension may collect technical and interaction data — at install time, and afterwards under `about:addons` → Permissions and data. The App reads Firefox's answer as well as its own setting and sends only when both say yes. Turning either one off is enough to stop it. Other browsers have no equivalent switch, so there the App's own setting is the only one.
+
 Everything below describes what is sent **only while that setting is on**.
 
 ### Usage data

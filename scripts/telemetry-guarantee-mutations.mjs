@@ -190,19 +190,23 @@ dependencies { implementation 'com.google.firebase:firebase-analytics:22.1.0' }`
   {
     name: 'a collected data type flagged as used for tracking',
     guards: 'declares no tracking in the iOS privacy manifest',
+    // The anchor used to be the empty `<array/>`, which stopped existing the
+    // moment the manifest actually declared the two types the feature collects.
+    // Flip a declared entry's tracking flag instead, which is both the realistic
+    // mistake and an anchor that survives adding a third type.
     edits: [
       {
         file: PRIVACY,
-        find: `<key>NSPrivacyCollectedDataTypes</key>\n\t<array/>`,
-        replace: `<key>NSPrivacyCollectedDataTypes</key>
-	<array>
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+        find: `			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<true/>
-		</dict>
-	</array>`
+			<false/>`,
+        replace: `			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<true/>`
       }
     ]
   },
@@ -584,8 +588,8 @@ export function getUserId(): string {
     edits: [
       {
         file: HELPERS,
-        find: `  return readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY);`,
-        replace: `  return readMirroredSetting(TELEMETRY_STORAGE_KEY, true);`
+        find: `  if (!(await readMirroredSetting(TELEMETRY_STORAGE_KEY, DEFAULT_TELEMETRY))) return false;`,
+        replace: `  if (!(await readMirroredSetting(TELEMETRY_STORAGE_KEY, true))) return false;`
       }
     ]
   },
