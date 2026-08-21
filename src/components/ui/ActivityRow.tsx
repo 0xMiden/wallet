@@ -148,21 +148,23 @@ export const ActivityRow: FC<ActivityRowProps> = ({
 
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
-          <span data-testid={testId && `${testId}-amount`} className="font-heading text-sm font-bold leading-tight">
+          <span
+            data-testid={testId && `${testId}-amount`}
+            className="font-heading text-sm font-bold leading-tight text-right"
+          >
             <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
+            {/* Every further asset of a batch claim follows inline: "+20 A, +10 B". */}
+            {amount.extra?.map(line => (
+              <span key={`${line.value}-${line.symbol ?? ''}`} data-testid={testId && `${testId}-amount-extra`}>
+                {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
+                <span className="text-heading-gray">, </span>
+                <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
+                {line.symbol ? <span className="text-heading-gray">{` ${line.symbol}`}</span> : null}
+              </span>
+            ))}
           </span>
         )}
-        {amount?.extra?.map(line => (
-          <span
-            key={`${line.value}-${line.symbol ?? ''}`}
-            data-testid={testId && `${testId}-amount-extra`}
-            className="font-heading text-sm font-bold leading-tight"
-          >
-            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
-            {line.symbol ? <span className="text-heading-gray">{` ${line.symbol}`}</span> : null}
-          </span>
-        ))}
         {status && (
           <span
             data-testid={testId && `${testId}-status`}
