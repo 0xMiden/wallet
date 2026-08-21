@@ -366,7 +366,7 @@ interface ForbiddenToken {
  * bare `ATT` or `analytics`, which hit `attempt`, `attribute` and every
  * sentence in the CHANGELOG.
  */
-const named = (token: string): RegExp => new RegExp(token.replace(/\./g, '\\.'), 'i');
+const named = (token: string): RegExp => new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
 /**
  * An acronym as a word *inside* an identifier.
@@ -1150,6 +1150,22 @@ const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
 const requests: string[] = [];
 
 /**
+ * Matched on the parsed hostname, not as a substring. A positive assertion
+ * built on `url.includes('sentry.io')` also accepts
+ * `https://elsewhere.invalid/?ref=sentry.io`, which is not a request to
+ * Sentry at all — so the check that is meant to prove a report went out
+ * could be satisfied by a request to anywhere.
+ */
+const isSentryRequest = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'sentry.io' || hostname.endsWith('.sentry.io');
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Installed once and never reswapped: Sentry caches the fetch implementation it
  * resolves, so replacing the stub per test would leave the crash transport
  * writing into an array nobody reads — and an "it sent nothing" assertion over
@@ -1224,6 +1240,6 @@ describe('telemetry is off until the user turns it on', () => {
     await flushEgress();
 
     expect(requests).toContain(INGEST_URL);
-    expect(requests.filter(url => url.includes('sentry.io')).length).toBeGreaterThan(0);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 });

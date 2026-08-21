@@ -310,6 +310,22 @@ describe('the declared permission and the permission we check', () => {
 // The same gate governs crash reports, because there is only one gate.
 // ---------------------------------------------------------------------------
 
+/**
+ * Matched on the parsed hostname, not as a substring. A positive assertion
+ * built on `url.includes('sentry.io')` also accepts
+ * `https://elsewhere.invalid/?ref=sentry.io`, which is not a request to
+ * Sentry at all — so the check that is meant to prove a report went out
+ * could be satisfied by a request to anywhere.
+ */
+const isSentryRequest = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === 'sentry.io' || hostname.endsWith('.sentry.io');
+  } catch {
+    return false;
+  }
+};
+
 describe('the crash egress point uses the same gate', () => {
   const requests: string[] = [];
   let originalFetch: PropertyDescriptor | undefined;
@@ -355,7 +371,7 @@ describe('the crash egress point uses the same gate', () => {
     captureCrash(new Error('rpc endpoint returned status'));
     await flush();
 
-    expect(requests.filter(url => url.includes('sentry.io')).length).toBeGreaterThan(0);
+    expect(requests.filter(isSentryRequest).length).toBeGreaterThan(0);
   });
 
   it('reports nothing when the browser denies, even with the wallet setting on', async () => {
@@ -366,6 +382,6 @@ describe('the crash egress point uses the same gate', () => {
     captureCrash(new Error('rpc endpoint returned status'));
     await flush();
 
-    expect(requests.filter(url => url.includes('sentry.io'))).toEqual([]);
+    expect(requests.filter(isSentryRequest)).toEqual([]);
   });
 });

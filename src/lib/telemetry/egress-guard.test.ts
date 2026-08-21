@@ -62,7 +62,7 @@ describe('encodingVariantsOf', () => {
   it('survives input that cannot be base64-encoded, keeping the other variants', () => {
     const variants = encodingVariantsOf('\u{1f600}seed');
     expect(variants).toContain('\u{1f600}seed');
-    expect(variants).toContain('%f0%9f%98%80seed'.replace('seed', '%73%65%65%64'));
+    expect(variants).toContain('%f0%9f%98%80%73%65%65%64');
   });
 
   it('returns no duplicates, so the guard does not repeat work', () => {
