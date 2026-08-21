@@ -10,11 +10,17 @@ import {
   isAutoConsumeEnabled,
   isDelegateProofEnabled,
   isHapticFeedbackEnabled,
+  isTelemetryEnabled,
   setAutoConsumeSetting,
   setDelegateProofSetting,
-  setHapticFeedbackSetting
+  setHapticFeedbackSetting,
+  setTelemetrySetting
 } from 'lib/settings/helpers';
 import { setTheme } from 'lib/settings/theme';
+// Deep imports rather than the `lib/telemetry` barrel: the barrel would pull
+// `@sentry/browser` and the bip39 wordlist into the settings chunk.
+import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
+import { dropQueue } from 'lib/telemetry/sink';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 import SettingToggle from './SettingToggle';
@@ -72,6 +78,23 @@ const GeneralSettings: FC = () => {
     setHapticEnabled(newEnabled);
   }, []);
 
+  const [telemetryEnabled, setTelemetryEnabled] = useState(() => isTelemetryEnabled());
+  const handleTelemetryChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
+    const nextEnabled = evt.target.checked;
+    setTelemetrySetting(nextEnabled);
+    setTelemetryEnabled(nextEnabled);
+
+    if (nextEnabled) {
+      initCrashReporting();
+      return;
+    }
+
+    // Off has to stop the sharing already under way, not merely the next event:
+    // the queued payloads are discarded and the crash client is torn down.
+    dropQueue();
+    stopCrashReporting();
+  }, []);
+
   return (
     <div className="w-full flex flex-col gap-y-6" data-testid="general-settings">
       <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
@@ -105,6 +128,15 @@ const GeneralSettings: FC = () => {
         testID={GeneralSettingsSelectors.AutoConsumeToggle}
         title={t('autoConsumeSettings')}
         description={t('autoConsumeSettingsDescription')}
+      />
+
+      <SettingToggle
+        checked={telemetryEnabled}
+        onChange={handleTelemetryChange}
+        name="telemetryEnabled"
+        testID={GeneralSettingsSelectors.TelemetryToggle}
+        title={t('helpImproveWallet')}
+        description={t('helpImproveWalletDescription')}
       />
     </div>
   );
