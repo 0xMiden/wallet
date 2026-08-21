@@ -134,6 +134,39 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
 };
 
 /**
+ * Reconcile a Failed row that the node says actually LANDED.
+ *
+ * Separate from {@link updateTransactionStatus} because that function's terminal
+ * guard makes this impossible through it: `requeueFailedTransaction` only ever
+ * runs on a Failed row, so its "provably on chain — complete it instead of
+ * resubmitting" branch threw `Transaction already in a finalized state` every
+ * single time, and the UI surfaced that string as the retry error. The row then
+ * stayed Failed for a send that had succeeded, with no way to reconcile it.
+ *
+ * The guard itself is right and stays: it stops a LATE error downgrading a
+ * finalized row. Promoting Failed → Completed on node evidence is the opposite
+ * operation — deliberate, evidence-backed, and the only thing standing between
+ * an ambiguous post-submit abort and a second payment — so it gets its own
+ * narrow door rather than a hole in that one. Refuses to touch an
+ * already-Completed row, which needs no reconciling.
+ */
+export const completeVerifiedLandedTransaction = async (
+  id: string,
+  otherValues: Partial<ITransaction> = {}
+): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Failed) return;
+    Object.assign(tx, otherValues);
+    tx.status = ITransactionStatus.Completed;
+    tx.stage = 'complete';
+    // The failure is no longer the row's story; leaving it behind renders a
+    // completed transaction with an error on it.
+    tx.error = undefined;
+    tx.rawError = undefined;
+  });
+};
+
+/**
  * Record that this row's pipeline reached the point where a broadcast can no
  * longer be ruled out — the sticky half of the double-send guard that
  * `requeueFailedTransaction` reads before dropping a send's cached request.

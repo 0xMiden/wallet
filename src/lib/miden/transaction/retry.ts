@@ -1,7 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 
 import { verifySendLanded } from './cancel';
-import { updateTransactionStatus } from './helper';
+import { completeVerifiedLandedTransaction } from './helper';
 import {
   IEarnWithdrawExtraInputs,
   ITransaction,
@@ -152,7 +152,10 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   if (NODE_VERIFIED_RETRY_TYPES.includes(tx.type)) {
     const verdict = await verifySendLanded(tx);
     if (verdict === 'landed') {
-      await updateTransactionStatus(txId, ITransactionStatus.Completed, {
+      // Not `updateTransactionStatus`: its terminal guard rejects the Failed row
+      // this function is defined over, so this branch used to throw rather than
+      // complete and the guard's only success path never once worked.
+      await completeVerifiedLandedTransaction(txId, {
         displayMessage: 'Completed',
         completedAt: Math.floor(Date.now() / 1000)
       });

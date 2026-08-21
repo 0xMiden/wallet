@@ -14,8 +14,21 @@ jest.mock('./cancel', () => ({
   verifySendLanded: (...args: unknown[]) => mockVerifySendLanded(...args)
 }));
 
+jest.mock('../sdk/miden-client', () => ({
+  getMidenClient: jest.fn(),
+  withWasmClientLock: async (fn: () => unknown) => fn()
+}));
+
+// Real module underneath. The landed-verdict branch used to be asserted purely
+// through `expect(mockUpdateTransactionStatus).toHaveBeenCalledWith(...)`, which
+// is satisfied by a call that THROWS — and the real `updateTransactionStatus`
+// throws on exactly the Failed row this function is defined over, so the guard's
+// only success path never worked while this test reported that it did. Running
+// the real writers means the assertions below are about the row, not about
+// whether a spy was called.
 const mockUpdateTransactionStatus = jest.fn().mockResolvedValue(undefined);
 jest.mock('./helper', () => ({
+  ...jest.requireActual('./helper'),
   updateTransactionStatus: (...args: unknown[]) => mockUpdateTransactionStatus(...args)
 }));
 
@@ -59,15 +72,34 @@ beforeEach(() => {
 // actually landed — that's a double-send / real fund loss.
 describe('requeueFailedTransaction — double-send idempotency guard', () => {
   it('does NOT resubmit a send the node reports as landed; completes it instead', async () => {
-    const row = failedRow({ type: 'send', transactionId: 'abc123' });
+    const row = failedRow({ type: 'send', transactionId: 'abc123', error: 'Something broke' });
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('landed');
 
     await requeueFailedTransaction('tx-1');
 
-    // Completed, NOT reset to Queued — no second send is broadcast.
-    expect(mockUpdateTransactionStatus).toHaveBeenCalledWith('tx-1', ITransactionStatus.Completed, expect.anything());
-    expect(row.status).toBe(ITransactionStatus.Failed); // untouched by a requeue modify
+    // Asserted on the ROW: Completed, and never reset to Queued, so no second
+    // send is broadcast. The failure is cleared off it too — the row's story is
+    // now that it succeeded.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
+    expect(row.stage).toBe('complete');
+    expect(row.error).toBeUndefined();
+  });
+
+  // The reconciliation is deliberately one-way. `completeVerifiedLandedTransaction`
+  // promotes Failed → Completed on node evidence; it must never touch a row that
+  // is already Completed, which is what the terminal guard it bypasses protects.
+  it('leaves an already-Completed row alone', async () => {
+    const row = failedRow({ type: 'send', transactionId: 'abc123' });
+    wireRow(row);
+    mockVerifySendLanded.mockResolvedValue('landed');
+    row.status = ITransactionStatus.Completed;
+    row.displayMessage = 'Completed earlier';
+
+    await requeueFailedTransaction('tx-1').catch(() => undefined);
+
+    expect(row.displayMessage).toBe('Completed earlier');
   });
 
   it('resubmits (requeues) when the node cannot confirm the send landed', async () => {
