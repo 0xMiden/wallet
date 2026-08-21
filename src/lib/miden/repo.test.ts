@@ -229,6 +229,26 @@ describe('miden repo export/import', () => {
     expect(restored!.amount).toBe(BigInt(999999));
   });
 
+  // Asserted on the DUMP, not on a re-import: import re-stamps the flag, so a
+  // round-trip check passes even when the export drops it. Re-exporting a
+  // restored wallet must keep the provenance rather than laundering it.
+  it('carries restoredFromBackup through export', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'imported',
+        type: 'send',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        restoredFromBackup: true,
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const dumped = JSON.parse(await exportDb());
+    expect(dumped[Table.Transactions][0].restoredFromBackup).toBe(true);
+  });
+
   // The flag is stamped by a literal AFTER the spread. Reversing those two
   // clauses hands the attacker control of the gate, and every other test here
   // passes either way because none of their dumps mention the field.

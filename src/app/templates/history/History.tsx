@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useEffect, useMemo, useState } from 'react';
+import React, { memo, RefObject, useEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
@@ -60,7 +60,14 @@ const History = memo<HistoryProps>(
     // — correct for the scope that failed, but the flag would then follow the
     // user to every other account and token page in this mount and silently
     // disable their pagination too.
+    //
+    // The ref is the same problem seen from the other end: `useSafeState`'s
+    // setter only checks that the component is still MOUNTED, not that the key
+    // still matches, so a page already in flight when the user switches account
+    // would land its rows in the new account's list.
+    const scopeRef = useRef(safeStateKey);
     useEffect(() => {
+      scopeRef.current = safeStateKey;
       setHasMore(true);
       setIsLoading(false);
     }, [safeStateKey]);
@@ -112,10 +119,15 @@ const History = memo<HistoryProps>(
         return;
       }
       setIsLoading(true);
+      const scope = safeStateKey;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
       try {
         const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+        // Answer for a scope the user has since left: `restEntries` in this
+        // closure is the OLD account's list, so merging would show one account's
+        // history under another's.
+        if (scopeRef.current !== scope) return;
         const allRestEntries = mergeAndSort(restEntries, olderTransactions);
 
         if (allRestEntries.length === 0) {
@@ -135,9 +147,11 @@ const History = memo<HistoryProps>(
           }`,
           error
         );
-        setHasMore(false);
+        // Same reasoning as the success path: do not disable pagination for a
+        // scope the user has already moved on to.
+        if (scopeRef.current === scope) setHasMore(false);
       } finally {
-        setIsLoading(false);
+        if (scopeRef.current === scope) setIsLoading(false);
       }
     };
 

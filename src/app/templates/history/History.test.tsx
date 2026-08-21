@@ -623,6 +623,71 @@ describe('History', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  // `hasMore` is a bare useState while `restEntries` is keyed to the scope, so
+  // without an explicit reset the "stop extending" decision above would follow
+  // the user to every other account and token page in this mount.
+  it('re-enables paging after a failed page when the scope changes', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined) return [];
+      throw new Error('dexie-down');
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory({ tokenId: 'tok-a' });
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+
+    await act(async () => {
+      rerender(<History address="0xme" tokenId="tok-b" />);
+    });
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(true));
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  // `useSafeState`'s setter only checks that the component is still MOUNTED, not
+  // that its key still matches, so a page in flight across an account switch
+  // would otherwise merge one account's history into another's list.
+  it('discards a page that resolves after the scope changed', async () => {
+    let releasePage: (rows: unknown[]) => void = () => {};
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined) return [];
+      return new Promise(resolve => {
+        releasePage = resolve;
+      });
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory({ tokenId: 'tok-a' });
+
+    let pageDone: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pageDone = mockHistoryViewProps.loadMore(0);
+    });
+
+    await act(async () => {
+      rerender(<History address="0xme" tokenId="tok-b" />);
+    });
+
+    await act(async () => {
+      releasePage([
+        {
+          id: 'FROM-A',
+          status: STATUS.Completed,
+          displayMessage: 'token A row',
+          displayIcon: 'RECEIVE',
+          type: 'consume',
+          completedAt: 10
+        }
+      ]);
+      await pageDone;
+    });
+
+    expect(entryKeys()).not.toContain('completed-FROM-A');
+  });
+
   it('cancels a pending transaction by id and no-ops when the entry has no txId', async () => {
     await renderHistory();
 
@@ -883,7 +948,12 @@ describe('History batch-claim extra assets', () => {
     await renderHistory();
     await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
 
-    expect(mockResolveConsumeExtraAmounts).toHaveBeenCalledWith(expect.objectContaining({ id: 'CLAIM' }));
+    // Assert the ROW reached the resolver, not just its id: the mock keys off
+    // `tx.id`, so an `objectContaining({ id })` check passes even when the
+    // caller strips the very field the resolver needs.
+    expect(mockResolveConsumeExtraAmounts).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'CLAIM', assetTotals: claimRow.assetTotals })
+    );
     expect(mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-CLAIM').extraAmounts).toEqual(extras);
     expect(mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-PCLAIM').extraAmounts).toEqual(extras);
   });
