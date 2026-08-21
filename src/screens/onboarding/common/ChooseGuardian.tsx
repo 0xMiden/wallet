@@ -123,7 +123,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-[repeat(2,177px)] justify-center gap-x-4 gap-y-3 mt-7">
+        <div className="grid grid-cols-[repeat(2,minmax(0,177px))] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
@@ -145,7 +145,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   onClick={() => handleSelect(option.id)}
                   data-guardian-endpoint={option.endpoint}
                   className={cn(
-                    'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
+                    'relative flex h-30.5 w-full flex-col overflow-hidden rounded-[20px] transition-all duration-150',
                     'border-2',
                     isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}

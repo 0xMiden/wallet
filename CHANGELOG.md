@@ -2,6 +2,10 @@
 
 ## 1.15.22 (TBD)
 
+### Fixes
+
+- [FIX][all] Guardian operator cards on Choose/Rotate Guardian now shrink to fit narrow viewports instead of being clipped at the screen edges. (#744)
+
 ### Features
 
 - [FEATURE][all] **Swap activity now has a dedicated live receipt.** The detail screen mirrors the swap flow with an offered-to-requested amount hero, an accessible Framer Motion amount-progress bar, and fill rows showing the real received amount, consumed time, and note ID without a decorative status icon. Transfer details include the swap transaction ID, source account, and every settlement-consume transaction ID. A manually consumed, active order links to Pending Notes; auto-consumed and terminal orders omit that shortcut, and a filled order no longer shows Cancel. The receipt intentionally avoids predicting a total fill count, which the order lineage cannot know in advance.
