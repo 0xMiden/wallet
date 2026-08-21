@@ -425,8 +425,28 @@ describe('getCompletedTransactions', () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
     }
+    // `limit` is a page size, so this is "skip 2, take 5" — not "rows 2 to 5".
     const txs = await getCompletedTransactions('acc-1', 2, 5);
-    expect(txs).toHaveLength(3);
+    expect(txs.map(tx => tx.id)).toEqual(['tx-2', 'tx-3', 'tx-4', 'tx-5', 'tx-6']);
+  });
+
+  // The infinite-scroll caller asks for page N as `offset = pageSize * N`, which
+  // under the old end-index reading made every page after the first empty and
+  // silently capped history at one page.
+  it('returns a full page for offsets past the first page', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    const page1 = await getCompletedTransactions('acc-1', 4, 4);
+    expect(page1.map(tx => tx.id)).toEqual(['tx-4', 'tx-5', 'tx-6', 'tx-7']);
+  });
+
+  it('returns every row when no limit is given', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
+    expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
   });
 });
 

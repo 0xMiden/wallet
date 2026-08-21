@@ -3,6 +3,7 @@ import BigNumber from 'bignumber.js';
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenPrice } from 'lib/prices';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
@@ -38,7 +39,11 @@ export async function updateBalancesFromSyncData(
     if (isMiden) hasMiden = true;
 
     let tokenMetadata: AssetMetadata;
-    const localMeta = localMetadatas[asset.faucetId];
+    const cached = localMetadatas[asset.faucetId];
+    // A cached record whose scale is a guess is provisional: real metadata
+    // arriving on a later sync must be allowed to replace it. Preferring the
+    // cache unconditionally is what made a single failed lookup permanent.
+    const localMeta = hasKnownScale(cached) ? cached : undefined;
     if (isMiden) {
       tokenMetadata = MIDEN_METADATA;
     } else if (localMeta) {
@@ -55,10 +60,13 @@ export async function updateBalancesFromSyncData(
         // decimals as though the faucet had reported them.
         scaleIsUnknown: asset.metadata.scaleIsUnknown
       };
-      newMetadatas[asset.faucetId] = tokenMetadata;
+      // Only a resolved record is worth storing. Persisting the placeholder
+      // would freeze the guess in place for a faucet whose lookup merely
+      // failed this once — the sync retries, but the cache would already have
+      // an answer for it.
+      if (hasKnownScale(tokenMetadata)) newMetadatas[asset.faucetId] = tokenMetadata;
     } else {
       tokenMetadata = DEFAULT_TOKEN_METADATA;
-      newMetadatas[asset.faucetId] = tokenMetadata;
     }
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);

@@ -48,8 +48,11 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry
     // `DateSeparator` formats the group key with date-fns, which THROWS on one —
     // so a single bad row would take down the entire list rather than just
     // itself. Group those under today instead; the row is still listed.
-    const seconds = Number.isFinite(entry.timestamp) ? entry.timestamp : Date.now() / 1000;
-    const d = new Date(seconds * 1000);
+    // `Number.isFinite` alone is not enough: 1e300 is finite but overflows the
+    // Date range, and the result is an Invalid Date all the same. Build the date
+    // first and test THAT, which is the only thing date-fns actually sees.
+    const candidate = new Date(entry.timestamp * 1000);
+    const d = Number.isFinite(candidate.getTime()) ? candidate : new Date();
     const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const existing = groups.get(key);
     if (existing) existing.push(entry);

@@ -154,8 +154,16 @@ export async function fetchBalances(
           const tokenMetadata = await fetchTokenMetadata(assetId);
           fetchedMetadatas[assetId] = tokenMetadata.base;
         } catch (e) {
+          // A thrown lookup is transient (RPC down, WASM not ready) — a faucet
+          // that is genuinely unreadable resolves to the placeholder without
+          // throwing. So use the placeholder for THIS refresh only: writing it
+          // to `localMetadatas` keeps the token on screen, while keeping it out
+          // of `fetchedMetadatas` — the map that gets persisted and pushed to
+          // the store — leaves the next refresh free to retry. Persisting it
+          // would seal the faucet, since the filter above skips anything
+          // already known, and the guess would outlive the outage.
           console.warn('Failed to fetch metadata for', assetId, e);
-          fetchedMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
+          localMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
         }
       });
     await Promise.all(metadataFetchPromises);

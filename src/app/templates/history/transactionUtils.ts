@@ -87,16 +87,33 @@ export interface SwapHistoryFields {
  */
 export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHistoryFields> => {
   const extra: SwapExtraInputs = tx.extraInputs ?? {};
-  const offered = getSwapTokenByFaucetId(tx.faucetId) ?? (await getTokenMetadata(tx.faucetId ?? null));
-  const requested =
-    getSwapTokenByFaucetId(extra.requestedFaucetId) ?? (await getTokenMetadata(extra.requestedFaucetId ?? null));
+  // Registry and metadata are kept in separate variables rather than collapsed
+  // with `??`: the two shapes differ, and a union would force every read below
+  // to re-discriminate them — which is how the scale check first went wrong,
+  // testing a property (`name`) that a legitimate metadata record may omit.
+  const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
+  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
+  const requestedMetadata =
+    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+  // A registry token declares its own decimals, so a registry hit is always
+  // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
+  // placeholder for a faucet it could not resolve, and its 6 decimals are a
+  // guess — scaling by them misreports the size of the swap. Both sides are
+  // still named by `token` / `requestedToken`.
+  const offeredScaleIsKnown = offeredRegistry !== undefined || hasKnownScale(offeredMetadata);
+  const requestedScaleIsKnown = requestedRegistry !== undefined || hasKnownScale(requestedMetadata);
+  const offeredDecimals = offeredRegistry?.decimals ?? offeredMetadata?.decimals;
+  const requestedDecimals = requestedRegistry?.decimals ?? requestedMetadata?.decimals;
 
   return {
-    amount: tx.amount !== undefined ? formatAmount(tx.amount, offered.decimals) : undefined,
-    token: offered.symbol,
+    amount: tx.amount !== undefined && offeredScaleIsKnown ? formatAmount(tx.amount, offeredDecimals) : undefined,
+    token: offeredRegistry?.symbol ?? offeredMetadata?.symbol,
     requestedAmount:
-      extra.requestedAmount !== undefined ? formatAmount(extra.requestedAmount, requested.decimals) : undefined,
-    requestedToken: requested.symbol,
+      extra.requestedAmount !== undefined && requestedScaleIsKnown
+        ? formatAmount(extra.requestedAmount, requestedDecimals)
+        : undefined,
+    requestedToken: requestedRegistry?.symbol ?? requestedMetadata?.symbol,
     requestedFaucetId: extra.requestedFaucetId
   };
 };

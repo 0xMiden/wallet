@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { hasKnownScale, resolveDisplayMetadata } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { formatAmount } from 'lib/shared/format';
@@ -146,17 +146,21 @@ const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbo
  */
 export const resolveSwapAsset = (
   faucetId: string | undefined,
-  assetsMetadata: Record<string, AssetMetadata> | undefined
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
 ): ResolvedAsset => {
   const swapToken = getSwapTokenByFaucetId(faucetId);
-  const metadata = faucetId ? assetsMetadata?.[faucetId] : undefined;
+  // Resolved rather than read straight from the store: an off-registry faucet
+  // the store has never resolved must come back as the placeholder, so the
+  // scale check below sees a record that admits its 6 is a guess.
+  const metadata = resolveDisplayMetadata(faucetId, assetsMetadata, nativeFaucetId);
   return {
-    symbol: swapToken?.symbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol,
+    symbol: swapToken?.symbol ?? metadata.symbol,
     // A registry token states its own decimals. Off the registry, only metadata
     // the wallet actually resolved may be scaled by — the unknown-token
     // placeholder's 6 is a guess, and `undefined` here withholds the quantity
     // rather than inventing one.
-    decimals: swapToken?.decimals ?? (hasKnownScale(metadata) ? metadata?.decimals : undefined),
+    decimals: swapToken?.decimals ?? (hasKnownScale(metadata) ? metadata.decimals : undefined),
     scaleIsKnown: swapToken !== undefined || hasKnownScale(metadata)
   };
 };
@@ -280,9 +284,9 @@ export const useTransactionSummaryBadgeContent = (
     }
 
     if (transaction?.type === 'swap') {
-      const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata);
+      const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata, nativeFaucetId);
       const requestedFaucetId = transaction.extraInputs?.requestedFaucetId;
-      const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata);
+      const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata, nativeFaucetId);
 
       const requestedRaw = transaction.extraInputs?.requestedAmount;
       if (transaction.amount === undefined || requestedRaw === undefined) return undefined;
@@ -300,8 +304,8 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction?.type !== 'send') return undefined;
 
-    const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-    const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
+    const tokenMetadata = resolveDisplayMetadata(transaction.faucetId, assetsMetadata, nativeFaucetId);
+    const symbol = tokenMetadata.symbol;
     // A faucet the wallet has never resolved carries the placeholder's guessed
     // 6 decimals. Naming the token alone is honest; converting by a guess is
     // not, and this badge IS the hero of the transaction detail screen.
@@ -312,7 +316,7 @@ export const useTransactionSummaryBadgeContent = (
     if (transaction.amount === undefined || !recipient) return undefined;
 
     // Present but unscalable: name the token, withhold the quantity.
-    const amount = hasKnownScale(tokenMetadata) ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+    const amount = hasKnownScale(tokenMetadata) ? formatAmount(transaction.amount, tokenMetadata.decimals) : undefined;
 
     return {
       lhs: amount ? `${amount} ${symbol}` : symbol,

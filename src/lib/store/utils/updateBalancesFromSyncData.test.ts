@@ -137,4 +137,49 @@ describe('updateBalancesFromSyncData', () => {
     expect(unknownBalance).toBeDefined();
     expect(unknownBalance!.tokenSlug).toBe('Unknown');
   });
+  // A cached record whose scale is a guess is provisional. Preferring the cache
+  // unconditionally is what made a single failed lookup permanent: the placeholder
+  // was written once and then outranked every later, correct answer.
+  describe('a cached record whose scale is unknown', () => {
+    const FOREIGN = 'foreign-faucet';
+
+    it('is replaced by real metadata arriving on a later sync', async () => {
+      useWalletStore.setState({
+        assetsMetadata: { [FOREIGN]: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true } }
+      });
+
+      await updateBalancesFromSyncData('account-1', [
+        {
+          faucetId: FOREIGN,
+          amountBaseUnits: '1000000000000000000',
+          metadata: { symbol: 'DAI', name: 'Dai', decimals: 18 }
+        }
+      ]);
+
+      const balances = useWalletStore.getState().balances['account-1']!;
+      const dai = balances.find(b => b.tokenId === FOREIGN)!;
+      expect(dai.metadata.symbol).toBe('DAI');
+      // Scaled by the real 18, not the placeholder's 6 — which would read
+      // 1,000,000,000,000 instead of 1.
+      expect(dai.balance).toBe(1);
+    });
+
+    it('is not written to the cache, so the faucet stays eligible for a retry', async () => {
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+
+      await updateBalancesFromSyncData('account-1', [{ faucetId: FOREIGN, amountBaseUnits: '1000' }]);
+
+      const persisted = setTokensBaseMetadata.mock.calls.some(
+        ([written]: [Record<string, unknown>]) => written && FOREIGN in written
+      );
+      expect(persisted).toBe(false);
+    });
+
+    it('still lists the token so the holding does not vanish', async () => {
+      await updateBalancesFromSyncData('account-1', [{ faucetId: FOREIGN, amountBaseUnits: '1000' }]);
+
+      const balances = useWalletStore.getState().balances['account-1']!;
+      expect(balances.some(b => b.tokenId === FOREIGN)).toBe(true);
+    });
+  });
 });

@@ -189,6 +189,16 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(250), 2)).toBe('2.5');
   });
 
+  // The sign used to be zero-padded along with the digits, so the minus ended up
+  // INSIDE the fraction: -5 at 5 decimals came out as the non-numeric "0.000-5".
+  // Reclaims and reversals are the paths that produce a negative here.
+  it('keeps the sign outside the digits for a negative amount', () => {
+    expect(formatBigInt(BigInt(-5), 5)).toBe('-0.00005');
+    expect(formatBigInt(BigInt(-1_500_000))).toBe('-1.5');
+    expect(formatBigInt(BigInt(-250), 2)).toBe('-2.5');
+    expect(formatBigInt(BigInt(-1000), 0)).toBe('-1000');
+  });
+
   it('treats a zero-decimal token as whole units', () => {
     // Base units ARE the amount for a 0-decimal faucet. This used to render
     // "0.05" for 5 whole tokens, because `-0 === 0` made the slice arithmetic

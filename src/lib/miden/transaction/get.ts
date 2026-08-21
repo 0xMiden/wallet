@@ -83,7 +83,12 @@ export const getCompletedTransactions = async (
   if (tokenId) {
     transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
-  return transactions.slice(offset, limit);
+  // `limit` is a page size, not an end index — `slice(offset, limit)` returned
+  // nothing for every page after the first, since offset >= limit there, which
+  // silently capped history at one page. Both are optional, and `offset + limit`
+  // would be NaN if either were missing, so only window when a limit is given.
+  if (limit === undefined) return offset === undefined ? transactions : transactions.slice(offset);
+  return transactions.slice(offset ?? 0, (offset ?? 0) + limit);
 };
 
 export const getTransactionById = async (id: string) => {

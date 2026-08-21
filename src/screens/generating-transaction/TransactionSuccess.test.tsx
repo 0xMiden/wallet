@@ -332,21 +332,25 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('falls back to the MDN literal when neither the faucet nor MIDEN_METADATA carries a symbol', async () => {
-    mockMidenMeta.symbol = undefined;
+  // A row with no faucet is about the native asset, so an empty store still
+  // shows the quantity — MIDEN's scale does not depend on what has been cached.
+  it('quantifies a faucet-less receipt from MIDEN metadata', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).toContain('3 MDN');
+    expect(container.textContent).toContain('3 MIDEN');
     act(() => root.unmount());
   });
 
+  // A NAMED faucet the store cannot resolve is a different case: there is no
+  // trustworthy scale for it, and borrowing MIDEN's would misreport the amount.
   it('handles an undefined assetsMetadata store slice without throwing', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 9n, faucetId: 'faucet-x' })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).toContain('9 MIDEN');
+    expect(container.textContent).toContain('Payment Sent!');
+    expect(container.textContent).not.toContain('9 MIDEN');
     act(() => root.unmount());
   });
 });
