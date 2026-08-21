@@ -194,6 +194,7 @@ function resetControl() {
     clientGetInputNoteDetails: jest.fn(async (_q: unknown) => [
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]),
+    clientGetTransactionCommitState: jest.fn(async (_txId: string) => 'committed'),
     // Slice-4 consumable-note DTOs on the offscreen-owned client.
     clientGetConsumableNoteDtos: jest.fn(async (_id: string) => [
       {
@@ -280,6 +281,7 @@ function resetControl() {
       waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
       exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
       getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+      getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
       consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
@@ -1097,6 +1099,31 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       { noteId: '0xabc', senderAccountId: 'mtst1qsender', assets: [], noteType: 0, nullifier: '0xn', state: 2 }
     ]);
   });
+
+  // The read the send/swap retry guard is built on. It has to actually run in
+  // this realm: the SW-side proxy previously answered a hardcoded 'not-found'
+  // for the flag-on path, which `verifySendLanded` reads as "cannot prove it
+  // landed" and retries through — so the guard was inert on the default path.
+  it.each(['committed', 'pending', 'not-found'] as const)(
+    'dispatches getTransactionCommitState and JSON-encodes %p',
+    async expected => {
+      await loadModule();
+      G.__off.clientGetTransactionCommitState.mockResolvedValueOnce(expected);
+      const sendResponse = jest.fn();
+      const ret = capturedListener!(
+        callReq({ method: 'getTransactionCommitState', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+      expect(ret).toBe(true);
+      await flush();
+
+      expect(G.__off.clientGetTransactionCommitState).toHaveBeenCalledWith('0xtxid');
+      const resp = sendResponse.mock.calls[0][0];
+      expect(resp.ok).toBe(true);
+      expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toBe(expected);
+    }
+  );
 
   it('dispatches getConsumableNotes and JSON-encodes the reduced DTO array (issue #260 slice 4)', async () => {
     await loadModule();

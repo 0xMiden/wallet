@@ -82,11 +82,13 @@ const safeGenerateTransactionsLoopMock = jest.fn();
 const requeueFailedTransactionMock = jest.fn();
 const requestSWTransactionProcessingMock = jest.fn();
 const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
+const isUnverifiableSendRetryErrorMock = jest.fn((..._a: unknown[]) => false);
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
   requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
   requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
-  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a)
+  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a),
+  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a)
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -230,6 +232,8 @@ describe('GeneratingTransactionPage container effects', () => {
     requestSWTransactionProcessingMock.mockClear();
     isRequeueableTransactionMock.mockReset();
     isRequeueableTransactionMock.mockReturnValue(true);
+    isUnverifiableSendRetryErrorMock.mockReset();
+    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
     window.location.hash = '';
   });
 
@@ -330,11 +334,64 @@ describe('GeneratingTransactionPage container effects', () => {
       retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1');
+    // Plain Retry never acknowledges on the user's behalf.
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
     expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
     // Requeue flips the watched row back in place — the screen must NOT navigate
     // (the key difference from HistoryDetails.handleRetry).
     expect(navigateMock).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  // The refusal has to lead somewhere: the wallet cannot tell whether the send
+  // landed, so it shows why and offers the user's own confirmation as a second,
+  // separate tap. Without this the Retry button throws the same error forever.
+  it('offers "retry anyway" only after a send is refused as unverifiable', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
+    isUnverifiableSendRetryErrorMock.mockReturnValue(true);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const findRetryAnyway = () =>
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway')) ?? null;
+    expect(findRetryAnyway()).toBeNull();
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    // The warning is on screen, and only now is the override reachable.
+    expect(container.textContent).toContain('may already have reached the network');
+    expect(findRetryAnyway()).not.toBeNull();
+
+    requeueFailedTransactionMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      findRetryAnyway()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    act(() => root.unmount());
+  });
+
+  it('does not offer it for an ordinary retry failure', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('row is gone'));
+    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain('row is gone');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
+    ).toBeUndefined();
     act(() => root.unmount());
   });
 

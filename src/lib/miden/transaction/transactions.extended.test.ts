@@ -155,6 +155,7 @@ jest.mock('shared/logger', () => ({
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'public';
 jest.mock('../helpers', () => ({
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 
