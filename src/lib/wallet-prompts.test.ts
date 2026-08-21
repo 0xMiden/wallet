@@ -560,6 +560,22 @@ describe('bridge prompts', () => {
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
   });
 
+  // Defence in depth: today's only caller passes the list `fetchActiveBridgePrompts`
+  // already filtered, but this is exported and takes whatever it is given, and
+  // `pollBridgedSend` queries the allocator and writes back onto the row.
+  it('polls nothing for a restored row even when handed one directly', async () => {
+    const restored = baseBridge({
+      id: 'agg-restored',
+      restoredFromBackup: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    await pollActiveBridgePrompts([restored]);
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
     await pollActiveBridgePrompts([
       baseBridge({

@@ -1,4 +1,4 @@
-import { fetchEarnPositions } from './positions';
+import { fetchEarnPositions, getEarnDepositEvmAddresses } from './positions';
 
 jest.mock('./earn', () => ({
   EARN_DESTINATION_CHAIN_ID: 11155111,
@@ -93,5 +93,37 @@ describe('fetchEarnPositions', () => {
 
     expect(result.positions).toEqual([]);
     expect(result.errors).toEqual([{ owner: OWNER, error: 'positions request unsuccessful' }]);
+  });
+});
+
+// This is a trust signal, like Recent recipients: whatever comes back for these
+// addresses is rendered as the user's OWN position and folded into their total
+// deposits. A restored row's `evmRecipient` is not this wallet's.
+describe('getEarnDepositEvmAddresses', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    type: 'earn-deposit',
+    accountId: 'acct-1',
+    extraInputs: { evmRecipient: OWNER },
+    ...over
+  });
+
+  const withRows = (rows: unknown[]) => {
+    const Repo = jest.requireMock('lib/miden/repo');
+    (Repo.transactions.filter as jest.Mock).mockImplementation((predicate: (r: unknown) => boolean) => ({
+      toArray: async () => rows.filter(predicate)
+    }));
+  };
+
+  it('collects the recipient of a genuine deposit', async () => {
+    withRows([row()]);
+
+    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
+  });
+
+  it('excludes a deposit restored from a backup', async () => {
+    const attacker = '0x2222222222222222222222222222222222222222';
+    withRows([row({ restoredFromBackup: true, extraInputs: { evmRecipient: attacker } }), row()]);
+
+    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
   });
 });

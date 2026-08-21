@@ -145,7 +145,13 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 }
 
 export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
-  await Promise.all(transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend));
+  // Filtered here as well as in `isBridgePromptActive`: this is exported and
+  // takes a caller-supplied list, and `pollBridgedSend` hits the allocator and
+  // writes the result back onto the row. Today's only caller passes the already
+  // filtered list; a second one would not have to.
+  await Promise.all(
+    transactions.filter(tx => tx.type === 'bridged-send' && !tx.restoredFromBackup).map(pollBridgedSend)
+  );
 }
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
