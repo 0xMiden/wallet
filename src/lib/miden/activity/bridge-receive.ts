@@ -29,9 +29,13 @@ export async function reconcileAgglayerBridgedReceives(): Promise<void> {
   const rows = await Repo.transactions
     .filter(tx => {
       if (tx.type !== 'bridged-receive') return false;
-      const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+      // Optional-chained: a throw in here rejects the whole `toArray()`, which
+      // this function's only callers swallow — so one legacy or partially
+      // written row without `extraInputs` would silently disable AggLayer
+      // reconciliation for every genuine row, on every 8-second tick.
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
       return (
-        inputs.provider === 'agglayer' &&
+        inputs?.provider === 'agglayer' &&
         inputs.phase !== 'ready' &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed'
@@ -101,7 +105,11 @@ export async function reconcileBridgedReceives(): Promise<void> {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   for (const row of rows) {
-    const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
+    // A row with no `extraInputs` has no bridge to reconcile and nothing below
+    // can read; skipping it beats throwing out of the whole loop and stalling
+    // every row behind it.
+    const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+    if (inputs === undefined) continue;
     if (inputs.phase === 'ready' || inputs.phase === 'received' || inputs.phase === 'failed') continue;
     // Terminalize rather than skip. Resuming would register a pending bridge-in
     // for the dump's `sourceAddress` and drive the incoming-funds UI off it with

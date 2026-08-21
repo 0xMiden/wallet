@@ -71,9 +71,15 @@ const History = memo<HistoryProps>(
     // window the ref would still hold the old key and the stale page would sail
     // through the guard. A layout effect runs inside commit, closing it. (Tests
     // cannot see the difference — `act` flushes passive effects synchronously.)
-    const scopeRef = useRef(safeStateKey);
+    //
+    // A monotonic counter rather than the key itself: comparing keys says "the
+    // scope matches now", which an A → B → A round trip satisfies while the
+    // original A request is still in flight. That request would then merge
+    // against the `restEntries` its closure captured — the list as it was before
+    // the user left — discarding whatever the second visit loaded.
+    const scopeRef = useRef(0);
     useLayoutEffect(() => {
-      scopeRef.current = safeStateKey;
+      scopeRef.current += 1;
       setHasMore(true);
       setIsLoading(false);
     }, [safeStateKey]);
@@ -125,7 +131,7 @@ const History = memo<HistoryProps>(
         return;
       }
       setIsLoading(true);
-      const scope = safeStateKey;
+      const scope = scopeRef.current;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
       try {
@@ -134,12 +140,16 @@ const History = memo<HistoryProps>(
         // closure is the OLD account's list, so merging would show one account's
         // history under another's.
         if (scopeRef.current !== scope) return;
-        const allRestEntries = mergeAndSort(restEntries, olderTransactions);
-
-        if (allRestEntries.length === 0) {
+        // Key off what the PAGE returned, not the merged list. Merged, the list
+        // is non-empty from the first successful page onward, so an exhausted
+        // history never sets the flag: the scroller re-arms on each parent
+        // render (SWR re-renders this on a timer) and fires an endless run of
+        // empty queries. A short page is also the last one, so stop there rather
+        // than spending one more round trip to see an empty one.
+        if (olderTransactions.length < limit) {
           setHasMore(false);
         }
-        setRestEntries(allRestEntries);
+        setRestEntries(mergeAndSort(restEntries, olderTransactions));
       } catch (error) {
         // Stop paging on failure. Clearing `isLoading` without this would spin:
         // the infinite scroller re-arms on every parent render (and SWR re-renders
@@ -309,6 +319,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -379,6 +390,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
   });

@@ -532,7 +532,9 @@ describe('History', () => {
     await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
     // Duplicate `completed-P` appears exactly once.
     expect(entryKeys().filter(k => k === 'completed-P')).toHaveLength(1);
-    expect(mockHistoryViewProps.hasMore).toBe(true);
+    // Two rows against a 1000 limit is a short page, so the history is
+    // exhausted and paging stops here.
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
   });
 
   it('loadMore sets hasMore false when no older transactions remain', async () => {
@@ -544,6 +546,35 @@ describe('History', () => {
       await mockHistoryViewProps.loadMore(0);
     });
     await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+  });
+
+  // `hasMore` has to key off what the PAGE returned, not off the merged list:
+  // merged, the list is non-empty from the first successful page onward, so an
+  // exhausted history would never stop paging and the scroller — which re-arms
+  // on every parent render, and SWR re-renders this on a timer — would fire an
+  // endless run of empty queries.
+  it('keeps paging while a page comes back full', async () => {
+    const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+      id: `OLD${i}`,
+      status: STATUS.Completed,
+      displayMessage: 'older tx',
+      displayIcon: 'RECEIVE',
+      faucetId: undefined,
+      type: 'consume',
+      amount: undefined,
+      completedAt: 10_000 - i
+    }));
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [] : fullPage
+    );
+    await renderHistory();
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+
+    expect(mockHistoryViewProps.hasMore).toBe(true);
   });
 
   it('loadMore is re-entrancy guarded while a previous page is in flight', async () => {

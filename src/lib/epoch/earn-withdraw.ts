@@ -25,6 +25,9 @@ const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Non-terminal `earn-withdraw` phases the reconciler resumes; terminal ones are skipped. */
 const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
 
+/** Shown when a restored row is refused: its EVM owner and amount are unverified. */
+const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup — this withdrawal could not be verified.';
+
 /** Drop reconciler-orphaned rows after this age (mirrors the bridge-in registry TTL). */
 const WITHDRAW_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -434,8 +437,10 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
   for (const row of rows) {
     if (row.type !== 'earn-withdraw') continue;
-    const ei: IEarnWithdrawExtraInputs = row.extraInputs;
-    if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei.phase)) continue;
+    // Optional-chained: a row with no `extraInputs` has no phase to advance, and
+    // throwing here would stall every row behind it in the loop.
+    const ei: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
+    if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei?.phase ?? '')) continue;
     // Terminalize rather than skip. Resuming would register bridge-ins and poll
     // for delivery against the dump's `evmOwner` with no user action at all,
     // since this runs on unlock — but skipping alone strands the row: these rows
@@ -445,7 +450,7 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
     // keep suppressing its linked consume row from history.
     if (row.restoredFromBackup) {
       await updatePhase(row.id, 'failed', {
-        error: 'Restored from a backup — this withdrawal could not be verified.'
+        error: RESTORED_WITHDRAW_UNVERIFIABLE
       }).catch(() => undefined);
       continue;
     }
@@ -486,6 +491,13 @@ type ResubmitDeps = GaslessEarnWithdrawalDeps;
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
   if (!row || row.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  // Guarded here rather than only in the caller: this function's precondition is
+  // `phase === 'failed'`, which is precisely the state import forces a restored
+  // row into, and everything below signs with the row's own `evmOwner`,
+  // `marketUid` and `sourceAmount`. Any future caller must inherit that.
+  if (row.restoredFromBackup) {
+    throw new Error(RESTORED_WITHDRAW_UNVERIFIABLE);
+  }
   const ei: IEarnWithdrawExtraInputs = row.extraInputs;
   if (ei.phase !== 'failed') return;
   if (!isEvmAddress(ei.evmOwner)) {

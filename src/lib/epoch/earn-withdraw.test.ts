@@ -453,6 +453,25 @@ describe('resubmitEarnWithdrawal', () => {
     return modify;
   };
 
+  // `phase: 'failed'` is this function's precondition AND exactly the state
+  // import forces a restored row into, so the two coincide perfectly. Everything
+  // past this point signs with the row's own `evmOwner`, `marketUid` and
+  // `sourceAmount`, all of which came from whoever wrote the dump. Guarded in
+  // here rather than only in the caller so a future caller inherits it.
+  it('refuses a row restored from a backup', async () => {
+    const executeActions = jest.fn();
+    // The flag lives on the row itself, not inside `extraInputs`.
+    const row = { ...failedRow(), restoredFromBackup: true };
+    mockRow(row);
+
+    await expect(resubmitEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }))).rejects.toThrow(
+      /restored from a backup/i
+    );
+    expect(executeActions).not.toHaveBeenCalled();
+    // It must refuse, not quietly reset the row and leave it resubmittable.
+    expect(row.extraInputs.phase).toBe('failed');
+  });
+
   it('submits a brand new intent on the same row', async () => {
     const row = failedRow();
     const modify = mockRow(row);

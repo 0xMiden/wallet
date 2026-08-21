@@ -84,7 +84,11 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   // button on that block height.
   const reclaimHeight = entry.bridgeReclaimHeight;
   const reclaimNoteId = entry.outputNoteIds?.[0];
-  const canShowReclaim = isEpoch && transactionFailed && reclaimHeight != null && !!reclaimNoteId;
+  // `transactionFailed` is exactly the state import forces every unfinished
+  // restored row into, so without the flag check a dump naming any note id gets
+  // a "Reclaim funds" button that queues a real consume through the signer.
+  const canShowReclaim =
+    isEpoch && transactionFailed && !entry.restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 

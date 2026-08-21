@@ -293,6 +293,89 @@ describe('miden repo export/import', () => {
     expect(restored!.restoredFromBackup).toBe(true);
   });
 
+  const importOne = async (tx: Record<string, unknown>) => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [{ id: 'x', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1, ...tx }]
+      })
+    );
+    const [restored] = await transactions.toArray();
+    return restored!;
+  };
+
+  // `status` is not the only place a row can still be running: bridge and earn
+  // rows are born Completed and track real progress in `extraInputs`, so a
+  // status-only gate leaves them fully live for every background resumer.
+  //
+  // Omission is the interesting half of this: every resumer reads "no marker
+  // yet" as "not settled", so keying the stamp off which fields are PRESENT
+  // would let a dump opt out of the mechanism by leaving the field off.
+  it.each([
+    ['earn-withdraw', { phase: 'redeeming' }, { phase: 'failed' }],
+    ['earn-withdraw', {}, { phase: 'failed' }],
+    ['bridged-receive', { phase: 'delivering' }, { phase: 'failed' }],
+    ['bridged-receive', {}, { phase: 'failed' }],
+    ['earn-deposit', { epochStatus: 'pending' }, { epochStatus: 'failed' }],
+    ['earn-deposit', {}, { epochStatus: 'failed' }],
+    [
+      'bridged-send',
+      { epochStatus: 'pending', claimStatus: 'pending' },
+      { epochStatus: 'failed', claimStatus: 'failed' }
+    ],
+    ['bridged-send', {}, { epochStatus: 'failed', claimStatus: 'failed' }],
+    // A non-string is not a terminal value either, so it is settled as well.
+    ['earn-withdraw', { phase: 3 }, { phase: 'failed' }],
+    ['earn-withdraw', { phase: '' }, { phase: 'failed' }]
+  ])('settles the unfinished lifecycle of a %s: %j', async (type, extraInputs, expected) => {
+    const restored = await importOne({ type, extraInputs });
+    expect(restored.extraInputs).toMatchObject(expected);
+  });
+
+  // The mirror image, and the half that protects the user rather than guarding
+  // against the dump: a backup is a record of what HAPPENED, so a bridge the
+  // user really did complete must not come back reading as a failure.
+  it.each([
+    ['earn-withdraw', { phase: 'received' }],
+    ['bridged-receive', { phase: 'ready' }],
+    ['bridged-receive', { phase: 'received' }],
+    ['earn-deposit', { epochStatus: 'confirmed' }],
+    ['bridged-send', { epochStatus: 'confirmed', claimStatus: 'claimed' }],
+    // `not-applicable` is legitimate on an Epoch row, which needs no L1 claim.
+    ['bridged-send', { epochStatus: 'confirmed', claimStatus: 'not-applicable' }]
+  ])('preserves the settled lifecycle of a %s: %j', async (type, extraInputs) => {
+    const restored = await importOne({ type, extraInputs });
+    expect(restored.extraInputs).toMatchObject(extraInputs);
+  });
+
+  // Settling the marker must not cost the rest of the record — these are the
+  // fields the history detail view renders.
+  it('keeps every non-lifecycle field while settling the marker', async () => {
+    const restored = await importOne({
+      type: 'earn-withdraw',
+      extraInputs: {
+        phase: 'redeeming',
+        evmOwner: '0xowner',
+        marketUid: 'DUMMY-LENDING',
+        sourceAmount: { $bigint: '9' }
+      }
+    });
+
+    expect(restored.extraInputs).toEqual({
+      phase: 'failed',
+      evmOwner: '0xowner',
+      marketUid: 'DUMMY-LENDING',
+      sourceAmount: 9n
+    });
+  });
+
+  it.each([
+    ['a type that carries no lifecycle marker', 'swap', { requestedAmount: { $bigint: '7' } }, { requestedAmount: 7n }],
+    ['an absent extraInputs on such a type', 'send', undefined, undefined]
+  ])('leaves %s alone', async (_label, type, extraInputs, expected) => {
+    const restored = await importOne({ type, extraInputs });
+    expect(restored.extraInputs).toEqual(expected);
+  });
+
   // A Completed row skips the neutralization branch entirely, so it was the one
   // path that could still reach history without a timestamp. History reads
   // `completedAt` straight off the row with no fallback and builds a Date from
