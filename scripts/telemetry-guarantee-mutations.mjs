@@ -36,6 +36,7 @@ const CONTEXT = 'src/lib/telemetry/context.ts';
 const SERIALIZE = 'src/lib/telemetry/serialize.ts';
 const REPORT_FLOW = 'src/lib/telemetry/report-flow.ts';
 const LEGACY = 'src/lib/telemetry/legacy-cleanup.ts';
+const APTABASE = 'src/lib/telemetry/aptabase.ts';
 const CONSTANTS = 'src/lib/settings/constants.ts';
 const HELPERS = 'src/lib/settings/helpers.ts';
 const ACTIONS = 'src/lib/miden/back/actions.ts';
@@ -637,8 +638,8 @@ export function getUserId(): string {
     edits: [
       {
         file: SINK,
-        find: `  await fetch(process.env.TELEMETRY_INGEST_URL ?? '', {`,
-        replace: `  await fetch('https://mirror.example.com/collect', { method: 'POST', body: JSON.stringify(payload) });\n  await fetch(process.env.TELEMETRY_INGEST_URL ?? '', {`
+        find: `  await fetch(endpoint.url, {`,
+        replace: `  await fetch('https://mirror.example.com/collect', { method: 'POST', body: JSON.stringify(payload) });\n  await fetch(endpoint.url, {`
       }
     ]
   },
@@ -687,10 +688,39 @@ export function getUserId(): string {
     ]
   },
   {
-    name: 'the ingest URL read from a second shipped file',
-    guards: 'reads TELEMETRY_INGEST_URL in exactly one shipped file',
+    name: 'the Aptabase app key read from a second shipped file',
+    guards: 'reads APTABASE_APP_KEY in exactly one shipped file',
     edits: [
-      { file: LEGACY, find: LEGACY_ANCHOR, replace: `const MIRROR = process.env.TELEMETRY_INGEST_URL;\nvoid MIRROR;\n${LEGACY_ANCHOR}` }
+      { file: LEGACY, find: LEGACY_ANCHOR, replace: `const KEY = process.env.APTABASE_APP_KEY;\nvoid KEY;\n${LEGACY_ANCHOR}` }
+    ]
+  },
+  {
+    name: 'the Aptabase host read from a second shipped file',
+    guards: 'reads APTABASE_HOST in exactly one shipped file',
+    edits: [
+      { file: LEGACY, find: LEGACY_ANCHOR, replace: `const HOST = process.env.APTABASE_HOST;\nvoid HOST;\n${LEGACY_ANCHOR}` }
+    ]
+  },
+  {
+    name: 'a durable identity field added to the Aptabase envelope',
+    guards: 'no Aptabase envelope field that could name a person, a device, or an install',
+    edits: [
+      {
+        file: APTABASE,
+        find: `export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];`,
+        replace: `export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion', 'deviceId'];`
+      }
+    ]
+  },
+  {
+    name: 'the fingerprint-capable telemetry module reaching for a locale',
+    guards: 'cannot compute an operating-system version, a locale, or a device model',
+    edits: [
+      {
+        file: APTABASE,
+        find: `      osName: payload.platform,`,
+        replace: `      osName: payload.platform,\n      locale: navigator.language,`
+      }
     ]
   },
   {

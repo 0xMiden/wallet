@@ -10,7 +10,9 @@ Dev-only doc: excluded from the published site in `docs/_config.yml`.
 **The three sources of truth, in this order:**
 
 1. `src/lib/telemetry/types.ts` and `WIRE_KEYS` in
-   `src/lib/telemetry/serialize.ts` — the exhaustive list of what can be sent.
+   `src/lib/telemetry/serialize.ts` — the exhaustive list of what can be sent,
+   plus `src/lib/telemetry/aptabase.ts`, which maps that list onto Aptabase's
+   envelope and is the only place a field can cross into a vendor format.
 2. `docs/privacy/index.md` — the public policy, at
    `https://0xmiden.github.io/wallet/privacy/`. This is the URL submitted to
    every store.
@@ -34,6 +36,43 @@ free-form text:
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
 
+### How those eight fields reach Aptabase
+
+`buildEnvelope` in `src/lib/telemetry/aptabase.ts` maps them onto Aptabase's
+envelope, each field exactly once, by name — never by spreading, because
+Aptabase's `props` is an open object and the type system stops helping there:
+
+| Envelope field | Holds |
+|---|---|
+| `eventName` | `<flow>_<phase>`, e.g. `send_started`. 22 possible names, both halves closed unions |
+| `sessionId` | `flowId`. **Not** an Aptabase session — see below |
+| `props` | `result`, `errorKind`, `durationMs` |
+| `systemProps.osName` | `platform` |
+| `systemProps.appVersion` | `appVersion` |
+| `systemProps.isDebug` | `NODE_ENV !== 'production'` |
+| `systemProps.sdkVersion` | The constant `bread-wallet-aptabase@1.0.0` |
+| `timestamp` | ISO 8601 send time |
+
+Two departures from how Aptabase's own SDKs fill this in, both deliberate:
+
+- **`sessionId` is one flow, not one session.** Their SDKs reuse a session id
+  across events with a four-hour timeout, which would link every flow one
+  person performs into a single trail. Ours is the per-flow id, so an Aptabase
+  "session" means exactly one activity. It also could not work otherwise —
+  `guarantees.test.ts` asserts the telemetry module cannot reach a persistence
+  API at all, so there is nowhere to keep a longer-lived id.
+- **`systemProps.osVersion`, `locale` and `deviceModel` are never sent.** All
+  three are fingerprinting vectors, none is required, and Aptabase's own
+  custom-SDK example omits most of them. `egress-boundary.test.ts` fails if any
+  of the three appears anywhere in an outgoing envelope, and
+  `guarantees.test.ts` fails if the telemetry module reaches an API that could
+  compute one.
+
+One event per request (`/api/v0/event`, never the 25-event `/api/v0/events`
+batch): an MV3 service worker has no guaranteed lifetime, so a batch buffer is
+a buffer that gets killed. `credentials: 'omit'`, as Aptabase's own web SDK
+sends, so no cookie can ride along.
+
 Crash reports carry a scrubbed error type, a scrubbed message, scrubbed stack
 frames, the `cause` chain, the app version, and a per-report random id. A report
 containing anything that reads as recovery-phrase material is discarded whole.
@@ -46,13 +85,15 @@ The vendor-side configuration is not in this repo, and every claim below
 depends on it. **Verify, do not assume** — a policy claiming 90 days against a
 vendor defaulting to longer is worse than making no claim at all.
 
-- [ ] Aptabase (EU) project created, retention set to **90 days**
+- [ ] Aptabase project created **in the EU region**, retention set to **90 days**. The region is fixed when the project is created and is encoded in the key — an `A-US-*` key sends to the United States and makes the policy's "European Union (Germany)" row false.
 - [ ] Sentry (EU) project created, retention set to **90 days**
 - [ ] Sentry: **IP address storage disabled** (`Settings → Security & Privacy → Prevent Storing of IP Addresses`)
 - [ ] Sentry: data scrubbing left **on**; it is defence in depth behind our own scrubber, not a replacement for it
 - [ ] Both: raw event export **off**, third-party forwarding **off**
 - [ ] Both: signed DPA on file naming the EU hosting region
-- [ ] `TELEMETRY_INGEST_URL` and `SENTRY_DSN` set in the release build environment. Both are empty by default, so an unconfigured build sends nothing regardless of the setting.
+- [ ] `APTABASE_APP_KEY` and `SENTRY_DSN` set in the release build environment. Both are empty by default, so an unconfigured build sends nothing regardless of the setting. The key comes from Aptabase's dashboard under Settings → Instructions.
+- [ ] `APTABASE_HOST` left **unset** for a release build. The host is derived from the key's region (`A-EU-*` → `https://eu.aptabase.com`), and setting it overrides that. It exists only for a self-hosted (`A-SH-*`) or development (`A-DEV-*`) key, which carry no region to derive from and send nothing at all without it.
+- [ ] Confirm the key actually begins `A-EU-`. A malformed or missing key disables sending silently and without an error, which is the right behaviour for a best-effort path and the wrong thing to discover after a release.
 
 ## Chrome Web Store
 

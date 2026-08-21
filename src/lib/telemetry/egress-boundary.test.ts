@@ -219,6 +219,8 @@ function poisonedError(outer: string): Error {
 
 interface CapturedRequest {
   url: string;
+  /** Headers are wire too: the App-Key rides in one, and so could a leak. */
+  headers: string;
   body: string;
 }
 
@@ -231,21 +233,39 @@ function bodyToText(body: unknown): string {
   return JSON.stringify(body);
 }
 
+function headersToText(headers: unknown): string {
+  if (headers === undefined || headers === null) return '';
+  if (headers instanceof Headers) return [...headers.entries()].map(([name, value]) => `${name}: ${value}`).join('\n');
+  if (typeof headers !== 'object') return String(headers);
+  return Object.entries(headers)
+    .map(([name, value]) => `${name}: ${String(value)}`)
+    .join('\n');
+}
+
 /**
  * Installed once and never reswapped: Sentry caches the fetch implementation it
  * resolves, so replacing the stub per test would leave the crash transport
  * writing into an array nobody reads — and a leak assertion over an empty array
  * passes.
  */
-const fetchStub = (input: unknown, init?: { body?: unknown }): Promise<{ status: number; headers: Headers }> => {
-  captured.push({ url: String(input), body: bodyToText(init?.body) });
+const fetchStub = (
+  input: unknown,
+  init?: { body?: unknown; headers?: unknown }
+): Promise<{ status: number; headers: Headers }> => {
+  captured.push({ url: String(input), headers: headersToText(init?.headers), body: bodyToText(init?.body) });
   return Promise.resolve({ status: 200, headers: new Headers() });
 };
 
-const INGEST_URL = 'https://ingest.telemetry.invalid/v1/events';
+/**
+ * A real hosted app key shape, with no host override, so what this file asserts
+ * against is the endpoint a release build would actually derive — region
+ * derivation included. Nothing leaves: `fetch` is stubbed for the whole file.
+ */
+const APP_KEY = 'A-EU-1234567890';
+const INGEST_URL = 'https://eu.aptabase.com/api/v0/event';
 const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
 
-const wireText = (): string => captured.map(entry => `${entry.url}\n${entry.body}`).join('\n');
+const wireText = (): string => captured.map(entry => `${entry.url}\n${entry.headers}\n${entry.body}`).join('\n');
 
 /** Flush the fire-and-forget reporting chain, plus Sentry's transport buffer. */
 async function flushEgress(): Promise<void> {
@@ -262,8 +282,41 @@ function parsePayload(text: string): Record<string, unknown> {
   return payload;
 }
 
-const eventPayloads = (): Record<string, unknown>[] =>
+/** Every Aptabase envelope that reached the wire, parsed. */
+const envelopes = (): Record<string, unknown>[] =>
   captured.filter(entry => entry.url === INGEST_URL).map(entry => parsePayload(entry.body));
+
+/**
+ * One of the envelope's two nested objects, or a loud failure. Throwing rather
+ * than returning `{}` matters: an absence assertion over an empty object passes
+ * for the wrong reason, which is the exact way this file could rot.
+ */
+function objectAt(envelope: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = envelope[key];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`envelope.${key} is not a JSON object: ${JSON.stringify(envelope)}`);
+  }
+  const nested: Record<string, unknown> = {};
+  for (const [nestedKey, nestedValue] of Object.entries(value)) nested[nestedKey] = nestedValue;
+  return nested;
+}
+
+const stringAt = (envelope: Record<string, unknown>, key: string): string => {
+  const value = envelope[key];
+  return typeof value === 'string' ? value : `<${typeof value}>`;
+};
+
+/**
+ * The three `systemProps` fields Aptabase's own SDKs send and this wallet does
+ * not collect. Each is a fingerprinting vector; none is required.
+ *
+ * Restated here rather than imported, deliberately. A guard that reads the
+ * subject's own constant agrees with a mistake in it — the same reasoning that
+ * keeps the Playwright key list independent of `WIRE_KEYS`.
+ */
+const FINGERPRINTING_FIELDS: readonly string[] = ['osVersion', 'locale', 'deviceModel'];
+
+const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 /** Names every leaked value rather than just failing, so a red build diagnoses itself. */
 function leaksIn(haystack: string): string[] {
@@ -422,7 +475,10 @@ afterAll(() => {
 
 beforeEach(() => {
   captured.length = 0;
-  process.env.TELEMETRY_INGEST_URL = INGEST_URL;
+  process.env.APTABASE_APP_KEY = APP_KEY;
+  // No host override: the endpoint has to come from the key's region, which is
+  // how a release build is configured.
+  delete process.env.APTABASE_HOST;
   process.env.SENTRY_DSN = SENTRY_DSN;
   // `send-telemetry` holds its handle module-scoped, so a flow left open by the
   // previous test would otherwise settle inside this one.
@@ -447,20 +503,42 @@ describe('product-event egress', () => {
   it('sends something at all, so every absence assertion below can fail', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
-    expect(eventPayloads().length).toBeGreaterThan(0);
+    expect(envelopes().length).toBeGreaterThan(0);
   });
 
-  it('reaches only the configured ingest endpoint', async () => {
+  it('reaches only the Aptabase endpoint derived from the app key', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
     expect(new Set(captured.map(entry => entry.url))).toEqual(new Set([INGEST_URL]));
+  });
+
+  it('sends one event per request, never the 25-event batch endpoint', async () => {
+    // An MV3 service worker has no guaranteed lifetime, so a batch buffer is a
+    // buffer that gets killed. Asserted on the wire, not on a constant.
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    expect(envelopes().length).toBeGreaterThan(1);
+    for (const entry of captured.filter(request => request.url === INGEST_URL)) {
+      const parsed: unknown = JSON.parse(entry.body);
+      expect(Array.isArray(parsed)).toBe(false);
+    }
+  });
+
+  it('authenticates with the App-Key header Aptabase requires', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const ingest = captured.filter(entry => entry.url === INGEST_URL);
+    expect(ingest.length).toBeGreaterThan(0);
+    for (const entry of ingest) expect(entry.headers).toContain(`App-Key: ${APP_KEY}`);
   });
 
   it('reports every flow, on the success, cancellation and error path', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
 
-    const payloads = eventPayloads();
+    const sent = envelopes();
     // Per flow, not merely across all of them: an error path that stopped being
     // driven would otherwise hide behind some other flow's `errored`, and the
     // error path is where a caught object is most likely to be passed on whole.
@@ -468,9 +546,11 @@ describe('product-event egress', () => {
     for (const flow of FLOWS) {
       reported[flow] = [
         ...new Set(
-          payloads.flatMap(payload =>
-            payload.flow === flow && typeof payload.result === 'string' ? [payload.result] : []
-          )
+          sent.flatMap(envelope => {
+            if (envelope.eventName !== `${flow}_ended`) return [];
+            const result = objectAt(envelope, 'props').result;
+            return typeof result === 'string' ? [result] : [];
+          })
         )
       ].sort();
     }
@@ -484,60 +564,148 @@ describe('product-event egress', () => {
     consentOn();
     await driveEveryInstrumentedFlow();
 
-    expect(eventPayloads().length).toBeGreaterThan(0);
+    expect(envelopes().length).toBeGreaterThan(0);
     expect(leaksIn(wireText())).toEqual([]);
   });
 
-  it('puts exactly the allowlisted keys on the wire and nothing else', async () => {
+  it('puts exactly the Aptabase envelope keys on the wire and nothing else', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
 
-    const payloads = eventPayloads();
-    expect(payloads.length).toBeGreaterThan(0);
-    // Exactly, not merely a subset: a field added to the payload has to fail
-    // here rather than ship silently, and an optional key that stops being
-    // emitted has to fail too.
-    const observed = new Set(payloads.flatMap(payload => Object.keys(payload)));
-    expect([...observed].sort()).toEqual([...WIRE_KEYS].sort());
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+    // Exactly, not merely a subset: a field added to the envelope has to fail
+    // here rather than ship silently, and one that stops being emitted has to
+    // fail too.
+    const observed = new Set(sent.flatMap(envelope => Object.keys(envelope)));
+    expect([...observed].sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);
   });
 
-  it('carries no nested structure that a value could hide inside', async () => {
+  it('puts exactly the four systemProps on the wire, and none of the fingerprinting three', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
 
-    const nested = eventPayloads().flatMap(payload =>
-      Object.entries(payload).flatMap(([key, value]) =>
-        typeof value === 'string' || typeof value === 'number' ? [] : [`${key} is ${typeof value}`]
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+    const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'systemProps'))));
+    expect([...observed].sort()).toEqual(['appVersion', 'isDebug', 'osName', 'sdkVersion']);
+  });
+
+  it.each(FINGERPRINTING_FIELDS)('never puts %s anywhere in an envelope, on any path', async field => {
+    // The assertion that stops someone "completing" systemProps later.
+    // `osVersion`, `locale` and `deviceModel` are all data this wallet does not
+    // collect and all fingerprinting vectors. Checked against the whole
+    // envelope, not just `systemProps`, so relocating one does not evade it.
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.filter(envelope => JSON.stringify(envelope).includes(field))).toEqual([]);
+  });
+
+  it('derives every prop key from the allowlist and nothing else', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+    const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'props'))));
+    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'result']);
+  });
+
+  it('carries no nested structure beyond the two objects Aptabase defines', async () => {
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+
+    const nested = sent.flatMap(envelope => [
+      // Top level: three strings and the two known objects, nothing else.
+      ...Object.entries(envelope).flatMap(([key, value]) =>
+        key === 'systemProps' || key === 'props' || typeof value === 'string' ? [] : [`${key} is ${typeof value}`]
+      ),
+      // Inside them: scalars only. A value cannot hide one level deeper.
+      ...['systemProps', 'props'].flatMap(group =>
+        Object.entries(objectAt(envelope, group)).flatMap(([key, value]) =>
+          typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+            ? []
+            : [`${group}.${key} is ${typeof value}`]
+        )
       )
-    );
+    ]);
     expect(nested).toEqual([]);
   });
 
-  it('carries no string value beyond the closed unions, the version and the flow id', async () => {
+  it('carries no string value beyond the closed unions, the version, the flow id and two constants', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
 
-    const allowed = new Set<string>([
-      ...FLOWS,
-      ...RESULTS,
-      ...ERROR_KINDS,
-      'started',
-      'ended',
-      'extension',
-      'ios',
-      'android'
-    ]);
+    const eventNames = new Set(FLOWS.flatMap(flow => [`${flow}_started`, `${flow}_ended`]));
+    const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS]);
+    const platforms = new Set<string>(['extension', 'ios', 'android']);
 
-    const unexpected = eventPayloads().flatMap(payload =>
-      Object.entries(payload).flatMap(([key, value]) => {
-        if (typeof value !== 'string') return [];
-        if (key === 'appVersion') return /^\d+\.\d+\.\d+$/.test(value) ? [] : [`appVersion=${value}`];
-        // nanoid's alphabet: no spaces, so no phrase; bounded, so no blob.
-        if (key === 'flowId') return /^[A-Za-z0-9_-]{1,32}$/.test(value) ? [] : [`flowId=${value}`];
-        return allowed.has(value) ? [] : [`${key}=${value}`];
-      })
-    );
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+
+    const unexpected = sent.flatMap(envelope => {
+      const problems: string[] = [];
+      const eventName = stringAt(envelope, 'eventName');
+      if (!eventNames.has(eventName)) problems.push(`eventName=${eventName}`);
+      // nanoid's alphabet: no spaces, so no phrase; bounded, so no blob.
+      const sessionId = stringAt(envelope, 'sessionId');
+      if (!/^[A-Za-z0-9_-]{1,32}$/.test(sessionId)) problems.push(`sessionId=${sessionId}`);
+      const timestamp = stringAt(envelope, 'timestamp');
+      if (!ISO_8601.test(timestamp)) problems.push(`timestamp=${timestamp}`);
+
+      const system = objectAt(envelope, 'systemProps');
+      for (const [key, value] of Object.entries(system)) {
+        if (typeof value !== 'string') continue;
+        if (key === 'appVersion' && /^\d+\.\d+\.\d+$/.test(value)) continue;
+        if (key === 'osName' && platforms.has(value)) continue;
+        if (key === 'sdkVersion' && /^[a-z0-9-]+@\d+\.\d+\.\d+$/.test(value)) continue;
+        problems.push(`systemProps.${key}=${value}`);
+      }
+
+      for (const [key, value] of Object.entries(objectAt(envelope, 'props'))) {
+        if (typeof value === 'number') continue;
+        if (typeof value === 'string' && propValues.has(value)) continue;
+        problems.push(`props.${key}=${String(value)}`);
+      }
+      return problems;
+    });
     expect(unexpected).toEqual([]);
+  });
+
+  it('uses each flow’s own id as the session id, so nothing links across flows', async () => {
+    // Aptabase's own SDKs reuse one session id for four hours, which would join
+    // every flow one person performs into a single trail. This is the assertion
+    // that fails if anybody adopts that behaviour: a session here is one flow.
+    consentOn();
+    await driveEveryInstrumentedFlow();
+
+    const sent = envelopes();
+    expect(sent.length).toBeGreaterThan(0);
+
+    // The driver runs each flow more than once, so far more distinct ids than
+    // flows must appear — one shared id across the run would collapse to 1.
+    const sessions = new Set(sent.map(envelope => stringAt(envelope, 'sessionId')));
+    expect(sessions.size).toBeGreaterThan(FLOWS.length);
+
+    // And an id may pair a started with its ended, but never more than that:
+    // two events per session, from one flow, is the whole permitted linkage.
+    const perSession = new Map<string, string[]>();
+    for (const envelope of sent) {
+      const id = stringAt(envelope, 'sessionId');
+      perSession.set(id, [...(perSession.get(id) ?? []), stringAt(envelope, 'eventName')]);
+    }
+    const overlinked = [...perSession].flatMap(([id, names]) => {
+      const flows = new Set(names.map(name => name.replace(/_(started|ended)$/, '')));
+      if (flows.size > 1) return [`session ${id} spans flows ${[...flows].sort().join(', ')}`];
+      return names.length > 2 ? [`session ${id} carries ${names.length} events`] : [];
+    });
+    expect(overlinked).toEqual([]);
   });
 
   it('holds the allowlist across the entire event type space, not just the paths driven above', async () => {
@@ -562,9 +730,19 @@ describe('product-event egress', () => {
     for (const event of events) await sendEvent(event, context);
     await flushEgress();
 
-    const payloads = eventPayloads();
-    expect(payloads).toHaveLength(events.length);
-    const outside = payloads.flatMap(payload => Object.keys(payload).filter(key => !WIRE_KEYS.includes(key)));
+    const sent = envelopes();
+    expect(sent).toHaveLength(events.length);
+    const outside = sent.flatMap(envelope => [
+      ...Object.keys(envelope).filter(
+        key => !['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'].includes(key)
+      ),
+      ...Object.keys(objectAt(envelope, 'systemProps')).filter(
+        key => !['isDebug', 'osName', 'appVersion', 'sdkVersion'].includes(key)
+      ),
+      // The eight-field allowlist has to survive the crossing into an object
+      // Aptabase leaves open, where the type system can no longer hold it.
+      ...Object.keys(objectAt(envelope, 'props')).filter(key => !WIRE_KEYS.includes(key))
+    ]);
     expect(outside).toEqual([]);
     expect(leaksIn(wireText())).toEqual([]);
   });
@@ -712,7 +890,7 @@ describe('consent boundary', () => {
     captureCrash(poisonedError('send failed'));
     await driveEveryInstrumentedFlow();
 
-    expect(eventPayloads().length).toBeGreaterThan(0);
+    expect(envelopes().length).toBeGreaterThan(0);
     expect(captured.filter(entry => entry.url !== INGEST_URL).length).toBeGreaterThan(0);
   });
 

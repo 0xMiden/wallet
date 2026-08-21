@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { DEFAULT_TELEMETRY, TELEMETRY_STORAGE_KEY } from 'lib/settings/constants';
 
+import { APTABASE_ENVELOPE_KEYS, APTABASE_PROP_KEYS, APTABASE_SYSTEM_PROP_KEYS } from './aptabase';
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { WIRE_KEYS } from './serialize';
@@ -810,6 +811,28 @@ const IDENTIFIER_CALLS: readonly Api[] = [
 const FLOW_ID_MINTER = 'src/lib/telemetry/report-flow.ts';
 
 /**
+ * Everything that could produce an OS version, a locale, or a device model.
+ *
+ * Matched as property access rather than as a bare word, and `crash.ts`'s
+ * doc comment names the user-agent string in prose for exactly that reason:
+ * a guard that fires on a comment is a guard that gets deleted.
+ */
+const FINGERPRINTING_APIS: readonly Api[] = [
+  { label: 'navigator.language', pattern: /\bnavigator\s*\.\s*languages?\b/ },
+  { label: 'navigator.userAgent', pattern: /\bnavigator\s*\.\s*userAgent(?:Data)?\b/ },
+  { label: 'navigator.platform', pattern: /\bnavigator\s*\.\s*platform\b/ },
+  { label: 'navigator.oscpu', pattern: /\bnavigator\s*\.\s*oscpu\b/ },
+  { label: 'navigator.hardwareConcurrency', pattern: /\bnavigator\s*\.\s*hardwareConcurrency\b/ },
+  { label: 'navigator.deviceMemory', pattern: /\bnavigator\s*\.\s*deviceMemory\b/ },
+  { label: 'navigator.maxTouchPoints', pattern: /\bnavigator\s*\.\s*maxTouchPoints\b/ },
+  { label: 'the Intl API', pattern: /\bIntl\s*\.\s*[A-Za-z]/ },
+  { label: 'resolvedOptions()', pattern: /\bresolvedOptions\s*\(/ },
+  { label: 'screen metrics', pattern: /\bscreen\s*\.\s*(?:width|height|colorDepth|availWidth|availHeight)\b/ },
+  { label: "Capacitor's Device plugin", pattern: /\bDevice\s*\.\s*getInfo\b/ },
+  { label: "Capacitor's Device language", pattern: /\bgetLanguage(?:Code|Tag)\s*\(/ }
+];
+
+/**
  * Words that make a field durable identity rather than a measurement. Matched
  * against the camelCase words of a key, so `flowId` reads as `flow` + `id` and
  * passes — the flow id is minted per flow, held in memory, and thrown away.
@@ -904,6 +927,51 @@ describe('no persistent identifier', () => {
               `the wire payload carries "${key}", whose name (${identity.join(', ')}) reads as durable identity. Telemetry events are joined per flow and never per person.`
             ];
       })
+    ).toEqual([]);
+  });
+
+  it('has no Aptabase envelope field that could name a person, a device, or an install', () => {
+    // The same reading applied to the vendor envelope, where the field names
+    // are Aptabase's rather than ours. `sessionId` is the single name that
+    // reads as durable identity and it is permitted BY NAME ONLY: Aptabase
+    // calls the field that, and what this wallet puts in it is the ephemeral
+    // per-flow id. `egress-boundary.test.ts` asserts the value — that two
+    // flows never share one, and that a session never carries more than one
+    // flow's pair of events. Aptabase's own SDKs would reuse it for four
+    // hours; that is the behaviour these two assertions together forbid.
+    const VENDOR_NAMED = 'sessionId';
+    const keys = [...APTABASE_ENVELOPE_KEYS, ...APTABASE_SYSTEM_PROP_KEYS, ...APTABASE_PROP_KEYS];
+    expect(keys).toContain(VENDOR_NAMED);
+
+    expect(
+      keys
+        .filter(key => key !== VENDOR_NAMED)
+        .flatMap(key => {
+          const identity = wordsOf(key).filter(word => DURABLE_IDENTITY_WORDS.has(word));
+          return identity.length === 0
+            ? []
+            : [
+                `the Aptabase envelope carries "${key}", whose name (${identity.join(', ')}) reads as durable identity. Only "${VENDOR_NAMED}" may, and only because Aptabase named it — it holds the per-flow id.`
+              ];
+        })
+    ).toEqual([]);
+  });
+
+  it('cannot compute an operating-system version, a locale, or a device model', () => {
+    // Aptabase's envelope has a `systemProps.osVersion`, `locale` and
+    // `deviceModel`, and its own SDKs fill all three in. This wallet sends none
+    // of them, which `egress-boundary.test.ts` asserts against the real wire.
+    // This is the other half: the telemetry module may not reach an API that
+    // could produce one, so "completing systemProps later" has no source to
+    // draw from. The coarse `platform` we do send comes from `lib/platform`,
+    // outside this module, and is disclosed in the policy.
+    expect(
+      FINGERPRINTING_APIS.flatMap(({ label, pattern }) =>
+        matches(telemetryFiles(), pattern).map(
+          hit =>
+            `${at(hit)} reaches ${label} from inside the telemetry module — a device-fingerprinting surface. The wallet collects an app version and a coarse platform, and deliberately not an OS version, a locale, or a device model.`
+        )
+      )
     ).toEqual([]);
   });
 
@@ -1018,7 +1086,13 @@ describe('the background service worker never imports the telemetry barrel', () 
     // which the worker already loads, and its being in this list rather than
     // reached through the barrel is the whole point of importing it by deep
     // path from `miden-client-interface.ts`.
+    //
+    // `aptabase.ts` is here because the sink imports it: it is the pure mapper
+    // from our allowlisted payload to Aptabase's envelope, plus the endpoint
+    // resolver. It reaches nothing at all — no network call, no storage, no
+    // React — which is what makes it loadable in a worker.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
+      'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/context.ts',
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
@@ -1034,6 +1108,7 @@ describe('the background service worker never imports the telemetry barrel', () 
 // ---------------------------------------------------------------------------
 
 const SINK = 'src/lib/telemetry/sink.ts';
+const APTABASE = 'src/lib/telemetry/aptabase.ts';
 
 const EGRESS_APIS: readonly Api[] = [
   { label: 'fetch()', pattern: /\bfetch\s*\(/ },
@@ -1091,7 +1166,11 @@ describe('no stray egress', () => {
   });
 
   it.each([
-    ['TELEMETRY_INGEST_URL', SINK],
+    // Both halves of the Aptabase configuration are read in the module that
+    // resolves the endpoint, never at the call site — the sink asks it where to
+    // POST and gets `null` when the answer is "nowhere".
+    ['APTABASE_APP_KEY', APTABASE],
+    ['APTABASE_HOST', APTABASE],
     ['SENTRY_DSN', 'src/lib/telemetry/crash.ts']
   ])('reads %s in exactly one shipped file', (variable, owner) => {
     const readers = [
@@ -1144,7 +1223,13 @@ describe('no stray egress', () => {
 // Promise: telemetry is off by default and opt-in.
 // ---------------------------------------------------------------------------
 
-const INGEST_URL = 'https://ingest.telemetry.invalid/v1/events';
+/**
+ * A hosted app key with no host override, so the URL asserted below is the one
+ * a release build derives from the key's region. Nothing leaves: `fetch` is
+ * stubbed for this describe.
+ */
+const APTABASE_APP_KEY = 'A-EU-1234567890';
+const INGEST_URL = 'https://eu.aptabase.com/api/v0/event';
 const SENTRY_DSN = 'https://publickey@o0.ingest.de.sentry.io/1';
 
 const requests: string[] = [];
@@ -1196,7 +1281,8 @@ async function flushEgress(): Promise<void> {
 describe('telemetry is off until the user turns it on', () => {
   beforeEach(async () => {
     requests.length = 0;
-    process.env.TELEMETRY_INGEST_URL = INGEST_URL;
+    process.env.APTABASE_APP_KEY = APTABASE_APP_KEY;
+    delete process.env.APTABASE_HOST;
     process.env.SENTRY_DSN = SENTRY_DSN;
     localStorage.removeItem(TELEMETRY_STORAGE_KEY);
     // The background mirror holds no boolean, which is the state of a wallet

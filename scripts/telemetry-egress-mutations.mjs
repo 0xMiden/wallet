@@ -30,12 +30,29 @@ const PHRASE_HEAD = 'avoid leave side crush';
 const PAYLOAD_ANCHOR = `  const payload: TelemetryWirePayload = {
     phase: event.phase,`;
 
+const APTABASE = 'src/lib/telemetry/aptabase.ts';
+const PROPS_ANCHOR = '  const props: AptabaseProps = {};';
+
+/**
+ * Put one leaked value where it will actually reach the wire.
+ *
+ * This used to inject into `serializeEvent`, which was the last thing before
+ * `fetch`. It no longer is: `aptabase.ts` maps the allowlisted payload onto
+ * Aptabase's envelope field by field, so a field added upstream is simply not
+ * copied and never leaves. Injecting there now would report SURVIVED for a
+ * mutation that produces no egress at all — a false negative that reads as a
+ * hole in the guard.
+ *
+ * So the leaks go into Aptabase's `props`, which is the open object the wire
+ * type can no longer protect and therefore the point where a leak is now
+ * possible. The serializer's own allowlist is still asserted, by
+ * `serialize.test.ts` and by the mutations in
+ * `scripts/telemetry-aptabase-mutations.mjs`.
+ */
 const withPayloadField = line => ({
-  file: SERIALIZE,
-  find: PAYLOAD_ANCHOR,
-  replace: `  const payload: TelemetryWirePayload & Record<string, unknown> = {
-${line}
-    phase: event.phase,`
+  file: APTABASE,
+  find: PROPS_ANCHOR,
+  replace: `  const props: AptabaseProps & Record<string, unknown> = {};\n${line}`
 });
 
 /** Each entry: a single leak, and the guarantee it is meant to trip. */
@@ -44,86 +61,92 @@ const MUTATIONS = [
   {
     name: 'note id added to the wire payload',
     guards: 'no forbidden value / allowlisted keys',
-    ...withPayloadField(`    noteId: '${NOTE_ID}',`)
+    ...withPayloadField(`  props.noteId = '${NOTE_ID}';`)
   },
   {
     name: 'account address added to the wire payload',
     guards: 'no forbidden value / allowlisted keys',
-    ...withPayloadField(`    account: '${ADDRESS}',`)
+    ...withPayloadField(`  props.account = '${ADDRESS}';`)
   },
   {
     name: 'composite publicKey added to the wire payload',
     guards: 'no forbidden value / allowlisted keys',
-    ...withPayloadField(`    publicKey: '${COMPOSITE}',`)
+    ...withPayloadField(`  props.publicKey = '${COMPOSITE}';`)
   },
   {
     name: 'amount added to the wire payload',
     guards: 'no forbidden value / allowlisted keys',
-    ...withPayloadField(`    amount: '${AMOUNT}',`)
+    ...withPayloadField(`  props.amount = '${AMOUNT}';`)
   },
   {
     name: 'amount added as a NUMBER, not a string',
     guards: 'no forbidden value',
-    ...withPayloadField(`    amount: ${AMOUNT},`)
+    ...withPayloadField(`  props.amount = ${AMOUNT};`)
   },
   {
     name: 'four consecutive recovery-phrase words added',
     guards: 'no forbidden value (word-window probes)',
-    ...withPayloadField(`    hint: '${PHRASE_HEAD}',`)
+    ...withPayloadField(`  props.hint = '${PHRASE_HEAD}';`)
   },
   {
     name: 'address added BASE64-encoded',
     guards: 'no forbidden value (base64 variant)',
-    ...withPayloadField(`    blob: '${Buffer.from(ADDRESS).toString('base64')}',`)
+    ...withPayloadField(`  props.blob = '${Buffer.from(ADDRESS).toString('base64')}';`)
   },
   {
     name: 'address added BASE64URL-encoded',
     guards: 'no forbidden value (base64url variant)',
-    ...withPayloadField(
-      `    blob: '${Buffer.from(ADDRESS).toString('base64url')}',`
-    )
+    ...withPayloadField(`  props.blob = '${Buffer.from(ADDRESS).toString('base64url')}';`)
   },
   {
     name: 'address added PERCENT-encoded',
     guards: 'no forbidden value (percent variant)',
     ...withPayloadField(
-      `    blob: '${[...Buffer.from(ADDRESS)].map(b => `%${b.toString(16).padStart(2, '0')}`).join('')}',`
+      `  props.blob = '${[...Buffer.from(ADDRESS)].map(b => `%${b.toString(16).padStart(2, '0')}`).join('')}';`
     )
   },
   {
     name: 'address added \\uXXXX-escaped',
     guards: 'no forbidden value (unicode-escape variant)',
     ...withPayloadField(
-      `    blob: '${[...ADDRESS].map(c => `\\\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')}',`
+      `  props.blob = '${[...ADDRESS].map(c => `\\\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`).join('')}';`
     )
   },
   {
     name: 'address added HEX-encoded',
     guards: 'no forbidden value (hex variant)',
-    ...withPayloadField(`    blob: '${Buffer.from(ADDRESS).toString('hex')}',`)
+    ...withPayloadField(`  props.blob = '${Buffer.from(ADDRESS).toString('hex')}';`)
   },
   {
     name: 'benign extra key (locale) added to the wire payload',
     guards: 'exactly the allowlisted keys',
-    ...withPayloadField(`    locale: 'en-GB',`)
+    ...withPayloadField(`  props.locale = 'en-GB';`)
   },
   {
     name: 'nested object added to the wire payload',
     guards: 'no nested structure',
-    ...withPayloadField(`    detail: { address: '${ADDRESS}' },`)
+    ...withPayloadField(`  props.detail = { address: '${ADDRESS}' };`)
   },
   {
     name: 'the event spread into the payload instead of copied field by field',
     guards: 'exactly the allowlisted keys',
+    // Both allowlists broken at once, which is what it now takes for a stray
+    // field to travel: the serializer grows one, and the mapper stops copying
+    // by name. Either alone produces no egress — see the harness note above.
     file: SERIALIZE,
     find: PAYLOAD_ANCHOR,
     replace: `  const payload: TelemetryWirePayload & Record<string, unknown> = {
     ...JSON.parse(JSON.stringify({ note: '${NOTE_ID}' })),
-    phase: event.phase,`
+    phase: event.phase,`,
+    also: {
+      file: APTABASE,
+      find: PROPS_ANCHOR,
+      replace: '  const props: AptabaseProps & Record<string, unknown> = { ...payload };'
+    }
   },
   {
     name: 'durationMs dropped from the payload',
-    guards: 'exactly the allowlisted keys',
+    guards: 'every prop key derives from the allowlist, and all three are emitted',
     file: SERIALIZE,
     find: `    payload.durationMs = Math.round(event.durationMs);`,
     replace: ``

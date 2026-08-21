@@ -66,9 +66,10 @@ import { REDACTED, containsSeedMaterialDeep, redactInPlace, redactMessage, redac
  *   is no `window` in the service worker, and taking over the page's global
  *   handlers is exactly the global-state pollution point 1 avoids. The cost is
  *   that we register those handlers ourselves, below.
- * - `HttpContext` reads `window.location.href`, `document.referrer` and
- *   `navigator.userAgent` into every event. URL plus user agent is PII we have
- *   committed never to send.
+ * - `HttpContext` reads `window.location.href`, `document.referrer` and the
+ *   browser's user-agent string into every event. URL plus user agent is PII we
+ *   have committed never to send. (Named in prose rather than in code, so the
+ *   fingerprinting-capability guard in `guarantees.test.ts` can be strict.)
  * - `CultureContext` reads locale and timezone. Fingerprinting surface, no
  *   diagnostic value.
  * - `FunctionToString` monkey-patches `Function.prototype.toString`. It exists

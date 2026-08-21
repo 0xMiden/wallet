@@ -1,5 +1,6 @@
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
+import { aptabaseEndpointFromEnv, buildEnvelope } from './aptabase';
 import { serializeEvent } from './serialize';
 import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
 
@@ -21,11 +22,26 @@ type Transport = (payload: TelemetryWirePayload) => Promise<void>;
 let queue: TelemetryWirePayload[] = [];
 let transportOverride: Transport | null = null;
 
+/**
+ * POST one event to Aptabase, or nothing at all when it is not configured.
+ *
+ * One request per event, never the 25-event batch endpoint: an MV3 service
+ * worker has no guaranteed lifetime, so a batch buffer is a buffer that gets
+ * killed with the worker. `credentials: 'omit'` matches what Aptabase's own web
+ * SDK sends, and means no cookie can ride along and turn a stateless POST into
+ * something that identifies a browser.
+ */
 async function defaultTransport(payload: TelemetryWirePayload): Promise<void> {
-  await fetch(process.env.TELEMETRY_INGEST_URL ?? '', {
+  const endpoint = aptabaseEndpointFromEnv();
+  // Unconfigured, or configured wrongly. Sending nothing is the correct
+  // outcome and must not read as a failure — this path is best-effort.
+  if (endpoint === null) return;
+
+  await fetch(endpoint.url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json', 'App-Key': endpoint.appKey },
+    body: JSON.stringify(buildEnvelope(payload))
   });
 }
 

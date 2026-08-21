@@ -36,6 +36,10 @@ When the setting is on, the App reports the start and the end of a small set of 
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
 
+Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`bread-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
+
+**We deliberately leave three of the provider's fields empty.** Aptabase's format has slots for your operating system version, your language or locale, and your device model, and their own libraries fill all three in. We send none of them. Each one is a fingerprinting signal — a combination of them narrows a crowd down to a person — and none is needed to find out where the wallet breaks. Automated tests fail the build if any of the three ever appears in an outgoing message, which is what stops someone filling them in later because the field was there.
+
 ### Crash reports
 
 When the setting is on, a crash sends the error type, the error's message, and the stack trace — the list of code locations the error passed through — plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
@@ -53,6 +57,7 @@ Not when the setting is on, not when it is off, not ever:
 - The contents of your transactions, your notes, or your note IDs
 - Your name, email address, or contacts
 - Your location — the App asks for no location permission and reads no location sensor
+- Your operating system version, your language or locale, your timezone, or your device model — see the note under "Usage data"
 - Any advertising identifier, and anything that would let us or anyone else follow you across other apps or websites. The App does not show Apple's App Tracking Transparency prompt, because it has nothing to ask permission for.
 
 And nothing collected is ever sold, or shared with data brokers or ad networks.
@@ -64,6 +69,8 @@ We also do not call this data anonymous. Sending anything over the internet mean
 The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as five minutes ago".
 
 The one identifier involved is the short random number in the table above. It is created when an activity starts, exists only in memory, is used only to match that activity's "started" message to its "ended" message, is never written to disk, and is never reused. Once the activity is over, it is gone.
+
+**One thing worth spelling out, because it would otherwise look like the opposite.** Our analytics provider calls the field this number travels in a "session id", and their own libraries put a single value there and reuse it for four hours — which would tie together everything you did in that window. We do not do that. What we put in that field is the per-activity random number described above, so a "session" in their system is *one activity* and nothing more. Two activities you perform back to back carry two unrelated values, and there is no way to tell they came from the same person. That is also the only option available to us: the App has no way to store such a value between activities even if we wanted one, and a test asserts it stays that way.
 
 ### What that means for deleting your data
 
@@ -99,6 +106,8 @@ Only if the setting is on:
 |---|---|---|
 | Usage data | Aptabase | European Union (Germany) |
 | Crash reports | Sentry | European Union |
+
+Usage data goes straight from the App to Aptabase's European endpoint, one message per request, with no server of ours in between and nothing batched up in the meantime. We use neither company's own tracking library: the App builds each message itself, out of the fixed list of fields above, and sends it directly.
 
 Both are configured to delete data after 90 days, to store no IP addresses, and to forward nothing onward. Neither is permitted to use the data for its own purposes, and no third party receives it for advertising or resale.
 

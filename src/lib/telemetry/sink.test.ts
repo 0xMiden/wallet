@@ -69,18 +69,6 @@ describe('telemetry sink', () => {
     }
   });
 
-  it('POSTs the payload over fetch when no transport override is set', async () => {
-    jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
-    __setTransportForTest(null);
-    const fetchMock = jest.fn().mockResolvedValue(undefined);
-    global.fetch = fetchMock;
-    await sendEvent(started, context);
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } })
-    );
-  });
-
   it('never throws when the transport fails', async () => {
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
     __setTransportForTest(async () => {
@@ -115,5 +103,119 @@ describe('telemetry sink', () => {
     await flushMicrotasks();
     expect(__getQueueLengthForTest()).toBeGreaterThan(0);
     expect(__getQueueLengthForTest()).toBeLessThanOrEqual(50);
+  });
+});
+
+describe('the real Aptabase transport', () => {
+  const originalFetch = global.fetch;
+  const originalKey = process.env.APTABASE_APP_KEY;
+  const originalHost = process.env.APTABASE_HOST;
+  let fetchMock: jest.Mock;
+
+  beforeEach(() => {
+    jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
+    __setTransportForTest(null);
+    fetchMock = jest.fn().mockResolvedValue(undefined);
+    global.fetch = fetchMock;
+    process.env.APTABASE_APP_KEY = 'A-EU-1234567890';
+    delete process.env.APTABASE_HOST;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    process.env.APTABASE_APP_KEY = originalKey;
+    process.env.APTABASE_HOST = originalHost;
+    if (originalKey === undefined) delete process.env.APTABASE_APP_KEY;
+    if (originalHost === undefined) delete process.env.APTABASE_HOST;
+    dropQueue();
+    jest.resetAllMocks();
+  });
+
+  /** The single argument pair `fetch` was called with, or a loud failure. */
+  function onlyRequest(): { url: unknown; init: Record<string, unknown> } {
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call: unknown[] = fetchMock.mock.calls[0] ?? [];
+    const init: unknown = call[1];
+    if (typeof init !== 'object' || init === null) throw new Error('fetch was called without an init object');
+    const entries: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(init)) entries[key] = value;
+    return { url: call[0], init: entries };
+  }
+
+  function sentEnvelope(): Record<string, unknown> {
+    const { init } = onlyRequest();
+    const body: unknown = init.body;
+    if (typeof body !== 'string') throw new Error('fetch was called with a non-string body');
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`the request body is not a JSON object: ${body}`);
+    }
+    const envelope: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed)) envelope[key] = value;
+    return envelope;
+  }
+
+  it('POSTs one event to the region derived from the app key', async () => {
+    await sendEvent(started, context);
+    const { url, init } = onlyRequest();
+    expect(url).toBe('https://eu.aptabase.com/api/v0/event');
+    expect(init.method).toBe('POST');
+  });
+
+  it('sends the App-Key header Aptabase authenticates on', async () => {
+    await sendEvent(started, context);
+    expect(onlyRequest().init.headers).toEqual({
+      'Content-Type': 'application/json',
+      'App-Key': 'A-EU-1234567890'
+    });
+  });
+
+  it('omits credentials, so no cookie can turn a stateless POST into an identifier', async () => {
+    await sendEvent(started, context);
+    expect(onlyRequest().init.credentials).toBe('omit');
+  });
+
+  it('sends the Aptabase envelope as the body, not the internal payload', async () => {
+    await sendEvent(started, context);
+    const envelope = sentEnvelope();
+    expect(envelope.eventName).toBe('send_started');
+    expect(envelope.sessionId).toBe('f1');
+    expect(envelope.systemProps).toEqual({
+      isDebug: true,
+      osName: 'extension',
+      appVersion: '1.15.21',
+      sdkVersion: 'bread-wallet-aptabase@1.0.0'
+    });
+    expect(envelope.props).toEqual({});
+    expect(Object.keys(envelope).sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);
+  });
+
+  it('posts to the self-hosted host when one is configured', async () => {
+    process.env.APTABASE_APP_KEY = 'A-SH-1234567890';
+    process.env.APTABASE_HOST = 'https://analytics.example.org';
+    await sendEvent(started, context);
+    expect(onlyRequest().url).toBe('https://analytics.example.org/api/v0/event');
+  });
+
+  it.each([
+    ['the app key is unset', undefined, undefined],
+    ['the app key is empty', '', undefined],
+    ['the app key is malformed', 'not-a-key', undefined],
+    ['a self-hosted key has no host', 'A-SH-1234567890', undefined],
+    ['a self-hosted key has an unusable host', 'A-SH-1234567890', 'not-a-url']
+  ])('sends nothing, and does not throw, when %s', async (_label, appKey, host) => {
+    if (appKey === undefined) delete process.env.APTABASE_APP_KEY;
+    else process.env.APTABASE_APP_KEY = appKey;
+    if (host === undefined) delete process.env.APTABASE_HOST;
+    else process.env.APTABASE_HOST = host;
+
+    await expect(sendEvent(started, context)).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still sends nothing when consent is off, however well configured it is', async () => {
+    jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(false);
+    await sendEvent(started, context);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
