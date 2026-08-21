@@ -60,6 +60,8 @@ export interface IHistoryEntry {
   fee?: string;
   noteType?: string;
   noteId?: string;
+  /** Input notes claimed by a `consume` row (every note in a batch claim). */
+  consumedNoteIds?: string[];
   externalTxId?: string;
   faucetId?: string;
   blockNumber?: number;

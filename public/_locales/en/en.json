@@ -920,6 +920,7 @@
   "totalConsumed": "Total Consumed",
   "notesConsumed": "Notes Consumed",
   "consumed": "Consumed",
+  "noteTypeLabel": "Note Type",
   "sourceTx": "Transaction ID",
   "developerSettingsTitle": "Developer Settings",
   "developerSettingsWarningTitle": "For advanced users",

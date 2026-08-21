@@ -412,6 +412,8 @@ export class ConsumeTransaction implements ITransaction {
   noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
+  /** Storage mode of the consumed note(s); unset when unknown or when a batch mixes modes. */
+  noteType?: NoteType;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -439,6 +441,10 @@ export class ConsumeTransaction implements ITransaction {
     this.noteIds = list.map(n => n.id);
     this.faucetId = first.faucetId;
     this.secondaryAccountId = first.senderAddress;
+    // Surface the note type in history only when it is known and uniform
+    // across the batch — a mixed private/public claim has no single answer.
+    this.noteType =
+      first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
     // Display amount: sum of the notes sharing the first note's faucet. Notes
     // of other faucets in a mixed batch aren't reflected here (display only).
     this.amount =

@@ -268,6 +268,15 @@ const shouldWatchSettlement = ({
   return !settlementFound && autoConsume;
 };
 
+/** Right-aligned stack of trimmed, copyable note ids. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
+  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+    {noteIds.map(noteId => (
+      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+    ))}
+  </div>
+);
+
 const AccountDisplay: FC<{
   address: string | undefined;
   account: WalletAccount;
@@ -404,6 +413,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txId: tx.id,
           noteType: tx.noteType,
           noteId: tx.outputNoteIds?.[0],
+          consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined)) : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -959,7 +969,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.address;
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
-  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
+  const consumedNoteIds = entry?.consumedNoteIds ?? [];
+  // Private/Public storage mode of the note(s) sent or consumed (#732). Only
+  // the two known modes are labelled; anything else is left off the card.
+  const noteTypeLabel =
+    entry?.noteType === 'private' ? t('private') : entry?.noteType === 'public' ? t('public') : undefined;
+  const hasNoteData =
+    entry?.noteId ||
+    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
+    consumedNoteIds.length > 0 ||
+    noteTypeLabel !== undefined;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token
@@ -1367,9 +1386,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailCard title={t('notesSection')}>
-                    <DetailRow label={t('created')} isLast>
-                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                    </DetailRow>
+                    {noteTypeLabel && (
+                      <DetailRow label={t('noteTypeLabel')} testId="history-note-type">
+                        <span className="text-sm text-heading-gray font-medium">{noteTypeLabel}</span>
+                      </DetailRow>
+                    )}
+
+                    {/* Claims list the input notes they consumed; every other type counts its outputs. */}
+                    {consumedNoteIds.length > 0 ? (
+                      <DetailRow label={t('consumed')} isLast>
+                        <NoteIdList noteIds={consumedNoteIds} testId="history-consumed-notes" />
+                      </DetailRow>
+                    ) : (
+                      <DetailRow label={t('created')} isLast>
+                        <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                      </DetailRow>
+                    )}
                   </DetailCard>
                 </div>
               </div>
