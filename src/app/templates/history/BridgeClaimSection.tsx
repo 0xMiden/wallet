@@ -159,7 +159,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       cancelled = true;
       clearInterval(id);
     };
-  }, [isEpoch, epochStatus, intentNonce, destination, txId, onUpdated]);
+  }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId, onUpdated]);
 
   const handleClaim = useCallback(async () => {
     if (!claimable || !evmProvider || !entry.txId || restoredFromBackup) return;
