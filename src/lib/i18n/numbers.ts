@@ -89,21 +89,25 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
   if (amount === BigInt(0)) {
     return '0';
   }
-  const amountString = amount.toString();
+  // Format the magnitude and reattach the sign. Zero-padding a string that
+  // already starts with '-' buries the sign inside the padding, so -5 at 5
+  // decimals came out as "-0.00005" spelled "0.000-5" — not a number at all.
+  const negative = amount < BigInt(0);
+  const amountString = (negative ? -amount : amount).toString();
   // A zero-decimal faucet is a whole-unit token, so its base units ARE the
   // amount. Falling through would divide by a phantom decimal place: `-0 === 0`
   // makes `slice(0, -decimals)` return '' and `slice(-decimals)` return the
   // whole string, so 1000 renders as "0.01". Batch claims put arbitrary
   // third-party faucets through here, and 0 decimals is a legal choice.
   if (decimals <= 0) {
-    return amountString;
+    return negative ? `-${amountString}` : amountString;
   }
   const prefixed = '0'.repeat(decimals) + amountString;
   const withDecimal = prefixed.slice(0, -decimals) + '.' + prefixed.slice(-decimals);
   const trimmed = withDecimal.replace(/^0+|0+$/g, '');
   const withoutTrailingDecimal = trimmed.replace(/\.$/, '');
   const withLeadingZero = withoutTrailingDecimal.replace(/^\./, '0.');
-  return withLeadingZero;
+  return negative ? `-${withLeadingZero}` : withLeadingZero;
 }
 
 export function stringToBigInt(str: string, decimals: number) {

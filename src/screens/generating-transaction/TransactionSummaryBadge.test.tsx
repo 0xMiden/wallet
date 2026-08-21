@@ -341,10 +341,25 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  // An empty store does not make a foreign faucet native. Naming it MIDEN would
+  // also scale it by MIDEN's 6 decimals, which is the invented number this
+  // whole path exists to avoid — so the asset is named and left unquantified.
   it('tolerates an undefined assetsMetadata store slice', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 8n, faucetId: 'faucet-x', secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
+    act(() => root.unmount());
+  });
+
+  // The native faucet is the one case an empty store must NOT withhold: MIDEN's
+  // scale is fixed, so the amount stays.
+  it('still quantifies the native faucet when the store slice is undefined', async () => {
+    mockState.assetsMetadata = undefined;
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderProbe(
+      baseTransaction({ amount: 8n, faucetId: 'faucet-native', secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
     act(() => root.unmount());

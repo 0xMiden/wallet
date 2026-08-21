@@ -717,6 +717,10 @@
     "message": "Puedes pegar tu «Seed phrase» completo en cualquier campo.",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Una o más palabras no están en la lista de palabras de la frase de recuperación. Revisa las palabras resaltadas.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
   "oops": {
     "message": "¡Ups!",
     "englishSource": "Oops!"

@@ -8,8 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ReviewLabel } from 'components/review/ReviewRow';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { ITransaction } from 'lib/miden/db/types';
-import { MIDEN_METADATA } from 'lib/miden/metadata';
-import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { hasKnownScale, resolveDisplayMetadata } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
@@ -68,8 +67,8 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
   const nativeFaucetId = useMidenFaucetId();
 
-  const tokenMetadata = transaction?.faucetId ? assetsMetadata[transaction.faucetId] : undefined;
-  const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';
+  const tokenMetadata = resolveDisplayMetadata(transaction?.faucetId, assetsMetadata, nativeFaucetId);
+  const tokenSymbol = tokenMetadata.symbol;
   const consumeParts =
     transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
   // Same rule as the in-progress badge this receipt replaces: a faucet whose
@@ -77,7 +76,7 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   // without a quantity instead of being shown at the placeholder's guess.
   const amount =
     transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
-      ? formatAmount(transaction.amount, tokenMetadata?.decimals)
+      ? formatAmount(transaction.amount, tokenMetadata.decimals)
       : undefined;
   const amountText =
     consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;

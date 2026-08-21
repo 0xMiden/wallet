@@ -115,6 +115,13 @@ interface RequestedTokenInfo {
   decimals?: number;
   symbol?: string;
   faucetId?: string;
+  /**
+   * Whether `decimals` is a fact rather than the unknown-token placeholder's
+   * guess. Kept beside the amount instead of blanking it, because the receipt's
+   * fill maths (`deriveSwapReceipt`) needs the real base-unit value even when
+   * there is no honest way to display it.
+   */
+  scaleIsKnown: boolean;
 }
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -510,7 +517,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             amount: extra.requestedAmount,
             decimals: swapToken?.decimals ?? requestedMeta?.decimals,
             symbol: swapToken?.symbol ?? requestedMeta?.symbol,
-            faucetId: extra.requestedFaucetId
+            faucetId: extra.requestedFaucetId,
+            scaleIsKnown: swapToken !== undefined || hasKnownScale(requestedMeta)
           });
           setSwapAutoConsume(extra.autoConsume ?? true);
           setSwapExpiresAt(extra.expiresAt ?? null);
@@ -1087,7 +1095,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         ) : entry.txType === 'swap' && requestedToken ? (
           <SwapDetail
             entry={entry}
-            requestedAmount={requestedToken.amount}
+            requestedAmount={requestedToken.scaleIsKnown ? requestedToken.amount : undefined}
             requestedDecimals={requestedToken.decimals}
             requestedSymbol={requestedToken.symbol}
             requestedFaucetId={requestedToken.faucetId}

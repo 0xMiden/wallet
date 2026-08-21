@@ -286,7 +286,6 @@ describe('fetchBalances', () => {
 
   it('falls back to DEFAULT_TOKEN_METADATA when fetchTokenMetadata throws', async () => {
     const mockSetAssetsMetadata = jest.fn();
-    const { DEFAULT_TOKEN_METADATA } = jest.requireMock('lib/miden/metadata');
     const mockAssets = [
       {
         faucetId: () => 'bad-faucet',
@@ -305,12 +304,36 @@ describe('fetchBalances', () => {
 
     const result = (await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata }))!;
 
-    // Should still include the token with default metadata
-    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({
-      'bech32-bad-faucet': DEFAULT_TOKEN_METADATA
-    });
+    // The token still lists, under the placeholder, so a failed lookup does not
+    // make the user's holding vanish from the screen.
     expect(result).toHaveLength(2);
     expect(result[0]!.tokenSlug).toBe('Unknown');
+  });
+
+  // A thrown lookup is transient. Publishing the placeholder would end the
+  // retries — the faucet is skipped once metadata is known — so the guessed
+  // decimals would outlive the outage with no path back to the real ones.
+  it('does not persist the placeholder when the metadata lookup throws', async () => {
+    const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+    getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+    mockGetAccount.mockResolvedValueOnce({
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
+      })
+    });
+    mockFetchTokenMetadata.mockRejectedValueOnce(new Error('RPC error'));
+    const mockSetAssetsMetadata = jest.fn();
+    const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+
+    await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
+
+    // Nothing at all is written for this faucet, so the next refresh sees it as
+    // still-unknown and tries the lookup again.
+    const wroteBadFaucet = (fn: jest.Mock) =>
+      fn.mock.calls.some(([written]: [Record<string, unknown>]) => 'bech32-bad-faucet' in written);
+
+    expect(wroteBadFaucet(mockSetAssetsMetadata)).toBe(false);
+    expect(wroteBadFaucet(setTokensBaseMetadata)).toBe(false);
   });
 
   it('skips MIDEN token when fetching metadata', async () => {
