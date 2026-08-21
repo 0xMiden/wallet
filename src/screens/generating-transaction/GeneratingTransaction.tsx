@@ -336,11 +336,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg px-4 text-heading-gray">
+      <ScreenHeader className="shrink-0" title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
 
-      <main className="flex flex-1 flex-col ">
-        <section className="flex w-full flex-1 flex-col items-center pt-5">
+      {/* Scroll region: only the steps body scrolls on a short sidepanel/popup;
+          the footer CTAs below stay pinned and reachable (same shape as
+          TransactionSuccessLayout, #463). */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <section className="flex w-full flex-col items-center pt-5">
           <TransactionHeroIcon state={heroState} />
 
           <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
@@ -376,55 +379,53 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {!transactionComplete && <p>{dismissalDescription}</p>}
           </div>
         </section>
+      </main>
 
-        <div className="w-full shrink-0 flex flex-col gap-5 items-center pt-16">
-          {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
+      <div className="w-full shrink-0 flex flex-col gap-5 items-center pb-4 pt-6">
+        {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
               resubmit) as the primary action; Done demotes to secondary so the
               recovery path is the obvious one. */}
-          {transactionComplete && hasErrors && canRetry && onRetry && (
-            <Button
-              type="button"
-              variant={ButtonVariant.Primary}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={onRetry}
-              className="w-full"
-            >
-              <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
-            </Button>
-          )}
+        {transactionComplete && hasErrors && canRetry && onRetry && (
           <Button
             type="button"
-            variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
-            onClick={onDoneClick}
+            variant={ButtonVariant.Primary}
+            isLoading={isRetrying}
+            disabled={isRetrying}
+            onClick={onRetry}
             className="w-full"
           >
-            <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
+            <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
           </Button>
-          {/* #483 — a failed tx needs a direct route to its Activity detail, like
+        )}
+        <Button
+          type="button"
+          variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+          onClick={onDoneClick}
+          className="w-full"
+        >
+          <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
+        </Button>
+        {/* #483 — a failed tx needs a direct route to its Activity detail, like
               SwapSuccess / GuardianRotationSuccess (which link to the per-tx
               detail; the other success views only open the history list). Only on
               failure — success routes through TransactionSuccess, which renders
               its own link. */}
-          {transactionComplete && hasErrors && (
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              onClick={() =>
-                navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
-              }
-              className="w-full"
-            >
-              <span className="text-lg font-semibold">{t('viewInActivities')}</span>
-            </Button>
-          )}
-          {retryError && (
-            <p role="alert" className="text-center text-sm text-status-negative">
-              {retryError}
-            </p>
-          )}
-        </div>
-      </main>
+        {transactionComplete && hasErrors && (
+          <Button
+            type="button"
+            variant={ButtonVariant.Secondary}
+            onClick={() => navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')}
+            className="w-full"
+          >
+            <span className="text-lg font-semibold">{t('viewInActivities')}</span>
+          </Button>
+        )}
+        {retryError && (
+          <p role="alert" className="text-center text-sm text-status-negative">
+            {retryError}
+          </p>
+        )}
+      </div>
     </div>
   );
 };
