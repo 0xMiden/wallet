@@ -1199,8 +1199,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
-            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            {retryError && (
+              <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
+                {retryError}
+              </p>
+            )}
             <Button
+              data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
               title={t('retry')}
               isLoading={isRetrying}
