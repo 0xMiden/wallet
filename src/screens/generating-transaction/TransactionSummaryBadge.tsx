@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { formatAmount } from 'lib/shared/format';
@@ -191,13 +192,16 @@ export const formatConsumeAssetParts = (
     // has no metadata for, since it has never held them.
     const fallback =
       nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
-    const symbol = tokenMetadata?.symbol ?? fallback.symbol;
-    const decimals = tokenMetadata?.decimals ?? (fallback === MIDEN_METADATA ? fallback.decimals : undefined);
-    // No decimals means no honest way to scale this faucet's base units — the
-    // unknown-token fallback's 6 is a placeholder, not a fact, and using it
-    // renders an 18-decimal token 10^12 too large. Name the asset, withhold the
-    // quantity until metadata resolves.
-    return decimals === undefined ? symbol : `${formatAmount(total.amount, decimals)} ${symbol}`;
+    const resolved = tokenMetadata ?? fallback;
+    // No trustworthy scale means no honest way to convert this faucet's base
+    // units — the unknown-token placeholder's 6 is a guess, not a fact, and
+    // using it renders an 18-decimal token 10^12 too large. Name the asset and
+    // withhold the quantity until real metadata resolves. Checked on the
+    // resolved record rather than the placeholder's identity because the
+    // placeholder is cached, and a stored copy is never `===` the constant.
+    return hasKnownScale(resolved)
+      ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
+      : resolved.symbol;
   });
 };
 

@@ -172,17 +172,28 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             data-testid={testId && `${testId}-amount`}
             className="font-heading text-sm font-bold leading-tight text-right"
           >
-            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
-            {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
+            {amount.value !== '' && (
+              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
+            )}
+            {amount.symbol ? (
+              <span className="text-heading-gray">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
+            ) : null}
             {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
                 The test id is indexed so each asset stays individually addressable —
-                a repeated one makes `getByTestId` ambiguous under strict mode. */}
+                a repeated one makes `getByTestId` ambiguous under strict mode.
+                An asset whose scale never resolved carries an empty `value`; it is
+                named without a number, and without the space that would otherwise
+                sit between the missing number and the symbol. */}
             {visibleExtra.map((line, index) => (
               <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span className="text-heading-gray">, </span>
-                <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
-                {line.symbol ? <span className="text-heading-gray">{` ${line.symbol}`}</span> : null}
+                {line.value !== '' && (
+                  <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
+                )}
+                {line.symbol ? (
+                  <span className="text-heading-gray">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
+                ) : null}
               </span>
             ))}
             {extraOverflowCount > 0 && (

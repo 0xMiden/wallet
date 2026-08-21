@@ -189,7 +189,7 @@ describe('miden repo export/import', () => {
     expect(survivors[0]!.amount).toBe(BigInt(1));
   });
 
-  it('leaves terminal rows untouched on import', async () => {
+  it('restores row statuses verbatim', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
         { id: 'done', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1 },

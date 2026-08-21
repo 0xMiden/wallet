@@ -96,9 +96,9 @@ describe('fetchEarnPositions', () => {
   });
 });
 
-// This is a trust signal, like Recent recipients: whatever comes back for these
-// addresses is rendered as the user's OWN position and folded into their total
-// deposits. A restored row's `evmRecipient` is not this wallet's.
+// Whatever comes back for these addresses is rendered as the user's OWN position
+// and folded into their total deposits, so only a genuine deposit's recipient
+// belongs in this list.
 describe('getEarnDepositEvmAddresses', () => {
   const row = (over: Record<string, unknown> = {}) => ({
     type: 'earn-deposit',

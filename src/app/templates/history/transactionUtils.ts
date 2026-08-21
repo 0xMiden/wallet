@@ -12,6 +12,7 @@ import {
   ITransactionType
 } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -43,13 +44,10 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
         );
         return DEFAULT_TOKEN_METADATA;
       });
-      // Reference equality, not a symbol check: `getTokenMetadata` returns this
-      // exact constant when it has nothing stored, and its 6 decimals are a
-      // placeholder rather than a fact about this faucet.
-      const scaleKnown = metadata !== DEFAULT_TOKEN_METADATA;
       return {
         faucetId: total.faucetId,
-        amount: scaleKnown ? formatAmount(total.amount, metadata.decimals) : undefined,
+        // No trustworthy scale means no honest number — name the asset only.
+        amount: hasKnownScale(metadata) ? formatAmount(total.amount, metadata.decimals) : undefined,
         token: metadata.symbol
       };
     })

@@ -37,5 +37,8 @@ export const DEFAULT_TOKEN_METADATA: AssetMetadata = {
   decimals: 6,
   symbol: 'Unknown',
   name: 'Unknown',
+  // The 6 above is a placeholder so consumers have something to read, NOT a
+  // fact about any faucet. See `scaleIsUnknown` on `AssetMetadata`.
+  scaleIsUnknown: true,
   thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
 };

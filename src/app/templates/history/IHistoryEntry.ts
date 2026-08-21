@@ -110,6 +110,7 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
