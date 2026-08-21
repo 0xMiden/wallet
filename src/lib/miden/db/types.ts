@@ -35,6 +35,12 @@ export type IBridgeProvider = 'epoch' | 'agglayer';
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
+/** One faucet's summed amount inside a batch consume. */
+export interface IConsumedAssetTotal {
+  faucetId: string;
+  amount: bigint;
+}
+
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
   /** Connected EVM account that funded the bridge. */
@@ -273,6 +279,8 @@ export interface ITransaction {
   /** All note ids for batch consume transactions (noteId is the first) */
   noteIds?: string[];
   noteType?: NoteType;
+  /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
@@ -414,6 +422,12 @@ export class ConsumeTransaction implements ITransaction {
   faucetId: string;
   /** Storage mode of the consumed note(s); unset when unknown or when a batch mixes modes. */
   noteType?: NoteType;
+  /**
+   * Per-faucet totals for a batch claim, in first-seen order. `amount`/`faucetId`
+   * above only cover the first note's faucet, so a mixed batch (10 A, 10 A, 10 B)
+   * needs this to display "+20 A, +10 B". Absent on legacy rows.
+   */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -451,6 +465,17 @@ export class ConsumeTransaction implements ITransaction {
       first.amount !== ''
         ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
         : undefined;
+    const totals: IConsumedAssetTotal[] = [];
+    for (const note of list) {
+      if (note.amount === '' || note.faucetId === '') continue;
+      const existing = totals.find(total => total.faucetId === note.faucetId);
+      if (existing) {
+        existing.amount += BigInt(note.amount);
+      } else {
+        totals.push({ faucetId: note.faucetId, amount: BigInt(note.amount) });
+      }
+    }
+    this.assetTotals = totals.length > 0 ? totals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';

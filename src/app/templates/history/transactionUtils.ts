@@ -17,7 +17,23 @@ import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 
-import { IHistoryEntry } from './IHistoryEntry';
+import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
+
+/**
+ * Secondary asset totals of a batch consume (every faucet after the row's
+ * primary `faucetId`), formatted with each faucet's own decimals/symbol. Empty
+ * for single-asset claims and for legacy rows without `assetTotals`.
+ */
+export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHistoryExtraAmount[]> => {
+  if (tx.type !== 'consume' || !tx.assetTotals) return [];
+  const secondary = tx.assetTotals.filter(total => total.faucetId !== tx.faucetId);
+  return Promise.all(
+    secondary.map(async total => {
+      const metadata = await getTokenMetadata(total.faucetId);
+      return { amount: formatAmount(total.amount, metadata.decimals), token: metadata.symbol };
+    })
+  );
+};
 
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
 interface SwapExtraInputs {

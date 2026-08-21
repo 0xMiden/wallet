@@ -168,16 +168,25 @@ export const useTransactionSummaryBadgeContent = (
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
-      const amount =
-        transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+      // A batch claim sums per faucet (`assetTotals`) — "20 A, 10 B". Legacy rows
+      // without it fall back to the first faucet's `amount`/`faucetId`.
+      const totals =
+        transaction.assetTotals && transaction.assetTotals.length > 0
+          ? transaction.assetTotals
+          : transaction.amount !== undefined && transaction.faucetId
+            ? [{ faucetId: transaction.faucetId, amount: transaction.amount }]
+            : [];
+      const parts = totals.map(total => {
+        const tokenMetadata = assetsMetadata?.[total.faucetId];
+        const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
+        return `${formatAmount(total.amount, tokenMetadata?.decimals)} ${symbol}`;
+      });
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
-      if (!amount) return undefined;
+      if (parts.length === 0) return undefined;
 
       return {
-        lhs: `${amount} ${symbol}`,
+        lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' })
       };
     }

@@ -30,6 +30,7 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
+  resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
 } from './transactionUtils';
@@ -201,6 +202,7 @@ async function fetchTransactionsAsHistoryEntries(
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -223,6 +225,7 @@ async function fetchTransactionsAsHistoryEntries(
           : tokenMetadata
             ? tokenMetadata.symbol
             : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
       // The Miden collateral note landing is only half a deposit — the chip
       // tracks the Sepolia lending leg.
@@ -283,6 +286,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
       address: address,
@@ -292,6 +296,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       status: tx.status,
       amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,

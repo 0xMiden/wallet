@@ -10,7 +10,7 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
@@ -214,7 +214,7 @@ function buildRowProps(
           : undefined
       : undefined;
 
-  let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
+  let amount: ActivityRowProps['amount'];
   if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
@@ -223,7 +223,14 @@ function buildRowProps(
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    amount = { value: `${sign}${entry.amount.toString()}`, symbol: entry.token, direction: amountDirection };
+    // A batch claim spanning several faucets lists each further asset on its own line.
+    const extra = entry.extraAmounts?.map(line => ({ value: `${sign}${line.amount}`, symbol: line.token }));
+    amount = {
+      value: `${sign}${entry.amount.toString()}`,
+      symbol: entry.token,
+      direction: amountDirection,
+      extra: extra && extra.length > 0 ? extra : undefined
+    };
   }
 
   let statusTone: ActivityStatusTone = 'confirmed';

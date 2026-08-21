@@ -24,6 +24,12 @@ export interface ActivityRowProps {
     /** Token symbol, rendered in the neutral heading color next to the value. */
     symbol?: string;
     direction?: ActivityAmountDirection;
+    /**
+     * Further asset lines rendered under the first one in the same colour —
+     * a batch claim of several tokens reads "+20 A" / "+10 B". Each `value`
+     * carries its own sign like the primary `value`.
+     */
+    extra?: { value: string; symbol?: string }[];
   };
   status?: {
     label: string;
@@ -147,6 +153,16 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
           </span>
         )}
+        {amount?.extra?.map(line => (
+          <span
+            key={`${line.value}-${line.symbol ?? ''}`}
+            data-testid={testId && `${testId}-amount-extra`}
+            className="font-heading text-sm font-bold leading-tight"
+          >
+            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
+            {line.symbol ? <span className="text-heading-gray">{` ${line.symbol}`}</span> : null}
+          </span>
+        ))}
         {status && (
           <span
             data-testid={testId && `${testId}-status`}

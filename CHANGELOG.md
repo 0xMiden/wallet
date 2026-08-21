@@ -8,6 +8,7 @@
 - [FIX][all] Bridge transaction details: hero amounts now use the adaptive 2-decimal formatter (also for quoted output amounts), and the page can no longer scroll horizontally when a value is long. (#752)
 - [FIX][all] Import Wallet seed-phrase screen: consistent vertical gap between the word grid and the Continue button on short viewports. (#741)
 - [FEATURE][all] Transaction details Notes card now shows the note type (Private/Public) for sent and consumed notes, and lists the note ids a claim consumed. (#732)
+- [FEATURE][all] Batch claims that consume several tokens now show every asset's summed total ("+20 A, +10 B") on the activity row, the generating-transaction pill and the details hero, instead of only the first token.
 
 ### Features
 
