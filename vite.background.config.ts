@@ -421,6 +421,7 @@ export default defineConfig({
     // chrome.offscreen anyway, but the explicit pin makes intent clear.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
-    'process.env.TELEMETRY_INGEST_URL': JSON.stringify(process.env.TELEMETRY_INGEST_URL ?? '')
+    'process.env.TELEMETRY_INGEST_URL': JSON.stringify(process.env.TELEMETRY_INGEST_URL ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
   }
 });

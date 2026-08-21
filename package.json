@@ -152,6 +152,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@reown/appkit": "^1.8.20",
     "@reown/appkit-adapter-wagmi": "^1.8.20",
+    "@sentry/browser": "^10.70.0",
     "@svgr/webpack": "^8.1.0",
     "@tanstack/react-query": "^5.100.14",
     "@tauri-apps/api": "^2.0.0",
