@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo, useState } from 'react';
+import React, { memo, RefObject, useEffect, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
@@ -45,10 +45,27 @@ type HistoryProps = {
   tokenId?: string;
   searchQuery?: string;
   filter?: 'all' | 'sent' | 'received' | 'faucet';
+  /**
+   * Fired when the transaction query settles, i.e. when the list stops being a
+   * spinner. The hosting screen reports "the user can see their activity" from
+   * this; the loading state lives here, so nothing above can derive it.
+   */
+  onInitialLoad?: () => void;
 };
 
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
+  ({
+    address,
+    className,
+    numItems,
+    scrollParentRef,
+    fullHistory,
+    centerEmptyState,
+    tokenId,
+    searchQuery,
+    filter,
+    onInitialLoad
+  }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -75,6 +92,11 @@ const History = memo<HistoryProps>(
         keepPreviousData: true
       }
     );
+    useEffect(() => {
+      if (transactionsLoading) return;
+      onInitialLoad?.();
+    }, [transactionsLoading, onInitialLoad]);
+
     const pendingTransactions = useMemo(
       () =>
         latestPendingTransactions?.map(tx => {

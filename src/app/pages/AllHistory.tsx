@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,7 @@ import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { beginFlow, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
@@ -28,6 +29,32 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+
+  /**
+   * `activity_view` is a view flow, so its terminal state is the user actually
+   * seeing their activity: it completes when the list's first load settles and
+   * is cancelled when they leave before that. There is no later moment worth
+   * calling "completed" — reading a list emits no such event, and inventing one
+   * (a tap on a row, say) would report every ordinary visit as abandoned.
+   * Held in a ref rather than state because settling must never re-render.
+   */
+  const flowRef = useRef<FlowHandle | null>(null);
+  useEffect(() => {
+    flowRef.current = beginFlow('activity_view');
+    return () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    };
+  }, []);
+
+  // Clearing the ref keeps this to one terminal call per visit, and keeps the
+  // unmount above from re-reporting a view that already completed.
+  const handleHistoryLoaded = useCallback(() => {
+    const flow = flowRef.current;
+    if (!flow) return;
+    flowRef.current = null;
+    flow.complete();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,6 +177,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             scrollParentRef={scrollParentRef}
             searchQuery={search}
             filter={filter}
+            onInitialLoad={handleHistoryLoaded}
           />
         </div>
       </div>

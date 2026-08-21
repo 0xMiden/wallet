@@ -17,6 +17,7 @@ import { isValidMidenAddress } from 'utils/miden';
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
+import { enterSendFlow, settleSendFlow } from './send-telemetry';
 
 // ---------------------------------------------------------------------------
 // Mutable per-test state read by the hook mocks. All prefixed with `mock` so
@@ -37,6 +38,15 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 const mockWalletStoreState = {
   setLastCompletedTxHash: jest.fn()
 };
+
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -206,6 +216,13 @@ jest.mock('./RecallCalendarDrawer', () => ({
 
 jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
+}));
+
+// The real `./send-telemetry` is kept: this page settling the flow the send form
+// began is the whole point of that module, so it must not be stubbed out.
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: (error: unknown) => classifyErrorMock(error)
 }));
 
 jest.mock('./useEpochQuote', () => ({
@@ -666,5 +683,175 @@ describe('ReviewTransaction — speculative proving cleanup', () => {
 
     unmount();
     expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `send` telemetry flow — this page owns the terminal call for a flow the send
+// form (a separate React tree) began.
+// ---------------------------------------------------------------------------
+describe('ReviewTransaction — send telemetry', () => {
+  /** Throwing accessor so a missing handle names how many flows were begun. */
+  const handleAt = (index: number): TelemetryHandle => {
+    const handle = telemetryHandles[index];
+    if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+    return handle;
+  };
+
+  /** Everything this suite handed to telemetry, for the privacy assertions. */
+  const telemetryPayload = () =>
+    JSON.stringify({
+      begun: beginFlowMock.mock.calls,
+      settled: telemetryHandles.map(handle => [
+        handle.complete.mock.calls,
+        handle.cancel.mock.calls,
+        handle.fail.mock.calls
+      ])
+    });
+
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    // The outer beforeEach resets every mock, implementations included.
+    beginFlowMock.mockImplementation((_flow: string) => {
+      const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+      telemetryHandles.push(handle);
+      return handle;
+    });
+    classifyErrorMock.mockImplementation((_error: unknown) => 'rpc');
+    // The handle is module-scoped by design; drop any a previous test left open.
+    settleSendFlow(flow => flow.cancel());
+    beginFlowMock.mockClear();
+    classifyErrorMock.mockClear();
+    telemetryHandles.length = 0;
+  });
+
+  it('completes the flow the send form began, without beginning a second one', async () => {
+    enterSendFlow();
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('begins a flow for a submit reached without one (deep link into review)', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a broad error kind when transaction creation fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setValidRoute();
+    initiateMock.mockRejectedValue(new Error('rpc error: node unreachable at mtst1recipient'));
+    enterSendFlow();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    // The caught error is classified, never forwarded.
+    expect(classifyErrorMock).toHaveBeenCalledWith(expect.any(Error));
+    expect(telemetryPayload()).not.toContain('node unreachable');
+    consoleSpy.mockRestore();
+  });
+
+  it('gives a retry after a failed submit its own flow', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setValidRoute();
+    initiateMock.mockRejectedValueOnce(new Error('rpc down')).mockResolvedValue('tx-retry');
+    enterSendFlow();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await clickSubmit();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(2);
+    expect(handleAt(0).fail).toHaveBeenCalledWith('rpc');
+    expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it('cancels an open flow when the user leaves review without submitting', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    unmount();
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a settled flow alone on unmount, so a completed send is never re-reported', async () => {
+    enterSendFlow();
+    setValidRoute();
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+
+    unmount();
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+  });
+
+  it('does not begin a flow for a review page that only ever redirects', async () => {
+    mockSearch = '';
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toBeInTheDocument();
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('never passes the recipient address or the amount to telemetry', async () => {
+    mockSearch = 'amount=4200&to=mtst1recipientaddress&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 10_000 }];
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
+    expect(telemetryPayload()).not.toContain('tok1');
+  });
+
+  it('never passes the recipient address or the amount to telemetry when the submit fails', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockSearch = 'amount=4200&to=mtst1recipientaddress&tokenId=tok1';
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 10_000 }];
+    initiateMock.mockRejectedValue(new Error('rpc down'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(handleAt(0).fail).toHaveBeenCalledTimes(1);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
+    expect(telemetryPayload()).not.toContain('tok1');
+    consoleSpy.mockRestore();
   });
 });

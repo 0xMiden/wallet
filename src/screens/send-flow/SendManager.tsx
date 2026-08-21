@@ -37,6 +37,7 @@ import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { enterSendFlow, settleSendFlow } from './send-telemetry';
 import {
   BridgeRoute,
   Contact,
@@ -222,6 +223,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       state.setLastCompletedTxHash(null);
     }
   }, [pathname]);
+
+  // Entering the send form begins the `send` flow. It deliberately outlives
+  // this component: the unmount that hands off to /send/review leaves a draft
+  // behind (same signal the speculation cleanup above uses), and the review page
+  // makes the terminal call. Any other unmount is the user leaving the flow, so
+  // it is recorded as cancelled rather than left as an unmatched `started`.
+  useEffect(() => {
+    enterSendFlow();
+    return () => {
+      if (hasSendDraft()) return;
+      settleSendFlow(flow => flow.cancel());
+    };
+  }, []);
 
   const {
     register,

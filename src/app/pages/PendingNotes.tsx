@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
+import { useReportNoteClaim } from 'app/hooks/useReportNoteClaim';
 import { PendingTab } from 'app/pages/Receive/PendingTab';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { isMobile } from 'lib/platform';
@@ -13,7 +14,11 @@ import { goBack, navigate } from 'lib/woozie';
 const PendingNotes: FC = () => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
-  const claim = useClaimNotes();
+  // This screen owns the `note_handle` flow. The reporter is handed to both
+  // claim paths — the batch queue inside the hook and the per-note buttons in
+  // PendingTab — so a claim is reported wherever the user starts it.
+  const reportClaim = useReportNoteClaim();
+  const claim = useClaimNotes(reportClaim);
 
   // Reached in-app there's a screen to return to, so pop history. But this page
   // can also be opened cold in a fresh tab (a received-note notification deep-
@@ -54,6 +59,7 @@ const PendingNotes: FC = () => {
         onClaimingStateChange={claim.handleClaimingStateChange}
         onClaimAll={claim.handleClaimAll}
         onClaimGroup={claim.handleClaimGroup}
+        reportClaim={reportClaim}
       />
     </div>
   );

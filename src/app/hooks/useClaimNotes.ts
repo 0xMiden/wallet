@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import { ReportClaim } from 'app/hooks/useReportNoteClaim';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
   getFailedTransactions,
@@ -42,8 +43,11 @@ export interface ClaimNotesState {
  * keeps failed notes visible until the user can act (#456).
  *
  * Extracted from Receive.tsx so any page can host the pending-notes UI.
+ *
+ * `reportClaim`, when the hosting page supplies one, wraps the queue attempt so
+ * the claim's outcome is reported. Optional: pages that don't report still claim.
  */
-export function useClaimNotes(): ClaimNotesState {
+export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
   const account = useAccount();
   const address = account.publicKey;
 
@@ -275,12 +279,12 @@ export function useClaimNotes(): ClaimNotesState {
           // is a single proof/submit instead of one per note. User tapped
           // Claim All — bypass the auto-consume backoff gate so failed notes
           // can be retried on demand.
-          batchTxId = await initiateConsumeNotesTransaction(
-            account.publicKey,
-            notesToClaim,
-            isDelegatedProvingEnabled,
-            true
-          );
+          // Reported around the consume call, not around the batch: the catch
+          // below absorbs a queue-time throw, so a wrapper any further out
+          // would see every failure as a success.
+          const queue = () =>
+            initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled, true);
+          batchTxId = reportClaim ? await reportClaim(queue) : await queue();
         } catch (err) {
           console.error('Error queuing notes for claim:', noteIds, err);
           // Record the failure in the memory-only set too: this queue-time throw
@@ -318,7 +322,8 @@ export function useClaimNotes(): ClaimNotesState {
       isDelegatedProvingEnabled,
       mutateClaimableNotes,
       claimingNoteIds,
-      individualClaimingIds
+      individualClaimingIds,
+      reportClaim
     ]
   );
 
