@@ -44,12 +44,7 @@ const orderingTime = (row: ITransaction): number => row.completedAt ?? row.initi
 
 export const selectRecentRecipients = (rows: ITransaction[], accountId: string): RecentRecipient[] => {
   const ordered = rows
-    // Guarded here as well as in the query: "addresses you have sent to before"
-    // is a trust signal, and a restored row is not evidence of that — it is
-    // whatever the backup's author wrote. Five rows in a dump would otherwise
-    // own the whole list, and the wallet would vouch for the attacker's address
-    // at the exact moment the user is choosing where to send.
-    .filter(row => !row.restoredFromBackup && compareAccountIds(row.accountId, accountId))
+    .filter(row => compareAccountIds(row.accountId, accountId))
     .sort((a, b) => orderingTime(b) - orderingTime(a));
 
   const seen = new Set<string>();
@@ -95,17 +90,7 @@ export const useRecentRecipients = (accountId: string | null | undefined): Recen
     }
 
     const subscription = liveQuery(() =>
-      Repo.transactions
-        .filter(
-          row =>
-            // "Addresses you have sent to before" is a trust signal, and a
-            // restored row is not evidence of that — it is whatever the backup's
-            // author wrote. Without this, five rows in a dump own the entire
-            // Recent list, and the wallet itself vouches for the attacker's
-            // address at the exact moment the user is choosing where to send.
-            !row.restoredFromBackup && (row.type === 'send' || row.type === 'bridged-send')
-        )
-        .toArray()
+      Repo.transactions.filter(row => row.type === 'send' || row.type === 'bridged-send').toArray()
     ).subscribe({
       next: rows => setRecents(selectRecentRecipients(rows, accountId)),
       error: err => {

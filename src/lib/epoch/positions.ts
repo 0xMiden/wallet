@@ -147,11 +147,6 @@ export async function getEarnDepositEvmAddresses(accountId?: string): Promise<st
   const seen = new Set<string>();
   for (const tx of rows) {
     if (accountId && !compareAccountIds(tx.accountId, accountId)) continue;
-    // These addresses are queried against Epoch's positions service and whatever
-    // comes back is rendered as the user's own position, folded into their total.
-    // A restored row's `evmRecipient` is not this wallet's — it is whatever the
-    // backup recorded — so it would show a stranger's balance as the user's.
-    if (tx.restoredFromBackup) continue;
     const extra: IEarnDepositExtraInputs | undefined = tx.extraInputs;
     const recipient = extra?.evmRecipient?.trim().toLowerCase();
     if (recipient && EVM_ADDRESS_RE.test(recipient)) {

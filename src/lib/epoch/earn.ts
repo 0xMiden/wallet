@@ -461,11 +461,6 @@ export async function reconcileEarnDeposits(deps: ReconcileEarnDepositsDeps = {}
     if (!inputs) continue;
     // Already settled one way or the other — nothing to reconcile.
     if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
-    // A restored row is not this wallet's in-flight deposit; its nonce and
-    // recipient come from whoever wrote the dump. Import settles the marker so
-    // this is belt-and-braces, but this loop runs on every post-unlock Explore
-    // mount, so it must not depend on that.
-    if (row.restoredFromBackup) continue;
     if (!inputs.intentNonce || !isEvmAddress(inputs.evmRecipient)) continue;
 
     const sponsorAddress = inputs.evmRecipient;

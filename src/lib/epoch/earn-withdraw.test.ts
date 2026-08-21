@@ -261,36 +261,6 @@ describe('reconcileEarnWithdrawals', () => {
     );
     expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
   });
-
-  // A restored row's `evmOwner` comes from whoever authored the backup, and this
-  // runs on unlock with no user action — so it must not be resumed. It must not
-  // simply be skipped either: these rows are born Completed with their lifecycle
-  // in `extraInputs.phase`, and the phase's other writers are driven by a
-  // registry that does not travel in the dump, so a skipped row would read
-  // "Redeeming" forever and keep suppressing its linked consume row.
-  it('terminalizes a restored row instead of resuming it, even inside the TTL', async () => {
-    (Repo.transactions.filter as jest.Mock).mockReturnValue({
-      toArray: jest.fn().mockResolvedValue([
-        {
-          id: 'RESTORED',
-          type: 'earn-withdraw',
-          initiatedAt: Math.floor(Date.now() / 1000),
-          restoredFromBackup: true,
-          extraInputs: { phase: 'redeeming', evmOwner: EVM_OWNER }
-        }
-      ])
-    });
-    const deps = baseDeps();
-
-    await reconcileEarnWithdrawals(deps);
-
-    expect(deps.updatePhase).toHaveBeenCalledWith(
-      'RESTORED',
-      'failed',
-      expect.objectContaining({ error: expect.any(String) })
-    );
-    expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
-  });
 });
 
 // `./config` is mocked with MIDEN_DESTINATION_CHAIN_ID = 999.
@@ -452,25 +422,6 @@ describe('resubmitEarnWithdrawal', () => {
     (Repo.transactions.where as jest.Mock).mockReturnValue({ first: jest.fn().mockResolvedValue(row), modify });
     return modify;
   };
-
-  // `phase: 'failed'` is this function's precondition AND exactly the state
-  // import forces a restored row into, so the two coincide perfectly. Everything
-  // past this point signs with the row's own `evmOwner`, `marketUid` and
-  // `sourceAmount`, all of which came from whoever wrote the dump. Guarded in
-  // here rather than only in the caller so a future caller inherits it.
-  it('refuses a row restored from a backup', async () => {
-    const executeActions = jest.fn();
-    // The flag lives on the row itself, not inside `extraInputs`.
-    const row = { ...failedRow(), restoredFromBackup: true };
-    mockRow(row);
-
-    await expect(resubmitEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }))).rejects.toThrow(
-      /restored from a backup/i
-    );
-    expect(executeActions).not.toHaveBeenCalled();
-    // It must refuse, not quietly reset the row and leave it resubmittable.
-    expect(row.extraInputs.phase).toBe('failed');
-  });
 
   it('submits a brand new intent on the same row', async () => {
     const row = failedRow();

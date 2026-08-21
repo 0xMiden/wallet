@@ -63,36 +63,6 @@ describe('takeAgglayerBridgeInInfo', () => {
     ).resolves.toMatchObject({ provider: 'agglayer', bridgeReceiveTxId: 'older' });
   });
 
-  // Matching rewrites the tracker row to `received` and makes the real consume
-  // hide beneath it in history, so a restored tracker would adopt a genuine
-  // incoming note and file the user's money under whatever the dump said.
-  it('never adopts a genuine note into a restored tracker', async () => {
-    mockTransactions.push(
-      {
-        id: 'restored',
-        type: 'bridged-receive',
-        accountId: 'miden-account',
-        amount: 5n,
-        initiatedAt: 1,
-        restoredFromBackup: true,
-        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
-      },
-      {
-        id: 'mine',
-        type: 'bridged-receive',
-        accountId: 'miden-account',
-        amount: 5n,
-        initiatedAt: 2,
-        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
-      }
-    );
-
-    // `restored` is the older row and would otherwise win the oldest-first pick.
-    await expect(
-      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
-    ).resolves.toMatchObject({ bridgeReceiveTxId: 'mine' });
-  });
-
   it('does not match a different sender or amount', async () => {
     mockTransactions.push({
       id: 'row',

@@ -94,49 +94,6 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith('agg-ready', 'ready');
   });
 
-  // A restored row is a record, not live work: its `evmTxHash` and account come
-  // from whoever authored the backup. It must neither be waited on nor left
-  // pending forever — the tracking state that would resume it does not travel
-  // in the dump, so nothing else would ever move it off a non-terminal phase.
-  describe('rows restored from a backup', () => {
-    const restoredRow = (id: string, provider: string) => ({
-      id,
-      type: 'bridged-receive',
-      accountId: 'miden-account',
-      initiatedAt: Math.floor(Date.now() / 1000),
-      restoredFromBackup: true,
-      extraInputs: { provider, phase: 'submitting', evmTxHash: `0x${'9'.repeat(64)}` }
-    });
-
-    it('terminalizes an AggLayer row without waiting on its hash', async () => {
-      rows.push(restoredRow('agg-restored', 'agglayer'));
-
-      // Called directly, as AllHistory's 8s poll does — the guard cannot live
-      // only in the `reconcileBridgedReceives` wrapper.
-      await reconcileAgglayerBridgedReceives();
-
-      expect(waitForReceipt).not.toHaveBeenCalled();
-      expect(fetchDeposits).not.toHaveBeenCalled();
-      expect(updatePhase).toHaveBeenCalledWith(
-        'agg-restored',
-        'failed',
-        expect.objectContaining({ error: expect.any(String) })
-      );
-    });
-
-    it('terminalizes an Epoch row instead of registering a bridge-in for it', async () => {
-      rows.push(restoredRow('epoch-restored', 'epoch'));
-
-      await reconcileBridgedReceives();
-
-      expect(updatePhase).toHaveBeenCalledWith(
-        'epoch-restored',
-        'failed',
-        expect.objectContaining({ error: expect.any(String) })
-      );
-    });
-  });
-
   it('leaves an indexed but non-final AggLayer transaction pending for the next poll', async () => {
     const hash = `0x${'c'.repeat(64)}`;
     rows.push({

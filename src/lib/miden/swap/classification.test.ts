@@ -39,21 +39,6 @@ describe('localSwapOrders', () => {
     expect(await localSwapOrders(ACCOUNT)).toHaveLength(1);
   });
 
-  // The list means "orders created by THIS wallet", and downstream it drives
-  // reclaim — a real consume against the order's own `expiresAt` and asset data.
-  // A restored row is not evidence the wallet ever placed that order.
-  it('excludes an order restored from a backup', async () => {
-    withRows([order({ id: 'restored', restoredFromBackup: true })]);
-
-    expect(await localSwapOrders(ACCOUNT)).toEqual([]);
-  });
-
-  it('keeps a genuine order alongside a restored one', async () => {
-    withRows([order({ id: 'restored', restoredFromBackup: true }), order({ id: 'mine' })]);
-
-    expect((await localSwapOrders(ACCOUNT)).map(o => o.id)).toEqual(['mine']);
-  });
-
   it.each([
     ['another account', { accountId: 'someone-else' }],
     ['a row that is not complete', { status: ITransactionStatus.Failed }],

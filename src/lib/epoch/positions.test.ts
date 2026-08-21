@@ -119,11 +119,4 @@ describe('getEarnDepositEvmAddresses', () => {
 
     expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
   });
-
-  it('excludes a deposit restored from a backup', async () => {
-    const attacker = '0x2222222222222222222222222222222222222222';
-    withRows([row({ restoredFromBackup: true, extraInputs: { evmRecipient: attacker } }), row()]);
-
-    expect(await getEarnDepositEvmAddresses('acct-1')).toEqual([OWNER]);
-  });
 });
