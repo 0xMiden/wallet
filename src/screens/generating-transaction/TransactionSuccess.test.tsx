@@ -194,7 +194,7 @@ describe('TransactionSuccess', () => {
 
   // This receipt REPLACES the in-progress summary badge on the same screen a
   // second later. Resolving its amount from the scalar `amount`/`faucetId` pair
-  // made the displayed total shrink at the moment of success — "20 AAA, 10
+  // made the displayed total shrink at the moment of success — "20 AAA,
   // Unknown" while claiming, then "20 AAA" once it landed.
   it('reports every faucet a batch claim swept up, matching the in-progress badge', async () => {
     mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 6 } };
@@ -214,11 +214,11 @@ describe('TransactionSuccess', () => {
       />
     );
 
-    // The `toContain` above is what actually bites: the two failure modes this
+    // The `toContain` below is what actually bites: the two failure modes this
     // guards against render "20 AAA, 10 MIDEN" (native fallback for a foreign
     // faucet) and "20 AAA" (secondary dropped), and neither of those contains
-    // the string a negative assertion here would look for.
-    expect(container.textContent).toContain('20 AAA, 10 Unknown');
+    // the string asserted here.
+    expect(container.textContent).toContain('20 AAA, Unknown');
     act(() => root.unmount());
   });
 

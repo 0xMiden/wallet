@@ -783,6 +783,60 @@ describe('HistoryView batch-claim extra assets', () => {
     expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
     expect(row).toHaveAttribute('data-amount-extra', '');
   });
+
+  // An extra whose faucet never resolved carries no amount: its decimals are
+  // unknown, and the unknown-token fallback's 6 would render an 18-decimal token
+  // 10^12 too large. The asset is still named — a claim that swept it up did
+  // happen — it just goes unquantified.
+  it('names an unquantified secondary asset without inventing a number', () => {
+    const row = renderClaim(undefined, {
+      extraAmounts: [
+        { faucetId: 'faucet-b', amount: undefined, token: 'Unknown' },
+        { faucetId: 'faucet-c', amount: '5', token: 'CCC' }
+      ]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '+20');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b: Unknown|faucet-c:+5 CCC');
+  });
+
+  // The headline is the row's one prominent number, so a quantified line wins
+  // the promotion even when an unquantified one precedes it.
+  it('promotes a quantified line over an unquantified one', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: undefined,
+      extraAmounts: [
+        { faucetId: 'faucet-b', amount: undefined, token: 'Unknown' },
+        { faucetId: 'faucet-c', amount: '5', token: 'CCC' }
+      ]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '+5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b: Unknown');
+  });
+
+  // Nothing to promote but the unquantified line itself. Rendering no amount at
+  // all would erase every asset the claim collected, so the row names the asset
+  // and shows no number.
+  it('renders a claim whose every asset is unquantified', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: undefined,
+      extraAmounts: [{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  // A token page scoped to the unresolvable faucet: same rule, one line.
+  it('shows the scoped faucet unquantified rather than at a guessed scale', () => {
+    const row = renderClaim('faucet-b', {
+      extraAmounts: [{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
 });
 
 describe('HistoryView infinite scroll wiring', () => {

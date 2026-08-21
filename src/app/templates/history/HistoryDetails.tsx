@@ -471,6 +471,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          // Without this the "Reclaim funds" button never renders for ANY user:
+          // it is gated on a non-null reclaim height, and this is the only entry
+          // that reaches `BridgeClaimSection`.
+          bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount,

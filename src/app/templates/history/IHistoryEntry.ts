@@ -14,7 +14,18 @@ import {
 export interface IHistoryExtraAmount {
   /** Source faucet — the only field guaranteed distinct between two entries. */
   faucetId: string;
-  amount: string;
+  /**
+   * Formatted display amount, or `undefined` when the faucet's decimals are not
+   * known yet.
+   *
+   * A batch claim's secondary faucets are exactly the ones the wallet has never
+   * held, so their metadata is often absent — and the unknown-token fallback
+   * carries a *guessed* 6 decimals. Scaling an 18-decimal token by that renders
+   * it 10^12 too large, which is indistinguishable from a correct number. When
+   * the scale is unknown the asset is named and its amount withheld until
+   * metadata resolves; a missing number is recoverable, a wrong one is not.
+   */
+  amount?: string;
   token: string;
 }
 

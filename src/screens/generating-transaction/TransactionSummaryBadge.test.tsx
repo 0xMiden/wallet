@@ -190,12 +190,15 @@ describe('useTransactionSummaryBadgeContent', () => {
 
     // Secondary faucet has no metadata (the wallet has never held it) → Unknown,
     // NOT MIDEN: naming a foreign token after the native one misstates the asset.
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, 10 Unknown');
-    // Each asset must be scaled by ITS OWN decimals. The rendered text cannot
-    // show this — formatting both at 6, or both at the fallback, produces the
-    // same string under the mock while being wrong by orders of magnitude.
+    // And it gets NO number: with no decimals there is no honest scale, and the
+    // unknown-token fallback's 6 would render an 18-decimal token 10^12 too large.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, Unknown');
+    // The resolved asset is still scaled by ITS OWN decimals. The rendered text
+    // cannot show this — formatting at the wrong scale produces the same string
+    // under the mock while being wrong by orders of magnitude.
     expect(mockFormatAmount).toHaveBeenCalledWith(20n, 2);
-    expect(mockFormatAmount).toHaveBeenCalledWith(10n, 6);
+    // The unresolved one is never formatted at all — the guessed scale is the bug.
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(10n, 6);
     act(() => root.unmount());
   });
 
@@ -213,8 +216,10 @@ describe('useTransactionSummaryBadgeContent', () => {
       assetTotals: [{ faucetId: 'faucet-native', amount: 4n }]
     });
 
+    // Before discovery this faucet is indistinguishable from a token the wallet
+    // has never held, so it is Unknown and — having no decimals — unquantified.
     const cold = await renderProbe(claim);
-    expect(cold.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 Unknown');
+    expect(cold.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
     act(() => cold.root.unmount());
 
     mockNativeAssetId = 'faucet-native';
@@ -238,7 +243,9 @@ describe('useTransactionSummaryBadgeContent', () => {
       })
     );
 
-    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN, 6 Unknown');
+    // MIDEN keeps its amount (its decimals are known); the unresolved faucet
+    // is named but not quantified.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN, Unknown');
     act(() => root.unmount());
   });
 

@@ -42,6 +42,11 @@ jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: jest.fn()
 }));
 
+// The real constant, not a copy: `resolveConsumeExtraAmounts` detects the
+// unresolved case by reference, because a stored metadata record that happens to
+// say "Unknown" is a different thing from never having looked the faucet up.
+const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_METADATA;
+
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
@@ -111,9 +116,16 @@ describe('resolveConsumeExtraAmounts', () => {
   });
 
   // Every entry on a history page resolves under one Promise.all, so a single
-  // unresolvable faucet must not take the whole page down with it.
-  it('falls back to unknown-token metadata instead of rejecting the page', async () => {
-    mockGetTokenMetadata.mockRejectedValue(new Error('faucet lookup failed'));
+  // unresolvable faucet must not take the whole page down with it — but it must
+  // not invent a number either. The unknown-token fallback's 6 decimals is a
+  // placeholder, and a batch claim's secondary faucets are precisely the ones the
+  // wallet has never held: scaling an 18-decimal token by 6 renders it 10^12 too
+  // large, and nothing on screen would distinguish that from a correct total.
+  it.each([
+    ['the lookup throws', () => mockGetTokenMetadata.mockRejectedValue(new Error('faucet lookup failed'))],
+    ['the lookup resolves to the unknown-token default', () => mockGetTokenMetadata.mockResolvedValue(UNKNOWN_METADATA)]
+  ])('names the asset but withholds the amount when %s', async (_label, arrange) => {
+    arrange();
 
     const resolved = await resolveConsumeExtraAmounts(
       consumeTx([
@@ -122,10 +134,22 @@ describe('resolveConsumeExtraAmounts', () => {
       ])
     );
 
-    // Asserting the fallback's contents, not just that it resolved: the row still
-    // has to render a labelled amount, so a fallback with no symbol or decimals
-    // would show a bare number under a blank token.
-    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: 'fmt(10,6)', token: 'Unknown' }]);
+    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]);
+  });
+
+  // The other half: a faucet the wallet DOES know is still scaled by its own
+  // decimals. Withholding here would hide a total the wallet can state exactly.
+  it('keeps the amount when the faucet resolves to real metadata', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'BBB', decimals: 18 } as any);
+
+    const resolved = await resolveConsumeExtraAmounts(
+      consumeTx([
+        { faucetId: 'faucet-a', amount: 20n },
+        { faucetId: 'faucet-b', amount: 10n }
+      ])
+    );
+
+    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: 'fmt(10,18)', token: 'BBB' }]);
   });
 });
 

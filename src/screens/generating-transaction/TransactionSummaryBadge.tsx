@@ -192,7 +192,12 @@ export const formatConsumeAssetParts = (
     const fallback =
       nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
     const symbol = tokenMetadata?.symbol ?? fallback.symbol;
-    return `${formatAmount(total.amount, tokenMetadata?.decimals ?? fallback.decimals)} ${symbol}`;
+    const decimals = tokenMetadata?.decimals ?? (fallback === MIDEN_METADATA ? fallback.decimals : undefined);
+    // No decimals means no honest way to scale this faucet's base units — the
+    // unknown-token fallback's 6 is a placeholder, not a fact, and using it
+    // renders an 18-decimal token 10^12 too large. Name the asset, withhold the
+    // quantity until metadata resolves.
+    return decimals === undefined ? symbol : `${formatAmount(total.amount, decimals)} ${symbol}`;
   });
 };
 

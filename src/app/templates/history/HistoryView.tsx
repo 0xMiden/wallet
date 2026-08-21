@@ -230,7 +230,12 @@ function buildRowProps(
     // page states a balance change that never touched A.
     const scopedExtra = tokenId ? entry.extraAmounts?.find(line => line.faucetId === tokenId) : undefined;
     if (scopedExtra) {
-      amount = { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
+      // No amount means the faucet's decimals are unknown, so there is no honest
+      // number to print — name the asset and leave the quantity out.
+      amount =
+        scopedExtra.amount === undefined
+          ? { value: '', symbol: scopedExtra.token, direction: amountDirection }
+          : { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
     } else {
       // A claim has no headline amount when its first note's value was unknown
       // (`ConsumeTransaction` leaves `amount` undefined there) — but the rest of
@@ -239,19 +244,28 @@ function buildRowProps(
       // extras on a headline that a legitimate batch may not have would hide
       // every asset the claim actually collected.
       const lines = tokenId ? [] : (entry.extraAmounts ?? []);
-      const [promoted, ...rest] = entry.amount === undefined ? lines : [];
+      // Prefer a line with a known scale for the headline — it is the row's one
+      // prominent number, so an asset whose decimals never resolved is a poor
+      // choice for it. It is still a valid choice when it is all the claim has:
+      // dropping the row's amount entirely would hide every asset collected.
+      const [promoted, ...rest] =
+        entry.amount === undefined
+          ? [...lines].sort((a, b) => Number(b.amount !== undefined) - Number(a.amount !== undefined))
+          : [];
       const headlineValue = promoted ? promoted.amount : entry.amount?.toString();
 
-      // Undefined only when there was neither a headline nor any resolved extra
-      // to promote — nothing to state, so the row renders without an amount.
-      if (headlineValue !== undefined) {
+      // A promoted line with no amount still names its asset, so the row is worth
+      // rendering; without either a headline or any extra there is nothing to state.
+      if (headlineValue !== undefined || promoted !== undefined) {
         const extra = (entry.amount === undefined ? rest : lines).map(line => ({
           key: line.faucetId,
-          value: `${sign}${line.amount}`,
+          value: line.amount === undefined ? '' : `${sign}${line.amount}`,
           symbol: line.token
         }));
         amount = {
-          value: `${sign}${headlineValue}`,
+          // Empty when the scale is unknown — the sign would otherwise render
+          // alone, as a bare "+" in front of the symbol.
+          value: headlineValue === undefined ? '' : `${sign}${headlineValue}`,
           symbol: promoted ? promoted.token : entry.token,
           direction: amountDirection,
           extra: extra.length > 0 ? extra : undefined

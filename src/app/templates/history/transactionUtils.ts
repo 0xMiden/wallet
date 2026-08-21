@@ -43,9 +43,13 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
         );
         return DEFAULT_TOKEN_METADATA;
       });
+      // Reference equality, not a symbol check: `getTokenMetadata` returns this
+      // exact constant when it has nothing stored, and its 6 decimals are a
+      // placeholder rather than a fact about this faucet.
+      const scaleKnown = metadata !== DEFAULT_TOKEN_METADATA;
       return {
         faucetId: total.faucetId,
-        amount: formatAmount(total.amount, metadata.decimals),
+        amount: scaleKnown ? formatAmount(total.amount, metadata.decimals) : undefined,
         token: metadata.symbol
       };
     })
