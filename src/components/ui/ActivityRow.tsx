@@ -25,11 +25,13 @@ export interface ActivityRowProps {
     symbol?: string;
     direction?: ActivityAmountDirection;
     /**
-     * Further asset lines rendered under the first one in the same colour —
-     * a batch claim of several tokens reads "+20 A" / "+10 B". Each `value`
-     * carries its own sign like the primary `value`.
+     * Further assets appended inline after the first, comma-separated and in the
+     * same colour — a batch claim of several tokens reads "+20 A, +10 B". Each
+     * `value` carries its own sign like the primary `value`. `key` must be stable
+     * and unique (the source faucet id): two faucets can format to the same
+     * amount and to the same symbol, since an unresolvable one reads "Unknown".
      */
-    extra?: { value: string; symbol?: string }[];
+    extra?: { key: string; value: string; symbol?: string }[];
   };
   status?: {
     label: string;
@@ -154,9 +156,11 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           >
             <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
-            {/* Every further asset of a batch claim follows inline: "+20 A, +10 B". */}
-            {amount.extra?.map(line => (
-              <span key={`${line.value}-${line.symbol ?? ''}`} data-testid={testId && `${testId}-amount-extra`}>
+            {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
+                The test id is indexed so each asset stays individually addressable —
+                a repeated one makes `getByTestId` ambiguous under strict mode. */}
+            {amount.extra?.map((line, index) => (
+              <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span className="text-heading-gray">, </span>
                 <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>

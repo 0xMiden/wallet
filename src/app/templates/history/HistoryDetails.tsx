@@ -974,11 +974,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // the two known modes are labelled; anything else is left off the card.
   const noteTypeLabel =
     entry?.noteType === 'private' ? t('private') : entry?.noteType === 'public' ? t('public') : undefined;
-  const hasNoteData =
-    entry?.noteId ||
-    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
-    consumedNoteIds.length > 0 ||
-    noteTypeLabel !== undefined;
+  // The note type alone does not open the card: a send carries one from the
+  // moment it is queued, and it has no note ids until it completes, so keying on
+  // it would put a "Created: 0" card on every pending and failed send.
+  const hasNoteData = Boolean(entry?.noteId) || (entry?.outputNoteIds?.length ?? 0) > 0 || consumedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   const approximateUsdAmount =
     entry?.amount !== undefined && entry.token

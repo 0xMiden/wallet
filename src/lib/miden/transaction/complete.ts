@@ -17,6 +17,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
+  IConsumedAssetTotal,
   IConsumeSwapSettleExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -118,14 +119,30 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  let amount = 0n;
+  // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
+  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
+  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // completed row recomputes it here against the executed transaction and stays
+  // consistent with `amount` below (which is this list's `faucetId` entry).
+  const assetTotals: IConsumedAssetTotal[] = [];
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
-      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
-        amount += noteAsset.amount();
+      const assetFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+      const existing = assetTotals.find(total => total.faucetId === assetFaucetId);
+      if (existing) {
+        existing.amount += noteAsset.amount();
+      } else {
+        assetTotals.push({ faucetId: assetFaucetId, amount: noteAsset.amount() });
       }
     }
   }
+  const amount = assetTotals.find(total => total.faucetId === faucetId)?.amount ?? 0n;
+
+  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // otherwise the details card would label a mixed claim by its first note alone.
+  const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
+  const firstNoteType = noteTypes[0];
+  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -133,7 +150,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     secondaryAccountId,
     faucetId,
     amount,
-    noteType: toNoteTypeString(note.metadata().noteType()),
+    assetTotals,
+    noteType: uniformNoteType,
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });

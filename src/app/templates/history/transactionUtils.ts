@@ -30,7 +30,11 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
   return Promise.all(
     secondary.map(async total => {
       const metadata = await getTokenMetadata(total.faucetId);
-      return { amount: formatAmount(total.amount, metadata.decimals), token: metadata.symbol };
+      return {
+        faucetId: total.faucetId,
+        amount: formatAmount(total.amount, metadata.decimals),
+        token: metadata.symbol
+      };
     })
   );
 };

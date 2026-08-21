@@ -223,8 +223,12 @@ function buildRowProps(
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    // A batch claim spanning several faucets lists each further asset on its own line.
-    const extra = entry.extraAmounts?.map(line => ({ value: `${sign}${line.amount}`, symbol: line.token }));
+    // A batch claim spanning several faucets appends each further asset inline.
+    const extra = entry.extraAmounts?.map(line => ({
+      key: line.faucetId,
+      value: `${sign}${line.amount}`,
+      symbol: line.token
+    }));
     amount = {
       value: `${sign}${entry.amount.toString()}`,
       symbol: entry.token,

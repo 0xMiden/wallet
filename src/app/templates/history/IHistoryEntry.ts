@@ -10,8 +10,10 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 
-/** A formatted secondary asset line on a batch-consume row. */
+/** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
+  /** Source faucet — the only field guaranteed distinct between two entries. */
+  faucetId: string;
   amount: string;
   token: string;
 }
@@ -44,8 +46,8 @@ export interface IHistoryEntry {
   amount?: string;
   /**
    * Consume only: formatted totals of every OTHER asset in a batch claim, after
-   * the primary `amount`/`token`. "10 A, 10 A, 10 B" → amount "20", token "A",
-   * extraAmounts [{ amount: "10", token: "B" }].
+   * the primary `amount`/`token`, rendered inline after it. "10 A, 10 A, 10 B" →
+   * amount "20", token "A", extraAmounts [{ amount: "10", token: "B" }].
    */
   extraAmounts?: IHistoryExtraAmount[];
   /** Swap only: formatted requested-side amount, shown on the row's right. */

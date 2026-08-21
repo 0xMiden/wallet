@@ -34,13 +34,13 @@ export type IBridgeProvider = 'epoch' | 'agglayer';
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
 
-/** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 /** One faucet's summed amount inside a batch consume. */
 export interface IConsumedAssetTotal {
   faucetId: string;
   amount: bigint;
 }
 
+/** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
   /** Connected EVM account that funded the bridge. */
@@ -426,6 +426,11 @@ export class ConsumeTransaction implements ITransaction {
    * Per-faucet totals for a batch claim, in first-seen order. `amount`/`faucetId`
    * above only cover the first note's faucet, so a mixed batch (10 A, 10 A, 10 B)
    * needs this to display "+20 A, +10 B". Absent on legacy rows.
+   *
+   * At queue time this is an estimate: a `ConsumableNote` carries only the first
+   * fungible asset of its note, so a note holding two assets contributes one.
+   * `completeConsumeTransaction` recomputes it from the executed transaction,
+   * where every asset of every note is visible.
    */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
