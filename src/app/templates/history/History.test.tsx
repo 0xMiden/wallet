@@ -888,6 +888,27 @@ describe('History batch-claim extra assets', () => {
     expect(mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-PCLAIM').extraAmounts).toEqual(extras);
   });
 
+  // `0n` is falsy, so a truthiness gate turns a real zero total into "no amount"
+  // — and `buildRowProps` then drops every secondary asset along with it.
+  it('keeps a zero primary total as an amount on both the completed and pending paths', async () => {
+    const zeroRow = { ...claimRow, amount: 0n };
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [zeroRow] : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      { ...zeroRow, id: 'PCLAIM', status: STATUS.Queued, initiatedAt: 100 }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    const completed = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-CLAIM');
+    const pending = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-PCLAIM');
+    expect(completed.amount).toBeDefined();
+    expect(completed.extraAmounts).toEqual(extras);
+    expect(pending.amount).toBeDefined();
+  });
+
   it('leaves extraAmounts unset for a single-asset row rather than an empty array', async () => {
     // An empty array is truthy, so the row would take the batch-claim rendering
     // path (and the search predicate would scan it) for every ordinary row.

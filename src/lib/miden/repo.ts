@@ -193,7 +193,7 @@ const isBigIntSource = (value: unknown): value is string | number | bigint =>
 const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, not pending work';
 
 /**
- * Land every imported row in a terminal state.
+ * Land every imported row in a terminal state, flagged as restored.
  *
  * A backup is a record of what HAPPENED. A row restored as `Queued` is not a
  * record, it is a work item: `safeGenerateTransactionsLoop` picks up any queued
@@ -205,17 +205,36 @@ const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, n
  *
  * `GeneratingTransaction` gets the same treatment: it is the other non-terminal
  * status, and the loop's in-progress check would stall on it forever.
+ *
+ * `Failed` alone is NOT enough. `isRequeueableTransaction` offers a one-tap
+ * Retry on any failed send/consume/swap/bridged-send/execute, and that requeue
+ * re-signs the row's original recipient and amount with no confirmation — so
+ * stopping at `Failed` would just move the unattended signature one tap away.
+ * `restoredFromBackup` is the durable marker that keeps the row inert; every
+ * row in the dump carries it, not only the ones neutralized here, so a restored
+ * *completed* row is also identifiable as unverified local data rather than
+ * something this wallet witnessed on chain.
+ *
+ * The terminal shape has to match `cancelTransaction`'s, because failing a row
+ * moves it onto the completed-history path: `getCompletedTransactions` includes
+ * failed rows, and that path reads `completedAt` as the row's timestamp with no
+ * fallback — a missing one becomes an invalid `Date` and throws while grouping
+ * history by day, taking down the whole activity list.
  */
 const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
+  const restored = { ...tx, restoredFromBackup: true };
   const status = Reflect.get(tx, 'status');
   if (status !== ITransactionStatus.Queued && status !== ITransactionStatus.GeneratingTransaction) {
-    return tx;
+    return restored;
   }
+  const initiatedAt = Reflect.get(tx, 'initiatedAt');
   return {
-    ...tx,
+    ...restored,
     status: ITransactionStatus.Failed,
     error: IMPORTED_UNFINISHED_REASON,
-    displayMessage: 'Not restored'
+    // `displayIcon`/`displayMessage` are re-derived for failed rows when history
+    // renders, so only the fields history reads straight off the row are set here.
+    completedAt: typeof initiatedAt === 'number' ? initiatedAt : Math.floor(Date.now() / 1000)
   };
 };
 

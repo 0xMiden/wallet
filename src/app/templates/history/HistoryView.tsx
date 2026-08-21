@@ -221,7 +221,7 @@ function buildRowProps(
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
   } else if (isSwap && entry.requestedAmount) {
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
-  } else if (entry.amount !== undefined) {
+  } else if (entry.amount !== undefined || entry.extraAmounts?.length) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     // A batch claim spanning several faucets appends each further asset inline —
     // but only on the unscoped list. On a token page the row is read as a
@@ -232,19 +232,31 @@ function buildRowProps(
     if (scopedExtra) {
       amount = { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
     } else {
-      const extra = tokenId
-        ? undefined
-        : entry.extraAmounts?.map(line => ({
-            key: line.faucetId,
-            value: `${sign}${line.amount}`,
-            symbol: line.token
-          }));
-      amount = {
-        value: `${sign}${entry.amount.toString()}`,
-        symbol: entry.token,
-        direction: amountDirection,
-        extra: extra && extra.length > 0 ? extra : undefined
-      };
+      // A claim has no headline amount when its first note's value was unknown
+      // (`ConsumeTransaction` leaves `amount` undefined there) — but the rest of
+      // the batch can still have resolved totals. Promote the first of those to
+      // the headline rather than dropping the whole row's amount: gating the
+      // extras on a headline that a legitimate batch may not have would hide
+      // every asset the claim actually collected.
+      const lines = tokenId ? [] : (entry.extraAmounts ?? []);
+      const [promoted, ...rest] = entry.amount === undefined ? lines : [];
+      const headlineValue = promoted ? promoted.amount : entry.amount?.toString();
+
+      // Undefined only when there was neither a headline nor any resolved extra
+      // to promote — nothing to state, so the row renders without an amount.
+      if (headlineValue !== undefined) {
+        const extra = (entry.amount === undefined ? rest : lines).map(line => ({
+          key: line.faucetId,
+          value: `${sign}${line.amount}`,
+          symbol: line.token
+        }));
+        amount = {
+          value: `${sign}${headlineValue}`,
+          symbol: promoted ? promoted.token : entry.token,
+          direction: amountDirection,
+          extra: extra.length > 0 ? extra : undefined
+        };
+      }
     }
   }
 

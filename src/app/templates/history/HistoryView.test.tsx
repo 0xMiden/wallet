@@ -759,6 +759,30 @@ describe('HistoryView batch-claim extra assets', () => {
     expect(row).toHaveAttribute('data-amount-value', '-20');
     expect(row).toHaveAttribute('data-amount-extra', 'faucet-b:-10 BBB|faucet-c:-5 CCC');
   });
+
+  // `ConsumeTransaction` leaves `amount` undefined when the FIRST note's value is
+  // unknown, and a zero total is a real total. Gating the extras on a headline
+  // the batch may legitimately lack would blank every asset the claim collected.
+  it('promotes the first secondary asset when the claim has no headline amount', () => {
+    const row = renderClaim(undefined, { amount: undefined, token: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '+10');
+    expect(row).toHaveAttribute('data-amount-symbol', 'BBB');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-c:+5 CCC');
+  });
+
+  it('keeps a zero primary total and its extras', () => {
+    const row = renderClaim(undefined, { amount: '0' });
+    expect(row).toHaveAttribute('data-amount-value', '+0');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b:+10 BBB|faucet-c:+5 CCC');
+  });
+
+  it('still scopes correctly when there is no headline amount', () => {
+    const row = renderClaim('faucet-c', { amount: undefined, token: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '+5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
 });
 
 describe('HistoryView infinite scroll wiring', () => {

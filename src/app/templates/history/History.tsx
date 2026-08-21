@@ -236,7 +236,10 @@ async function fetchTransactionsAsHistoryEntries(
         ? earnWithdrawFields.amount
         : swapFields
           ? swapFields.amount
-          : tx.amount
+          : // `!== undefined`, not truthiness: `0n` is a real total. A claim whose
+            // primary faucet sums to zero would otherwise render no amount at all,
+            // and take every secondary asset down with it (see `buildRowProps`).
+            tx.amount !== undefined
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
       token: earnWithdrawFields
@@ -315,7 +318,12 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
       status: tx.status,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
+      amount: swapFields
+        ? swapFields.amount
+        : // See the completed-history fetcher above: `0n` is a real total.
+          tx.amount !== undefined
+          ? formatAmount(tx.amount, tokenMetadata?.decimals)
+          : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,

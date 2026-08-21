@@ -1,5 +1,6 @@
 import { ITransactionStatus } from './db/types';
 import { exportDb, importDb, transactions, Table } from './repo';
+import { isRequeueableTransaction } from './transaction/retry';
 
 describe('miden repo export/import', () => {
   beforeEach(async () => {
@@ -216,6 +217,13 @@ describe('miden repo export/import', () => {
 
     const [restored] = await transactions.toArray();
     expect(restored!.status).toBe(ITransactionStatus.Failed);
+    // Failed alone is not inert: `isRequeueableTransaction` offers a one-tap
+    // Retry on a failed send, which re-signs it. The flag is what blocks that.
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+    // Failing a row moves it onto the completed-history path, which reads
+    // `completedAt` as the timestamp and builds a Date from it with no fallback.
+    expect(restored!.completedAt).toBe(1);
     // The row survives as a record -- only its ability to execute is removed.
     expect(restored!.id).toBe('injected');
     expect(restored!.amount).toBe(BigInt(999999));
@@ -232,8 +240,13 @@ describe('miden repo export/import', () => {
     await importDb(dump);
 
     // Keyed by id, not position: `toArray` returns index order, not insertion order.
-    const restored = new Map((await transactions.toArray()).map(tx => [tx.id, tx.status]));
-    expect(restored.get('done')).toBe(ITransactionStatus.Completed);
-    expect(restored.get('bad')).toBe(ITransactionStatus.Failed);
+    const restored = new Map((await transactions.toArray()).map(tx => [tx.id, tx]));
+    expect(restored.get('done')!.status).toBe(ITransactionStatus.Completed);
+    expect(restored.get('bad')!.status).toBe(ITransactionStatus.Failed);
+    // Terminal rows keep their status, but every imported row is still marked --
+    // an imported "completed" row is unverified local data, not a chain fact,
+    // and a genuinely failed one must not become retryable just by being in a dump.
+    expect(restored.get('done')!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
 });
