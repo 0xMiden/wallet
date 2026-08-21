@@ -418,6 +418,95 @@ describe('ExportFileComplete', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  // Dismissing the share sheet rejects exactly like a real failure does
+  // (SharePlugin rejects with "Share canceled" on both platforms), but the file
+  // encrypted and wrote fine — only delivery was declined. Reporting that as
+  // "nothing was saved" is false, and making the user redo the file password to
+  // reach a sheet they can reopen for free is gratuitous.
+  describe('share sheet dismissal', () => {
+    const cancelShare = () => {
+      mockIsMobile.mockReturnValue(true);
+      mockShare.mockRejectedValueOnce(new Error('Share canceled'));
+      return jest.spyOn(console, 'error').mockImplementation(() => {});
+    };
+
+    it('offers to reopen the sheet instead of claiming the export failed', async () => {
+      const consoleErrorSpy = cancelShare();
+
+      renderComponent();
+
+      await screen.findByText('encryptedWalletFileNotSavedTitle');
+      expect(screen.queryByText('encryptedWalletFileExportFailedTitle')).not.toBeInTheDocument();
+      expect(screen.queryByText('encryptedWalletFileExportedTitle1')).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('re-shares the file already on disk without re-running the export', async () => {
+      const consoleErrorSpy = cancelShare();
+
+      renderComponent();
+      await screen.findByText('encryptedWalletFileNotSavedTitle');
+
+      const exportsBefore = mockExportDb.mock.calls.length;
+      const writesBefore = mockWriteFile.mock.calls.length;
+      mockShare.mockResolvedValueOnce(undefined);
+      fireEvent.click(screen.getByText('encryptedWalletFileSaveAgain'));
+
+      await screen.findByText('encryptedWalletFileExportedTitle1');
+      // The mnemonic reveal, key derivation and encryption all succeeded — the
+      // retry must not repeat them, only reopen the sheet for the same file.
+      expect(mockExportDb.mock.calls.length).toBe(exportsBefore);
+      expect(mockWriteFile.mock.calls.length).toBe(writesBefore);
+      expect(mockShare).toHaveBeenLastCalledWith(expect.objectContaining({ url: 'file:///cache/my-wallet.json' }));
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('stays recoverable when the reopened sheet is dismissed again', async () => {
+      const consoleErrorSpy = cancelShare();
+
+      renderComponent();
+      await screen.findByText('encryptedWalletFileNotSavedTitle');
+
+      mockShare.mockRejectedValueOnce(new Error('Share canceled'));
+      fireEvent.click(screen.getByText('encryptedWalletFileSaveAgain'));
+
+      expect(await screen.findByText('encryptedWalletFileSaveAgain')).toBeInTheDocument();
+      expect(screen.queryByText('encryptedWalletFileExportFailedTitle')).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('treats a genuine share failure as a failure, not a dismissal', async () => {
+      mockIsMobile.mockReturnValue(true);
+      mockShare.mockRejectedValueOnce(new Error('no activity found to handle intent'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      renderComponent();
+
+      await screen.findByText('encryptedWalletFileExportFailedTitle');
+      expect(screen.queryByText('encryptedWalletFileNotSavedTitle')).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('treats a write failure as a failure even if it mentions cancellation', async () => {
+      // The file never reached disk, so there is nothing to re-share — the
+      // recoverable path must be gated on the write having actually landed.
+      mockIsMobile.mockReturnValue(true);
+      mockWriteFile.mockRejectedValueOnce(new Error('operation cancelled'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      renderComponent();
+
+      await screen.findByText('encryptedWalletFileExportFailedTitle');
+      expect(screen.queryByText('encryptedWalletFileNotSavedTitle')).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Branch: undefined walletPassword is forwarded verbatim to revealMnemonic
   // -------------------------------------------------------------------------

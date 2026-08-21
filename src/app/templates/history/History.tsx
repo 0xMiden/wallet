@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo, useState } from 'react';
+import React, { memo, RefObject, useEffect, useMemo, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
@@ -54,6 +54,16 @@ const History = memo<HistoryProps>(
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
+
+    // `restEntries` is keyed to the scope; these two are not, so without this
+    // they outlive it. A failed page sets `hasMore` false to stop the retry spin
+    // — correct for the scope that failed, but the flag would then follow the
+    // user to every other account and token page in this mount and silently
+    // disable their pagination too.
+    useEffect(() => {
+      setHasMore(true);
+      setIsLoading(false);
+    }, [safeStateKey]);
 
     const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],

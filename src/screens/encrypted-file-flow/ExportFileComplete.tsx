@@ -24,6 +24,26 @@ export interface ExportFileCompleteProps {
 
 const EXTENSION = '.json';
 
+/**
+ * The user dismissed the share sheet. The encrypted file exists at `uri`; only
+ * delivery was declined, so this is recoverable by re-opening the sheet rather
+ * than re-running the whole export.
+ */
+class ShareCancelledError extends Error {
+  constructor(readonly uri: string) {
+    super('Share cancelled');
+    this.name = 'ShareCancelledError';
+  }
+}
+
+/**
+ * Capacitor reports a dismissed sheet as a plain rejection with this message on
+ * both platforms — there is no code or typed error to key off, so the message is
+ * the only available signal. Matched loosely (the platforms spell it "canceled")
+ * and deliberately fail-safe: an unrecognised error stays a hard failure.
+ */
+const isShareCancellation = (error: unknown): boolean => error instanceof Error && /cancell?ed/i.test(error.message);
+
 const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
   const { revealMnemonic, accounts } = useMidenContext();
@@ -75,6 +95,9 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     const fullFileName = `${fileName}${EXTENSION}`;
 
     if (isMobile()) {
+      // Set once the encrypted file is on disk, so the cancel path below can
+      // distinguish "never written" from "written but not delivered".
+      let writtenUri: string | undefined;
       // On mobile, write to cache directory and share
       try {
         const result = await Filesystem.writeFile({
@@ -83,6 +106,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           directory: Directory.Cache,
           encoding: Encoding.UTF8
         });
+        writtenUri = result.uri;
 
         await Share.share({
           title: fullFileName,
@@ -93,8 +117,15 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         // Rethrow: on mobile the share sheet IS the delivery — the cache file is
         // not reachable by the user — so swallowing this reports a backup that
         // does not exist anywhere they can find it.
+        //
+        // Dismissing the sheet rejects too ("Share canceled" — SharePlugin.swift
+        // on `completed == false`, SharePlugin.java on RESULT_CANCELED), and that
+        // is NOT the same event: the file encrypted and wrote fine, the user just
+        // declined this destination. Distinguish it so the screen can offer the
+        // sheet again instead of claiming nothing was saved and making them redo
+        // the password.
         console.error('Failed to export file on mobile:', error);
-        throw error;
+        throw writtenUri !== undefined && isShareCancellation(error) ? new ShareCancelledError(writtenUri) : error;
       }
     } else {
       // On desktop, use standard download approach
@@ -117,7 +148,10 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   // actually land. Rendering it on mount — as this screen used to — tells the
   // user a backup exists while the export is still running, and keeps telling
   // them so if it then fails: the one thing a backup flow must never do.
-  const [exportState, setExportState] = useState<'pending' | 'success' | 'error'>('pending');
+  const [exportState, setExportState] = useState<'pending' | 'success' | 'error' | 'cancelled'>('pending');
+  // Set only on the cancelled path, where the encrypted file is already written
+  // and re-sharing it costs nothing beyond re-opening the sheet.
+  const sharedFileUriRef = useRef<string | undefined>(undefined);
 
   // Exactly once per mount. `getExportFile` is a `useCallback` over values that
   // include `exportableAccounts` — a `useMemo` over the context's `accounts` —
@@ -150,10 +184,34 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       },
       (error: unknown) => {
         console.error('Failed to export encrypted wallet file:', error);
-        if (mountedRef.current) setExportState('error');
+        if (!mountedRef.current) return;
+        if (error instanceof ShareCancelledError) {
+          sharedFileUriRef.current = error.uri;
+          setExportState('cancelled');
+          return;
+        }
+        setExportState('error');
       }
     );
   }, [getExportFile]);
+
+  // Re-opens the sheet for the file already on disk. Deliberately does NOT
+  // re-run `getExportFile`: the mnemonic reveal, key derivation and encryption
+  // all succeeded, and repeating them would make the user re-enter nothing while
+  // doing every expensive and sensitive step a second time.
+  const handleShareAgain = useCallback(async () => {
+    const uri = sharedFileUriRef.current;
+    if (uri === undefined) return;
+    setExportState('pending');
+    try {
+      await Share.share({ title: `${fileName}${EXTENSION}`, url: uri, dialogTitle: t('saveEncryptedWalletFile') });
+      if (mountedRef.current) setExportState('success');
+    } catch (error) {
+      console.error('Failed to re-share encrypted wallet file:', error);
+      if (!mountedRef.current) return;
+      setExportState(isShareCancellation(error) ? 'cancelled' : 'error');
+    }
+  }, [fileName, t]);
 
   if (exportState === 'pending') {
     return (
@@ -165,6 +223,43 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         >
           <ActivitySpinner />
           <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not a failure: the file encrypted and wrote fine, the user just declined the
+  // destination. Saying "nothing was saved" here would be false, and sending them
+  // back through the flow would make them re-enter the file password to redo work
+  // that already succeeded.
+  if (exportState === 'cancelled') {
+    return (
+      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
+        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
+          <div className="w-49 aspect-square flex items-center justify-center">
+            {/* Self-coloured brand glyph — no `fill`/`text-*` needed, unlike `Close`. */}
+            <Icon name={IconName.Share} size="4xl" />
+          </div>
+          <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+            <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
+              {t('encryptedWalletFileNotSavedTitle')}
+            </h1>
+            <p className="pt-6 text-base leading-[130%]">{t('encryptedWalletFileNotSavedDesc')}</p>
+          </div>
+        </div>
+        <div className="w-full pt-8 pb-4 flex flex-col gap-y-3">
+          <Button
+            className="w-full justify-center"
+            title={t('encryptedWalletFileSaveAgain')}
+            variant={ButtonVariant.Primary}
+            onClick={handleShareAgain}
+          />
+          <Button
+            className="w-full justify-center"
+            title={t('done')}
+            variant={ButtonVariant.Secondary}
+            onClick={onDone}
+          />
         </div>
       </div>
     );
