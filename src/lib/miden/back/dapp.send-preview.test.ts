@@ -301,7 +301,9 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
       sourcePublicKey: 'miden-account-1',
       transaction: {
         payload: {
-          address: 'mtst1sender',
+          // Must be the session's own account: the custom path is bound to it,
+          // so a foreign address never reaches a sheet to inspect.
+          address: 'miden-account-1',
           transactionRequest: 'tx',
           recipientAddress: 'mtst1recipient',
           inputNoteIds: [],

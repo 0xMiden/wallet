@@ -141,6 +141,56 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
   return u8ToB64(publicKeyCommitments[0]!.serialize());
 }
 
+/**
+ * The 32 bytes a signer-commitment string denotes, whatever form it arrived in,
+ * as lowercase hex — or undefined if it denotes none.
+ *
+ * Both forms are in circulation for the same commitment, and a comparison that
+ * knew only one would be worse than none: it would refuse legitimate signing
+ * while looking like a working check. `connect` hands the page b64 of
+ * `Word.serialize()`; the vault stores its key blobs under `Word.toHex()` with
+ * the `0x` dropped, which is the form `signData` looks up by. Those two encode
+ * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
+ * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
+ * them comparable rather than merely similar.
+ */
+function commitmentToHex(value: string): string | undefined {
+  const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
+  if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
+    return unprefixed.toLowerCase();
+  }
+  try {
+    const bytes = b64ToU8(value);
+    if (bytes.length !== 32) return undefined;
+    return Buffer.from(bytes).toString('hex');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True when `suppliedPublicKey` names a signing key that `accountId` actually
+ * authenticates with.
+ *
+ * `signData`'s default path loads whatever secret sits at
+ * `accAuthSecretKeyStrgKey(publicKey)` and signs with it. The vault is keyed by
+ * commitment alone, with no back-reference to an account, so that lookup will
+ * happily return a DIFFERENT account's key — every account in the wallet is
+ * reachable from that one string. Nothing else on the path narrows it: the
+ * session is resolved from the separate `sourceAccountId`, which an attacking
+ * page fills in with its own connected account so the permission check passes.
+ * So the key has to be checked against the account here, or not at all.
+ */
+async function publicKeyBelongsToAccount(accountId: string, suppliedPublicKey: string): Promise<boolean> {
+  const supplied = commitmentToHex(suppliedPublicKey);
+  if (supplied === undefined) return false;
+  const account = await midenClientProxy.getAccount(accountId);
+  if (!account) return false;
+  return resolvePublicKeyCommitments(account).some(
+    commitment => commitmentToHex(Buffer.from(commitment.serialize()).toString('hex')) === supplied
+  );
+}
+
 // Lazy-loaded browser polyfill (only in extension context)
 type Browser = import('webextension-polyfill').Browser;
 let browserInstance: Browser | null = null;
@@ -448,6 +498,20 @@ const generatePromisifySign = async (
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppSignConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
+          // The key is authorized HERE, after approval, rather than at the top
+          // of `requestSign`: resolving it reads the local client, and the
+          // wallet is only reliably unlocked from this point. Checking earlier
+          // would refuse legitimate requests that arrive while locked, which is
+          // worse than approving and then declining.
+          const authorized = await withUnlocked(() =>
+            withWasmClientLock(() => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey))
+          ).catch(() => false);
+          if (!authorized) {
+            reject(new Error(MidenDAppErrorType.NotGranted));
+            return {
+              type: MidenMessageType.DAppSignConfirmationResponse
+            };
+          }
           try {
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(
@@ -1077,6 +1141,31 @@ const generatePromisifyTransaction = async (
       { ...req, transaction: req.transaction.payload } as unknown as MidenDAppConsumeRequest,
       sessionId
     );
+  }
+
+  // Authorization for the custom path, and it belongs here — above the preview,
+  // the simulate handler and both confirm branches — because every one of those
+  // reads the same `payload.address` and there is no later point all of them
+  // pass through.
+  //
+  // A session authorizes exactly one account, but the account this executes
+  // against is `payload.address`, taken from the request. `requestCustomTransaction`
+  // stores it verbatim as the row's `accountId` and the transaction loop signs
+  // for whatever it finds there, so without this a page connected to A names B
+  // and spends from B. This is the broadest of the dApp entrypoints — the
+  // request is an opaque base64 `TransactionRequest`, so it can do anything the
+  // account can, and the approval sheet renders that blob's own description
+  // without naming the account being debited. Nothing on screen gives it away.
+  const customAddress = (req.transaction.payload as MidenCustomTransaction | undefined)?.address;
+  if (typeof customAddress !== 'string' || customAddress === '') {
+    // Before the comparison, which would otherwise hand the page a raw
+    // TypeError instead of the documented error.
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
+    return;
+  }
+  if (!sameWalletAccountId(customAddress, dApp.accountId)) {
+    reject(new Error(MidenDAppErrorType.NotGranted));
+    return;
   }
 
   const id = nanoid();

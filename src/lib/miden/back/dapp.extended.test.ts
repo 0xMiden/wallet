@@ -495,6 +495,50 @@ describe('requestTransaction', () => {
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
+
+  /**
+   * Same hole, one branch over, and the widest one: the custom payload is an
+   * opaque base64 `TransactionRequest`, so it can do anything the named account
+   * can. `requestCustomTransaction` stores `payload.address` verbatim as the
+   * row's `accountId` and the loop signs for whatever it finds there. The sheet
+   * renders the request blob's own description and never names the account being
+   * debited, so approval is not consent to this.
+   */
+  it('refuses a custom transaction against an account the session never authorized', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'custom',
+          payload: { address: 'miden-account-2', transactionRequest: 'req', recipientAddress: 'attacker' }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bare/legacy custom payload naming a foreign account too', async () => {
+    // No `type`, which is the path a legacy caller takes into the same flow.
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { payload: { address: 'miden-account-2', transactionRequest: 'req' } }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a custom payload with no address as InvalidParams, not a TypeError', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { payload: { transactionRequest: 'req' } }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
 });
 
 // ── requestSendTransaction ─────────────────────────────────────────
