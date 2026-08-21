@@ -87,6 +87,10 @@ export async function reconcileBridgedReceives(): Promise<void> {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   for (const row of rows) {
+    // See `reconcileEarnWithdrawals`: a restored row is a record, not live work.
+    // Resuming registers a pending bridge-in for the dump's `sourceAddress` and
+    // drives the wallet's incoming-funds UI off it, with no user action.
+    if (row.restoredFromBackup) continue;
     const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
     if (inputs.phase === 'ready' || inputs.phase === 'received' || inputs.phase === 'failed') continue;
     if (row.initiatedAt < cutoffSec) {

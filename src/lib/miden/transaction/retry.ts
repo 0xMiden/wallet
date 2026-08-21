@@ -154,6 +154,14 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  // Same rule as `isRequeueableTransaction`, and it matters more here: resubmit
+  // signs EVM operations with the vault key using this row's own `evmOwner`,
+  // `marketUid` and `sourceAmount`. An earn-withdraw row is born `Completed`
+  // with its lifecycle in `extraInputs.phase`, so import leaves its status
+  // untouched — the flag is the only thing marking it as not-ours.
+  if (tx.restoredFromBackup) {
+    throw new Error(`Transaction ${txId} was restored from a backup and cannot be resubmitted`);
+  }
   const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
   if (inputs.phase !== 'failed') return;
 

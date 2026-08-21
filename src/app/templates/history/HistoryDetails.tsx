@@ -1046,12 +1046,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // user re-initiates those from Settings / the Earn flow), or a failed Smart
   // Withdraw, which is fully resubmittable as a brand-new Epoch intent whether or
   // not the previous one ever reached the allocator.
+  // A row restored from a backup is never retryable, whatever its type: the
+  // requeue re-signs the row's own recipient and amount, and for an imported row
+  // those came from whoever supplied the file. The backend refuses it either way
+  // — this is what keeps the UI from offering a button that only ever errors.
   const canRetry =
     entry !== null &&
     !entry.isCancelled &&
+    !transaction?.restoredFromBackup &&
     (entry.txType === 'earn-withdraw'
       ? earnWithdraw?.phase === 'failed'
-      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
+      : isRequeueableTransaction({
+          status: entry.status,
+          type: entry.txType,
+          restoredFromBackup: transaction?.restoredFromBackup
+        }));
 
   return (
     <PageLayout hideToolbar>

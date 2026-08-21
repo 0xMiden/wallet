@@ -229,6 +229,50 @@ describe('miden repo export/import', () => {
     expect(restored!.amount).toBe(BigInt(999999));
   });
 
+  // The flag is stamped by a literal AFTER the spread. Reversing those two
+  // clauses hands the attacker control of the gate, and every other test here
+  // passes either way because none of their dumps mention the field.
+  it('ignores a restoredFromBackup the dump tries to supply', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'liar',
+          type: 'send',
+          status: ITransactionStatus.Failed,
+          restoredFromBackup: false,
+          accountId: 'victim',
+          initiatedAt: 1
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+  });
+
+  // The status test is an allow-list of the terminal values, so a dump is free
+  // to carry a status no consumer recognises. Such a row is invisible in every
+  // history view (all of them compare with `===`) while still holding its id.
+  it.each([
+    ['out of range', 99],
+    ['a string', '0'],
+    ['absent', undefined]
+  ])('treats a status that is %s as unfinished', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [{ id: 'odd', type: 'send', status, accountId: 'a', initiatedAt: 7 }]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    expect(restored!.completedAt).toBe(7);
+    expect(restored!.restoredFromBackup).toBe(true);
+  });
+
   it('leaves terminal rows untouched on import', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [

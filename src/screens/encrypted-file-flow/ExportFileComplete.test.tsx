@@ -450,15 +450,22 @@ describe('ExportFileComplete', () => {
 
       const exportsBefore = mockExportDb.mock.calls.length;
       const writesBefore = mockWriteFile.mock.calls.length;
+      const sharesBefore = mockShare.mock.calls.length;
       mockShare.mockResolvedValueOnce(undefined);
       fireEvent.click(screen.getByText('encryptedWalletFileSaveAgain'));
 
       await screen.findByText('encryptedWalletFileExportedTitle1');
+      // A NEW share call, not merely the earlier one still sitting in the mock:
+      // asserting only `toHaveBeenLastCalledWith` also passes when the button
+      // opens no sheet at all and just flips the screen to success.
+      expect(mockShare.mock.calls.length).toBe(sharesBefore + 1);
+      expect(mockShare.mock.calls[sharesBefore]![0]).toEqual(
+        expect.objectContaining({ url: 'file:///cache/my-wallet.json' })
+      );
       // The mnemonic reveal, key derivation and encryption all succeeded — the
       // retry must not repeat them, only reopen the sheet for the same file.
       expect(mockExportDb.mock.calls.length).toBe(exportsBefore);
       expect(mockWriteFile.mock.calls.length).toBe(writesBefore);
-      expect(mockShare).toHaveBeenLastCalledWith(expect.objectContaining({ url: 'file:///cache/my-wallet.json' }));
 
       consoleErrorSpy.mockRestore();
     });
@@ -469,11 +476,30 @@ describe('ExportFileComplete', () => {
       renderComponent();
       await screen.findByText('encryptedWalletFileNotSavedTitle');
 
+      const sharesBefore = mockShare.mock.calls.length;
       mockShare.mockRejectedValueOnce(new Error('Share canceled'));
       fireEvent.click(screen.getByText('encryptedWalletFileSaveAgain'));
 
+      // Staying put is also what a no-op button does, so pin that the sheet
+      // actually reopened before checking where we ended up.
+      await waitFor(() => expect(mockShare.mock.calls.length).toBe(sharesBefore + 1));
       expect(await screen.findByText('encryptedWalletFileSaveAgain')).toBeInTheDocument();
       expect(screen.queryByText('encryptedWalletFileExportFailedTitle')).not.toBeInTheDocument();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('falls to the failure screen when the reopened sheet fails for real', async () => {
+      const consoleErrorSpy = cancelShare();
+
+      renderComponent();
+      await screen.findByText('encryptedWalletFileNotSavedTitle');
+
+      mockShare.mockRejectedValueOnce(new Error('no activity found to handle intent'));
+      fireEvent.click(screen.getByText('encryptedWalletFileSaveAgain'));
+
+      await screen.findByText('encryptedWalletFileExportFailedTitle');
+      expect(screen.queryByText('encryptedWalletFileNotSavedTitle')).not.toBeInTheDocument();
 
       consoleErrorSpy.mockRestore();
     });

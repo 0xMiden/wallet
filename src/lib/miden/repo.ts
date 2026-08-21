@@ -222,9 +222,16 @@ const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, n
  * history by day, taking down the whole activity list.
  */
 const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
+  // Spread FIRST, literal second: reversing these two would let a dump supply
+  // its own `restoredFromBackup: false` and disable the whole gate.
   const restored = { ...tx, restoredFromBackup: true };
   const status = Reflect.get(tx, 'status');
-  if (status !== ITransactionStatus.Queued && status !== ITransactionStatus.GeneratingTransaction) {
+  // An allow-list of the terminal statuses, not a deny-list of the running ones.
+  // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
+  // all; every consumer compares with `===`, so such a row is invisible in every
+  // history view while still occupying its id — and a deny-list would wave it
+  // through unstamped. Anything not recognisably terminal is treated as unfinished.
+  if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
     return restored;
   }
   const initiatedAt = Reflect.get(tx, 'initiatedAt');

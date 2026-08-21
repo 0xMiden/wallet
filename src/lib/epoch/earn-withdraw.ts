@@ -434,6 +434,11 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
   for (const row of rows) {
     if (row.type !== 'earn-withdraw') continue;
+    // A restored row is a record of someone else's withdrawal, not live work of
+    // ours. Resuming would register bridge-ins and poll for delivery against the
+    // `evmOwner` in the dump — attacker-chosen, and reached with no user action
+    // at all, since reconcile runs once per session on unlock.
+    if (row.restoredFromBackup) continue;
     const ei: IEarnWithdrawExtraInputs = row.extraInputs;
     if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei.phase)) continue;
     if (row.initiatedAt < cutoffSec) {
