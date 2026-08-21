@@ -42,9 +42,9 @@ jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: jest.fn()
 }));
 
-// The real constant, not a copy: `resolveConsumeExtraAmounts` detects the
-// unresolved case by reference, because a stored metadata record that happens to
-// say "Unknown" is a different thing from never having looked the faucet up.
+// The real constant, not a copy. It carries `scaleIsUnknown`, which is how
+// `resolveConsumeExtraAmounts` tells "never looked this faucet up" apart from a
+// stored record that genuinely says "Unknown" with real decimals.
 const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_METADATA;
 
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup

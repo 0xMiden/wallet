@@ -38,6 +38,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -432,7 +433,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           transactionIcon: tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : tx.amount
+            : // The swap registry carries its own decimals, so a registry hit is
+              // always scalable. Otherwise the faucet must have resolved to real
+              // metadata — the unknown-token placeholder's 6 decimals are a guess,
+              // and converting by them renders an 18-decimal token a trillion times
+              // too large. The asset is still named by `token` below.
+              tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
               ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
               : undefined,
           token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),

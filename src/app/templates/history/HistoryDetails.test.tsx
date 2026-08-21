@@ -517,6 +517,17 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
 
+    // The placeholder's 6 decimals are a guess. Converting an 18-decimal token by
+    // them yields a number a trillion times too large, and the fiat estimate turns
+    // that invented quantity into an invented dollar value.
+    it('withholds the fiat estimate when the faucet has no known scale', async () => {
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'MID', decimals: 6, scaleIsUnknown: true });
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
+      await renderAndLoad();
+
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+    });
+
     it('shows the address itself when the account is unknown (no display name)', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx, secondaryAccountId: 'stranger' });
       await renderAndLoad();

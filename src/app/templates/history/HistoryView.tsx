@@ -237,27 +237,30 @@ function buildRowProps(
           ? { value: '', symbol: scopedExtra.token, direction: amountDirection }
           : { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
     } else {
-      // A claim has no headline amount when its first note's value was unknown
-      // (`ConsumeTransaction` leaves `amount` undefined there) — but the rest of
-      // the batch can still have resolved totals. Promote the first of those to
-      // the headline rather than dropping the whole row's amount: gating the
-      // extras on a headline that a legitimate batch may not have would hide
-      // every asset the claim actually collected.
       const lines = tokenId ? [] : (entry.extraAmounts ?? []);
-      // Prefer a line with a known scale for the headline — it is the row's one
-      // prominent number, so an asset whose decimals never resolved is a poor
-      // choice for it. It is still a valid choice when it is all the claim has:
-      // dropping the row's amount entirely would hide every asset collected.
+      // Promotion is keyed on the TOKEN, not the amount. A claim can name its
+      // primary asset while having no number for it — either because the first
+      // note's value was unknown (`ConsumeTransaction` leaves `amount` undefined
+      // there) or because that faucet resolved only to the unknown-token
+      // placeholder, whose decimals are a guess. In both cases the primary still
+      // owns the headline: promoting a secondary over it would file the row
+      // under faucet A while reading as a credit of B.
+      //
+      // Only a claim with no primary asset at all borrows one from the extras,
+      // and then a quantified line is preferred — the headline is the row's one
+      // prominent number, so an unquantified asset is a poor choice for it,
+      // though still better than dropping every asset the claim collected.
       const [promoted, ...rest] =
-        entry.amount === undefined
+        entry.token === undefined
           ? [...lines].sort((a, b) => Number(b.amount !== undefined) - Number(a.amount !== undefined))
           : [];
       const headlineValue = promoted ? promoted.amount : entry.amount?.toString();
+      const headlineSymbol = promoted ? promoted.token : entry.token;
 
-      // A promoted line with no amount still names its asset, so the row is worth
-      // rendering; without either a headline or any extra there is nothing to state.
-      if (headlineValue !== undefined || promoted !== undefined) {
-        const extra = (entry.amount === undefined ? rest : lines).map(line => ({
+      // Nothing to state only when there is neither a primary asset nor an extra
+      // to borrow; a named asset with no number is still worth a row.
+      if (headlineSymbol !== undefined || headlineValue !== undefined) {
+        const extra = (promoted ? rest : lines).map(line => ({
           key: line.faucetId,
           value: line.amount === undefined ? '' : `${sign}${line.amount}`,
           symbol: line.token
@@ -266,7 +269,7 @@ function buildRowProps(
           // Empty when the scale is unknown — the sign would otherwise render
           // alone, as a bare "+" in front of the symbol.
           value: headlineValue === undefined ? '' : `${sign}${headlineValue}`,
-          symbol: promoted ? promoted.token : entry.token,
+          symbol: headlineSymbol,
           direction: amountDirection,
           extra: extra.length > 0 ? extra : undefined
         };

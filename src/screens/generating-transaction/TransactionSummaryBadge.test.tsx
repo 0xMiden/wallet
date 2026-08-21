@@ -15,7 +15,7 @@ jest.mock('lib/miden/metadata', () => ({
   MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 },
   // Real values. A claim's secondary faucets are exactly the ones the wallet has
   // no metadata for, so the unresolved fallback is load-bearing here, not filler.
-  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6 }
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
 }));
 
 // The native faucet is the ONE unresolved faucet that may read MIDEN; every

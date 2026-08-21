@@ -196,6 +196,23 @@ describe('ActivityRow', () => {
       // ROUND_DOWN to 3 dp, exactly like the primary amount.
       expect(screen.getByTestId('row-amount-extra-0').textContent).toBe(', +1.234 BBB');
     });
+
+    // An asset whose decimals never resolved is named without a quantity. The
+    // row must not leave the gap where the number would have been.
+    it('names an extra with no quantity without a stray space', () => {
+      renderRow({
+        testId: 'row',
+        amount: { value: '+20', symbol: 'AAA', extra: [{ key: 'f', value: '', symbol: 'Unknown' }] }
+      });
+
+      expect(screen.getByTestId('row-amount-extra-0').textContent).toBe(', Unknown');
+    });
+
+    it('names a primary with no quantity without a stray space', () => {
+      renderRow({ testId: 'row', amount: { value: '', symbol: 'Unknown' } });
+
+      expect(screen.getByTestId('row-amount').textContent).toBe('Unknown');
+    });
   });
 
   describe('status tone styling', () => {

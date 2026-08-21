@@ -38,7 +38,7 @@ jest.mock('lib/miden/metadata', () => ({
   // Real value. `useReceiptAmount` routes a claim through
   // `formatConsumeAssetParts`, whose whole point is that an unresolved
   // NON-native faucet reads Unknown rather than MIDEN.
-  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6 }
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
 }));
 
 let mockNativeAssetId: string | null = null;

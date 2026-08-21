@@ -20,6 +20,7 @@ import {
   ITransactionStatus,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -279,7 +280,12 @@ async function fetchTransactionsAsHistoryEntries(
           : // `!== undefined`, not truthiness: `0n` is a real total. A claim whose
             // primary faucet sums to zero would otherwise render no amount at all,
             // and take every secondary asset down with it (see `buildRowProps`).
-            tx.amount !== undefined
+            //
+            // `hasKnownScale` withholds the number when the faucet resolved only
+            // to the unknown-token placeholder, whose 6 decimals are a guess: the
+            // asset is still NAMED below, so the row keeps its headline slot
+            // rather than promoting a secondary over it.
+            tx.amount !== undefined && hasKnownScale(tokenMetadata)
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
       token: earnWithdrawFields
@@ -361,8 +367,10 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       status: tx.status,
       amount: swapFields
         ? swapFields.amount
-        : // See the completed-history fetcher above: `0n` is a real total.
-          tx.amount !== undefined
+        : // See the completed-history fetcher above: `0n` is a real total, and a
+          // faucet that resolved only to the unknown-token placeholder has no
+          // trustworthy scale to convert by.
+          tx.amount !== undefined && hasKnownScale(tokenMetadata)
           ? formatAmount(tx.amount, tokenMetadata?.decimals)
           : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
