@@ -82,15 +82,20 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
   }
 
   return (
-    // Wraps rather than clips. A batch claim's `lhs` lists every asset it swept
-    // up, which is unbounded, and both ancestors of this pill hide overflow —
-    // with a non-shrinking nowrap row the tail simply vanished, and the activity
-    // row's "+N more" pointed here for a full list it could not show. The pill
-    // grows to another line instead; `rounded-3xl` keeps that legible where a
-    // full pill radius would bow the sides.
+    // The OUTER row deliberately does not wrap. `lhs → rhs` is the pill's whole
+    // grammar, and letting the three siblings wrap as units breaks every
+    // one-line variant — a send at the 360px popup would put the amount and the
+    // recipient on separate lines with the arrow stranded between them.
+    //
+    // Only `lhs` wraps internally, because only it is unbounded: a batch claim
+    // lists every asset it swept up. Both of this pill's ancestors hide
+    // overflow, so the old `shrink-0 whitespace-nowrap` simply dropped the tail
+    // — and the activity row's "+N more" pointed here for a full list this could
+    // not show. The arrow stays vertically centred, so on a wrapped claim it
+    // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
         className
       )}
     >
@@ -100,7 +105,7 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 flex-wrap justify-center items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
         {rhs}
       </div>
     </div>

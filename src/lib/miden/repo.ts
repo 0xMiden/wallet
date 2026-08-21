@@ -1,6 +1,6 @@
 import Dexie, { Transaction } from 'dexie';
 
-import { ITransaction } from './db/types';
+import { ITransaction, ITransactionStatus } from './db/types';
 
 export enum Table {
   Transactions = 'transactions'
@@ -190,6 +190,35 @@ function mapValues(source: object, transform: (value: unknown, key: string) => u
 const isBigIntSource = (value: unknown): value is string | number | bigint =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
 
+const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, not pending work';
+
+/**
+ * Land every imported row in a terminal state.
+ *
+ * A backup is a record of what HAPPENED. A row restored as `Queued` is not a
+ * record, it is a work item: `safeGenerateTransactionsLoop` picks up any queued
+ * row it finds, with no check on where the row came from, and drives it through
+ * the signer — so a hostile or tampered backup could otherwise have the wallet
+ * sign and broadcast a send the user never authorised, with no confirmation
+ * step. Even an honest backup's queued row is stale by restore time and would
+ * only fail against chain state that has moved on.
+ *
+ * `GeneratingTransaction` gets the same treatment: it is the other non-terminal
+ * status, and the loop's in-progress check would stall on it forever.
+ */
+const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
+  const status = Reflect.get(tx, 'status');
+  if (status !== ITransactionStatus.Queued && status !== ITransactionStatus.GeneratingTransaction) {
+    return tx;
+  }
+  return {
+    ...tx,
+    status: ITransactionStatus.Failed,
+    error: IMPORTED_UNFINISHED_REASON,
+    displayMessage: 'Not restored'
+  };
+};
+
 export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
@@ -211,10 +240,11 @@ export async function importDb(dump: string): Promise<void> {
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
       const { amount, ...rest } = mapValues(tx, fromSerializable);
-      return {
+      const imported = {
         ...rest,
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
+      return neutralizeUnfinishedTransaction(imported);
     });
 
     // Replace in ONE transaction rather than `db.delete()` + `bulkAdd`. Deleting

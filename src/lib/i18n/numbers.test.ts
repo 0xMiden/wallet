@@ -189,9 +189,12 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(250), 2)).toBe('2.5');
   });
 
-  it('falls back to a single zero-pad when decimals is not positive', () => {
-    // decimals === 0 => numZeros forced to 1; documents the real (quirky) output.
-    expect(formatBigInt(BigInt(5), 0)).toBe('0.05');
+  it('treats a zero-decimal token as whole units', () => {
+    // Base units ARE the amount for a 0-decimal faucet. This used to render
+    // "0.05" for 5 whole tokens, because `-0 === 0` made the slice arithmetic
+    // shift by a decimal place that does not exist.
+    expect(formatBigInt(BigInt(5), 0)).toBe('5');
+    expect(formatBigInt(BigInt(1000), 0)).toBe('1000');
   });
 });
 

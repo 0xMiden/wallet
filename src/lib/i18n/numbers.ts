@@ -90,8 +90,15 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
     return '0';
   }
   const amountString = amount.toString();
-  const numZeros = decimals > 0 ? decimals : 1; // ensure there's always at least 1 zero before the decimal point
-  const prefixed = '0'.repeat(numZeros) + amountString;
+  // A zero-decimal faucet is a whole-unit token, so its base units ARE the
+  // amount. Falling through would divide by a phantom decimal place: `-0 === 0`
+  // makes `slice(0, -decimals)` return '' and `slice(-decimals)` return the
+  // whole string, so 1000 renders as "0.01". Batch claims put arbitrary
+  // third-party faucets through here, and 0 decimals is a legal choice.
+  if (decimals <= 0) {
+    return amountString;
+  }
+  const prefixed = '0'.repeat(decimals) + amountString;
   const withDecimal = prefixed.slice(0, -decimals) + '.' + prefixed.slice(-decimals);
   const trimmed = withDecimal.replace(/^0+|0+$/g, '');
   const withoutTrailingDecimal = trimmed.replace(/\.$/, '');

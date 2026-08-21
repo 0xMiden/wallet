@@ -188,4 +188,52 @@ describe('miden repo export/import', () => {
     expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
     expect(survivors[0]!.amount).toBe(BigInt(1));
   });
+
+  // `safeGenerateTransactionsLoop` drives EVERY queued row through the signer
+  // without asking where it came from, so a queued row in a dump is not history
+  // -- it is an instruction to sign. A tampered backup must not be able to
+  // spend, and an honest one's stale queued row must not fire either.
+  it.each([
+    ['Queued', ITransactionStatus.Queued],
+    ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction]
+  ])('lands an imported %s row in a terminal state', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'injected',
+          type: 'send',
+          status,
+          accountId: 'victim',
+          secondaryAccountId: 'attacker',
+          initiatedAt: 1,
+          amount: '999999',
+          displayIcon: 'SEND'
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    // The row survives as a record -- only its ability to execute is removed.
+    expect(restored!.id).toBe('injected');
+    expect(restored!.amount).toBe(BigInt(999999));
+  });
+
+  it('leaves terminal rows untouched on import', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'done', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1 },
+        { id: 'bad', type: 'send', status: ITransactionStatus.Failed, accountId: 'a', initiatedAt: 2 }
+      ]
+    });
+
+    await importDb(dump);
+
+    // Keyed by id, not position: `toArray` returns index order, not insertion order.
+    const restored = new Map((await transactions.toArray()).map(tx => [tx.id, tx.status]));
+    expect(restored.get('done')).toBe(ITransactionStatus.Completed);
+    expect(restored.get('bad')).toBe(ITransactionStatus.Failed);
+  });
 });

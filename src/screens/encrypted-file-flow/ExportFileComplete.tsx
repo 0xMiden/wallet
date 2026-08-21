@@ -126,30 +126,43 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   // re-encrypt, and on mobile open a second share sheet for a file the user was
   // already handed. The state update below makes such a re-render certain.
   const exportStartedRef = useRef(false);
+  // Tracks the COMPONENT, not the effect run. Scoping it per-effect deadlocks
+  // the screen: if `getExportFile`'s identity changes while the export is in
+  // flight, that run's cleanup marks it cancelled, the replacement run returns
+  // early on the ref above, and the still-pending promise is then forbidden from
+  // reporting — leaving "Creating your wallet file…" on screen forever.
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (exportStartedRef.current) return;
     exportStartedRef.current = true;
 
-    let cancelled = false;
     getExportFile().then(
       () => {
-        if (!cancelled) setExportState('success');
+        if (mountedRef.current) setExportState('success');
       },
       (error: unknown) => {
         console.error('Failed to export encrypted wallet file:', error);
-        if (!cancelled) setExportState('error');
+        if (mountedRef.current) setExportState('error');
       }
     );
-    return () => {
-      cancelled = true;
-    };
   }, [getExportFile]);
 
   if (exportState === 'pending') {
     return (
       <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
-        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-4">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col w-full items-center justify-center flex-1 gap-y-4"
+        >
           <ActivitySpinner />
           <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
         </div>
@@ -162,9 +175,11 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
         <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
           <div className="w-49 aspect-square flex items-center justify-center">
-            <Icon name={IconName.Close} size="4xl" className="text-status-negative" />
+            {/* `close.svg` is `fill="none"` with an unfilled path, so a `text-*`
+                class alone renders nothing — the fill has to be passed through. */}
+            <Icon name={IconName.Close} size="4xl" fill="currentColor" className="text-status-negative" />
           </div>
-          <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+          <div role="alert" className="flex flex-col items-center max-w-sm text-center text-heading-gray">
             <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
               {t('encryptedWalletFileExportFailedTitle')}
             </h1>
