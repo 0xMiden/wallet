@@ -123,26 +123,54 @@ const isTaggedBigInt = (value: object): value is TaggedBigInt =>
 /**
  * Byte fields stay plain number arrays, which is the shape the previous format
  * emitted for `requestBytes` — so a file written by an older build still imports.
+ * `resultBytes` rode the untouched rest-spread back then, and `JSON.stringify`
+ * turns a `Uint8Array` into `{"0":1,"1":2}` rather than an array, so the legacy
+ * shape for that one is an index-keyed object.
  */
 const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
 
-const toSerializable = (value: unknown): unknown => {
+/**
+ * A transaction row nests two or three levels. The bound only exists so a
+ * malformed file fails here, in the pure mapping step, rather than surviving the
+ * walk and blowing up later inside `bulkAdd` — which runs after `importDb` has
+ * already dropped the existing database.
+ */
+const MAX_WALK_DEPTH = 64;
+
+const isIndexKeyedBytes = (value: object): boolean => {
+  const entries = Object.entries(value);
+  return (
+    entries.length > 0 &&
+    entries.every(([key, entry]) => String(Number(key)) === key && typeof entry === 'number') &&
+    !isTaggedBigInt(value)
+  );
+};
+
+const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
+  if (depth > MAX_WALK_DEPTH) throw new Error('exportDb: transaction row nested too deeply');
   if (typeof value === 'bigint') return { [BIGINT_TAG]: value.toString() };
   if (value instanceof Uint8Array) return Array.from(value);
-  if (Array.isArray(value)) return value.map(toSerializable);
-  if (typeof value === 'object' && value !== null) return mapValues(value, toSerializable);
+  if (Array.isArray(value)) return value.map(entry => toSerializable(entry, undefined, depth + 1));
+  if (typeof value === 'object' && value !== null) {
+    return mapValues(value, (entry, key) => toSerializable(entry, key, depth + 1));
+  }
   return value;
 };
 
-const fromSerializable = (value: unknown, key?: string): unknown => {
+const fromSerializable = (value: unknown, key?: string, depth = 0): unknown => {
+  if (depth > MAX_WALK_DEPTH) throw new Error('importDb: dump nested too deeply');
+  const isByteField = key !== undefined && BYTE_FIELDS.has(key);
   if (Array.isArray(value)) {
     // Legacy dumps stored byte arrays untagged, so they are restored by name.
-    if (key !== undefined && BYTE_FIELDS.has(key)) return new Uint8Array(value);
-    return value.map(entry => fromSerializable(entry));
+    if (isByteField) return new Uint8Array(value);
+    return value.map(entry => fromSerializable(entry, undefined, depth + 1));
   }
   if (typeof value === 'object' && value !== null) {
     if (isTaggedBigInt(value)) return BigInt(value[BIGINT_TAG]);
-    return mapValues(value, fromSerializable);
+    if (isByteField && isIndexKeyedBytes(value)) {
+      return new Uint8Array(Object.keys(value).length).map((_, index) => Number(Reflect.get(value, String(index))));
+    }
+    return mapValues(value, (entry, entryKey) => fromSerializable(entry, entryKey, depth + 1));
   }
   return value;
 };
@@ -151,8 +179,9 @@ function mapValues(source: object, transform: (value: unknown, key: string) => u
   return Object.fromEntries(Object.entries(source).map(([key, value]) => [key, transform(value, key)]));
 }
 
-const isBigIntSource = (value: unknown): value is string | bigint =>
-  typeof value === 'string' || typeof value === 'bigint';
+/** `number` is accepted because the pre-tag importer coerced it through `BigInt`. */
+const isBigIntSource = (value: unknown): value is string | number | bigint =>
+  typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
 
 export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};

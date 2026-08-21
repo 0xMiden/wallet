@@ -124,19 +124,18 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // `ConsumableNote` inputs carry just the first fungible asset per note — so a
   // completed row recomputes it here against the executed transaction and stays
   // consistent with `amount` below (which is this list's `faucetId` entry).
-  const assetTotals: IConsumedAssetTotal[] = [];
+  const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
       const assetFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
-      const existing = assetTotals.find(total => total.faucetId === assetFaucetId);
-      if (existing) {
-        existing.amount += noteAsset.amount();
-      } else {
-        assetTotals.push({ faucetId: assetFaucetId, amount: noteAsset.amount() });
-      }
+      totalsByFaucet.set(assetFaucetId, (totalsByFaucet.get(assetFaucetId) ?? 0n) + noteAsset.amount());
     }
   }
-  const amount = assetTotals.find(total => total.faucetId === faucetId)?.amount ?? 0n;
+  const assetTotals: IConsumedAssetTotal[] = Array.from(totalsByFaucet, ([id, total]) => ({
+    faucetId: id,
+    amount: total
+  }));
+  const amount = totalsByFaucet.get(faucetId) ?? 0n;
 
   // Only a uniform batch has a single answer, matching the constructor's rule —
   // otherwise the details card would label a mixed claim by its first note alone.

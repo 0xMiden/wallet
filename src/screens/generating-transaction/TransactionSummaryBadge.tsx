@@ -4,9 +4,10 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ITransaction } from 'lib/miden/db/types';
-import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -178,8 +179,14 @@ export const useTransactionSummaryBadgeContent = (
             : [];
       const parts = totals.map(total => {
         const tokenMetadata = assetsMetadata?.[total.faucetId];
-        const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
-        return `${formatAmount(total.amount, tokenMetadata?.decimals)} ${symbol}`;
+        // Mirrors `getTokenMetadata`, which the activity row for this same claim
+        // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
+        // Labelling it MIDEN would name a foreign token after the native one —
+        // and a batch claim's secondary faucets are exactly the ones the wallet
+        // has no metadata for, since it has never held them.
+        const fallback = total.faucetId === getNativeAssetIdSync() ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
+        const symbol = tokenMetadata?.symbol ?? fallback.symbol;
+        return `${formatAmount(total.amount, tokenMetadata?.decimals ?? fallback.decimals)} ${symbol}`;
       });
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.

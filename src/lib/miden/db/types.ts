@@ -430,7 +430,9 @@ export class ConsumeTransaction implements ITransaction {
    * At queue time this is an estimate: a `ConsumableNote` carries only the first
    * fungible asset of its note, so a note holding two assets contributes one.
    * `completeConsumeTransaction` recomputes it from the executed transaction,
-   * where every asset of every note is visible.
+   * where every asset of every note is visible. The estimate does survive on a
+   * row completed by `tryCompleteKilledConsume`, which has no transaction result
+   * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
@@ -469,17 +471,14 @@ export class ConsumeTransaction implements ITransaction {
       first.amount !== ''
         ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
         : undefined;
-    const totals: IConsumedAssetTotal[] = [];
+    // Keyed rather than scanned: a Claim All is uncapped, and anyone can send the
+    // account notes, so the batch length is not ours to bound.
+    const totals = new Map<string, bigint>();
     for (const note of list) {
       if (note.amount === '' || note.faucetId === '') continue;
-      const existing = totals.find(total => total.faucetId === note.faucetId);
-      if (existing) {
-        existing.amount += BigInt(note.amount);
-      } else {
-        totals.push({ faucetId: note.faucetId, amount: BigInt(note.amount) });
-      }
+      totals.set(note.faucetId, (totals.get(note.faucetId) ?? 0n) + BigInt(note.amount));
     }
-    this.assetTotals = totals.length > 0 ? totals : undefined;
+    this.assetTotals = totals.size > 0 ? Array.from(totals, ([faucetId, amount]) => ({ faucetId, amount })) : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';

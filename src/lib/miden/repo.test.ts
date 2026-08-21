@@ -84,9 +84,30 @@ describe('miden repo export/import', () => {
     expect(swap?.type === 'swap' && swap.extraInputs?.orderId).toBe(BigInt(9));
   });
 
-  // Files written before the BigInt tag existed keep importing: `amount` as a
-  // plain string and `requestBytes` as an untagged number array.
-  it('imports a legacy dump whose byte array and amount are untagged', async () => {
+  it('round-trips resultBytes, which the previous format could not', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'result-1',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 4,
+        resultBytes: new Uint8Array([9, 8, 7]),
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    await importDb(await exportDb());
+
+    const imported = await transactions.toArray();
+    expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  // Files written before the BigInt tag existed keep importing. `amount` was a
+  // plain string and `requestBytes` an untagged number array; `resultBytes` rode
+  // the untouched rest-spread, and `JSON.stringify` renders a `Uint8Array` as an
+  // index-keyed object rather than an array.
+  it('imports a legacy dump whose amount and byte fields are untagged', async () => {
     await importDb(
       JSON.stringify({
         [Table.Transactions]: [
@@ -98,6 +119,7 @@ describe('miden repo export/import', () => {
             initiatedAt: 3,
             amount: '42',
             requestBytes: [1, 2, 3],
+            resultBytes: { '0': 9, '1': 8, '2': 7 },
             displayIcon: 'SEND'
           }
         ]
@@ -107,5 +129,31 @@ describe('miden repo export/import', () => {
     const imported = await transactions.toArray();
     expect(imported[0]!.amount).toBe(BigInt(42));
     expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+    expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  // A malformed dump must fail in the pure mapping step, which runs before the
+  // existing database is dropped — not later, inside `bulkAdd`.
+  it('rejects a dump nested past the walk limit before touching the database', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'survivor',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    let nested: unknown = 'deep';
+    for (let i = 0; i < 200; i++) nested = [nested];
+
+    await expect(
+      importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'bad', extraInputs: nested }] }))
+    ).rejects.toThrow(/nested too deeply/);
+
+    const survivors = await transactions.toArray();
+    expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
   });
 });
