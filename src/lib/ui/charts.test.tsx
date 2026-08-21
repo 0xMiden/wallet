@@ -2,14 +2,9 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
-import {
-  ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
-  ChartStyle,
-  ChartTooltip,
-  ChartTooltipContent
-} from './charts';
+import type { ChartConfig } from './charts';
+
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartStyle, ChartTooltip, ChartTooltipContent } from './charts';
 
 // Recharts pulls in ResizeObserver-based `ResponsiveContainer` (which renders
 // nothing under jsdom's zero-size layout) plus heavy SVG chart primitives. We
@@ -29,8 +24,8 @@ jest.mock('recharts', () => ({
 
 // Render a tooltip/legend inside a real `ChartContainer` so it receives the
 // `ChartContext` the way the app wires it up.
-const renderInChart = (ui: React.ReactElement, config: any = {}) =>
-  render(<ChartContainer config={config}>{ui as any}</ChartContainer>);
+const renderInChart = (ui: React.ReactElement, config: ChartConfig = {}) =>
+  render(<ChartContainer config={config}>{ui}</ChartContainer>);
 
 describe('recharts re-exports', () => {
   it('re-exports the recharts Tooltip and Legend primitives', () => {
