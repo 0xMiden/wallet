@@ -23,8 +23,13 @@ jest.mock('lib/miden/metadata', () => ({
 // module's process-lifetime memo cache.
 let mockNativeAssetId: string | null = null;
 
-jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => mockNativeAssetId
+// The native id now arrives through `useMidenFaucetId`, which re-renders when
+// discovery lands — the point of the change. Mocking the hook rather than the
+// sync accessor is what lets a test distinguish "not known yet" from "not
+// native", which the old accessor collapsed into the same `null`.
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockNativeAssetId
 }));
 
 // A spy, not a bare function: the rendered text alone cannot show WHICH decimals
@@ -192,6 +197,31 @@ describe('useTransactionSummaryBadgeContent', () => {
     expect(mockFormatAmount).toHaveBeenCalledWith(20n, 2);
     expect(mockFormatAmount).toHaveBeenCalledWith(10n, 6);
     act(() => root.unmount());
+  });
+
+  // The native id is discovered asynchronously and is `null` on a cold render.
+  // Reading it through the synchronous accessor meant a claim of the NATIVE
+  // asset was labelled Unknown and stayed that way for the life of the screen,
+  // while the activity row for the same claim — which awaits the id — said
+  // MIDEN. Sourcing it from the hook re-renders when discovery lands.
+  it('recovers the MIDEN label once the native faucet id is discovered', async () => {
+    mockNativeAssetId = null;
+    const claim = baseTransaction({
+      type: 'consume',
+      amount: 4n,
+      faucetId: 'faucet-native',
+      assetTotals: [{ faucetId: 'faucet-native', amount: 4n }]
+    });
+
+    const cold = await renderProbe(claim);
+    expect(cold.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 Unknown');
+    act(() => cold.root.unmount());
+
+    mockNativeAssetId = 'faucet-native';
+
+    const warm = await renderProbe(claim);
+    expect(warm.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN');
+    act(() => warm.root.unmount());
   });
 
   it('labels an unresolved faucet MIDEN only when it IS the native faucet', async () => {

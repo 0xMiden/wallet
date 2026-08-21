@@ -95,7 +95,10 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   // Poll the bridge indexer for a claimable deposit to the destination. Stateless
   // / indexer-driven, so it surfaces deposits from a previous session too.
   useBridgeTracker({
-    active: isAgglayer && !transactionFailed && status !== 'claimed' && !!destination,
+    // A restored row polls nothing and claims nothing: `destination` and the
+    // deposit it matches come from the dump, and `handleClaim` signs an EVM
+    // transaction. Display still shows whatever the backup recorded.
+    active: isAgglayer && !transactionFailed && !entry.restoredFromBackup && status !== 'claimed' && !!destination,
     intervalMs: 8000,
     poll: async () => {
       const deposit = await findClaimableMidenToEvmDeposit(destination);
@@ -143,7 +146,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   }, [isEpoch, epochStatus, intentNonce, destination, txId, onUpdated]);
 
   const handleClaim = useCallback(async () => {
-    if (!claimable || !evmProvider || !entry.txId) return;
+    if (!claimable || !evmProvider || !entry.txId || entry.restoredFromBackup) return;
     hapticMedium();
     setError(null);
     setStatus('claiming');
@@ -161,7 +164,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       await updateBridgeClaimStatus(entry.txId, 'failed');
       setError(err instanceof Error ? err.message : 'Claim failed');
     }
-  }, [claimable, evmProvider, entry.txId, onUpdated]);
+  }, [claimable, evmProvider, entry.txId, entry.restoredFromBackup, onUpdated]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {

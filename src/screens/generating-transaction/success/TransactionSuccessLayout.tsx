@@ -3,6 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { ReviewLabel } from 'components/review/ReviewRow';
 import { ScreenHeader } from 'components/ScreenHeader';
@@ -64,10 +65,12 @@ export interface ReceiptRow {
  */
 export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
+  const nativeFaucetId = useMidenFaucetId();
 
   const tokenMetadata = transaction?.faucetId ? assetsMetadata[transaction.faucetId] : undefined;
   const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';
-  const consumeParts = transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata) : [];
+  const consumeParts =
+    transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
   const amount =
     transaction?.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
   const amountText =

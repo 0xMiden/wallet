@@ -164,6 +164,11 @@ export async function takeAgglayerBridgeInInfo(args: {
   const matches = await Repo.transactions
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      // A restored tracker must not adopt a genuine incoming note: the match
+      // rewrites that row to `received` and makes the real consume hide beneath
+      // it in history, so an honest receive would be filed under, and titled by,
+      // whatever the backup's author wrote.
+      if (tx.restoredFromBackup) return false;
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
       return (
         inputs?.provider === 'agglayer' &&

@@ -3,11 +3,11 @@ import React, { FC, ReactNode, useMemo } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ITransaction } from 'lib/miden/db/types';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { truncateAddress } from 'utils/string';
@@ -161,10 +161,19 @@ const EARN_USDC_DECIMALS = 6;
  * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
  * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
  * amount at all, which callers should render as no summary rather than a blank.
+ *
+ * `nativeFaucetId` is passed in rather than read here: the synchronous accessor
+ * returns `null` until discovery lands and firing it from inside this function
+ * gave no way to re-render afterwards, so a claim of the native asset kept the
+ * `Unknown` label for the life of the screen while the activity row — which
+ * awaits the id — called the same claim MIDEN. Callers pass `useMidenFaucetId()`,
+ * which re-renders when the id arrives. `null` means "not yet known", so the
+ * native branch simply does not match until it is.
  */
 export const formatConsumeAssetParts = (
   transaction: ITransaction,
-  assetsMetadata: Record<string, AssetMetadata> | undefined
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
 ): string[] => {
   const totals =
     transaction.assetTotals && transaction.assetTotals.length > 0
@@ -180,7 +189,8 @@ export const formatConsumeAssetParts = (
     // Labelling it MIDEN would name a foreign token after the native one —
     // and a batch claim's secondary faucets are exactly the ones the wallet
     // has no metadata for, since it has never held them.
-    const fallback = total.faucetId === getNativeAssetIdSync() ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
+    const fallback =
+      nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
     const symbol = tokenMetadata?.symbol ?? fallback.symbol;
     return `${formatAmount(total.amount, tokenMetadata?.decimals ?? fallback.decimals)} ${symbol}`;
   });
@@ -213,11 +223,12 @@ export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      const parts = formatConsumeAssetParts(transaction, assetsMetadata);
+      const parts = formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId);
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
       if (parts.length === 0) return undefined;
@@ -284,5 +295,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, t, transaction]);
+  }, [assetsMetadata, nativeFaucetId, t, transaction]);
 };

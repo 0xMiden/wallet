@@ -90,6 +90,11 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
+  // A restored row still DISPLAYS whatever the backup recorded — that is
+  // deliberate — but it must not drive work. This prompt polls the bridge
+  // indexer against dump-supplied values on a timer and surfaces a Claim
+  // affordance that signs an EVM transaction.
+  if (tx.restoredFromBackup) return false;
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 

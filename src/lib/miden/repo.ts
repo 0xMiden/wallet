@@ -193,64 +193,24 @@ const isBigIntSource = (value: unknown): value is string | number | bigint =>
 const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, not pending work';
 
 /**
- * Lifecycle markers that live in `extraInputs` rather than in `status`, keyed by
- * transaction type: which values already mean "over", and what to write when the
- * marker does not.
+ * Import deliberately does NOT rewrite the lifecycle markers a row carries in
+ * `extraInputs` (`phase`, `claimStatus`, `epochStatus`).
  *
- * `status` is not the only place a row can be "still running". Bridge and earn
- * rows are born `Completed` and track their real progress here, so a status-only
- * gate leaves them fully live — which is how four separate resumers each had to
- * be patched to check `restoredFromBackup` one at a time.
+ * An earlier revision did, on the theory that settling them stops a restored row
+ * from being resumed "by construction". It does — but those same strings are
+ * what `bridgeStatusOf` and the status pills render, so settling them rewrote
+ * bridges and deposits the user had genuinely completed as **Failed**, on rows
+ * whose `status` is `Completed`. That put the reason string out of reach too:
+ * the failure card is gated on `status === Failed`, so the user saw a bare
+ * "Failed" with no explanation, and no code path could ever correct it. It
+ * corrupted honest restores to defend against hostile ones.
  *
- * Two properties matter and neither is optional:
- *
- * 1. **Terminal values are preserved.** A backup is a record of what happened,
- *    so a bridge the user really did complete must still read as complete. The
- *    display layer reads these strings directly (`bridgeStatusOf`), so
- *    overwriting a `confirmed` would not "secure" anything — it would rewrite
- *    the user's own successful history as a failure.
- * 2. **A missing marker is written, not skipped.** Keying off "which fields are
- *    present" would let a dump bypass the whole mechanism by simply omitting the
- *    field, which is exactly what the resumers treat as "not settled yet".
- *
- * Hence: force unless the value is recognisably terminal. Non-strings and absent
- * fields both fail that test and get written. The per-consumer flag checks stay
- * as defence in depth — this is the belt, those are the braces.
+ * Provenance and permission are separate concerns, and only permission needs
+ * enforcing here. `restoredFromBackup` marks provenance; the doors that SIGN or
+ * QUEUE work check it (`isRequeueableTransaction`, `resubmitEarnWithdrawal`, the
+ * earn/bridge reconcilers, `localSwapOrders`, consume dedup, the bridge claim and
+ * reclaim affordances). Display reads the row as the backup recorded it.
  */
-const LIFECYCLE_MARKERS: Readonly<Record<string, ReadonlyArray<{ key: string; terminal: readonly string[] }>>> = {
-  'earn-withdraw': [{ key: 'phase', terminal: ['received', 'failed'] }],
-  'bridged-receive': [{ key: 'phase', terminal: ['ready', 'received', 'failed'] }],
-  'earn-deposit': [{ key: 'epochStatus', terminal: ['confirmed', 'failed'] }],
-  // A `bridged-send` carries both, and which one is authoritative depends on
-  // `provider`. Rather than trust a dump-supplied provider, settle both:
-  // whichever one the reader consults, it finds a terminal value. `claimStatus`
-  // keeps `not-applicable` as terminal because that is the legitimate value on
-  // an Epoch row, and settles to `failed` rather than `not-applicable` because
-  // `isBridgePromptActive` accepts only `claimed`/`failed` as done — anything
-  // else leaves the Home bridge card spinning for the life of the wallet.
-  'bridged-send': [
-    { key: 'epochStatus', terminal: ['confirmed', 'failed'] },
-    { key: 'claimStatus', terminal: ['not-applicable', 'claimed', 'failed'] }
-  ]
-};
-
-const SETTLED_LIFECYCLE_VALUE = 'failed';
-
-/** Settle every unfinished lifecycle marker `type` can carry in `extraInputs`. */
-const terminalizeLifecycle = (type: unknown, extraInputs: unknown): unknown => {
-  const markers = typeof type === 'string' ? LIFECYCLE_MARKERS[type] : undefined;
-  if (markers === undefined) return extraInputs;
-
-  const base =
-    typeof extraInputs === 'object' && extraInputs !== null && !Array.isArray(extraInputs) ? extraInputs : {};
-  const unsettled = markers.filter(({ key, terminal }) => {
-    const value = Reflect.get(base, key);
-    return typeof value !== 'string' || !terminal.includes(value);
-  });
-  if (unsettled.length === 0) return extraInputs;
-
-  return { ...base, ...Object.fromEntries(unsettled.map(({ key }) => [key, SETTLED_LIFECYCLE_VALUE])) };
-};
 
 /**
  * Land every imported row in a terminal state, flagged as restored.
@@ -285,11 +245,6 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   // Spread FIRST, literal second: reversing these two would let a dump supply
   // its own `restoredFromBackup: false` and disable the whole gate.
   const restored = { ...tx, restoredFromBackup: true };
-  const extraInputs = Reflect.get(tx, 'extraInputs');
-  const terminalized = terminalizeLifecycle(Reflect.get(tx, 'type'), extraInputs);
-  if (terminalized !== extraInputs) {
-    Reflect.set(restored, 'extraInputs', terminalized);
-  }
   const status = Reflect.get(tx, 'status');
   const initiatedAt = Reflect.get(tx, 'initiatedAt');
   const completedAt = Reflect.get(tx, 'completedAt');
