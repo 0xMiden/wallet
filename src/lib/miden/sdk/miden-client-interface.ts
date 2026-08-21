@@ -46,6 +46,7 @@ import { NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import {
   accountRefToSdk,
+  buildPswapCreateRequest,
   buildSendTransactionRequest,
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
@@ -1140,16 +1141,40 @@ export class MidenClientInterface {
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
-    const offer = { token: faucetId, amount };
-    const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
+    const withInner = (
+      this.client as unknown as {
+        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+      }
+    )._withInnerWebClient;
+    if (typeof withInner !== 'function') {
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+    }
 
     return proveWithFallback(async prover => {
-      const { result } = await this.client.transactions.pswapCreate({
-        account: accountId,
-        offer,
-        request,
-        prover
-      });
+      // `transactions.pswapCreate` would build, prove and submit in one call, but
+      // it builds the offered asset from faucet id + amount and so always offers
+      // the Disabled callback variant — see `buildPswapCreateRequest`. Split the
+      // build out so the note can be re-emitted against the vault key the
+      // creator actually holds, then submit that instead.
+      //
+      // The canonical id for both the vault read and the submit, for the reason
+      // spelled out on the send path above: the account a request is EXECUTED
+      // against must be the one its asset's vault key came from.
+      const canonicalId = walletAccountIdToSdk(accountId).toString();
+      const creatorAccount = await this.client.accounts.get(canonicalId);
+      const reference = (await withInner.call(this.client, async (inner: any) =>
+        inner.newPswapCreateTransactionRequest(
+          walletAccountIdToSdk(accountId),
+          accountRefToSdk(faucetId),
+          BigInt(amount),
+          accountRefToSdk(extraInputs.requestedFaucetId),
+          BigInt(extraInputs.requestedAmount),
+          NoteType.Public,
+          NoteType.Public
+        )
+      )) as TransactionRequest;
+      const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
+      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
       return result;
     }, transaction.delegateTransaction);
   }

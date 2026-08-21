@@ -242,3 +242,61 @@ export function buildSendTransactionRequest(
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
   return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
 }
+
+/**
+ * Re-emits a PSWAP-create request with its offered asset taken from the
+ * creator's vault key, callback flag included.
+ *
+ * The PSWAP API takes a faucet id and an amount — not an asset — and builds the
+ * offered asset with `FungibleAsset::new` on the Rust side, which always yields
+ * the `Disabled` flag. That flag is part of the vault key, so offering a
+ * callback-ENABLED asset addressed an empty vault slot and the kernel rejected
+ * the create with the same "failed to remove the fungible asset from the vault"
+ * every send used to produce. There is no flag parameter anywhere in the chain,
+ * so unlike the send paths this cannot be fixed by passing a better argument.
+ *
+ * What it CAN do is rebuild the note. Everything the PSWAP note carries beyond
+ * its assets — script root, storage, serial number, tag, metadata, attachments —
+ * is already computed correctly by the SDK and is readable off the request it
+ * returns, so this lifts all of it verbatim and substitutes only the assets.
+ * Rebuilt with the SAME asset the result is byte-identical (same note id), which
+ * is what makes this a substitution rather than a reconstruction; the swap's
+ * order id is the note's serial number, and PSWAP lineage registration keys off
+ * the script root, so `pswap.lineage()`, `cancelByOrder` and the wallet's own
+ * settlement matching are unaffected.
+ *
+ * `reference` MUST be the request from a single `newPswapCreateTransactionRequest`
+ * call that is then discarded: each call draws a fresh serial number, so
+ * building one to inspect and another to submit yields two different orders.
+ *
+ * NOT fixed here, because it is out of reach: the REQUESTED asset's flag is
+ * carried in the note's storage and the SDK writes `Disabled` there too, and the
+ * fill path (`build_pswap_consume`, in the Rust client) reads only the faucet id
+ * back out and rebuilds the fill asset with the same defaulting constructor. A
+ * callback-enabled REQUESTED token is therefore unfillable, and no wallet-side
+ * substitution reaches it — the fill API takes an input note and two amounts,
+ * with no asset to replace and no output note to rewrite. The wallet is
+ * maker-only today (`pswapConsume` appears only in E2E-gated test hooks), so
+ * this is latent rather than live.
+ */
+export function buildPswapCreateRequest(
+  creatorAccount: Account | undefined,
+  reference: TransactionRequest,
+  offeredFaucetRef: string,
+  offeredAmount: bigint
+): TransactionRequest {
+  const referenceNote = reference.expectedOutputOwnNotes()[0];
+  if (!referenceNote) {
+    // The SDK builder always emits exactly one own output note. Rather than
+    // index into nothing, fail with something that names the cause.
+    throw new Error('PSWAP create request carried no own output note to rebuild');
+  }
+  const asset = resolveHeldFungibleAsset(creatorAccount, offeredFaucetRef, offeredAmount);
+  const note = Note.withAttachments(
+    new NoteAssets([asset]),
+    referenceNote.metadata(),
+    referenceNote.recipient(),
+    referenceNote.attachments()
+  );
+  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+}

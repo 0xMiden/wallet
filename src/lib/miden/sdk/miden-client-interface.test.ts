@@ -499,6 +499,122 @@ describe('MidenClientInterface', () => {
     );
   });
 
+  /**
+   * The PSWAP builder takes a faucet id and an amount, not an asset, and builds
+   * the offered asset with the constructor that always yields the Disabled
+   * callback flag — so offering a callback-ENABLED asset addressed an empty vault
+   * slot and the kernel rejected the create. `transactions.pswapCreate` builds,
+   * proves and submits in one call, leaving no seam to correct it, so this path
+   * now builds the request itself and re-emits the note against the creator's
+   * vault key. See `buildPswapCreateRequest`.
+   */
+  describe('swapTransaction offers the asset the creator actually holds', () => {
+    const arrangeSwap = async (overrides: Record<string, any> = {}) => {
+      const pswapCreate = jest.fn(async () => ({ txId: 'tx-id', result: fakeTransactionResult }));
+      const fakeMidenClient = buildFakeMidenClient();
+      // Attached rather than passed as an override: `buildFakeMidenClient`
+      // spreads the whole overrides object last, so a `transactions` override
+      // REPLACES the defaults — including the `submit` this path needs.
+      (fakeMidenClient.transactions as any).pswapCreate = pswapCreate;
+      const creatorAccount = { vault: jest.fn() };
+      fakeMidenClient.accounts.get = jest.fn(async () => creatorAccount);
+
+      const reference = { kind: 'reference-request' };
+      const newPswapCreateTransactionRequest = jest.fn(async () => reference);
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => fn({ newPswapCreateTransactionRequest });
+
+      const rebuiltRequest = { kind: 'rebuilt-request' };
+      const buildPswapCreateRequest = jest.fn(() => rebuiltRequest);
+
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        // The composite `<address>_<suffix>` form collapses to its address, so a
+        // test can tell the canonical id from the raw one.
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildPswapCreateRequest,
+        buildSendTransactionRequest: jest.fn()
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 'Private', Public: 'Public' },
+        TransactionProver: { newLocalProver: jest.fn(() => 'local') }
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const result = await client.swapTransaction({
+        accountId: 'creator',
+        faucetId: 'offered-faucet',
+        amount: 100n,
+        extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 50n },
+        ...overrides
+      } as any);
+
+      return {
+        result,
+        fakeMidenClient,
+        pswapCreate,
+        creatorAccount,
+        reference,
+        rebuiltRequest,
+        newPswapCreateTransactionRequest,
+        buildPswapCreateRequest
+      };
+    };
+
+    it('reads the creator vault and re-emits the note against it', async () => {
+      const { creatorAccount, reference, buildPswapCreateRequest, fakeMidenClient } = await arrangeSwap();
+
+      expect(fakeMidenClient.accounts.get).toHaveBeenCalledWith('sdk-creator');
+      expect(buildPswapCreateRequest).toHaveBeenCalledWith(creatorAccount, reference, 'offered-faucet', 100n);
+    });
+
+    it('submits the rebuilt request, not the one the SDK built', async () => {
+      const { fakeMidenClient, rebuiltRequest, result } = await arrangeSwap();
+
+      expect(fakeMidenClient.transactions.submit).toHaveBeenCalledWith(
+        'sdk-creator',
+        rebuiltRequest,
+        expect.objectContaining({ prover: expect.anything() })
+      );
+      expect(result).toBe(fakeTransactionResult);
+    });
+
+    // The all-in-one call is what leaves no seam to correct the asset, so taking
+    // it again would silently reinstate the bug while every other assertion here
+    // still passed.
+    it('never takes the all-in-one pswapCreate path', async () => {
+      const { pswapCreate } = await arrangeSwap();
+
+      expect(pswapCreate).not.toHaveBeenCalled();
+    });
+
+    // Same rule as the send path: the account a request is EXECUTED against must
+    // be the one its asset's vault key came from, or the mismatch quietly
+    // reinstates the flag bug.
+    it('uses the canonical id for both the vault read and the submit', async () => {
+      const { fakeMidenClient } = await arrangeSwap({ accountId: 'creator_qr7qqq9wr6w' });
+
+      expect(fakeMidenClient.accounts.get).toHaveBeenCalledWith('sdk-creator');
+      expect(fakeMidenClient.transactions.submit).toHaveBeenCalledWith(
+        'sdk-creator',
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it('builds the reference request once, since each call draws a fresh order id', async () => {
+      const { newPswapCreateTransactionRequest } = await arrangeSwap();
+
+      expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('consumeNoteId returns TransactionResult', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

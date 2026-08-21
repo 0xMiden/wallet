@@ -3,6 +3,7 @@ import { AccountId, Address, FungibleAsset, Note } from '@miden-sdk/miden-sdk/la
 import {
   accountIdStringToSdk,
   accountRefToSdk,
+  buildPswapCreateRequest,
   buildSendTransactionRequest,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
@@ -28,7 +29,14 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ),
   Note: {
     createP2IDNote: jest.fn((...args: any[]) => ({ kind: 'p2id', args })),
-    createP2IDENote: jest.fn((...args: any[]) => ({ kind: 'p2ide', args }))
+    createP2IDENote: jest.fn((...args: any[]) => ({ kind: 'p2ide', args })),
+    withAttachments: jest.fn((assets: any, metadata: any, recipient: any, attachments: any) => ({
+      kind: 'rebuilt',
+      assets,
+      metadata,
+      recipient,
+      attachments
+    }))
   },
   NoteAssets: jest.fn(function (this: any, assets: any) {
     this.assets = assets;
@@ -371,6 +379,125 @@ describe('miden sdk helpers', () => {
           'Public' as any
         )
       ).not.toThrow();
+    });
+  });
+
+  /**
+   * The PSWAP API takes a faucet id and an amount rather than an asset, and the
+   * Rust side builds the offered asset with the constructor that always yields
+   * the Disabled callback flag — so unlike the send paths there is no argument
+   * to pass better, and offering a callback-ENABLED asset addressed an empty
+   * vault slot and was rejected by the kernel.
+   *
+   * `buildPswapCreateRequest` re-emits the note the SDK built with only its
+   * assets replaced. That the rest is carried over verbatim is what makes it a
+   * substitution: verified against the real SDK, rebuilding with the same asset
+   * reproduces the note id exactly.
+   */
+  describe('buildPswapCreateRequest', () => {
+    const FAUCET_REF = '0xfaucet';
+    const FAUCET_HEX = 'accountId-0xfaucet';
+    const MAX_AMOUNT = (1n << 63n) - (1n << 31n);
+
+    /** A PSWAP-create request as `newPswapCreateTransactionRequest` returns it. */
+    const referenceRequest = (note: unknown) => ({ expectedOutputOwnNotes: () => [note] }) as any;
+
+    const referenceNote = () => ({
+      metadata: () => 'sdk-metadata',
+      recipient: () => 'sdk-recipient',
+      attachments: () => ['sdk-attachment']
+    });
+
+    const rebuilt = () => (Note.withAttachments as jest.Mock).mock.calls[0]!;
+
+    it('offers the asset from the slot the creator actually holds, flag included', () => {
+      buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n
+      );
+
+      expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
+      expect(FungibleAsset).not.toHaveBeenCalled();
+      expect(rebuilt()[0].assets).toEqual([
+        { kind: 'vault-key-asset', key: `vaultKey-${FAUCET_HEX}-enabled`, amount: 100n }
+      ]);
+    });
+
+    // Everything that identifies the swap. The serial number lives in the
+    // recipient, and it IS the order id, so carrying these over unchanged is what
+    // keeps lineage lookup, cancel-by-order and settlement matching working.
+    it('carries the SDK note\u2019s metadata, recipient and attachments over untouched', () => {
+      buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n
+      );
+
+      const [, metadata, recipient, attachments] = rebuilt();
+      expect(metadata).toBe('sdk-metadata');
+      expect(recipient).toBe('sdk-recipient');
+      expect(attachments).toEqual(['sdk-attachment']);
+    });
+
+    // A faucet issuing callback-enabled assets occupies a separate slot per
+    // variant, so picking by vault order could offer from a slot too small to
+    // cover the amount and be rejected for insufficient funds while the other
+    // slot covered it.
+    it('prefers the slot that can fund the offer when the faucet occupies two', () => {
+      buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 10n, 'disabled'), vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n
+      );
+
+      expect(FungibleAsset.fromVaultKey).toHaveBeenCalledWith(`vaultKey-${FAUCET_HEX}-enabled`, 100n);
+    });
+
+    it('still builds a request when the vault shows nothing from that faucet', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        const request = buildPswapCreateRequest(
+          accountHolding(vaultAsset('accountId-0xother', 500n, 'enabled')) as any,
+          referenceRequest(referenceNote()),
+          FAUCET_REF,
+          100n
+        );
+
+        expect(request).toBeDefined();
+        expect(FungibleAsset).toHaveBeenCalledWith({ toString: expect.any(Function) }, 100n);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('rejects an amount outside the representable range', () => {
+      expect(() =>
+        buildPswapCreateRequest(
+          accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+          referenceRequest(referenceNote()),
+          FAUCET_REF,
+          MAX_AMOUNT + 1n
+        )
+      ).toThrow('outside the representable range');
+      expect(Note.withAttachments).not.toHaveBeenCalled();
+    });
+
+    // Rather than indexing into nothing and reporting a property access on
+    // undefined from somewhere deeper.
+    it('names the cause when the reference request carries no own output note', () => {
+      expect(() =>
+        buildPswapCreateRequest(
+          accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+          referenceRequest(undefined),
+          FAUCET_REF,
+          100n
+        )
+      ).toThrow('carried no own output note');
     });
   });
 });

@@ -107,6 +107,12 @@ jest.mock('lib/store', () => ({
 var mockBuildSendTransactionRequest = jest.fn((): { serialize: () => Uint8Array } => ({
   serialize: () => new Uint8Array()
 }));
+// The PSWAP create request goes through its own builder, for the same reason and
+// against the same vault read — see `buildPswapCreateRequest`.
+// eslint-disable-next-line no-var
+var mockBuildPswapCreateRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array()
+}));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
   accountRefToSdk: (ref: string) => ({ toString: () => `sdk-${ref}` }),
@@ -114,7 +120,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
-  buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as []))
+  buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
+  buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
@@ -312,6 +319,7 @@ describe('generateTransaction — Guardian routing', () => {
     jest.clearAllMocks();
     mockCreateWasmWebClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
+    mockBuildPswapCreateRequest.mockReset();
     txStore.length = 0;
   });
 
@@ -565,6 +573,75 @@ describe('generateTransaction — Guardian routing', () => {
       'Public',
       125
     );
+  });
+
+  /**
+   * A PSWAP create removes the offered asset from the creator's vault, so it is
+   * subject to the same callback-flag rule as every send: the flag is part of the
+   * vault key. The PSWAP builder takes a faucet id and an amount, not an asset,
+   * and always produces the Disabled variant — so this path re-emits the note it
+   * builds against the creator's actual slot before the bytes are frozen.
+   */
+  it('Guardian swap re-emits the PSWAP note against the creator vault before freezing the bytes', async () => {
+    const txId = 'guardian-swap-vault-key';
+    const result = makeResult();
+    const rebuiltBytes = new Uint8Array([11, 12, 13]);
+    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
+      id: txId,
+      type: 'swap',
+      amount: 1000n,
+      faucetId: 'offered-faucet',
+      requestBytes: undefined,
+      extraInputs: { requestedFaucetId: 'requested-faucet', requestedAmount: 500n },
+      delegateTransaction: false
+    });
+    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
+
+    mockBuildPswapCreateRequest.mockReturnValue({ serialize: () => rebuiltBytes });
+    const creatorAccount = { vault: jest.fn() };
+    const getAccount = jest.fn(async () => creatorAccount);
+
+    // The reference request the SDK builder returns, to be rewritten.
+    const reference = { kind: 'reference-request', serialize: () => new Uint8Array([99]) };
+    const newPswapCreateTransactionRequest = jest.fn(async () => reference);
+    const terminate = jest.fn();
+    mockCreateWasmWebClient.mockResolvedValue({ newPswapCreateTransactionRequest, terminate });
+
+    const multisigService = {
+      createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
+      createSendProposal: jest.fn(),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = Object.assign(makeClientApi(result), { getSyncHeight: jest.fn(async () => 100) });
+    mockGetMidenClient.mockResolvedValue({ getAccount, syncState: jest.fn(async () => {}), client });
+
+    await generateTransaction(
+      transaction,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // The creator's vault, by canonical id, handed to the rewrite verbatim.
+    expect(getAccount).toHaveBeenCalledWith('sdk-guardian-acc');
+    expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(creatorAccount, reference, 'offered-faucet', 1000n);
+    // One builder call: each draws a fresh serial number, which IS the order id,
+    // so building one request to inspect and another to propose would register a
+    // different order than the one the wallet tracks.
+    expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    // And the REWRITTEN bytes are what get frozen and proposed — the whole point,
+    // since these same bytes are replayed for signAndCreateTransactionRequest.
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebuiltBytes);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebuiltBytes);
+    // The transient client is always torn down, rewrite or not.
+    expect(terminate).toHaveBeenCalled();
   });
 
   it('Guardian Epoch bridged-send builds a public recallable P2IDE custom proposal (the allocator rejects a plain P2ID)', async () => {

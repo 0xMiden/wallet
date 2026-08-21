@@ -77,6 +77,7 @@ import { isPrivateNoteType } from '../helpers';
 import {
   accountIdStringToSdk,
   accountRefToSdk,
+  buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
   sameWalletAccountId,
@@ -1158,6 +1159,14 @@ const generateGuardianTransaction = async (
       // second, divergent proposal.
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
+          // The offered asset has to carry the vault key of the slot it is
+          // actually held in — the callback flag is part of that key, and the
+          // PSWAP builder always produces the Disabled variant. Read the vault
+          // through the proxy, like every other path that does this, so under the
+          // offscreen client the key comes from the realm that will EXECUTE the
+          // request. The proxy read is unlocked by design and this scope already
+          // holds the client lock, which is what that contract requires.
+          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
           const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
           try {
             const tr = await client.newPswapCreateTransactionRequest(
@@ -1169,7 +1178,15 @@ const generateGuardianTransaction = async (
               NoteType.Public,
               NoteType.Public
             );
-            return tr.serialize();
+            // Built once and rewritten once, in the same scope: each builder call
+            // draws a fresh serial number, which IS the order id. See
+            // `buildPswapCreateRequest`.
+            return buildPswapCreateRequest(
+              creatorAccount ?? undefined,
+              tr,
+              swapTx.faucetId,
+              BigInt(swapTx.amount)
+            ).serialize();
           } finally {
             client.terminate();
           }
