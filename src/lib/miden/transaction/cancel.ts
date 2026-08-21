@@ -87,22 +87,33 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
  * and Retry reads exactly that as proof nothing was broadcast — then rebuilds
  * the request with a fresh note serial and pays the recipient twice.
  *
- * The leaves stamp `mayHaveSubmitted` before submitting, through the terminal
- * row, so a crossing that happens IS recorded. But only from the moment the
- * leaf reaches it: a cancel during execute or prove lands earlier, and Retry is
- * one tap away on the same screen. `cancelledInFlightAt` covers that window and
- * then expires — see its docstring for why a sticky flag here was wrong.
+ * The GUARDIAN leaves stamp `mayHaveSubmitted` before submitting, through the
+ * terminal row, so a crossing that happens there IS recorded — but only from the
+ * moment the leaf reaches it: a cancel during execute or prove lands earlier, and
+ * Retry is one tap away on the same screen. `cancelledInFlightAt` covers that
+ * window and then expires — see its docstring for why a sticky flag here was
+ * wrong.
+ *
+ * Read that scope literally. A send from a NON-guardian account stamps nothing at
+ * all: its leaf calls straight through to the proxy, and the row it leaves behind
+ * is frozen at the 'sending' its pipeline stamped once at pickup. For those rows
+ * this marker is not a supplement to a recorded crossing, it is the only signal
+ * there is, which is why `requeueFailedTransaction` refuses on it rather than
+ * merely holding bytes, and why the residual gap documented there is the shape it
+ * is.
  *
  * Deliberately NOT used by the pipeline's own catch handlers, which instead
- * CLEAR the marker: by the time those run the pipeline has stopped, and had it
- * submitted the leaf already stamped. That asymmetry is what still lets a
- * genuine execute or prove failure rebuild its request — the rebuild this guard
- * exists to gate, not to prevent.
+ * CLEAR the marker: by the time those run the pipeline has stopped. That
+ * asymmetry is what still lets a genuine execute or prove failure rebuild its
+ * request — the rebuild this guard exists to gate, not to prevent.
  */
 const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
-  // Only a `send` has cached bytes this protects, and only an in-flight row has
-  // a pipeline to outlive the cancel. A Queued row was never picked up.
-  if (tx.type === 'send' && tx.status === ITransactionStatus.GeneratingTransaction) {
+  // Only a `send` reaches the retry path this protects. The in-flight half of the
+  // condition — that there is a pipeline to outlive the cancel at all, rather
+  // than a Queued row never picked up — is re-tested inside
+  // `markCancelledInFlight` against the committed row, because deciding it from
+  // this snapshot can strand a marker on a pipeline that has already stopped.
+  if (tx.type === 'send') {
     // Before the cancel: if that throws, the row is still guarded.
     await markCancelledInFlight(tx.id);
   }
@@ -114,9 +125,14 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * submit is no longer merely possible — resolve the in-flight marker a
  * concurrent Cancel may have left, and let the request be rebuilt.
  *
- * Safe because the ordering is one-way: a leaf stamps `mayHaveSubmitted` before
- * it submits, so any attempt that got that far is already recorded on a field
- * this does not touch.
+ * Safe on the guardian paths because the ordering there is one-way: those leaves
+ * stamp `mayHaveSubmitted` before they submit, so any attempt that got that far
+ * is already recorded on a field this does not touch.
+ *
+ * A plain send has no such stamp — it is not that the marker is redundant there,
+ * it is that nothing else exists — so clearing it returns the row to "no evidence
+ * either way", which is what lets the vault-slot failure rebuild and is also the
+ * limit `requeueFailedTransaction` documents.
  *
  * With ONE exception, and it is the reason this takes the error rather than just
  * the row. An offscreen wedge-kill does not report a failure — it destroys the
@@ -146,27 +162,47 @@ export const cancelTransactionById = async (id: string, error: any) => {
 };
 
 /**
- * True while `cancelledInFlightAt` still means "the pipeline might submit".
- *
- * Bounded by the same threshold the stuck reaper uses, which is the app's own
- * statement of the longest a pipeline can plausibly still be alive. Past it the
- * marker is stale and must not keep pinning a request, or a send that failed
- * early is bricked into replaying it forever.
- */
-export const pipelineMayStillBeRunning = (cancelledInFlightAt: number | undefined): boolean => {
-  if (cancelledInFlightAt === undefined) return false;
-  return Math.floor(Date.now() / 1000) - cancelledInFlightAt <= MAX_WAIT_BEFORE_CANCEL;
-};
-
-/**
- * Seconds the app spent backgrounded since `processingStartedAt` that must NOT
- * count as processing time. On mobile the WebView main thread is frozen while
+ * Seconds the app spent backgrounded since `sinceSeconds` that must NOT count as
+ * elapsed pipeline time. On mobile the WebView main thread is frozen while
  * backgrounded, so frozen time is not real processing time (issue #473).
  * Desktop keeps running in background tabs, so there is nothing to discount —
  * the single `isMobile()` guard for the whole feature lives here.
+ *
+ * Used against two different marks — a row's `processingStartedAt` and its
+ * `cancelledInFlightAt` — because both are compared against the same
+ * `MAX_WAIT_BEFORE_CANCEL` and so must be measured on the same clock.
  */
-const hiddenSecondsForTx = (processingStartedAt: number): number =>
-  isMobile() ? hiddenSecondsSince(processingStartedAt) : 0;
+const hiddenSecondsForTx = (sinceSeconds: number): number => (isMobile() ? hiddenSecondsSince(sinceSeconds) : 0);
+
+/**
+ * True while `cancelledInFlightAt` still means "the pipeline might submit".
+ *
+ * Bounded by the same threshold the stuck reaper uses, which is the app's own
+ * statement of the longest a pipeline can plausibly still be alive — and
+ * therefore measured on the same clock the reaper measures it on. That is not
+ * wall clock. On mobile the WebView main thread is frozen while backgrounded, so
+ * the reaper discounts hidden time and `MAX_WAIT_BEFORE_CANCEL` is a bound on
+ * ACTIVE seconds; a pipeline's wall-clock age is, as `background-time.ts` puts
+ * it, "effectively unbounded on mobile". Comparing wall clock against an
+ * active-time bound made the two disagree about the very same row: cancel a send
+ * on a phone, background the app for ten minutes, and the marker lapsed while the
+ * suspended pipeline was still there to resume and submit — so Retry rebuilt with
+ * a fresh note serial and paid the recipient twice, which is the whole failure
+ * this marker exists to prevent.
+ *
+ * The magnitude of the discrepancy is what is bounded, not its sign. A stamp
+ * cannot be written in the future, so a future one means the clock moved
+ * backwards afterwards (or the row was restored from elsewhere): a small skew
+ * stays live, erring toward funds safety, while a wildly inconsistent stamp is
+ * treated as telling us nothing rather than as "live forever", which would refuse
+ * the row's retries for the entire span of the discrepancy.
+ */
+export const pipelineMayStillBeRunning = (cancelledInFlightAt: number | undefined): boolean => {
+  if (cancelledInFlightAt === undefined) return false;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const activeElapsed = nowSeconds - cancelledInFlightAt - hiddenSecondsForTx(cancelledInFlightAt);
+  return Math.abs(activeElapsed) <= MAX_WAIT_BEFORE_CANCEL;
+};
 
 /**
  * Whole seconds a transaction has spent ACTIVELY processing since
@@ -205,13 +241,24 @@ export const cancelStuckTransactions = async () => {
       const hidden = tx.processingStartedAt ? hiddenSecondsForTx(tx.processingStartedAt) : 0;
       return isTransactionStuck(tx.processingStartedAt, nowSeconds, hidden, MAX_WAIT_BEFORE_CANCEL);
     })
-    // NOT `cancelWhilePipelineMayStillRun`. A row this reaper takes has already
-    // exceeded `MAX_WAIT_BEFORE_CANCEL`, which is precisely the app's threshold
-    // for "no pipeline can still be alive" — so marking it in-flight would be
-    // false, and a false "maybe submitted" pins the cached request and bricks a
-    // send that failed early into replaying it. A submit this row DID reach is
-    // recorded on `mayHaveSubmitted` by the leaf, which is not stage-dependent.
-    .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
+    // Marked in-flight like any other cancel from outside the pipeline, because
+    // that is what this is. `MAX_WAIT_BEFORE_CANCEL` is the app's threshold for
+    // "waited long enough to stop showing the user a spinner", NOT for "no
+    // pipeline can still be alive" — nothing here aborts the work, a prove can
+    // legitimately run past it (mobile writes have no deadline at all), and the
+    // reaper's own arithmetic is what defines the threshold as ACTIVE seconds, so
+    // a row it takes may have been running for far longer in wall-clock terms and
+    // still be running now. This used to skip the marker on the strength of that
+    // premise, which left the widest version of the very window the marker exists
+    // for: reaped, still submitting, and retried as though nothing had been sent.
+    //
+    // Skipping it was safe only under a second claim — that a submit this row DID
+    // reach is on `mayHaveSubmitted` — and that one holds for the guardian leaves
+    // but not for a plain send, which stamps nothing (see
+    // `cancelTransactionAfterPipelineStopped`). Marking costs little now that the
+    // marker expires and is scoped to rows with something to protect: Retry waits
+    // out the window instead of being refused for good.
+    .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
 };

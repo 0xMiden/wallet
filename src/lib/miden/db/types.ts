@@ -334,12 +334,18 @@ export interface ITransaction {
    *
    * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
    * do not yet know whether one will: the cancel marks the row but does not
-   * abort the work, so the pipeline runs on and may still submit. The leaves
-   * stamp `mayHaveSubmitted` before submitting and their writes go through a
-   * terminal row, so a crossing that occurs IS recorded — but only from the
-   * moment the leaf reaches it. Between the cancel and that stamp the row looks
-   * pre-submit, and a retry in that window would rebuild the request and pay
+   * abort the work, so the pipeline runs on and may still submit. The GUARDIAN
+   * leaves stamp `mayHaveSubmitted` before submitting and their writes go through
+   * a terminal row, so a crossing that occurs there IS recorded — but only from
+   * the moment the leaf reaches it. Between the cancel and that stamp the row
+   * looks pre-submit, and a retry in that window would rebuild the request and pay
    * twice. This field covers exactly that gap.
+   *
+   * For a send from a non-guardian account there is no such stamp to supplement:
+   * that leaf calls through to the proxy without recording anything, and the row
+   * stays at the 'sending' its pipeline set once at pickup. This field is then the
+   * only evidence that exists, which is why the retry guard refuses on it outright
+   * rather than merely declining to rebuild.
    *
    * It has to expire, which is why it is a timestamp rather than a boolean. The
    * first version of this guard was a sticky flag, and a sticky "maybe" is
@@ -355,9 +361,13 @@ export interface ITransaction {
    *   - failing that, it lapses after `MAX_WAIT_BEFORE_CANCEL`, the app's own
    *     definition of the longest a pipeline can plausibly still be alive.
    *
-   * The stuck reaper deliberately does NOT set it: a row it takes has by
-   * definition already exceeded that same maximum, so its pipeline is not
-   * "maybe running", and a submit it did reach is on `mayHaveSubmitted`.
+   * Both the Cancel button and the stuck reaper set it. The reaper used to be
+   * excluded, on the reasoning that a row it takes has already exceeded that same
+   * maximum and so cannot still be running — but the threshold is when the app
+   * stops waiting, not when the work stops: nothing aborts the pipeline, a mobile
+   * write has no deadline at all, and the maximum is counted in ACTIVE seconds, so
+   * a reaped row can still be mid-submit. That made the reaper the widest instance
+   * of the window this field exists to cover.
    */
   cancelledInFlightAt?: number;
 }

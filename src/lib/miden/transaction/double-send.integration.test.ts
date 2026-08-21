@@ -26,6 +26,7 @@
 import * as Repo from 'lib/miden/repo';
 
 import {
+  MAX_WAIT_BEFORE_CANCEL,
   cancelStuckTransactions,
   cancelTransaction,
   cancelTransactionAfterPipelineStopped,
@@ -52,14 +53,25 @@ jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn()
 }));
 
+// Mutable so the marker's clock can be tested on the platform where it actually
+// diverges: on mobile the WebView is frozen while backgrounded, so wall-clock
+// elapsed and the active seconds the threshold is denominated in come apart.
+//
+// Held on `globalThis` rather than in module-scope `jest.fn`s because `cancel.ts`
+// calls `isMobile()` at import time (`MAX_WAIT_BEFORE_CANCEL`), which is before a
+// `const` in this file is initialized — a closure over one throws on load. Reading
+// an unset global just yields the desktop default, which is what the rest of the
+// file wants anyway.
+declare const globalThis: { __testIsMobile?: boolean; __testHiddenSeconds?: number } & typeof global;
+
 jest.mock('lib/platform', () => ({
-  isMobile: () => false,
+  isMobile: () => globalThis.__testIsMobile === true,
   isExtension: () => true,
   isDesktop: () => false
 }));
 
 jest.mock('lib/mobile/background-time', () => ({
-  hiddenSecondsSince: () => 0
+  hiddenSecondsSince: () => globalThis.__testHiddenSeconds ?? 0
 }));
 
 // The node-verify step that Retry runs before requeueing. 'unknown' is the
@@ -104,6 +116,8 @@ const read = async (id: string) => (await Repo.transactions.where({ id }).first(
 beforeEach(async () => {
   jest.clearAllMocks();
   mockVerifySendLanded.mockResolvedValue('unknown');
+  globalThis.__testIsMobile = false;
+  globalThis.__testHiddenSeconds = 0;
   await Repo.transactions.clear();
 });
 
@@ -464,43 +478,55 @@ describe('the in-flight marker resolves, so a bad request is not pinned forever'
 });
 
 /**
- * Regression: the reaper takes rows that have ALREADY outlived
- * `MAX_WAIT_BEFORE_CANCEL` — the app's own threshold for "no pipeline can still
- * be running" — so treating them as maybe-in-flight is not conservative, it is
- * false. Doing so pinned the cached request of every stuck send, and since
- * nothing ever unset it the row replayed the identical failing request on every
- * retry, forever.
+ * Regression: the reaper's marker must not be PERMANENT. It used to pin the
+ * cached request of every stuck send with nothing to unpin it, so the row
+ * replayed the identical failing request on every retry, forever.
+ *
+ * It does mark them — reaping stops the spinner, not the work; see
+ * `cancelStuckTransactions`. The requirement is that the mark lapses, so a
+ * request the reap caught mid-prove is rebuilt once the pipeline can no longer
+ * be alive rather than replayed for good.
  */
-describe('the stuck reaper does not pin the request of a send it reaps', () => {
-  it('lets a send that wedged while executing rebuild on retry', async () => {
-    const tx = inFlightSend('reaped', {
+describe('the stuck reaper does not pin the request of a send it reaps for good', () => {
+  const wedged = (id: string, overrides: Partial<ITransaction> = {}) =>
+    inFlightSend(id, {
       stage: 'executing',
       // Stuck: picked up over the 30-minute desktop threshold ago.
-      processingStartedAt: Math.floor(Date.now() / 1000) - 60 * 60
+      processingStartedAt: Math.floor(Date.now() / 1000) - 60 * 60,
+      ...overrides
     });
-    await Repo.transactions.add(tx);
+
+  /** Age the marker past its window, as the passage of time would. */
+  const lapseMarker = async (id: string) => {
+    await Repo.transactions.where({ id }).modify(r => {
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
+    });
+  };
+
+  it('lets a send that wedged while executing rebuild on retry', async () => {
+    await Repo.transactions.add(wedged('reaped'));
 
     await cancelStuckTransactions();
 
     const reaped = await read('reaped');
     expect(reaped.status).toBe(ITransactionStatus.Failed);
-    expect(reaped.cancelledInFlightAt).toBeUndefined();
+    // Marked, because the pipeline may well still be running...
+    expect(reaped.cancelledInFlightAt).toBeDefined();
+    // ...but not as a crossing, which is the part that would be permanent.
     expect(reaped.mayHaveSubmitted).toBeUndefined();
 
+    await lapseMarker('reaped');
     await requeueFailedTransaction('reaped');
     expect((await read('reaped')).requestBytes).toBeUndefined();
   });
 
   it('still keeps them when the leaf recorded a crossing before it wedged', async () => {
-    const tx = inFlightSend('reaped-submitted', {
-      stage: 'executing',
-      processingStartedAt: Math.floor(Date.now() / 1000) - 60 * 60
-    });
-    await Repo.transactions.add(tx);
+    await Repo.transactions.add(wedged('reaped-submitted'));
     // The leaf's stamp is not stage-dependent and survives the reap.
     await markMayHaveSubmitted('reaped-submitted');
 
     await cancelStuckTransactions();
+    await lapseMarker('reaped-submitted');
     await requeueFailedTransaction('reaped-submitted');
 
     expect((await read('reaped-submitted')).requestBytes).toBeDefined();
@@ -728,6 +754,159 @@ describe('a plain send is not refused on the strength of a stage it never had', 
     // ...but on the expiring marker alone, so it can still lapse.
     expect(row.mayHaveSubmitted).toBeUndefined();
     expect(row.cancelledInFlightAt).toBeDefined();
+  });
+});
+
+// `MAX_WAIT_BEFORE_CANCEL` is denominated in ACTIVE seconds — the reaper that
+// owns it subtracts backgrounded time. The marker compared wall clock against it,
+// so on a phone the two disagreed about the same row.
+describe('the marker is measured on the same clock as the threshold it is bounded by', () => {
+  const cancelledAgo = (seconds: number) =>
+    inFlightSend('phone', {
+      stage: 'proving',
+      status: ITransactionStatus.Failed,
+      requestBytes: undefined,
+      cancelledInFlightAt: Math.floor(Date.now() / 1000) - seconds
+    });
+
+  // Past the window in wall-clock terms either way; the two differ only in how
+  // much of that stretch the platform had us frozen for.
+  const WALL = MAX_WAIT_BEFORE_CANCEL + 600;
+
+  it('holds a send backgrounded past the wall-clock window but barely active', async () => {
+    globalThis.__testIsMobile = true;
+    // Almost all of it frozen: the pipeline has had a fraction of the window to
+    // run in, and is still there to resume and submit.
+    globalThis.__testHiddenSeconds = WALL - 100;
+    await Repo.transactions.add(cancelledAgo(WALL));
+
+    await expect(requeueFailedTransaction('phone')).rejects.toThrow(/may already have reached the network/);
+  });
+
+  it('lets the same elapsed wall clock lapse when none of it was frozen', async () => {
+    globalThis.__testIsMobile = true;
+    globalThis.__testHiddenSeconds = 0;
+    await Repo.transactions.add(cancelledAgo(WALL));
+
+    await requeueFailedTransaction('phone');
+    expect((await read('phone')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('does not discount anything on desktop, where a background tab keeps running', async () => {
+    globalThis.__testIsMobile = false;
+    globalThis.__testHiddenSeconds = WALL - 100;
+    await Repo.transactions.add(cancelledAgo(WALL));
+
+    await requeueFailedTransaction('phone');
+    expect((await read('phone')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  // A stamp cannot be written in the future, so a future one means the clock moved
+  // backwards under us. Read as a plain `now - at <= MAX` that is negative, hence
+  // "live", for the whole span of the discrepancy — days, for a restored row.
+  it('treats a wildly future-dated stamp as telling us nothing, not as live forever', async () => {
+    await Repo.transactions.add(
+      inFlightSend('skewed', {
+        stage: 'proving',
+        status: ITransactionStatus.Failed,
+        requestBytes: undefined,
+        cancelledInFlightAt: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60
+      })
+    );
+
+    await requeueFailedTransaction('skewed');
+    expect((await read('skewed')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('still holds through a small backwards correction, which is real skew', async () => {
+    await Repo.transactions.add(
+      inFlightSend('skewed-small', {
+        stage: 'proving',
+        status: ITransactionStatus.Failed,
+        requestBytes: undefined,
+        cancelledInFlightAt: Math.floor(Date.now() / 1000) + 30
+      })
+    );
+
+    await expect(requeueFailedTransaction('skewed-small')).rejects.toThrow(/may already have reached the network/);
+  });
+});
+
+describe('the marker lands only where there is still a pipeline to outlive the cancel', () => {
+  it('is not stranded on a row whose pipeline stopped between the read and the write', async () => {
+    const tx = inFlightSend('raced', { stage: 'proving', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+    // The Cancel reads the row here (still in flight)...
+    const snapshot = await read('raced');
+    // ...the pipeline's own catch gets there first, resolving the marker...
+    await cancelTransactionAfterPipelineStopped(snapshot, new Error('prove failed'));
+    // ...and only then does the Cancel write, off its stale snapshot.
+    await cancelTransactionById('raced', 'user cancelled');
+
+    // No marker: the only thing that would have cleared it has already run, so a
+    // fresh one here would refuse the row for its full lifetime for nothing.
+    expect((await read('raced')).cancelledInFlightAt).toBeUndefined();
+    await requeueFailedTransaction('raced');
+    expect((await read('raced')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('still marks a row whose pipeline really is in flight', async () => {
+    await Repo.transactions.add(inFlightSend('live', { stage: 'proving', requestBytes: undefined }));
+
+    await cancelTransactionById('live', 'user cancelled');
+
+    expect((await read('live')).cancelledInFlightAt).toBeDefined();
+  });
+
+  it('leaves a Queued row alone — it was never picked up', async () => {
+    await Repo.transactions.add(
+      inFlightSend('queued', { status: ITransactionStatus.Queued, stage: undefined, requestBytes: undefined })
+    );
+
+    await cancelTransactionById('queued', 'user cancelled');
+
+    expect((await read('queued')).cancelledInFlightAt).toBeUndefined();
+  });
+});
+
+// The reaper's stated premise was that a row it takes cannot still be running.
+// The threshold is when the app stops waiting, not when the work stops.
+describe('the stuck reaper marks what it reaps, because reaping does not stop the work', () => {
+  it('marks a reaped send, so Retry does not treat it as never sent', async () => {
+    await Repo.transactions.add(
+      inFlightSend('reaped', {
+        stage: 'proving',
+        requestBytes: undefined,
+        processingStartedAt: Math.floor(Date.now() / 1000) - 10_000
+      })
+    );
+
+    await cancelStuckTransactions();
+
+    const row = await read('reaped');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.cancelledInFlightAt).toBeDefined();
+    await expect(requeueFailedTransaction('reaped')).rejects.toThrow(/may already have reached the network/);
+  });
+
+  // ...and because the marker expires, the row recovers rather than bricking —
+  // which is what made marking affordable here at all.
+  it('lets it retry again once the window has passed', async () => {
+    await Repo.transactions.add(
+      inFlightSend('reaped-later', {
+        stage: 'proving',
+        requestBytes: undefined,
+        processingStartedAt: Math.floor(Date.now() / 1000) - 10_000
+      })
+    );
+    await cancelStuckTransactions();
+
+    await Repo.transactions.where({ id: 'reaped-later' }).modify(r => {
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
+    });
+
+    await requeueFailedTransaction('reaped-later');
+    expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
   });
 });
 

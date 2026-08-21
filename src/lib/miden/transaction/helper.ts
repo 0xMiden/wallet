@@ -195,22 +195,39 @@ export const markMayHaveSubmitted = async (id: string) => {
  * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why
  * this is separate from — and expires unlike — `mayHaveSubmitted`.
  *
- * Guard-free for the same reason as `markMayHaveSubmitted`: the cancel it
- * accompanies is what makes the row terminal.
+ * Guard-free as to the TERMINAL state, for the same reason as
+ * `markMayHaveSubmitted`: the cancel it accompanies is what makes the row
+ * terminal, so it cannot wait for that.
+ *
+ * It does test the in-flight condition, and does so in here rather than at the
+ * call site, because the two have to be one write. The caller decides from a row
+ * it read earlier; if the pipeline's own catch lands in between, that catch
+ * resolves the marker and THEN this writes a fresh one — onto a row whose
+ * pipeline is now provably dead, with the only thing that would have cleared it
+ * already run. The row is then refused for the marker's full lifetime for no
+ * reason. Re-reading the status inside the `modify` closes that window: Dexie
+ * runs it against the committed row.
  */
 export const markCancelledInFlight = async (id: string) => {
   const at = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction) return;
     tx.cancelledInFlightAt = at;
   });
 };
 
 /**
  * Resolve the above: the pipeline has stopped, so a submit is no longer merely
- * possible. Called from the pipeline's own catch. If it HAD submitted, the leaf
- * stamped `mayHaveSubmitted` before doing so and the guard holds on that
- * instead — which is what makes clearing this safe, and what lets a genuine
- * execute or prove failure rebuild its request rather than replaying a bad one.
+ * possible. Called from the pipeline's own catch, and what lets a genuine execute
+ * or prove failure rebuild its request rather than replaying a bad one.
+ *
+ * On the guardian paths a submit that HAD happened is recorded on
+ * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
+ * instead and clearing this loses nothing. A plain send stamps nothing, so
+ * clearing genuinely returns it to "no evidence either way" — correct for the
+ * failures that reach here (the pipeline stopped, and the aborted-op case is
+ * routed to the flag instead), but not a claim that a crossing was recorded
+ * elsewhere. See `cancelTransactionAfterPipelineStopped`.
  */
 export const clearCancelledInFlight = async (id: string) => {
   await Repo.transactions.where({ id }).modify(tx => {

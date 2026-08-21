@@ -1263,7 +1263,20 @@ const generateGuardianTransaction = async (
       // accept the over-approximation. It errs the safe way: a leaf that fails
       // before submitting keeps cached bytes it could have rebuilt, whereas the
       // opposite mistake pays twice.
-      await markMayHaveSubmitted(transaction.id);
+      //
+      // Only where there ARE bytes to pin, which is what this over-approximation
+      // was weighed against. A guardian send with no recall window takes
+      // `createSendProposal` and caches nothing, so the flag would protect
+      // nothing and instead assert a crossing on a row that has neither bytes nor
+      // a captured id — precisely the shape `requeueFailedTransaction` refuses.
+      // Stamping it here would therefore brick every non-recallable guardian send
+      // on its FIRST failure, the vault-slot rejection this release fixes
+      // included. The safe-erring argument does not reach that far: it trades a
+      // needless rebuild for a possible double payment, not a working Retry for a
+      // dead one.
+      if (transaction.requestBytes !== undefined) {
+        await markMayHaveSubmitted(transaction.id);
+      }
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),

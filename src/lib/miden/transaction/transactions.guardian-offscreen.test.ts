@@ -450,27 +450,57 @@ describe('guardian leaf records the submit crossing', () => {
     expect(txStore.find(r => r.id === 'cross-inline')!.mayHaveSubmitted).toBe(true);
   });
 
-  it('flag ON: the offscreen leaf stamps it before dispatch, having no stage to narrow', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    // Asserted from inside the dispatch: the whole point is that the flag is
-    // durable BEFORE the bytes cross, since after that the wallet cannot tell
-    // whether the offscreen realm submitted.
+  // The offscreen leaf has no stage to narrow — the realm reports none — so the
+  // flag must be durable BEFORE the bytes cross, since after that the wallet
+  // cannot tell whether the realm submitted. Asserted from inside the dispatch.
+  //
+  // But only where there are bytes for it to protect. The flag is permanent, and
+  // `requeueFailedTransaction` refuses a send carrying it with no bytes and no
+  // captured id, so stamping a byteless row pre-emptively does not err safe — it
+  // bricks Retry on the row's first failure. Hence the pair below, which differ
+  // only in whether a request was cached.
+  const dispatchRecording = (id: string) => {
     let flagAtDispatch: unknown;
     mockDispatchGuardianPipeline.mockImplementation(async () => {
-      flagAtDispatch = txStore.find(r => r.id === 'cross-offscreen')!.mayHaveSubmitted;
+      flagAtDispatch = txStore.find(r => r.id === id)!.mayHaveSubmitted;
       return makeResult();
     });
-    arrange('cross-offscreen', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
+    return () => flagAtDispatch;
+  };
 
-    await generateTransaction(
-      buildTx('cross-offscreen', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
-      signCallback,
-      false,
-      provider as never
-    );
+  it('flag ON: stamps before dispatch when a cached request is at stake', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // A recallable send: the cached bytes pin the note id, which is the only
+    // reason the chain would reject a duplicate — exactly what the flag protects.
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 100 }
+    };
+    const flagAtDispatch = dispatchRecording('cross-offscreen');
+    arrange('cross-offscreen', row);
+
+    await generateTransaction(buildTx('cross-offscreen', row) as never, signCallback, false, provider as never);
 
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
-    expect(flagAtDispatch).toBe(true);
+    expect(flagAtDispatch()).toBe(true);
+  });
+
+  it('flag ON: does not stamp a non-recallable send, which caches nothing to protect', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // No recall window → `createSendProposal` → no cached request. Stamping here
+    // would refuse this row's very first Retry, the vault-slot failure included.
+    const row = { type: 'send' as const, secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const flagAtDispatch = dispatchRecording('cross-offscreen-bare');
+    arrange('cross-offscreen-bare', row);
+
+    await generateTransaction(buildTx('cross-offscreen-bare', row) as never, signCallback, false, provider as never);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(flagAtDispatch()).toBeUndefined();
   });
 });
 
