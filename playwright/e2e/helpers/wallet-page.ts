@@ -1124,7 +1124,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // `context.browser()?.isConnected() === false` and takes its crash-recovery
     // path (relaunch from the on-disk profile). Swallow errors: the browser may
     // already be gone (e.g. it genuinely crashed first).
+    //
+    // Close the page FIRST. Its exposed bindings (the screen-change capture)
+    // and any in-flight page calls are torn down in order that way; pulling the
+    // whole browser out from under a live page can leave a response carrying a
+    // JSHandle to arrive after the handle was disposed, which Playwright reports
+    // as "Object with guid handle@… was not bound in the connection" and
+    // charges to the test.
     const browser = this.page.context().browser();
+    if (!this.page.isClosed()) {
+      await this.page.close().catch(() => {});
+    }
     await browser?.close().catch(() => {});
   }
 

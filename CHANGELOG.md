@@ -9,7 +9,7 @@
 - [FIX][all] Import Wallet seed-phrase screen: consistent vertical gap between the word grid and the Continue button on short viewports. (#741)
 - [FEATURE][all] Transaction details Notes card now shows the note type (Private/Public) for sent and consumed notes, and lists the note ids a claim consumed. (#732)
 - [FEATURE][all] Batch claims that consume several tokens now show every asset's summed total ("+20 A, +10 B") on the activity row, the generating-transaction pill and the details hero, instead of only the first token.
-- [FIX][e2e] Guard the harness's async page-network capture listener so a spec that kills the browser mid-request no longer fails with "Object with guid … was not bound in the connection".
+- [FIX][e2e] `killBrowser()` specs no longer fail with "Object with guid handle@… was not bound in the connection": the screen-change capture handler polls a handle-free boolean instead of `waitForFunction`, `killBrowser()` closes the page before the browser, and the async page-network capture listener is guarded.
 
 ### Features
 

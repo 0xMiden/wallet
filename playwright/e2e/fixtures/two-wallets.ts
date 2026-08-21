@@ -208,14 +208,29 @@ export async function installScreenCapture(page: Page, label: string, outputDir:
     // painted -- capturing then yields a blank white viewport. Wait briefly for
     // the page to have rendered visible text, and skip the frame if it never
     // does, so the filmstrip never contains blank frames.
-    try {
-      await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
-        timeout: 1500,
-        polling: 100
-      });
-    } catch {
-      return;
+    //
+    // Deliberately a boolean `evaluate` poll, NOT `page.waitForFunction`: that
+    // resolves with a JSHandle, and when a spec kills the browser
+    // (`killBrowser()`) while this handler is mid-wait, the handle's response
+    // can land AFTER the browser close already disposed it. Playwright then
+    // throws "Object with guid handle@… was not bound in the connection" from
+    // its connection dispatcher -- before any try/catch here can see it -- and
+    // charges it to the running test (guardian-recovery-stress's browser-crash
+    // spec on main at d77bc51d / run 32478703603; the trace shows this very
+    // waitForFunction ending at the error timestamp). A serialised boolean
+    // carries no handle, so there is nothing to be unbound.
+    const deadline = Date.now() + 1500;
+    for (;;) {
+      if (page.isClosed()) return;
+      const painted = await page
+        .evaluate(() => !!document.body && document.body.innerText.trim().length > 0)
+        .catch(() => undefined);
+      if (painted === undefined) return; // page/context gone mid-wait
+      if (painted) break;
+      if (Date.now() >= deadline) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
+    if (page.isClosed()) return;
     await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
   };
   try {
