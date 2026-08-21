@@ -62,7 +62,7 @@ Not when the setting is on, not when it is off, not ever:
 
 And nothing collected is ever sold, or shared with data brokers or ad networks.
 
-We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request — and an IP address indicates a rough region. Our processors are configured not to store it, but we are not going to describe data as anonymous when a server saw where it came from.
+We also do not call this data anonymous. Sending anything over the internet means the receiving server sees the IP address the request came from, exactly as it does for any other network request — and an IP address indicates a rough region. Our processors are configured not to store it. A processor may still derive something coarse from it before discarding it, such as which country a request came from, and keep that alongside the message; we are not going to describe data as anonymous when a server saw where it came from.
 
 ## Identifiers
 

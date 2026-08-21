@@ -90,6 +90,7 @@ vendor defaulting to longer is worse than making no claim at all.
 - [ ] Sentry: **IP address storage disabled** (`Settings → Security & Privacy → Prevent Storing of IP Addresses`)
 - [ ] Sentry: data scrubbing left **on**; it is defence in depth behind our own scrubber, not a replacement for it
 - [ ] Both: raw event export **off**, third-party forwarding **off**
+- [ ] Confirm in writing what each processor **derives from the connection IP before discarding it**, and how long it keeps the derivation. Aptabase's dashboard reports a country breakdown, which has to come from somewhere, and no field the wallet sends carries one. Not storing an IP and not storing anything computed from it are different promises. The policy currently says the coarse derivation may happen; if it turns out neither processor does it, tighten that sentence, and if one keeps more than a country, the policy has to say so.
 - [ ] Both: signed DPA on file naming the EU hosting region
 - [ ] `APTABASE_APP_KEY` and `SENTRY_DSN` set in the release build environment. Both are empty by default, so an unconfigured build sends nothing regardless of the setting. The key comes from Aptabase's dashboard under Settings → Instructions.
 - [ ] `APTABASE_HOST` left **unset** for a release build. The host is derived from the key's region (`A-EU-*` → `https://eu.aptabase.com`), and setting it overrides that. It exists only for a self-hosted (`A-SH-*`) or development (`A-DEV-*`) key, which carry no region to derive from and send nothing at all without it.
