@@ -42,7 +42,11 @@ jest.mock('lib/telemetry/crash', () => ({
 
 const mockInitCrashReporting = initCrashReporting as jest.Mock;
 
-const ACCEPT_LABEL = 'Share anonymous data';
+// "Usage data" rather than "anonymous data": the ingest endpoint sees an IP like
+// any request, so "anonymous" is a term of art that invites a stronger reading
+// than this feature can support — and this is the one string doing the legal
+// work. Pinned here so the narrower claim cannot quietly widen again.
+const ACCEPT_LABEL = 'Share usage data';
 const DECLINE_LABEL = 'Not now';
 
 describe('HelpImproveWalletScreen', () => {
@@ -133,6 +137,20 @@ describe('HelpImproveWalletScreen', () => {
   it('tells the user the choice is reversible', () => {
     renderScreen();
     expect(screen.getByTestId('help-improve-wallet-disclosure')).toHaveTextContent(/change this any time/i);
+  });
+
+  it('never claims anonymity, in the buttons or the body', () => {
+    renderScreen();
+
+    // "Anonymous" is a term of art that invites a stronger reading than this
+    // feature can support: the ingest endpoint sees an IP like any other
+    // request. The whole prompt is checked, not just the accept button, so the
+    // claim cannot reappear in the disclosure once it has been taken off the
+    // button.
+    const prompt = screen.getByTestId('onboarding-help-improve-wallet').textContent ?? '';
+    expect(prompt).not.toMatch(/anonym/i);
+    // ...and the narrower claim really is the one on the button.
+    expect(prompt).toContain(ACCEPT_LABEL);
   });
 
   it('records acceptance and starts crash reporting', () => {
