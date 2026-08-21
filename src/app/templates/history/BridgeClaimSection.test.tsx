@@ -122,8 +122,23 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   } as IHistoryEntry;
 }
 
-const renderSection = (props: { entry: IHistoryEntry; onUpdated?: () => void }) =>
-  render(<BridgeClaimSection entry={props.entry} onUpdated={props.onUpdated ?? jest.fn()} />);
+/**
+ * Renders with `restoredFromBackup` defaulted to false.
+ *
+ * The prop is REQUIRED in production for a reason: its previous form read the
+ * flag off `entry`, and the only production producer never set it, so every
+ * guard in this panel read `undefined` and did nothing. Keep this helper as the
+ * only place the default is written, so a restored-row case has to opt in
+ * explicitly rather than inherit a fixture's silence.
+ */
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean; onUpdated?: () => void }) =>
+  render(
+    <BridgeClaimSection
+      entry={props.entry}
+      restoredFromBackup={props.restoredFromBackup ?? false}
+      onUpdated={props.onUpdated ?? jest.fn()}
+    />
+  );
 
 const agglayer = (o: Partial<IHistoryEntry> = {}) =>
   entry({
@@ -211,6 +226,68 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       renderSection({ entry: agglayer({ bridgeClaimStatus: 'claimed' }) });
       expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    });
+  });
+
+  // Every affordance in this panel, asserted from ONE restored row. The guards
+  // existed before this suite did and were all inert in production, because the
+  // only producer of `entry` never set the flag — nothing here could have caught
+  // that while the value came from the fixture. Driving them together off a
+  // single prop is the point.
+  describe('a row restored from a backup', () => {
+    it('polls nothing and offers no affordance, whatever the row records', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+
+      renderSection({
+        entry: agglayer({ bridgeClaimStatus: 'pending', bridgeIntentNonce: 'nonce-1' }),
+        restoredFromBackup: true
+      });
+
+      // Nothing is polled: no AggLayer deposit lookup, no Epoch fill poll, and
+      // no Miden block read (which only the reclaim gate triggers).
+      await waitFor(() => expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument());
+      expect(mockFindClaimable).not.toHaveBeenCalled();
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not poll the Epoch fill for a restored pending row', async () => {
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+
+      renderSection({
+        entry: entry({
+          status: 2,
+          bridgeEpochStatus: 'pending',
+          bridgeIntentNonce: 'nonce-1',
+          bridgeReclaimHeight: undefined,
+          outputNoteIds: undefined
+        }),
+        restoredFromBackup: true
+      });
+
+      // Give the effect the same window the non-restored case needs to fire in.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+    });
+
+    it('withholds the reclaim button on a failed Epoch row past its reclaim height', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(5000); // well past 1000
+
+      renderSection({ entry: entry(), restoredFromBackup: true });
+
+      await waitFor(() => expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument());
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('still polls and offers the claim when the row is NOT restored', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
+
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalled());
     });
   });
 

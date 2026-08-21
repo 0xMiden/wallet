@@ -1,5 +1,6 @@
 import { ITransactionStatus } from './db/types';
 import { exportDb, importDb, transactions, Table } from './repo';
+import { isRequeueableTransaction } from './transaction/retry';
 
 describe('miden repo export/import', () => {
   beforeEach(async () => {
@@ -189,6 +190,180 @@ describe('miden repo export/import', () => {
     expect(survivors[0]!.amount).toBe(BigInt(1));
   });
 
+  // `safeGenerateTransactionsLoop` drives EVERY queued row through the signer
+  // without asking where it came from, so a queued row in a dump is not history
+  // -- it is an instruction to sign. A tampered backup must not be able to
+  // spend, and an honest one's stale queued row must not fire either.
+  it.each([
+    ['Queued', ITransactionStatus.Queued],
+    ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction]
+  ])('lands an imported %s row in a terminal state', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'injected',
+          type: 'send',
+          status,
+          accountId: 'victim',
+          secondaryAccountId: 'attacker',
+          initiatedAt: 1,
+          amount: '999999',
+          displayIcon: 'SEND'
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    // Failed alone is not inert: `isRequeueableTransaction` offers a one-tap
+    // Retry on a failed send, which re-signs it. The flag is what blocks that.
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+    // Failing a row moves it onto the completed-history path, which reads
+    // `completedAt` as the timestamp and builds a Date from it with no fallback.
+    expect(restored!.completedAt).toBe(1);
+    // The row survives as a record -- only its ability to execute is removed.
+    expect(restored!.id).toBe('injected');
+    expect(restored!.amount).toBe(BigInt(999999));
+  });
+
+  // Asserted on the DUMP, not on a re-import: import re-stamps the flag, so a
+  // round-trip check passes even when the export drops it. Re-exporting a
+  // restored wallet must keep the provenance rather than laundering it.
+  it('carries restoredFromBackup through export', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'imported',
+        type: 'send',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        restoredFromBackup: true,
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const dumped = JSON.parse(await exportDb());
+    expect(dumped[Table.Transactions][0].restoredFromBackup).toBe(true);
+  });
+
+  // The flag is stamped by a literal AFTER the spread. Reversing those two
+  // clauses hands the attacker control of the gate, and every other test here
+  // passes either way because none of their dumps mention the field.
+  it('ignores a restoredFromBackup the dump tries to supply', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'liar',
+          type: 'send',
+          status: ITransactionStatus.Failed,
+          restoredFromBackup: false,
+          accountId: 'victim',
+          initiatedAt: 1
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+  });
+
+  // The status test is an allow-list of the terminal values, so a dump is free
+  // to carry a status no consumer recognises. Such a row is invisible in every
+  // history view (all of them compare with `===`) while still holding its id.
+  it.each([
+    ['out of range', 99],
+    ['a string', '0'],
+    ['absent', undefined]
+  ])('treats a status that is %s as unfinished', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [{ id: 'odd', type: 'send', status, accountId: 'a', initiatedAt: 7 }]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    expect(restored!.completedAt).toBe(7);
+    expect(restored!.restoredFromBackup).toBe(true);
+  });
+
+  const importOne = async (tx: Record<string, unknown>) => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [{ id: 'x', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1, ...tx }]
+      })
+    );
+    const [restored] = await transactions.toArray();
+    return restored!;
+  };
+
+  // Import must NOT rewrite the lifecycle markers in `extraInputs`. An earlier
+  // revision settled them to stop a restored row being resumed; those same
+  // strings are what the bridge/earn status pills render, so it rewrote journeys
+  // the user had genuinely completed as "Failed" — on rows whose `status` is
+  // Completed, which is exactly where the failure card withholds the reason. The
+  // resumers are gated on `restoredFromBackup` instead; display stays truthful.
+  it.each([
+    ['a completed Epoch bridge', 'bridged-send', { provider: 'epoch', epochStatus: 'confirmed' }],
+    ['an in-flight Epoch bridge', 'bridged-send', { provider: 'epoch', epochStatus: 'pending' }],
+    ['a claimed AggLayer bridge', 'bridged-send', { provider: 'agglayer', claimStatus: 'claimed' }],
+    ['a claimable AggLayer bridge', 'bridged-send', { provider: 'agglayer', claimStatus: 'ready' }],
+    ['a delivered bridge receive', 'bridged-receive', { phase: 'received' }],
+    ['an in-flight bridge receive', 'bridged-receive', { phase: 'delivering' }],
+    ['a settled earn deposit', 'earn-deposit', { epochStatus: 'confirmed' }],
+    ['an in-flight earn withdrawal', 'earn-withdraw', { phase: 'redeeming' }]
+  ])('restores %s exactly as the backup recorded it', async (_label, type, extraInputs) => {
+    const restored = await importOne({ type, extraInputs });
+
+    expect(restored.extraInputs).toEqual(extraInputs);
+    // Provenance is still recorded — that is what the resumers read.
+    expect(restored.restoredFromBackup).toBe(true);
+  });
+
+  // A Completed row skips the neutralization branch entirely, so it was the one
+  // path that could still reach history without a timestamp. History reads
+  // `completedAt` straight off the row with no fallback and builds a Date from
+  // it — a missing one throws while grouping by day and takes down the list.
+  it('stamps a timestamp on a terminal row that arrives without one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'no-ts', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 42 }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Completed);
+    expect(restored!.completedAt).toBe(42);
+  });
+
+  it('keeps a terminal row own completedAt when it has one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'has-ts',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'a',
+          initiatedAt: 42,
+          completedAt: 99
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.completedAt).toBe(99);
+  });
+
   it('leaves terminal rows untouched on import', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
@@ -203,5 +378,10 @@ describe('miden repo export/import', () => {
     const restored = new Map((await transactions.toArray()).map(tx => [tx.id, tx]));
     expect(restored.get('done')!.status).toBe(ITransactionStatus.Completed);
     expect(restored.get('bad')!.status).toBe(ITransactionStatus.Failed);
+    // Terminal rows keep their status, but every imported row is still marked --
+    // an imported "completed" row is unverified local data, not a chain fact,
+    // and a genuinely failed one must not become retryable just by being in a dump.
+    expect(restored.get('done')!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
 });

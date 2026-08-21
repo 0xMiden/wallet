@@ -155,7 +155,12 @@ export const initiateConsumeNotesTransaction = async (
       const byBatch = await Repo.transactions.where('noteIds').equals(note.id).toArray();
       const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
       const sameAccount = [...dedupedRows.values()].filter(
-        tx => tx.type === 'consume' && compareAccountIds(tx.accountId, accountId)
+        // `restoredFromBackup` rows are excluded: dedup asks "did THIS wallet
+        // already claim this note", and a restored row is not evidence of that —
+        // it is whatever the backup's author wrote. Counting one would let a
+        // dump naming a note id block that note from ever being claimed, for
+        // auto-consume and for an explicit Claim alike.
+        tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
       );
 
       // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.

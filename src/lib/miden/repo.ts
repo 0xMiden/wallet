@@ -1,6 +1,6 @@
 import Dexie, { Transaction } from 'dexie';
 
-import { ITransaction } from './db/types';
+import { ITransaction, ITransactionStatus } from './db/types';
 
 export enum Table {
   Transactions = 'transactions'
@@ -190,6 +190,95 @@ function mapValues(source: object, transform: (value: unknown, key: string) => u
 const isBigIntSource = (value: unknown): value is string | number | bigint =>
   typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint';
 
+const IMPORTED_UNFINISHED_REASON = 'Not restored — a backup carries history, not pending work';
+
+/**
+ * Import deliberately does NOT rewrite the lifecycle markers a row carries in
+ * `extraInputs` (`phase`, `claimStatus`, `epochStatus`).
+ *
+ * An earlier revision did, on the theory that settling them stops a restored row
+ * from being resumed "by construction". It does — but those same strings are
+ * what `bridgeStatusOf` and the status pills render, so settling them rewrote
+ * bridges and deposits the user had genuinely completed as **Failed**, on rows
+ * whose `status` is `Completed`. That put the reason string out of reach too:
+ * the failure card is gated on `status === Failed`, so the user saw a bare
+ * "Failed" with no explanation, and no code path could ever correct it. It
+ * corrupted honest restores to defend against hostile ones.
+ *
+ * Provenance and permission are separate concerns, and only permission needs
+ * enforcing here. `restoredFromBackup` marks provenance; the doors that SIGN or
+ * QUEUE work check it (`isRequeueableTransaction`, `resubmitEarnWithdrawal`, the
+ * earn/bridge reconcilers, `localSwapOrders`, consume dedup, the bridge claim and
+ * reclaim affordances). Display reads the row as the backup recorded it.
+ */
+
+/**
+ * Land every imported row in a terminal state, flagged as restored.
+ *
+ * A backup is a record of what HAPPENED. A row restored as `Queued` is not a
+ * record, it is a work item: `safeGenerateTransactionsLoop` picks up any queued
+ * row it finds, with no check on where the row came from, and drives it through
+ * the signer — so a hostile or tampered backup could otherwise have the wallet
+ * sign and broadcast a send the user never authorised, with no confirmation
+ * step. Even an honest backup's queued row is stale by restore time and would
+ * only fail against chain state that has moved on.
+ *
+ * `GeneratingTransaction` gets the same treatment: it is the other non-terminal
+ * status, and the loop's in-progress check would stall on it forever.
+ *
+ * `Failed` alone is NOT enough. `isRequeueableTransaction` offers a one-tap
+ * Retry on any failed send/consume/swap/bridged-send/execute, and that requeue
+ * re-signs the row's original recipient and amount with no confirmation — so
+ * stopping at `Failed` would just move the unattended signature one tap away.
+ * `restoredFromBackup` is the durable marker that keeps the row inert; every
+ * row in the dump carries it, not only the ones neutralized here, so a restored
+ * *completed* row is also identifiable as unverified local data rather than
+ * something this wallet witnessed on chain.
+ *
+ * The terminal shape has to match `cancelTransaction`'s, because failing a row
+ * moves it onto the completed-history path: `getCompletedTransactions` includes
+ * failed rows, and that path reads `completedAt` as the row's timestamp with no
+ * fallback — a missing one becomes an invalid `Date` and throws while grouping
+ * history by day, taking down the whole activity list.
+ */
+const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
+  // Spread FIRST, literal second: reversing these two would let a dump supply
+  // its own `restoredFromBackup: false` and disable the whole gate.
+  const restored = { ...tx, restoredFromBackup: true };
+  const status = Reflect.get(tx, 'status');
+  const initiatedAt = Reflect.get(tx, 'initiatedAt');
+  const completedAt = Reflect.get(tx, 'completedAt');
+  // Unconditional, on the terminal path too. Any row that ends up Completed or
+  // Failed is read back through the completed-history path, which takes
+  // `completedAt` as the row's timestamp with NO fallback — a missing one
+  // becomes an invalid `Date` and throws while grouping history by day, taking
+  // down the whole activity list. A dump is free to carry `{status: 2}` and no
+  // `completedAt` at all, so this cannot be left to the unfinished branch.
+  const timestamp =
+    typeof completedAt === 'number'
+      ? completedAt
+      : typeof initiatedAt === 'number'
+        ? initiatedAt
+        : Math.floor(Date.now() / 1000);
+
+  // An allow-list of the terminal statuses, not a deny-list of the running ones.
+  // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
+  // all; every consumer compares with `===`, so such a row is invisible in every
+  // history view while still occupying its id — and a deny-list would wave it
+  // through unstamped. Anything not recognisably terminal is treated as unfinished.
+  if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
+    return { ...restored, completedAt: timestamp };
+  }
+  return {
+    ...restored,
+    status: ITransactionStatus.Failed,
+    error: IMPORTED_UNFINISHED_REASON,
+    // `displayIcon`/`displayMessage` are re-derived for failed rows when history
+    // renders, so only the fields history reads straight off the row are set here.
+    completedAt: timestamp
+  };
+};
+
 export async function exportDb(): Promise<string> {
   const dump: { [tableName: string]: unknown[] } = {};
   await db.transaction('r', transactions, async () => {
@@ -211,10 +300,11 @@ export async function importDb(dump: string): Promise<void> {
   if (data[Table.Transactions]) {
     const transactionsToImport = data[Table.Transactions].map((tx: object) => {
       const { amount, ...rest } = mapValues(tx, fromSerializable);
-      return {
+      const imported = {
         ...rest,
         ...(isBigIntSource(amount) && { amount: BigInt(amount) })
       };
+      return neutralizeUnfinishedTransaction(imported);
     });
 
     // Replace in ONE transaction rather than `db.delete()` + `bulkAdd`. Deleting

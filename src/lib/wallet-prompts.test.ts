@@ -514,6 +514,33 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['epoch-pending', 'agg-unclaimed', 'in-flight']);
   });
 
+  // Import deliberately leaves a restored row's bridge status alone so history
+  // stays truthful, which means the prompt is what has to refuse it: this card
+  // polls the bridge indexer against dump-supplied values on a timer and puts a
+  // Claim button — an EVM signature — in front of the user.
+  it('excludes a restored bridge from the prompt whatever its recorded status', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', epochStatus: 'pending' },
+        initiatedAt: 500
+      }),
+      baseBridge({
+        id: 'restored-agg',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', claimStatus: 'ready' },
+        initiatedAt: 400
+      }),
+      baseBridge({ id: 'restored-in-flight', restoredFromBackup: true, status: ITransactionStatus.Queued }),
+      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 10 })
+    );
+
+    const active = await fetchActiveBridgePrompts('acct-1');
+
+    expect(active.map(tx => tx.id)).toEqual(['mine']);
+  });
+
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
     findClaimableDeposit.mockResolvedValue({ deposit: true });
     const claimable = baseBridge({
@@ -531,6 +558,22 @@ describe('bridge prompts', () => {
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
+  });
+
+  // Defence in depth: today's only caller passes the list `fetchActiveBridgePrompts`
+  // already filtered, but this is exported and takes whatever it is given, and
+  // `pollBridgedSend` queries the allocator and writes back onto the row.
+  it('polls nothing for a restored row even when handed one directly', async () => {
+    const restored = baseBridge({
+      id: 'agg-restored',
+      restoredFromBackup: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    await pollActiveBridgePrompts([restored]);
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {

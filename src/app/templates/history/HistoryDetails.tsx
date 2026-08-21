@@ -629,6 +629,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const withdrawOwner = earnWithdraw?.evmOwner;
   useEffect(() => {
     if (entry?.txType !== 'earn-withdraw') return;
+    // The reconciler that settles restored rows runs once per session from the
+    // Explore mount, so opening this page first would otherwise start the poll
+    // against the dump's owner and nonce. It also uses an allow-list of phases
+    // while this effect uses a deny-list, so a phase it does not recognise
+    // reaches here even after it has run.
+    if (transaction?.restoredFromBackup) return;
     if (withdrawPhase === 'received' || withdrawPhase === 'failed' || withdrawPhase === undefined) return;
 
     let cancelled = false;
@@ -658,7 +664,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [entry?.txType, withdrawPhase, withdrawNonce, withdrawOwner, transactionId, loadTransaction]);
+  }, [
+    entry?.txType,
+    withdrawPhase,
+    withdrawNonce,
+    withdrawOwner,
+    transactionId,
+    transaction?.restoredFromBackup,
+    loadTransaction
+  ]);
 
   // Drive a live lending-leg status on a Smart Deposit's detail page. The
   // initiating context started `pollEarnIntentStatus`, but it dies with that
@@ -670,6 +684,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const depositOwner = earnDeposit?.evmRecipient;
   useEffect(() => {
     if (entry?.txType !== 'earn-deposit') return;
+    // `reconcileEarnDeposits` skips restored rows rather than settling them, so
+    // nothing else stops this: it would poll Epoch every 3s, up to 100 times,
+    // for a sponsor address and nonce the backup's author chose.
+    if (transaction?.restoredFromBackup) return;
     if (entry.status !== ITransactionStatus.Completed) return;
     if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
     if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
@@ -697,7 +715,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [entry?.txType, entry?.status, depositStatus, depositNonce, depositOwner, transactionId, loadTransaction]);
+  }, [
+    entry?.txType,
+    entry?.status,
+    depositStatus,
+    depositNonce,
+    depositOwner,
+    transactionId,
+    transaction?.restoredFromBackup,
+    loadTransaction
+  ]);
 
   // Poll the swap order lineage until it reaches a terminal state (filled or
   // reclaimed). The orderId is persisted on the swap tx; the live lineage is
@@ -1050,12 +1077,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // user re-initiates those from Settings / the Earn flow), or a failed Smart
   // Withdraw, which is fully resubmittable as a brand-new Epoch intent whether or
   // not the previous one ever reached the allocator.
+  // A row restored from a backup is never retryable, whatever its type: the
+  // requeue re-signs the row's own recipient and amount, and for an imported row
+  // those came from whoever supplied the file. The backend refuses it either way
+  // — this is what keeps the UI from offering a button that only ever errors.
   const canRetry =
     entry !== null &&
     !entry.isCancelled &&
+    !transaction?.restoredFromBackup &&
     (entry.txType === 'earn-withdraw'
       ? earnWithdraw?.phase === 'failed'
-      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
+      : isRequeueableTransaction({
+          status: entry.status,
+          type: entry.txType,
+          restoredFromBackup: transaction?.restoredFromBackup
+        }));
 
   return (
     <PageLayout hideToolbar>
@@ -1374,7 +1410,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />
+                <BridgeClaimSection
+                  entry={entry}
+                  restoredFromBackup={transaction?.restoredFromBackup === true}
+                  onUpdated={loadTransaction}
+                />
               </>
             )}
 
