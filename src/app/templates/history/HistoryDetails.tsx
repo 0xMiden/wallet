@@ -68,6 +68,7 @@ import {
   EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawAmountFields,
   earnWithdrawToneOf,
+  formatBridgeOutputAmount,
   formatDate,
   isBridgeInEntry,
   swapSettlementOf
@@ -128,14 +129,18 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const inAmount = (bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
+  // raw quote/source string never renders with its full precision. `break-all`
+  // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
-    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-      <span className="text-heading-gray">{inAmount}</span>
-      <span className="text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
-      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
-      <span className="text-text-muted">{outSymbol}</span>
+    <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
+      <span className="min-w-0 text-heading-gray">{inAmount}</span>
+      <span className="min-w-0 text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+      <span className="min-w-0 text-heading-gray">{displayedOutAmount}</span>
+      <span className="min-w-0 text-text-muted">{outSymbol}</span>
     </div>
   );
 };
@@ -1028,7 +1033,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             onDismiss={goBack}
           />
         ) : (
-          <div className="flex-1 flex flex-col overflow-y-auto">
+          <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
             {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
