@@ -536,6 +536,101 @@ describe('a crossing recorded while Retry is mid-flight is not missed', () => {
   });
 });
 
+/**
+ * The two safety mechanisms elsewhere in this file both need something a plain
+ * send can lack. Byte identity needs a cached request, which only the guardian
+ * recallable path ever produces. The node check needs a captured transaction id,
+ * which a row failed from outside its pipeline never gets, because the write
+ * that would stamp it is refused on an already-terminal row.
+ *
+ * An offscreen wedge-kill produces exactly that row: one killable op spanning
+ * execute → prove → submit → apply, torn down without saying which side of the
+ * submit it died on. Rebuilding is a coin-flip on the user's money, so Retry
+ * refuses and says so.
+ */
+describe('a plain send with nothing left to prove either way is not retried blind', () => {
+  const abort = () =>
+    Object.assign(new Error('Offscreen operation op-1 aborted (deadline)'), {
+      name: 'OperationAbortedError'
+    });
+
+  it('records a wedge-kill as a real crossing, since the ambiguity never resolves', async () => {
+    const tx = inFlightSend('wedged', { stage: 'sending', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('wedged'), abort());
+
+    expect((await read('wedged')).mayHaveSubmitted).toBe(true);
+  });
+
+  it('refuses the retry rather than minting a second payment', async () => {
+    const tx = inFlightSend('wedged-retry', { stage: 'sending', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+    await cancelTransactionAfterPipelineStopped(await read('wedged-retry'), abort());
+
+    await expect(requeueFailedTransaction('wedged-retry')).rejects.toThrow(/may already have reached the network/);
+    // Still Failed — not quietly requeued behind the error.
+    expect((await read('wedged-retry')).status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('retries normally once the node CAN be asked, because an id was captured', async () => {
+    const tx = inFlightSend('wedged-with-id', {
+      stage: 'sending',
+      requestBytes: undefined,
+      transactionId: '0xtxid'
+    });
+    await Repo.transactions.add(tx);
+    await cancelTransactionAfterPipelineStopped(await read('wedged-with-id'), abort());
+
+    await requeueFailedTransaction('wedged-with-id');
+
+    expect((await read('wedged-with-id')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('retries normally when bytes pin the note id, because the chain rejects the duplicate', async () => {
+    const tx = inFlightSend('wedged-with-bytes', { stage: 'sending' });
+    await Repo.transactions.add(tx);
+    await cancelTransactionAfterPipelineStopped(await read('wedged-with-bytes'), abort());
+
+    await requeueFailedTransaction('wedged-with-bytes');
+
+    const row = await read('wedged-with-bytes');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.requestBytes).toBeDefined();
+  });
+
+  // The counterweight, and the one that matters most: this release exists to fix
+  // a send rejected by the kernel for addressing the wrong vault slot. That is an
+  // ordinary failure, not an aborted op, so it must still rebuild and retry.
+  it('leaves an ordinary pipeline failure fully retryable', async () => {
+    const tx = inFlightSend('vault-slot', { stage: 'executing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(
+      await read('vault-slot'),
+      new Error('failed to remove the fungible asset from the vault')
+    );
+    await requeueFailedTransaction('vault-slot');
+
+    const row = await read('vault-slot');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('does not apply the abort rule to types that have their own protection', async () => {
+    const tx = inFlightSend('wedged-swap', { type: 'swap', stage: 'sending' });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('wedged-swap'), abort());
+
+    // A swap's bytes are reused byte-identically, so the chain rejects a
+    // duplicate on its own and the row stays retryable.
+    expect((await read('wedged-swap')).mayHaveSubmitted).toBeUndefined();
+    await requeueFailedTransaction('wedged-swap');
+    expect((await read('wedged-swap')).status).toBe(ITransactionStatus.Queued);
+  });
+});
+
 describe('the guard is scoped to the only type whose bytes it can drop', () => {
   it('never clears a swap, whose bytes the PSWAP flow requires byte-identically', async () => {
     const tx = inFlightSend('swap-row', { type: 'swap' });

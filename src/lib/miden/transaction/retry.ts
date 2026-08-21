@@ -163,6 +163,35 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     }
   }
 
+  // Last line: refuse rather than gamble.
+  //
+  // Everything above and below assumes ONE of two things makes a retry safe —
+  // either the node can say the original landed, or the cached request pins the
+  // note id so the chain rejects the duplicate. A plain (non-guardian) `send`
+  // can end up with neither. It never caches a request (the guardian recallable
+  // path is the only producer of a send's bytes), and a row failed from outside
+  // its pipeline never captures a `transactionId`, because the completion write
+  // that would stamp it is refused on a row that is already terminal. If a
+  // submit is nonetheless plausible for such a row, requeueing rebuilds the
+  // request with a fresh note serial and the chain has no reason to reject
+  // it — the recipient is paid twice, silently.
+  //
+  // So the answer is to say so. Deliberately narrow: all four conditions have to
+  // hold, and the case this whole change exists for — a send that failed while
+  // executing against the wrong vault slot — satisfies none of the last two, so
+  // it still rebuilds and retries normally.
+  if (
+    tx.type === 'send' &&
+    tx.requestBytes === undefined &&
+    tx.transactionId === undefined &&
+    (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt))
+  ) {
+    throw new Error(
+      'This send may already have reached the network, and there is no way to confirm it. ' +
+        'Retrying could send it twice. Check your balance and start a new send if it did not go through.'
+    );
+  }
+
   // Read off the pre-reset row: the modify callback below clears `stage` as part
   // of returning the row to Queued, so it cannot be consulted from in there.
   const failedStage = tx.stage;

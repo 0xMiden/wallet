@@ -16,9 +16,10 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
-import { clearCancelledInFlight, markCancelledInFlight, updateTransactionStatus } from './helper';
+import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, updateTransactionStatus } from './helper';
 import { notifyBackgroundTransactionFailed } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 
@@ -116,9 +117,26 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * Safe because the ordering is one-way: a leaf stamps `mayHaveSubmitted` before
  * it submits, so any attempt that got that far is already recorded on a field
  * this does not touch.
+ *
+ * With ONE exception, and it is the reason this takes the error rather than just
+ * the row. An offscreen wedge-kill does not report a failure — it destroys the
+ * realm mid-operation and rejects whatever was in flight. The whole of
+ * execute → prove → submit → apply is one killable op there, so a kill says
+ * nothing about which side of the submit it landed on, and the result that would
+ * have carried the transaction id died with the realm. For a `send` that is the
+ * one shape that reaches Retry with neither a cached request pinning the note id
+ * nor an id to ask the node about, so it is recorded as a real crossing —
+ * permanently, because the ambiguity never resolves — and `requeueFailedTransaction`
+ * refuses it rather than rebuilding a second payment. Narrow by construction: an
+ * ordinary failure, including the vault-slot rejection this release fixes, is not
+ * an aborted op and still rebuilds.
  */
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
-  await clearCancelledInFlight(tx.id);
+  if (tx.type === 'send' && isOperationAbortedError(error)) {
+    await markMayHaveSubmitted(tx.id);
+  } else {
+    await clearCancelledInFlight(tx.id);
+  }
   await cancelTransaction(tx, error);
 };
 
