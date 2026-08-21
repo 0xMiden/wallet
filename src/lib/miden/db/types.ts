@@ -457,8 +457,7 @@ export class ConsumeTransaction implements ITransaction {
     this.secondaryAccountId = first.senderAddress;
     // Surface the note type in history only when it is known and uniform
     // across the batch — a mixed private/public claim has no single answer.
-    this.noteType =
-      first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
+    this.noteType = first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
     // Display amount: sum of the notes sharing the first note's faucet. Notes
     // of other faucets in a mixed batch aren't reflected here (display only).
     this.amount =
