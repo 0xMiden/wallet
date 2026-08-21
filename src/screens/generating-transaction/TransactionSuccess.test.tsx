@@ -47,6 +47,16 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => mockNativeAssetId
 }));
 
+// Explicit, because `__mocks__/app/hooks/useMidenFaucetId.ts` is picked up
+// automatically for this specifier and hard-codes a non-null id. Under that
+// mock `mockNativeAssetId` never reaches the component, so every case below
+// silently ran with a resolved native faucet — including the ones written to
+// exercise the unresolved path.
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockNativeAssetId
+}));
+
 jest.mock('lib/shared/format', () => ({
   formatAmount: (amount: bigint) => String(amount)
 }));
@@ -349,8 +359,26 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 9n, faucetId: 'faucet-x' })} onDoneClick={() => {}} />
     );
+    // The quantity is withheld entirely — not relabelled. Asserting the absence
+    // of "9 MIDEN" alone would still pass if the receipt printed "9 Unknown",
+    // which is the same invented number under a different name.
     expect(container.textContent).toContain('Payment Sent!');
-    expect(container.textContent).not.toContain('9 MIDEN');
+    expect(container.textContent).not.toContain('9');
+    act(() => root.unmount());
+  });
+
+  // The native faucet is the case that must NOT be withheld: its scale is fixed,
+  // so an empty store is no reason to drop the amount.
+  it('quantifies a named native faucet even with an empty store', async () => {
+    mockState.assetsMetadata = {};
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({ amount: 9n, faucetId: 'faucet-native' })}
+        onDoneClick={() => {}}
+      />
+    );
+    expect(container.textContent).toContain('9 MIDEN');
     act(() => root.unmount());
   });
 });

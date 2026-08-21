@@ -182,6 +182,32 @@ describe('resolveSwapHistoryFields', () => {
     expect(mockFormatAmount).toHaveBeenCalledWith(250n, 6);
   });
 
+  // Off the registry AND unresolvable: the placeholder's 6 decimals are a guess,
+  // and scaling a swap by them misreports how much was offered and asked for.
+  // Both sides are still named.
+  it('withholds both amounts when neither side resolves to a real scale', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
+    mockGetTokenMetadata.mockResolvedValue({
+      symbol: 'Unknown',
+      name: 'Unknown',
+      decimals: 6,
+      scaleIsUnknown: true
+    } as any);
+
+    const tx: any = {
+      amount: 1000n,
+      faucetId: 'offered-faucet',
+      extraInputs: { requestedAmount: 2000n, requestedFaucetId: 'requested-faucet' }
+    };
+
+    const result = await resolveSwapHistoryFields(tx);
+
+    expect(result.amount).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(result.token).toBe('Unknown');
+    expect(result.requestedToken).toBe('Unknown');
+  });
+
   it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
     // Registry misses on both sides => the `?? await getTokenMetadata(...)` path.
     mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
