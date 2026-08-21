@@ -268,7 +268,11 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
-      timestamp: tx.completedAt,
+      // Same fallback the query sorts by (`getCompletedTransactions`) and the
+      // detail view renders. A terminal row is not guaranteed to carry
+      // `completedAt`, and the day grouping builds a Date from this with no
+      // fallback of its own — one missing value takes down the whole list.
+      timestamp: tx.completedAt ?? tx.initiatedAt,
       message: updateMessageForFailed,
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,

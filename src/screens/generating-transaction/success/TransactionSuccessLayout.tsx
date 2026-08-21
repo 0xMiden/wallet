@@ -9,6 +9,7 @@ import { ReviewLabel } from 'components/review/ReviewRow';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { ITransaction } from 'lib/miden/db/types';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
@@ -71,8 +72,13 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';
   const consumeParts =
     transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
+  // Same rule as the in-progress badge this receipt replaces: a faucet whose
+  // decimals were never resolved has no honest scale, so the asset is named
+  // without a quantity instead of being shown at the placeholder's guess.
   const amount =
-    transaction?.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+    transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
+      ? formatAmount(transaction.amount, tokenMetadata?.decimals)
+      : undefined;
   const amountText =
     consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
 

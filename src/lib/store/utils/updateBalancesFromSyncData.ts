@@ -49,7 +49,11 @@ export async function updateBalancesFromSyncData(
         decimals: asset.metadata.decimals,
         symbol: asset.metadata.symbol,
         name: asset.metadata.name,
-        thumbnailUri: asset.metadata.thumbnailUri
+        thumbnailUri: asset.metadata.thumbnailUri,
+        // Carried through: this record is PERSISTED by `setTokensBaseMetadata`
+        // below, so dropping the marker here stores the placeholder's guessed
+        // decimals as though the faucet had reported them.
+        scaleIsUnknown: asset.metadata.scaleIsUnknown
       };
       newMetadatas[asset.faucetId] = tokenMetadata;
     } else {

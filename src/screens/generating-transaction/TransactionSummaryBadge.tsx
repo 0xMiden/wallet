@@ -116,15 +116,24 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
 interface ResolvedAsset {
   symbol: string;
   decimals?: number;
+  /**
+   * False when `decimals` is the unknown-token placeholder's guess rather than
+   * a figure the faucet reported. `formatAmount` falls back to MIDEN's 6 for an
+   * absent `decimals`, so a caller cannot tell "unknown" from "6" by that field
+   * alone — it has to ask this one.
+   */
+  scaleIsKnown: boolean;
 }
 
 /**
  * Two-tone swap-side amount — dark amount immediately followed by the grey
  * symbol (".15ETH"), matching the mock's logo-less pill.
  */
-const SwapAmountText: FC<{ amount: string; symbol: string }> = ({ amount, symbol }) => (
+// `amount` is absent when the faucet's scale is a guess: the side is named
+// without a quantity rather than shown at an invented one.
+const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    <span className="text-heading-gray">{amount}</span>
+    {amount !== undefined && <span className="text-heading-gray">{amount}</span>}
     <span className="text-gray">{symbol}</span>
   </span>
 );
@@ -143,7 +152,12 @@ export const resolveSwapAsset = (
   const metadata = faucetId ? assetsMetadata?.[faucetId] : undefined;
   return {
     symbol: swapToken?.symbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol,
-    decimals: swapToken?.decimals ?? metadata?.decimals
+    // A registry token states its own decimals. Off the registry, only metadata
+    // the wallet actually resolved may be scaled by — the unknown-token
+    // placeholder's 6 is a guess, and `undefined` here withholds the quantity
+    // rather than inventing one.
+    decimals: swapToken?.decimals ?? (hasKnownScale(metadata) ? metadata?.decimals : undefined),
+    scaleIsKnown: swapToken !== undefined || hasKnownScale(metadata)
   };
 };
 
@@ -270,12 +284,12 @@ export const useTransactionSummaryBadgeContent = (
       const requestedFaucetId = transaction.extraInputs?.requestedFaucetId;
       const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata);
 
-      const offeredAmount =
-        transaction.amount !== undefined ? formatAmount(transaction.amount, offered.decimals) : undefined;
       const requestedRaw = transaction.extraInputs?.requestedAmount;
-      const requestedAmount = requestedRaw !== undefined ? formatAmount(requestedRaw, requested.decimals) : undefined;
+      if (transaction.amount === undefined || requestedRaw === undefined) return undefined;
 
-      if (!offeredAmount || !requestedAmount) return undefined;
+      // Present but unscalable: name the side, withhold the quantity.
+      const offeredAmount = offered.scaleIsKnown ? formatAmount(transaction.amount, offered.decimals) : undefined;
+      const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
@@ -288,16 +302,20 @@ export const useTransactionSummaryBadgeContent = (
 
     const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
     const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
-    const amount =
-      transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+    // A faucet the wallet has never resolved carries the placeholder's guessed
+    // 6 decimals. Naming the token alone is honest; converting by a guess is
+    // not, and this badge IS the hero of the transaction detail screen.
     const recipient = transaction.secondaryAccountId
       ? truncateAddress(transaction.secondaryAccountId, false, 8, 8)
       : undefined;
 
-    if (!amount || !recipient) return undefined;
+    if (transaction.amount === undefined || !recipient) return undefined;
+
+    // Present but unscalable: name the token, withhold the quantity.
+    const amount = hasKnownScale(tokenMetadata) ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
 
     return {
-      lhs: `${amount} ${symbol}`,
+      lhs: amount ? `${amount} ${symbol}` : symbol,
       rhs: (
         <>
           <span className="min-w-0 truncate">{recipient}</span>
