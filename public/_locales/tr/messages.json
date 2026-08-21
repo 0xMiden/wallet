@@ -3592,16 +3592,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Aç",
+    "message": "Açık",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Doldurulmuş",
+    "message": "Gerçekleşti",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Geri kazanılmış",
+    "message": "Geri alındı",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Kısmen gerçekleşti",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Kısmen gerçekleşti, kalan geri alındı",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Yuvarlakları doldur",
@@ -3611,9 +3619,96 @@
     "message": "Dolduruldu",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$total$$symbol$ tutarının $filled$ kadarı gerçekleşti",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Bu takasta paketlenen Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Gerçekleşme Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Kullanıldı · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Bekleyen gerçekleşme",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "DEX üzerinde eşleştiriliyor…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Henüz hiçbir Note paketlenmedi.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Pending Notes'a git",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Mevcut değil",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "Kullanım işlemi kimliği",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "Kullanım işlemi kimliği $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Oluşturuldu",

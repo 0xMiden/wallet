@@ -3592,16 +3592,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Ouvrir",
+    "message": "Ouvert",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Rempli",
+    "message": "Exécuté",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
     "message": "Récupéré",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Partiellement exécuté",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Partiellement exécuté, reste récupéré",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Remplir les ronds",
@@ -3611,9 +3619,96 @@
     "message": "Rempli",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ sur $total$$symbol$ exécuté",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes regroupées dans ce swap",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note d'exécution $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Consommé · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Exécution en attente",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Appariement sur la DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Aucune Note n'a encore été regroupée.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Aller à Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Indisponible",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "ID de la transaction de consommation",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "ID de la transaction de consommation $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Créé",

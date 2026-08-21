@@ -24,6 +24,7 @@ import {
   isEarnWithdrawEntry,
   isFaucetRequest,
   resolveSwapHistoryFields,
+  swapSettlementOf,
   TRANSACTION_COLORS
 } from './transactionUtils';
 
@@ -344,7 +345,7 @@ describe('bridgeRowDisplay', () => {
       bridgeRowDisplay(
         bridgeEntry({
           token: 'MIDEN',
-          amount: 5n,
+          amount: '5',
           bridgeProvider: 'epoch',
           bridgeOutputSymbol: 'USDC',
           bridgeOutputAmount: '4.987654',
@@ -364,7 +365,7 @@ describe('bridgeRowDisplay', () => {
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
-        bridgeEntry({ token: 'MIDEN', amount: 7n, bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
@@ -409,7 +410,7 @@ describe('bridgeInRowDisplay', () => {
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
-          amount: 3n,
+          amount: '3',
           bridgeInProvider: 'agglayer',
           bridgeInSourceSymbol: 'ETH'
         })
@@ -432,7 +433,7 @@ describe('bridgeInRowDisplay', () => {
         bridgeEntry({
           txType: 'bridged-receive',
           bridgeInPhase: 'received',
-          amount: 7n,
+          amount: '7',
           bridgeInOutputAmount: '99',
           bridgeInProvider: 'epoch'
         })
@@ -449,6 +450,49 @@ describe('bridgeInRowDisplay', () => {
       network: 'Miden',
       status: 'confirmed'
     });
+  });
+});
+
+describe('swap settlement state', () => {
+  // Drives the swap row's chip AND the receipt's hero pill, so a wrong answer
+  // here is visible in two places at once — and reads "Pending" forever on an
+  // order that settled, which is the confusion this shared helper exists to end.
+  // Same minimal-shape casting as the helpers above; only these fields are read.
+  const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
+
+  it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
+  });
+
+  it('stops reporting pending once the order carries a settlement stamp', () => {
+    expect(
+      swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, settledAt: 1_700_000_200 }))
+    ).toBeUndefined();
+  });
+
+  it('lets a settlement outrank a reclaim — a batch with paybacks delivered funds', () => {
+    expect(
+      swapSettlementOf(
+        swap({ orderId: 42n, expiresAt: 1_700_000_120, settledAt: 1_700_000_200, reclaimedAt: 1_700_000_300 })
+      )
+    ).toBeUndefined();
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, reclaimedAt: 1_700_000_300 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  it('leaves a manual-claim order Confirmed — nothing settles it on a schedule', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, autoConsume: false }))).toBeUndefined();
+  });
+
+  it('leaves a legacy order without an expiry Confirmed rather than pending forever', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n }))).toBeUndefined();
+  });
+
+  it('ignores an order id it never got and rows that are not completed swaps', () => {
+    expect(swapSettlementOf(swap({ expiresAt: 1_700_000_120 }))).toBeUndefined();
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
+    expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
   });
 });
 

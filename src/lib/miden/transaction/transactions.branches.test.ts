@@ -354,7 +354,9 @@ describe('completeSendTransaction', () => {
     } catch {
       // May or may not throw depending on the error path
     }
-    expect(spy).toBeDefined();
+    // `toBeDefined` on a spy is always true: it held whether the failure was
+    // logged or the path was never reached at all.
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 });
@@ -396,6 +398,10 @@ describe('getSwapSettlementNotes', () => {
         type: 'consume',
         status: ITransactionStatus.Completed,
         noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-c-1',
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -404,6 +410,9 @@ describe('getSwapSettlementNotes', () => {
         status: ITransactionStatus.Completed,
         // Same note re-tagged by a later batch — must not appear twice.
         noteIds: ['n-2'],
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_050,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -419,6 +428,123 @@ describe('getSwapSettlementNotes', () => {
 
     expect(notes.settled).toEqual(['n-1', 'n-2']);
     expect(notes.reclaimed).toEqual(['n-3']);
+    expect(notes.settledTransactions[0]).toEqual({
+      id: 'c-1',
+      transactionId: 'chain-c-1',
+      noteIds: ['n-1', 'n-2'],
+      amount: 685n,
+      faucetId: 'eth-faucet',
+      completedAt: 1_700_000_000
+    });
+    // Deduplicating only the id set left the transaction array disagreeing with
+    // it: the receipt drew n-2 in two rows, and a caller summing the rows'
+    // amounts to infer the fill counted the same 685 twice. A row whose notes
+    // were all claimed by an earlier consume is that same claim seen again.
+    expect(notes.settledTransactions.map(tx => tx.id)).toEqual(['c-1']);
+    expect(notes.settledTransactions.flatMap(tx => tx.noteIds)).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
+  });
+
+  it('attributes an overlapping note to the earlier consume only', async () => {
+    // A later batch that covers a new note as well as one already claimed keeps
+    // its row — it delivered something — but not the duplicate id.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.settledTransactions.map(tx => tx.noteIds)).toEqual([['n-1'], ['n-2']]);
+  });
+
+  it('reports no amount for a row whose notes were split across consumes', async () => {
+    // `amount` is an aggregate over the row's whole note list, so it stops
+    // describing the row once part of that list belongs to an earlier consume.
+    // Keeping it overstated the money: 400 + 600 read as 1000 received where
+    // only 600 arrived. There is no per-note breakdown to split it with, so the
+    // honest value is "unknown" — which the receipt renders as such.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        amount: 400n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        amount: 600n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => [tx.id, tx.noteIds, tx.amount])).toEqual([
+      ['c-1', ['n-1'], 400n],
+      ['c-2', ['n-2'], undefined]
+    ]);
+  });
+
+  it('orders same-second consumes by chain id so every device numbers the fills alike', async () => {
+    // `completedAt` is a one-second local stamp and auto-consume settles a batch
+    // within one tick, so ties are ordinary. Falling through to the Dexie scan's
+    // primary-key order numbered those fills by row UUID — arbitrary, and
+    // different on each device that saw the same order. Rows are pushed in
+    // reverse chain order here to prove the comparator, not the input order.
+    txStore.push(
+      {
+        id: 'uuid-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'uuid-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.transactionId)).toEqual(['chain-1', 'chain-2']);
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
   });
 
   it('treats an untagged kind as a settle and reads the singular noteId', async () => {
@@ -470,7 +596,12 @@ describe('getSwapSettlementNotes', () => {
 
   it('returns empty buckets when the order has no settlement consumes at all', async () => {
     const notes = await getSwapSettlementNotes('swap-unknown');
-    expect(notes).toEqual({ settled: [], reclaimed: [] });
+    expect(notes).toEqual({
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    });
   });
 });
 
@@ -580,9 +711,11 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // The errorCode dispatch is exercised; the final status depends on
-    // mock timing between updateTransactionStatus and cancelTransaction.
-    expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+    // The whole point of this error code: the transaction IS on chain, only the
+    // local apply failed, so the row must not be demoted to Failed — that would
+    // offer a retry for a consume that already happened. Accepting either
+    // terminal status here made the test's own name unfalsifiable.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
 
     sdk.withWasmClientLock = origLock;
   });

@@ -281,7 +281,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       __faucet: true,
       transactionIcon: 'RECEIVE',
       secondaryAddress: 'mtst1abcdefghijklmnop',
-      amount: 100n,
+      amount: '100',
       token: 'MDN',
       txId: 'tx-faucet',
       timestamp: DAY_A
@@ -291,7 +291,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'failed-icon',
       transactionIcon: 'FAILED',
       secondaryAddress: 'mtst1_underscoreaddress',
-      amount: 5n,
+      amount: '5',
       token: 'MDN',
       message: 'Failed by icon',
       txId: 'tx-failed-icon',
@@ -313,7 +313,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'receive',
       transactionIcon: 'RECEIVE',
       secondaryAddress: '0x1234',
-      amount: 50n,
+      amount: '50',
       token: 'MDN',
       message: 'Received',
       txId: 'tx-receive',
@@ -324,7 +324,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'send',
       transactionIcon: 'SEND',
       secondaryAddress: 'mtst1longsendaddressnoUnderscore',
-      amount: 20n,
+      amount: '20',
       token: 'MDN',
       message: 'Sent',
       txId: 'tx-send',
@@ -340,7 +340,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       token: 'MDN',
       requestedToken: 'ETH',
       requestedAmount: '0.5',
-      amount: 10n,
+      amount: '10',
       message: 'swap ignored',
       txId: 'tx-swap-full',
       type: HistoryEntryType.ProcessingTransaction,
@@ -350,7 +350,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     makeEntry({
       key: 'mint',
       transactionIcon: 'MINT',
-      amount: 7n,
+      amount: '7',
       token: 'MDN',
       message: 'Minted',
       txId: 'tx-mint',
@@ -371,7 +371,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       transactionIcon: 'SWAP',
       txType: 'swap',
       token: 'MDN',
-      amount: 3n,
+      amount: '3',
       message: 'swap fallback',
       txId: 'tx-swap-partial',
       timestamp: DAY_B
@@ -394,7 +394,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       __faucet: true,
       transactionIcon: 'SEND',
       secondaryAddress: 'shortaddr',
-      amount: 1n,
+      amount: '1',
       token: 'MDN',
       txId: 'tx-faucet-send',
       timestamp: DAY_B
@@ -406,7 +406,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txType: 'earn-withdraw',
       transactionIcon: undefined,
       earnWithdrawPhase: 'delivering',
-      amount: 2n,
+      amount: '2',
       token: 'USDC',
       txId: 'tx-earn-withdraw',
       timestamp: DAY_B
@@ -416,7 +416,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'earn-deposit',
       txType: 'earn-deposit',
       transactionIcon: undefined,
-      amount: 5n,
+      amount: '5',
       token: 'USDC',
       message: 'Depositing',
       txId: 'tx-earn-deposit',
@@ -634,7 +634,7 @@ describe('HistoryView token-scoped swap rows', () => {
     requestedToken: 'ETH',
     requestedFaucetId: 'requested-faucet',
     requestedAmount: '0.5',
-    amount: 10n,
+    amount: '10',
     txId: 'tx-swap-scoped'
   });
 
@@ -693,8 +693,8 @@ describe('HistoryView token-scoped swap rows', () => {
 
 describe('HistoryView infinite scroll wiring', () => {
   const twoEntries = [
-    makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: 1n, token: 'MDN' }),
-    makeEntry({ key: 'b', message: 'B', txId: 'txb', transactionIcon: 'SEND', amount: 2n, token: 'MDN' })
+    makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: '1', token: 'MDN' }),
+    makeEntry({ key: 'b', message: 'B', txId: 'txb', transactionIcon: 'SEND', amount: '2', token: 'MDN' })
   ];
 
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
@@ -799,7 +799,7 @@ describe('HistoryView earn-deposit status chip', () => {
     const entry = makeEntry({
       txType: 'earn-deposit',
       message: 'Depositing',
-      amount: 5n,
+      amount: '5',
       token: 'USDC',
       ...overrides
     });

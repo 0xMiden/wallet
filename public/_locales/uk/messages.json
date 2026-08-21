@@ -3592,16 +3592,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Відкрити",
+    "message": "Відкрито",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заповнено",
+    "message": "Виконано",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Відновлений",
+    "message": "Повернено",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частково виконано",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частково виконано, залишок повернено",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заповнити кола",
@@ -3611,9 +3619,96 @@
     "message": "Заповнено",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ з $total$$symbol$ виконано",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes, об’єднані в цей свап",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note виконання $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Використано · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Очікуване виконання",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Підбір на DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Notes ще не об’єднано.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Перейти до Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Недоступно",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "ID транзакції використання",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "ID транзакції використання $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Створено",
