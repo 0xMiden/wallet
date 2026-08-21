@@ -55,30 +55,43 @@ export function attachNetworkCapture(
   timeline: TimelineRecorder
 ): void {
   context.on('requestfinished', async (request: Request) => {
-    if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
-    const url = request.url();
-    if (!isMidenRelated(url)) return;
+    // Whole body guarded, like the SW listeners below. This is an ASYNC
+    // listener, so a rejection here is an unhandled rejection that Playwright
+    // charges to whichever test is running — and `request.response()` rejects
+    // with "Object with guid handle@… was not bound in the connection" when a
+    // spec kills the browser (`killBrowser()`) while page requests are still
+    // in flight. That is how guardian-recovery-stress's browser-crash spec
+    // failed on main at d77bc51d (and on run 32478703603) ~9s in, with no
+    // stack — the body had barely started. Capture is diagnostic only; it
+    // must never fail a run.
+    try {
+      if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
+      const url = request.url();
+      if (!isMidenRelated(url)) return;
 
-    const category = classifyUrl(url);
-    const response = await request.response();
-    const status = response?.status() ?? 0;
-    const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
+      const category = classifyUrl(url);
+      const response = await request.response();
+      const status = response?.status() ?? 0;
+      const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
 
-    timeline.emit({
-      category: 'network_request',
-      severity: status >= 400 ? 'error' : 'info',
-      wallet: walletLabel,
-      message: `${request.method()} ${url} -> ${status}`,
-      data: {
-        url,
-        method: request.method(),
-        status,
-        responseBody,
-        networkCategory: category,
-        timing: request.timing(),
-        source: 'page'
-      }
-    });
+      timeline.emit({
+        category: 'network_request',
+        severity: status >= 400 ? 'error' : 'info',
+        wallet: walletLabel,
+        message: `${request.method()} ${url} -> ${status}`,
+        data: {
+          url,
+          method: request.method(),
+          status,
+          responseBody,
+          networkCategory: category,
+          timing: request.timing(),
+          source: 'page'
+        }
+      });
+    } catch {
+      // browser/context gone mid-capture — drop the event
+    }
   });
 
   context.on('requestfailed', (request: Request) => {
