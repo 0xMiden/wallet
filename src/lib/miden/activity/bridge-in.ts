@@ -98,7 +98,17 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
   const row = await Repo.transactions
     .where('noteIds')
     .equals(noteId)
-    .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed)
+    .filter(
+      tx =>
+        tx.type === 'consume' &&
+        tx.status === ITransactionStatus.Completed &&
+        // Same rule as `takeAgglayerBridgeInInfo` below. A restored row is a
+        // record of someone else's claim: adopting it here would retitle it
+        // "Bridged from EVM", file the live intent's amounts against it, and —
+        // because the caller drops the intent on a hit — leave the wallet's own
+        // consume of that note untagged and the intent gone.
+        !tx.restoredFromBackup
+    )
     .first();
   if (!row) return false;
   await Repo.transactions.where({ id: row.id }).modify(tx => {

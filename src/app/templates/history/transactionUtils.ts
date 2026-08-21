@@ -47,7 +47,15 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
       return {
         faucetId: total.faucetId,
         // No trustworthy scale means no honest number — name the asset only.
-        amount: hasKnownScale(metadata) ? formatAmount(total.amount, metadata.decimals) : undefined,
+        // The type check covers the same ground for the value itself: these rows
+        // can come from a restored file, and `formatAmount` calls `.toString()`
+        // on the amount, so a null there would reject this `Promise.all` and
+        // blank the whole page, while a string would render as arithmetic on
+        // nonsense.
+        amount:
+          typeof total.amount === 'bigint' && hasKnownScale(metadata)
+            ? formatAmount(total.amount, metadata.decimals)
+            : undefined,
         token: metadata.symbol
       };
     })

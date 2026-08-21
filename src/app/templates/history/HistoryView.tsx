@@ -44,7 +44,12 @@ type HistoryViewProps = {
 function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry[]> {
   const groups = new Map<number, IHistoryEntry[]>();
   for (const entry of entries) {
-    const d = new Date(entry.timestamp * 1000);
+    // A timestamp that isn't a usable number yields an Invalid Date, and
+    // `DateSeparator` formats the group key with date-fns, which THROWS on one —
+    // so a single bad row would take down the entire list rather than just
+    // itself. Group those under today instead; the row is still listed.
+    const seconds = Number.isFinite(entry.timestamp) ? entry.timestamp : Date.now() / 1000;
+    const d = new Date(seconds * 1000);
     const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const existing = groups.get(key);
     if (existing) existing.push(entry);
@@ -221,7 +226,11 @@ function buildRowProps(
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
   } else if (isSwap && entry.requestedAmount) {
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
-  } else if (entry.amount !== undefined || entry.extraAmounts?.length) {
+    // `entry.token` on its own is enough: a faucet that resolved only to the
+    // unknown-token placeholder yields a symbol and no amount, and skipping the
+    // block over that would drop the asset's NAME too — leaving a row that says
+    // nothing about what moved.
+  } else if (entry.amount !== undefined || entry.extraAmounts?.length || entry.token !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
     // A batch claim spanning several faucets appends each further asset inline —
     // but only on the unscoped list. On a token page the row is read as a

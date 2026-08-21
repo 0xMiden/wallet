@@ -815,6 +815,30 @@ describe('HistoryView batch-claim extra assets', () => {
     expect(row).toHaveAttribute('data-amount-extra', 'faucet-b: Unknown');
   });
 
+  // The discriminating case for keying promotion on the TOKEN rather than the
+  // amount: the primary is NAMED but unquantified, so it still owns the
+  // headline. Promoting the quantified secondary would file the row under
+  // faucet A while reading as a credit of C.
+  it('keeps a named but unquantified primary in the headline', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: 'AAA',
+      extraAmounts: [{ faucetId: 'faucet-c', amount: '5', token: 'CCC' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-c:+5 CCC');
+  });
+
+  // A single-faucet row whose scale is unknown has no extras to fall back on.
+  // Skipping the amount block entirely would drop the asset's NAME too, leaving
+  // a row that says nothing about what moved.
+  it('names a lone asset that has no trustworthy number', () => {
+    const row = renderClaim(undefined, { amount: undefined, token: 'Unknown', extraAmounts: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
+
   // Nothing to promote but the unquantified line itself. Rendering no amount at
   // all would erase every asset the claim collected, so the row names the asset
   // and shows no number.

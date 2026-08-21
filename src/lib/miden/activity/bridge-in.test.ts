@@ -1,6 +1,7 @@
 import {
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
+  resolveBridgeInNoteId,
   suppressingLinkedTxIds,
   takeAgglayerBridgeInInfo,
   takeBridgeInInfoForNotes
@@ -18,10 +19,27 @@ jest.mock('../front/storage', () => ({
 
 const mockAnyOfToArray = jest.fn();
 const mockTransactions: any[] = [];
+// Rows `tagConsumeRow` searches by note id, kept apart from `mockTransactions`
+// so the AggLayer suites above are unaffected.
+const mockNoteIdRows: any[] = [];
+const mockModify = jest.fn();
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })) })),
+    where: jest.fn((index?: unknown) => ({
+      anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })),
+      // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
+      modify: mockModify,
+      equals: jest.fn((noteId: string) => ({
+        filter: jest.fn((predicate: (tx: any) => boolean) => ({
+          first: jest.fn(async () =>
+            mockNoteIdRows.filter(row => row.noteIds?.includes(noteId)).find(row => predicate(row))
+          )
+        }))
+      })),
+      first: jest.fn(async () => undefined),
+      index
+    })),
     filter: jest.fn((predicate: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
@@ -35,6 +53,50 @@ beforeEach(() => {
   jest.clearAllMocks();
   for (const key of Object.keys(mockStore)) delete mockStore[key];
   mockTransactions.splice(0);
+  mockNoteIdRows.splice(0);
+});
+
+describe('resolveBridgeInNoteId', () => {
+  const NOTE_ID = 'note-abc';
+  const info: IBridgeInInfo = {
+    provider: 'epoch',
+    sourceAmount: '5',
+    sourceSymbol: 'ETH',
+    intentNonce: 'N1'
+  };
+
+  const consumeRow = (over: Record<string, unknown> = {}) => ({
+    id: 'consume-1',
+    type: 'consume',
+    status: 2,
+    noteIds: [NOTE_ID],
+    amount: 5n,
+    faucetId: 'faucet-a',
+    ...over
+  });
+
+  it('tags the consume row that claimed the note, and drops the intent', async () => {
+    mockNoteIdRows.push(consumeRow());
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId('N1', NOTE_ID);
+
+    expect(mockModify).toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toEqual([]);
+  });
+
+  // A restored row records someone else's claim. Adopting it would retitle it
+  // "Bridged from EVM", file this intent's amounts against it, and — because a
+  // hit drops the intent — leave the wallet's own consume untagged forever.
+  it('refuses a row restored from a backup, and keeps the intent pending', async () => {
+    mockNoteIdRows.push(consumeRow({ restoredFromBackup: true }));
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId('N1', NOTE_ID);
+
+    expect(mockModify).not.toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toHaveLength(1);
+  });
 });
 
 describe('takeAgglayerBridgeInInfo', () => {

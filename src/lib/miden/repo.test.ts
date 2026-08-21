@@ -1,6 +1,7 @@
 import { ITransactionStatus } from './db/types';
 import { exportDb, importDb, transactions, Table } from './repo';
 import { isRequeueableTransaction } from './transaction/retry';
+import { NoteTypeEnum } from './types';
 
 describe('miden repo export/import', () => {
   beforeEach(async () => {
@@ -34,6 +35,47 @@ describe('miden repo export/import', () => {
     expect(imported).toHaveLength(1);
     expect(imported[0]!.amount).toBe(BigInt(42));
     expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  // Field-by-field assertions only prove the fields somebody thought to name.
+  // The walker's job is to preserve the WHOLE row, so this asserts identity —
+  // it fails if any future change drops or reshapes a field nobody listed here.
+  it('restores a maximal row identical to the one exported', async () => {
+    const original = {
+      id: 'max-1',
+      type: 'swap' as const,
+      status: ITransactionStatus.Completed,
+      accountId: 'acc1',
+      secondaryAccountId: 'acc2',
+      transactionId: 'tx-max',
+      initiatedAt: 11,
+      completedAt: 22,
+      amount: BigInt('123456789012345678901234567890'),
+      faucetId: 'faucet-a',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2'],
+      outputNoteIds: ['out-1'],
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SWAP' as const,
+      displayMessage: 'a message',
+      errorMessage: '',
+      requestBytes: new Uint8Array([0, 255, 7]),
+      assetTotals: [{ faucetId: 'faucet-b', amount: BigInt(0) }],
+      extraInputs: {
+        requestedFaucetId: 'faucet-c',
+        requestedAmount: BigInt(-5),
+        orderId: BigInt(99),
+        nested: { deep: [BigInt(1), 'two', 3, true, null] }
+      }
+    };
+    await transactions.bulkAdd([original]);
+
+    await importDb(await exportDb());
+
+    const [restored] = await transactions.toArray();
+    // The provenance stamp is the ONLY thing import adds to a terminal row —
+    // asserting the whole object is what proves nothing else was rewritten.
+    expect(restored).toEqual({ ...original, restoredFromBackup: true });
   });
 
   // A row carries BigInt in more places than the top-level `amount`: `assetTotals`

@@ -274,6 +274,8 @@ beforeEach(() => {
     if (id === 'fa1') return { symbol: 'TKF', decimals: 6 };
     if (id === 'fa2') return { symbol: 'SWPMETA', decimals: 2 };
     if (id === 'NATIVE') return { symbol: 'MID', decimals: 8 };
+    // The unknown-token placeholder: a symbol, and 6 decimals that are a guess.
+    if (id === 'unresolved') return { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
     return undefined;
   });
   mockFormatAmount.mockImplementation((amt: bigint, dec?: number) => `fmt(${amt},${dec})`);
@@ -393,6 +395,44 @@ describe('History', () => {
     // getTokenMetadata skipped for entries without faucetId.
     expect(mockGetTokenMetadata).toHaveBeenCalledWith('fa1');
     expect(mockGetTokenMetadata).not.toHaveBeenCalledWith(undefined);
+  });
+
+  // Converting by the placeholder's guessed 6 decimals renders an 18-decimal
+  // token a trillion times too large, so the row names the asset and prints no
+  // number. It must still be NAMED — dropping the symbol too would leave a row
+  // that says nothing about what moved.
+  it.each([
+    ['completed', 'mockGetCompletedTransactions'],
+    ['pending', 'mockGetUncompletedTransactions']
+  ])('names but does not quantify a %s row whose faucet has no known scale', async (kind, _mock) => {
+    const row = {
+      id: 'UNK',
+      status: kind === 'completed' ? STATUS.Completed : STATUS.Queued,
+      displayMessage: 'unresolved token',
+      displayIcon: 'RECEIVE',
+      faucetId: 'unresolved',
+      type: 'consume',
+      amount: 1000000000000000000n,
+      completedAt: 4000
+    };
+    if (kind === 'completed') {
+      mockGetCompletedTransactions.mockImplementation(async (_a: string, offset?: number) =>
+        offset === undefined ? [row] : []
+      );
+      mockGetUncompletedTransactions.mockResolvedValue([]);
+    } else {
+      mockGetCompletedTransactions.mockImplementation(async () => []);
+      mockGetUncompletedTransactions.mockResolvedValue([row]);
+    }
+
+    await renderHistory();
+
+    const key = kind === 'completed' ? 'completed-UNK' : 'pending-UNK';
+    await waitFor(() => expect(entryKeys()).toContain(key));
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === key);
+    expect(entry.amount).toBeUndefined();
+    expect(entry.token).toBe('Unknown');
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(1000000000000000000n, 6);
   });
 
   it('forwards passthrough props and initial-loading flag to HistoryView', async () => {

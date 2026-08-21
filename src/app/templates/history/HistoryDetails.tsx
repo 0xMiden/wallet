@@ -426,6 +426,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
         const historyEntry = {
           address: tx.accountId,
+          // Carried onto the entry even though today's guards read the raw row:
+          // `IHistoryEntry` declares this field FOR this view, and an entry that
+          // silently omits it makes every future `entry.restoredFromBackup`
+          // check read `undefined` and pass. That exact omission is how two
+          // earlier rounds shipped guards that never ran.
+          restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.displayMessage,
@@ -741,6 +747,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // backoff and keeps a steady watch at the base interval.
   useEffect(() => {
     if (orderId == null) return;
+    // A restored row's order id came from the backup file, not from an order
+    // this wallet placed. Polling it takes the WASM lock every 2s to track a
+    // stranger's order — the same reason the earn and bridge pollers on this
+    // page refuse a restored row.
+    if (transaction?.restoredFromBackup) return;
     // Capture the non-null id in a const so the narrowing survives into the
     // hoisted `poll` declaration below (a function declaration wouldn't inherit
     // the `orderId != null` guard otherwise).
@@ -841,7 +852,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [orderId, transactionId]);
+  }, [orderId, transactionId, transaction?.restoredFromBackup]);
 
   // Everything the receipt asserts about the order — how it stands, how much of
   // it filled, whether the user still has notes to claim — resolved in one pure
