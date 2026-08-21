@@ -4185,5 +4185,21 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "helpImproveWallet": {
+    "message": "協助改善錢包",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "請告知您使用錢包的哪些功能、卡在何處、錯誤的大致類別、應用程式版本以及您的平台，以便我們修復問題。若應用程式當機，系統也會傳送包含錯誤訊息及程式碼發生位置的當機報告，並在傳送前刪除敏感資料。 絕不會擷取您的私鑰、恢復短語、密碼、地址、餘額、金額或交易內容。不會跨其他應用程式或網站進行追蹤，不會將任何資訊用於廣告，也不會將資料出售或分享給資料經紀商。您隨時可以變更這些設定。",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "分享使用數據",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "現在還不行",
+    "englishSource": "Not now"
   }
 }

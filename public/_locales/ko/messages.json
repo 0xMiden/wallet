@@ -4185,5 +4185,21 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "helpImproveWallet": {
+    "message": "월렛 개선에 기여해 주세요",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "월렛의 어떤 기능을 사용 중인지, 어디서 문제가 발생하는지, 대략적인 오류 유형, 앱 버전 및 사용 중인 플랫폼을 알려주시면 문제를 해결할 수 있습니다. 앱이 강제 종료될 경우, 오류 내용과 코드 내 발생 위치를 포함한 충돌 보고서가 전송되며, 전송 전 민감한 데이터는 제거됩니다. 절대 사용자의 키, 복구 문구, 비밀번호, 주소, 잔액, 금액 또는 거래 내용은 전송되지 않습니다. 다른 앱이나 사이트에 걸친 추적은 없으며, 광고 목적으로 사용되는 정보도 없고, 데이터 브로커에게 판매되거나 공유되는 정보도 없습니다. 이 설정은 언제든지 변경할 수 있습니다.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "사용 현황 데이터 공유",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "지금은 아닙니다",
+    "englishSource": "Not now"
   }
 }

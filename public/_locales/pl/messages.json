@@ -4185,5 +4185,21 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "helpImproveWallet": {
+    "message": "Pomóż ulepszyć portfel",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "Podaj, z jakich części portfela korzystasz, gdzie napotykasz trudności, ogólne kategorie błędów, wersję aplikacji oraz platformę, z której korzystasz, abyśmy mogli naprawić to, co nie działa. Jeśli aplikacja ulegnie awarii, wysyła również raport o awarii zawierający błąd i miejsce jego wystąpienia w kodzie, z którego przed wysłaniem usunięto dane wrażliwe. Nigdy nie udostępniamy Twoich kluczy, frazy odzyskiwania, hasła, adresów, sald, kwot ani treści transakcji. Nie śledzimy Twojej aktywności w innych aplikacjach ani na stronach internetowych, nie wykorzystujemy danych do celów reklamowych ani nie sprzedajemy ich ani nie udostępniamy brokerom danych. Możesz zmienić te ustawienia w dowolnym momencie.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "Udostępnij dane dotyczące użytkowania",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "Nie teraz",
+    "englishSource": "Not now"
   }
 }

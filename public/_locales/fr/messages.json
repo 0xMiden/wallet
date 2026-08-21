@@ -4185,5 +4185,21 @@
   "devEndpointResetConfirm": {
     "message": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "helpImproveWallet": {
+    "message": "Aidez-nous à améliorer Wallet",
+    "englishSource": "Help improve Wallet"
+  },
+  "helpImproveWalletDescription": {
+    "message": "Indiquez-nous quelles parties du Wallet vous utilisez, où vous rencontrez des difficultés, les grandes catégories d’erreurs, la version de l’application et votre plateforme, afin que nous puissions corriger ce qui ne fonctionne pas. Si l’application plante, elle envoie également un rapport d’erreur indiquant le problème et l’emplacement de l’erreur dans le code, dont les données sensibles sont supprimées avant l’envoi. Jamais vos clés, votre phrase de récupération, votre mot de passe, vos adresses, vos soldes, vos montants ou le contenu de vos transactions. Aucun suivi sur d’autres applications ou sites, aucune utilisation à des fins publicitaires, et aucune vente ou partage avec des courtiers en données. Vous pouvez modifier ces paramètres à tout moment.",
+    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. If the app crashes, it also sends a crash report with the error and where it happened in the code, scrubbed to remove sensitive data before sending. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time."
+  },
+  "helpImproveWalletAccept": {
+    "message": "Partager les données d’utilisation",
+    "englishSource": "Share usage data"
+  },
+  "helpImproveWalletDecline": {
+    "message": "Pas pour l'instant",
+    "englishSource": "Not now"
   }
 }
