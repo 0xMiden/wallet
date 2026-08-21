@@ -1,6 +1,12 @@
 import { NoteType } from '@miden-sdk/miden-sdk/lazy';
 
-import { isAddressValid, isPrivateNoteType, toNoteTypeString } from './helpers';
+import {
+  MAX_RECALL_BLOCKS,
+  assertValidRecallBlocks,
+  isAddressValid,
+  isPrivateNoteType,
+  toNoteTypeString
+} from './helpers';
 import { NoteTypeEnum } from './types';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -48,6 +54,44 @@ describe('miden helpers', () => {
     // silent downgrade of a user-approved Private note to a public one.
     it.each(['Private', 'PRIVATE', 'priv', '', 'unknown', 2])('rejects the unrecognized value %p', value => {
       expect(() => isPrivateNoteType(value as any)).toThrow('Unknown note type');
+    });
+  });
+
+  // The offset is added to the sync height and handed to the SDK as a u32 block
+  // height, which wasm-bindgen truncates rather than rejects — so every value
+  // below is honored as SOME window, just not the one the caller asked for and
+  // the approval sheet displayed.
+  describe('assertValidRecallBlocks', () => {
+    it('accepts a plain window, and the two ways of saying "not recallable"', () => {
+      expect(() => assertValidRecallBlocks(2016)).not.toThrow();
+      expect(() => assertValidRecallBlocks(0)).not.toThrow();
+      expect(() => assertValidRecallBlocks(undefined)).not.toThrow();
+      expect(() => assertValidRecallBlocks(MAX_RECALL_BLOCKS)).not.toThrow();
+    });
+
+    // 2**32 truncates to 0: the sheet promises four billion blocks, the chain
+    // lets the sender reclaim immediately and the recipient can lose the funds.
+    it('rejects an offset that wraps the u32 to an instant recall', () => {
+      expect(() => assertValidRecallBlocks(2 ** 32)).toThrow('recallBlocks');
+      expect(() => assertValidRecallBlocks(MAX_RECALL_BLOCKS + 1)).toThrow('recallBlocks');
+    });
+
+    // Wraps the other way once the sum goes below zero — the sender's recall is
+    // stranded for ~4 billion blocks.
+    it('rejects a negative offset', () => {
+      expect(() => assertValidRecallBlocks(-1)).toThrow('recallBlocks');
+      expect(() => assertValidRecallBlocks(-(2 ** 20))).toThrow('recallBlocks');
+    });
+
+    // Truncated toward zero, so the note becomes recallable before the sheet said.
+    it('rejects a fractional offset', () => {
+      expect(() => assertValidRecallBlocks(100.5)).toThrow('recallBlocks');
+      expect(() => assertValidRecallBlocks(0.9)).toThrow('recallBlocks');
+    });
+
+    it('rejects the non-finite values a JSON payload can carry', () => {
+      expect(() => assertValidRecallBlocks(Infinity)).toThrow('recallBlocks');
+      expect(() => assertValidRecallBlocks(NaN)).toThrow('recallBlocks');
     });
   });
 });

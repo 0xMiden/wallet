@@ -490,7 +490,24 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   // full note" guard is skipped too, so it fails silently rather than loudly.
   // The dApp boundary normalizes before persisting; this is the backstop for
   // any other producer.
-  const isPrivateSend = isPrivateNoteType(tx.noteType);
+  //
+  // Swallowing the throw is deliberate here and only here. This runs AFTER the
+  // transaction is on chain, so letting it propagate would fail a LANDED send
+  // before its id is captured — and Retry, seeing no id, would rebuild and pay a
+  // second time. An unrecognized value at this point can only come from a row
+  // some older build wrote, which is a delivery problem; escalating it into a
+  // double spend is strictly worse than logging and skipping the relay.
+  let isPrivateSend: boolean;
+  try {
+    isPrivateSend = isPrivateNoteType(tx.noteType);
+  } catch (error) {
+    console.error('[completeSendTransaction] unrecognized noteType; skipping the private-note relay', {
+      id: tx.id,
+      noteType: tx.noteType,
+      error
+    });
+    isPrivateSend = false;
+  }
 
   if (isPrivateSend && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access.

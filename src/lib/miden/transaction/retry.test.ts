@@ -369,4 +369,35 @@ describe('requeueFailedTransaction — mayHaveSubmitted is sticky', () => {
     expect(row.requestBytes).toBe(kept);
     expect(row.mayHaveSubmitted).toBe(true);
   });
+
+  // The cancelled-mid-flight sequence, from the row's point of view. A cancel
+  // (Cancel button, or the stale-queued reaper) fails the row while the leaf is
+  // still proving; nothing aborts the leaf, so it goes on to stamp the flag and
+  // submit, but `setTransactionStage` refuses to advance a terminal row and the
+  // stage stays 'proving' forever. Reading the stage alone therefore says
+  // "never broadcast" about a transfer that landed — clearing the bytes here
+  // would rebuild the serial and pay the recipient a second time.
+  it('keeps bytes when the stage says pre-submit but the leaf recorded a crossing', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'send', stage: 'proving', requestBytes: kept, mayHaveSubmitted: true });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.requestBytes).toBe(kept);
+  });
+
+  // `send` is the only type whose bytes this gate can drop, so stamping the flag
+  // on a swap would persist a signal nothing reads and imply a guard swaps don't
+  // have (their bytes are unconditionally reused).
+  it('does not stamp a non-send row, whose bytes are never cleared anyway', async () => {
+    const kept = bytes();
+    const row = failedRow({ type: 'swap', stage: 'submitting', requestBytes: kept });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.requestBytes).toBe(kept);
+  });
 });

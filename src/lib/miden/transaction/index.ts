@@ -47,6 +47,7 @@ import { getAllUncompletedTransactions, getTransactionsInProgress } from './get'
 import {
   isGuardianCanonicalizationError,
   isLockedError,
+  markMayHaveSubmitted,
   readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
@@ -704,7 +705,9 @@ const buildColdServiceForAccount = async (
  * The P2IDE note's serial number is random, so the request must be built ONCE and
  * the SAME bytes reused for both `createCustomProposal` and
  * `signAndCreateTransactionRequest` — persisted on the row so a retry after a
- * restart reuses them (same rule as the PSWAP case). `recallBlocks` is a RELATIVE
+ * restart reuses them, which is also what makes a duplicate submit rejectable
+ * (the reused serial pins the note id). A retry only rebuilds them when the row
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
  * blocks-until-recall offset, converted to an absolute reclaim height here
  * (`syncHeight + recallBlocks`) — the guardian-path counterpart of the
  * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
@@ -1254,6 +1257,13 @@ const generateGuardianTransaction = async (
       // reverse channel (no new IPC). On a deadline/close kill the offscreen op
       // rejects with a retryable OperationAbortedError and the SW catch below
       // still runs `abandonCandidate`, byte-identical to the inline path.
+      //
+      // The offscreen leaf reports no stages, so the submit crossing is not
+      // observable from here — pin the double-send guard BEFORE dispatch and
+      // accept the over-approximation. It errs the safe way: a leaf that fails
+      // before submitting keeps cached bytes it could have rebuilt, whereas the
+      // opposite mistake pays twice.
+      await markMayHaveSubmitted(transaction.id);
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),
@@ -1261,8 +1271,21 @@ const generateGuardianTransaction = async (
         signCallback
       );
     } else {
-      result = await runGuardianPipeline(transaction.accountId, tr, transaction.delegateTransaction, signCallback, s =>
-        setTransactionStage(transaction.id, s)
+      result = await runGuardianPipeline(
+        transaction.accountId,
+        tr,
+        transaction.delegateTransaction,
+        signCallback,
+        async s => {
+          // 'submitting' is stamped immediately before `provenTx.submit()`, so
+          // it is the exact crossing the guard needs — but a concurrent cancel
+          // may already have made the row terminal, and `setTransactionStage`
+          // silently drops writes on those. Record the crossing through the
+          // guard-free writer first, or the stage stays frozen wherever the
+          // cancel caught it and Retry reads a landed send as never-broadcast.
+          if (s === 'submitting') await markMayHaveSubmitted(transaction.id);
+          await setTransactionStage(transaction.id, s);
+        }
       );
     }
   } catch (error) {

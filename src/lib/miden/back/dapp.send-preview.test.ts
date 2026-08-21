@@ -193,7 +193,7 @@ const sendRequest = (faucetId: string, amount: string, noteType: unknown = OMITT
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      senderAddress: 'mtst1sender',
+      senderAddress: 'miden-account-1',
       recipientAddress: 'mtst1recipient',
       faucetId,
       noteType: noteType === OMITTED ? 'private' : noteType,
@@ -382,7 +382,7 @@ describe('dApp send approval: the note type must resolve before the user is aske
       type: MidenDAppMessageType.SendTransactionRequest,
       sourcePublicKey: 'miden-account-1',
       transaction: {
-        senderAddress: 'mtst1sender',
+        senderAddress: 'miden-account-1',
         recipientAddress: 'mtst1recipient',
         faucetId: 'faucet-6dp',
         noteType,
@@ -402,7 +402,7 @@ describe('dApp send approval: the note type must resolve before the user is aske
             type: MidenDAppMessageType.SendTransactionRequest,
             sourcePublicKey: 'miden-account-1',
             transaction: {
-              senderAddress: 'mtst1sender',
+              senderAddress: 'miden-account-1',
               recipientAddress: 'mtst1recipient',
               faucetId: 'faucet-6dp',
               amount: '1500000',
@@ -430,5 +430,100 @@ describe('dApp send approval: the note type must resolve before the user is aske
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
 
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+// ── 4. The recall window must survive the u32 it is stored in ──────
+
+// `recallBlocks` becomes `syncHeight + recallBlocks` and is handed to the SDK as
+// a u32 block height. wasm-bindgen truncates at that boundary instead of
+// throwing, so an out-of-range offset does not fail — it silently becomes a
+// DIFFERENT recall window than the one rendered on the sheet the user approved.
+describe('dApp send approval: the recall window must be representable', () => {
+  const requestWithRecall = (recallBlocks: unknown) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'miden-account-1',
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '1500000',
+        recallBlocks
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it.each([
+    ['wraps to an instant recall', 2 ** 32],
+    ['wraps past the u32 ceiling', 0x8000_0000],
+    ['strands the recall for ~4 billion blocks', -1],
+    ['truncates to a shorter window', 100.5],
+    ['is not a number at all', Infinity],
+    ['is NaN', NaN]
+  ])('rejects an offset that %s, without prompting', async (_label, recallBlocks) => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestWithRecall(recallBlocks), 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a real window', 2016],
+    ['zero, meaning not recallable', 0],
+    ['omitted, meaning not recallable', undefined]
+  ])('still prompts for %s', async (_label, recallBlocks) => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestWithRecall(recallBlocks), 'session-1')).rejects.toThrow(
+      DECLINED
+    );
+
+    expect(mockRequestConfirmation).toHaveBeenCalled();
+  });
+});
+
+// ── 5. The sender must be the account the session authorized ───────
+
+// A session authorizes exactly one account. `senderAddress` rides in the request
+// body, and the approval sheet renders amount, recipient, faucet and note type
+// but NOT the sender — so a page connected to account A naming account B as the
+// sender would debit B with nothing on screen to give it away.
+describe('dApp send approval: the sender is bound to the connected account', () => {
+  const requestFrom = (senderAddress: string) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress,
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '1500000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it('refuses a send drawn on an account the session does not cover', async () => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+
+    // Rejected before the user is asked: an approval sheet that does not name
+    // the sender cannot be the place this is caught.
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('allows the session account through', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestFrom('miden-account-1'), 'session-1')).rejects.toThrow(
+      DECLINED
+    );
+
+    expect(mockRequestConfirmation).toHaveBeenCalled();
   });
 });

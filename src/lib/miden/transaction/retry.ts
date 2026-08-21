@@ -106,6 +106,16 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  * writing a stage, so `cancelStaleQueuedTransactions` reaping a requeued row
  * leaves Failed + no stage + bytes, and reading that as pre-submit would
  * rebuild the note id of a transfer that may already have landed.
+ *
+ * None of the above makes the stage TRUSTWORTHY on its own, which is why
+ * `mayHaveSubmitted` — not this set — is the primary guard. A Failed row's stage
+ * says where the pipeline was when the row went terminal, and for an
+ * out-of-band cancel that is not where the pipeline ENDED: nothing aborts the
+ * leaf, `setTransactionStage` refuses to advance a terminal row, and the submit
+ * still happens. The stage would then read 'proving' forever on a transfer
+ * that landed. The leaves therefore stamp `mayHaveSubmitted` themselves at the
+ * submit crossing (`markMayHaveSubmitted`, which the terminal guard does not
+ * apply to), and this set only decides the case where no leaf ever got that far.
  */
 const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionStage>([
   'syncing',
@@ -194,12 +204,18 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // cannot reproduce — the Epoch mandate binding, or the AggLayer B2AGG
     // destination — and behind an Epoch row the intent is already spent, so the
     // answer for a broken one is a new intent, not a fresh note.
-    if (mayHaveSubmitted) {
-      // Persist BEFORE the stage is forgotten, so the next failure — which may
-      // land on an early stage and look pre-submit — still sees it.
-      dbTx.mayHaveSubmitted = true;
-    } else if (dbTx.type === 'send') {
-      dbTx.requestBytes = undefined;
+    //
+    // Scoped to `send` on both arms because `send` is the only type whose bytes
+    // this gate can drop; writing the flag onto a swap or bridged-send row would
+    // persist a signal nothing reads and imply a guard those types don't have.
+    if (dbTx.type === 'send') {
+      if (mayHaveSubmitted) {
+        // Persist BEFORE the stage is forgotten, so the next failure — which may
+        // land on an early stage and look pre-submit — still sees it.
+        dbTx.mayHaveSubmitted = true;
+      } else {
+        dbTx.requestBytes = undefined;
+      }
     }
   });
 };

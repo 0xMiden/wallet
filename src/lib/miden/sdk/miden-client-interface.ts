@@ -1559,7 +1559,10 @@ function speculationParamsHash(p: SpeculationParams): string {
 function resolveAccountId(wasm: any, ref: string): any {
   const address = ref.split('_')[0] ?? ref;
   if (address.startsWith('0x') || address.startsWith('0X')) {
-    return wasm.AccountId.fromHex(address);
+    // Lowercase the prefix for the same reason `accountRefToSdk` does: the hex
+    // DIGITS are case-insensitive but `fromHex` requires a literal '0x' and
+    // throws on '0X…', so the uppercase arm led straight to a guaranteed throw.
+    return wasm.AccountId.fromHex(`0x${address.slice(2)}`);
   }
   return wasm.AccountId.fromBech32(address);
 }

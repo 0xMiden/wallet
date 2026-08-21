@@ -428,6 +428,52 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
   });
 });
 
+// The double-send guard has to be written by the LEAF, at the point it commits
+// to broadcasting, because the row's `stage` cannot be trusted to record it: a
+// concurrent `cancelTransaction` (Cancel button, stale-queued reaper) makes the
+// row terminal without aborting the pipeline, and `setTransactionStage` then
+// silently drops every later stage write. The leaf submits anyway, the row stays
+// frozen at 'proving', and Retry reads that as proof nothing was broadcast —
+// rebuilding the serial that is the only reason the chain would reject the
+// duplicate. Both leaves must therefore stamp `mayHaveSubmitted` themselves.
+describe('guardian leaf records the submit crossing', () => {
+  it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {
+    arrange('cross-inline', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
+
+    await generateTransaction(
+      buildTx('cross-inline', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(txStore.find(r => r.id === 'cross-inline')!.mayHaveSubmitted).toBe(true);
+  });
+
+  it('flag ON: the offscreen leaf stamps it before dispatch, having no stage to narrow', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    // Asserted from inside the dispatch: the whole point is that the flag is
+    // durable BEFORE the bytes cross, since after that the wallet cannot tell
+    // whether the offscreen realm submitted.
+    let flagAtDispatch: unknown;
+    mockDispatchGuardianPipeline.mockImplementation(async () => {
+      flagAtDispatch = txStore.find(r => r.id === 'cross-offscreen')!.mayHaveSubmitted;
+      return makeResult();
+    });
+    arrange('cross-offscreen', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' });
+
+    await generateTransaction(
+      buildTx('cross-offscreen', { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' }) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(flagAtDispatch).toBe(true);
+  });
+});
+
 // ─── Slice 7c: bridged-send / earn-deposit guardian leaf → offscreen ──────────
 // The final two value-moving guardian types. Before 7c they ran the leaf INLINE
 // even flag-ON (excluded from OFFSCREEN_ROUTABLE_GUARDIAN_TYPES) → the dormant SW

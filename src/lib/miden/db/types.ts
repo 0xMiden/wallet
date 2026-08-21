@@ -311,13 +311,20 @@ export interface ITransaction {
    * those bytes pin the note id that makes the chain reject a duplicate —
    * rebuilding them after a possible submit risks paying the recipient twice.
    *
-   * A per-attempt `stage` cannot carry this: requeueing clears `stage`, so the
-   * signal survived exactly one retry, and the next failure at an early stage
-   * looked pre-submit and cleared the bytes anyway. "May have submitted" is a
-   * property of the row's history, not of the attempt currently running.
+   * A per-attempt `stage` cannot carry this, for two independent reasons.
+   * Requeueing clears `stage`, so the signal survived exactly one retry and the
+   * next failure at an early stage looked pre-submit and cleared the bytes
+   * anyway. And a row can be failed out from under a running pipeline by
+   * `cancelTransaction`, which freezes `stage` wherever the cancel caught it
+   * while the pipeline goes on to submit — so the stage can say 'proving'
+   * about a transfer that landed. "May have submitted" is a property of the
+   * row's history, not of the attempt currently running, so the leaves write it
+   * directly at the submit crossing (`markMayHaveSubmitted`).
    *
-   * Absent ⇒ false (backward compatible; pre-existing rows are treated as
-   * never-submitted, which is what the stage gate alone already assumed).
+   * Absent does NOT by itself mean "never submitted". It means no attempt
+   * recorded a crossing, which for rows written by an older build — no leaf ever
+   * stamped this — is simply unknown; `PRE_SUBMIT_STAGES` documents how those are
+   * read conservatively from the stage and the presence of cached bytes.
    */
   mayHaveSubmitted?: boolean;
 }

@@ -189,9 +189,13 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(250), 2)).toBe('2.5');
   });
 
-  it('falls back to a single zero-pad when decimals is not positive', () => {
-    // decimals === 0 => numZeros forced to 1; documents the real (quirky) output.
-    expect(formatBigInt(BigInt(5), 0)).toBe('0.05');
+  it('renders whole units verbatim for a zero-decimal faucet', () => {
+    // Previously this documented the quirk instead of fixing it: `-decimals` was
+    // `-0`, `slice(0, -0)` returned the empty string, and 5 came out as "0.05" —
+    // two orders of magnitude off. It is rendered on the dApp approval sheet
+    // beside the amount being sent, so it has to be the amount.
+    expect(formatBigInt(BigInt(5), 0)).toBe('5');
+    expect(formatBigInt(BigInt(100), 0)).toBe('100');
   });
 });
 

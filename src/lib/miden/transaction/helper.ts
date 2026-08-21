@@ -11,7 +11,9 @@ import { getMidenClient } from '../sdk/miden-client';
 /**
  * Feature flag: is the offscreen WASM client active? Read as a module constant
  * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}. DEFAULT OFF.
+ * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
+ * the service-worker bundle that runs the transaction loop, OFF elsewhere and
+ * hardcoded OFF on mobile — see the defines in the vite configs.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
@@ -128,6 +130,29 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
     if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
       tx.stage = stage;
     }
+  });
+};
+
+/**
+ * Record that this row's pipeline reached the point where a broadcast can no
+ * longer be ruled out — the sticky half of the double-send guard that
+ * `requeueFailedTransaction` reads before dropping a send's cached request.
+ *
+ * Unlike `setTransactionStage` this deliberately does NOT skip terminal rows,
+ * and that exemption is the entire reason it exists. Nothing aborts a running
+ * pipeline when its row is failed out from under it — the Cancel button and the
+ * stale-queued reaper both go through `cancelTransaction`, which writes
+ * `Failed` and no stage — so the pipeline runs on and submits. The
+ * `setStage('submitting')` that would have recorded the crossing is exactly what
+ * the terminal guard suppresses, leaving the row frozen at whichever pre-submit
+ * stage it happened to hold when the cancel landed. Retry then reads that stage
+ * as proof nothing was broadcast, rebuilds the request, and mints a SECOND
+ * payment for a transfer already on chain. Writing the flag through a guard-free
+ * modify is what makes the record outlive that race.
+ */
+export const markMayHaveSubmitted = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.mayHaveSubmitted = true;
   });
 };
 

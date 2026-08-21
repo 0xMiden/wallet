@@ -28,20 +28,25 @@ export function accountIdStringToSdk(accountIdStr: string): AccountId {
  * bare bech32 address and the composite `WalletAccount.publicKey`
  * (`<address>_<suffix>`).
  *
- * Splitting the suffix off is what makes the composite form safe to pass here.
- * `Address.fromBech32` does parse it directly for SOME suffixes — the trailing
- * segment is its own bech32 routing-parameter encoding, and a `_qr7qqq9wr6w`
- * address round-trips to the same account id — but it throws for others
- * (`_qruqqypuyph` fails as an "invalid note tag length"). Splitting first makes
- * the parse independent of whichever routing parameters the wallet appended.
+ * Splitting the suffix off — which `accountRefToSdk` now does for every caller —
+ * is what makes the composite form safe to pass here. `Address.fromBech32` does
+ * parse it directly for SOME suffixes — the trailing segment is its own bech32
+ * routing-parameter encoding, and a `_qr7qqq9wr6w` address round-trips to the
+ * same account id — but it throws for others (`_qruqqypuyph` fails as an
+ * "invalid note tag length"). Splitting first makes the parse independent of
+ * whichever routing parameters the wallet appended.
  *
  * Hex is accepted too, via `accountRefToSdk`: this has to stay at least as
  * permissive as the SDK's own `resolveAccountRef`, which every id handed to
  * `transactions.*` goes through. A sender id that the SDK resolves but this
  * rejects fails the send before it is built.
+ *
+ * Kept as a distinct name from `accountRefToSdk` for intent — callers here are
+ * passing something they believe is one of the user's own accounts — even though
+ * the two now parse identically.
  */
 export function walletAccountIdToSdk(id: string): AccountId {
-  return accountRefToSdk(id.split('_')[0] ?? id);
+  return accountRefToSdk(id);
 }
 
 /**
@@ -84,8 +89,17 @@ export function sameWalletAccountId(a: string, b: string): boolean {
  * Parse an account reference in either of the two forms the wallet stores —
  * `0x…` hex or bech32 — into an SDK `AccountId`. Faucet ids in particular
  * appear in both forms depending on the producer.
+ *
+ * A composite `<address>_<suffix>` is reduced to its address first, so this
+ * accepts everything `resolveAccountId` (the offscreen realm's mirror of this
+ * function) accepts. They must agree: the same send resolves its recipient
+ * through this on the direct path and through `resolveAccountId` when routed
+ * offscreen, so a form that only one of them parses makes the send succeed or
+ * throw depending on which realm happened to run it. Splitting is safe for the
+ * non-composite forms because neither bech32 nor hex can contain an underscore.
  */
-export function accountRefToSdk(ref: string): AccountId {
+export function accountRefToSdk(accountRef: string): AccountId {
+  const ref = accountRef.split('_')[0] ?? accountRef;
   if (ref.startsWith('0x') || ref.startsWith('0X')) {
     // Lowercased prefix: `AccountId.fromHex` requires a literal '0x' and rejects
     // '0X…' outright ("hex encoded data must start with 0x"), even though the

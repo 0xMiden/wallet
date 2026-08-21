@@ -67,6 +67,45 @@ export const toPersistedNoteType = (noteType: NoteType | NoteTypeString | string
 // conversion is an estimate for display only.
 export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
+/**
+ * Largest relative recall offset the wallet will accept from a caller.
+ *
+ * Block heights are u32 on chain, and the offset is only ever used as
+ * `syncHeight + recallBlocks`, so the ceiling has to leave room for the head.
+ * Half the u32 space is ~2^31 blocks — on the order of two centuries at the
+ * observed cadence — which is past any real recall window while keeping the sum
+ * comfortably inside the type.
+ */
+export const MAX_RECALL_BLOCKS = 0x7fff_ffff;
+
+/**
+ * Validate a caller-supplied relative recall offset before it is persisted,
+ * previewed for approval, or turned into an absolute reclaim height.
+ *
+ * Nothing downstream re-checks it: the offset is added to the sync height and
+ * handed to the SDK as a u32 block height, and wasm-bindgen TRUNCATES a wider
+ * or fractional JS number at that boundary instead of rejecting it. Every way
+ * that goes wrong silently misprices the reclaim window the user approved:
+ *
+ * - `2 ** 32` wraps to `0`. The approval sheet says the note is recallable in
+ *   four billion blocks; on chain the sender can reclaim it IMMEDIATELY, so a
+ *   recipient who doesn't consume it within one block can lose the funds.
+ * - A negative offset large enough to drive the sum below zero wraps the other
+ *   way and strands the sender's recall for ~4 billion blocks.
+ * - A fractional offset is truncated toward zero, making the note recallable
+ *   earlier than the sheet said.
+ *
+ * `0` and `undefined` are both accepted and both mean "not recallable" — the
+ * builders treat a falsy offset as a plain P2ID — so this rejects only values
+ * that would be honored as a window and then quietly mean something else.
+ */
+export const assertValidRecallBlocks = (recallBlocks: number | undefined | null): void => {
+  if (recallBlocks === undefined || recallBlocks === null) return;
+  if (!Number.isSafeInteger(recallBlocks) || recallBlocks < 0 || recallBlocks > MAX_RECALL_BLOCKS) {
+    throw new Error(`recallBlocks must be a whole number between 0 and ${MAX_RECALL_BLOCKS}, got ${recallBlocks}`);
+  }
+};
+
 // P2IDE note storage layout (miden-standards src/note/p2ide.rs):
 // [target.suffix, target.prefix, reclaim_height, timelock_height], Felt::ZERO = unset.
 const P2IDE_RECLAIM_HEIGHT_INDEX = 2;

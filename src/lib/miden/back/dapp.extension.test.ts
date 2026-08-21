@@ -137,6 +137,10 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 

@@ -90,8 +90,15 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
     return '0';
   }
   const amountString = amount.toString();
-  const numZeros = decimals > 0 ? decimals : 1; // ensure there's always at least 1 zero before the decimal point
-  const prefixed = '0'.repeat(numZeros) + amountString;
+  // A zero-decimal faucet denominates in whole units, so the amount already IS
+  // the display string. The general path below cannot produce that: `-decimals`
+  // is `-0`, and `slice(0, -0)` is `slice(0, 0)` — the empty string — so the
+  // integer part is dropped and 100 renders as "0.01". That number is shown on
+  // the dApp approval sheet next to the amount actually being sent.
+  if (decimals <= 0) {
+    return amountString;
+  }
+  const prefixed = '0'.repeat(decimals) + amountString;
   const withDecimal = prefixed.slice(0, -decimals) + '.' + prefixed.slice(-decimals);
   const trimmed = withDecimal.replace(/^0+|0+$/g, '');
   const withoutTrailingDecimal = trimmed.replace(/\.$/, '');

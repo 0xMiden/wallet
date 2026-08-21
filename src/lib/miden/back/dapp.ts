@@ -72,7 +72,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { toPersistedNoteType } from '../helpers';
+import { assertValidRecallBlocks, toPersistedNoteType } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -1224,6 +1224,20 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
+  // A session authorizes exactly ONE account — `getDApp` selects it by the
+  // public key the page connected with — but `senderAddress` rides in the
+  // request body, and until now nothing tied the two together. A page granted
+  // access to account A could name account B as the sender and debit it, and
+  // the approval sheet renders amount, recipient, faucet and note type but not
+  // the sender, so the swap was invisible at the one point the user could have
+  // caught it. Compare through the canonicalizing comparator rather than `===`:
+  // the wallet hands the dApp `dApp.accountId` as its address at connect time,
+  // and the same account can legitimately come back in composite, bech32, or
+  // hex form.
+  if (!sameWalletAccountId(req.transaction.senderAddress, dApp.accountId)) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+
   return new Promise((resolve, reject) =>
     generatePromisifySendTransaction(resolve, reject, origin, dApp, req, sessionId)
   );
@@ -1255,6 +1269,11 @@ const generatePromisifySendTransaction = async (
       throw new Error('noteType is required');
     }
     req.transaction.noteType = toPersistedNoteType(req.transaction.noteType) as typeof req.transaction.noteType;
+    // Same reasoning one field over: the recall offset also crosses postMessage
+    // unvalidated, and it ends up as a u32 block height that wasm-bindgen
+    // truncates rather than rejects. Check it here so the number the approval
+    // sheet renders below is the number the note is actually built with.
+    assertValidRecallBlocks(req.transaction.recallBlocks);
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
