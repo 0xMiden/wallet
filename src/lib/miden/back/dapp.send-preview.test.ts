@@ -127,6 +127,15 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+/**
+ * The custom path now dry-runs the request before raising the sheet, to state
+ * its effects there (see `dapp.custom-consent.test.ts`). Stubbed so this file's
+ * assertions do not depend on a real client, and cannot wait on its timeout.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ error: 'no client in this suite' }))
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     getCurrentAccountPublicKey: jest.fn().mockResolvedValue('miden-account-1')

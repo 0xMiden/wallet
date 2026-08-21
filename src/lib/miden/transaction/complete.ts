@@ -38,6 +38,19 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const executedTx = result.executedTransaction();
   const outputNotes = executedTx.outputNotes().notes();
 
+  // A private note is only reachable by its recipient if the bytes are handed to
+  // them out of band — the chain carries a commitment, not the note. So a private
+  // output note we never pass to the transport is stranded: the recipient cannot
+  // see or consume it, and a custom note need not carry any reclaim window for the
+  // sender either. That is a silent loss of whatever it holds, and it used to be
+  // reported as a clean success. Counted here and surfaced on the row below.
+  //
+  // Only the cases where the transport never received the note count. A throw from
+  // `sendPrivateNote` does not: by then the note is in the client's store and the
+  // SDK outbox retries it on the next sync, which is the same reasoning
+  // `completeSendTransaction` applies to its own relay failures.
+  let strandedPrivateNotes = 0;
+
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
@@ -45,7 +58,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     }
 
     if (!transaction.secondaryAccountId) {
+      // The recipient is supplied by the requesting site and is optional, so a
+      // custom request that emits a private note without naming one lands here.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
+      strandedPrivateNotes++;
       continue;
     }
 
@@ -56,11 +72,13 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note');
+        strandedPrivateNotes++;
         continue;
       }
       fullNote = maybeFullNote;
     } catch (error) {
       console.error('Failed to convert output note into full note', { error });
+      strandedPrivateNotes++;
       continue;
     }
 
@@ -95,6 +113,18 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+
+  if (strandedPrivateNotes > 0) {
+    // Completed, not Failed: the transaction is on chain and the assets have left
+    // the account, so failing the row would be untrue and would offer a Retry that
+    // spends again. What is wrong is the DELIVERY, and the row is the only place
+    // the user would ever learn about it — `error` is rendered for failed rows
+    // only, so the label is what carries it.
+    updatedTransaction.displayMessage =
+      strandedPrivateNotes === 1
+        ? 'Completed — a private note could not be delivered'
+        : `Completed — ${strandedPrivateNotes} private notes could not be delivered`;
+  }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };

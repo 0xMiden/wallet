@@ -11,6 +11,7 @@ import { NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
+import { type AssetAmount, summaryBytesToView } from 'app/confirm/decode';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -1170,12 +1171,11 @@ const generatePromisifyTransaction = async (
 
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
+  const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
   let transactionMessages: string[] = [];
   try {
     transactionMessages = await withUnlocked(async () => {
-      const { payload } = req.transaction;
-      const customTransaction = payload as MidenCustomTransaction;
       if (!customTransaction.address || !customTransaction.transactionRequest) {
         throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
       }
@@ -1191,6 +1191,10 @@ const generatePromisifyTransaction = async (
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
 
+    // The effects go in front of the user BEFORE the sheet is raised, because
+    // this sheet cannot ask for them itself — see `formatSimulatedCustomEffects`.
+    const simulatedEffects = await withUnlocked(async () => formatSimulatedCustomEffects(customTransaction));
+
     const result = await dappConfirmationStore.requestConfirmation({
       id,
       sessionId,
@@ -1202,7 +1206,7 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages,
+      transactionMessages: [...transactionMessages, ...simulatedEffects],
       sourcePublicKey: req.sourcePublicKey
     });
 
@@ -1226,6 +1230,10 @@ const generatePromisifyTransaction = async (
           recipientAddress || undefined
         );
       });
+      // Same reason as the extension branch below: the dry run above quarantined
+      // the carried notes, and the queued transaction is about to consume them.
+      // Not released on the decline path, so a declined request stays hidden.
+      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
       startDappBackgroundProcessing();
       resolve({
         type: MidenDAppMessageType.TransactionResponse,
@@ -1236,8 +1244,6 @@ const generatePromisifyTransaction = async (
     }
     return;
   }
-
-  const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
   await requestConfirm({
     id,
@@ -1884,6 +1890,66 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
     'please ensure you know the details of the transaction before proceeding.',
     `Recipient, ${truncateAddress(payload.recipientAddress)}`
   ];
+}
+
+/**
+ * What a custom transaction will actually do, as lines for an approval sheet.
+ *
+ * A custom transaction is an opaque base64 `TransactionRequest`, so it can do
+ * anything the account can, and the three lines of
+ * {@link formatCustomTransactionPreview} describe none of it. The extension's
+ * approval page resolves that by running the dry run itself over the intercom
+ * (`makeSimulateHandler`) and rendering the asset movements it returns. The
+ * mobile and desktop sheets have no route to that call and render only
+ * `transactionMessages`, so they asked for consent to an unnamed transfer of an
+ * unnamed amount — "please ensure you know the details" and a recipient. Run the
+ * same dry run here, on the same account binding checked above, and put its
+ * result into the list those sheets already render.
+ *
+ * A dry run that could not be produced is STATED rather than omitted: no
+ * movement lines is otherwise indistinguishable from a transaction that moves
+ * nothing, which is the reading most likely to get an approval. Nothing in here
+ * throws — a preview that fails must not take down the request that a user could
+ * still legitimately decline.
+ */
+async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Promise<string[]> {
+  try {
+    const { summaryBytes, error } = await simulateCustomTransaction({
+      address: payload.address,
+      transactionRequest: payload.transactionRequest,
+      importNotes: payload.importNotes
+    });
+    if (!summaryBytes) throw new Error(error ?? 'no summary was produced');
+
+    const view = summaryBytesToView(summaryBytes);
+    const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
+      const metadata = await getTokenMetadata(asset.faucetId);
+      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals);
+      return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
+        metadata?.symbol ?? ''
+      }`.trimEnd();
+    };
+
+    const effects = [
+      ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
+      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
+    ];
+    if (effects.length === 0) {
+      effects.push('No assets move');
+    }
+    effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
+    if (view.storageChanged) {
+      effects.push('Changes this account’s stored data');
+    }
+
+    return ['Simulated effects:', ...effects];
+  } catch (e: any) {
+    console.error('Failed to simulate a custom transaction for approval', e);
+    return [
+      'This transaction could not be simulated, so its effects are unknown.',
+      `Reason, ${e?.message ?? String(e)}`
+    ];
+  }
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)
