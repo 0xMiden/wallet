@@ -117,8 +117,15 @@ interface TaggedBigInt {
   [BIGINT_TAG]: string;
 }
 
-const isTaggedBigInt = (value: object): value is TaggedBigInt =>
-  !Array.isArray(value) && BIGINT_TAG in value && typeof Reflect.get(value, BIGINT_TAG) === 'string';
+// Requires the tag to be the object's ONLY key. A tagged BigInt this code wrote
+// never has siblings, so anything that does is real data that merely resembles
+// the tag — and collapsing it to a BigInt would silently discard every other
+// field on it.
+const isTaggedBigInt = (value: object): value is TaggedBigInt => {
+  if (Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === 1 && keys[0] === BIGINT_TAG && typeof Reflect.get(value, BIGINT_TAG) === 'string';
+};
 
 /**
  * Byte fields stay plain number arrays, which is the shape the previous format
@@ -137,14 +144,12 @@ const BYTE_FIELDS = new Set(['requestBytes', 'resultBytes']);
  */
 const MAX_WALK_DEPTH = 64;
 
-const isIndexKeyedBytes = (value: object): boolean => {
-  const entries = Object.entries(value);
-  return (
-    entries.length > 0 &&
-    entries.every(([key, entry]) => String(Number(key)) === key && typeof entry === 'number') &&
-    !isTaggedBigInt(value)
-  );
-};
+// `{}` counts: an empty `Uint8Array` is exactly what the old format serialized to
+// an empty object, so rejecting it would restore `resultBytes` as a plain object
+// where the type promises bytes. Only ever consulted for known byte fields.
+const isIndexKeyedBytes = (value: object): boolean =>
+  Object.entries(value).every(([key, entry]) => String(Number(key)) === key && typeof entry === 'number') &&
+  !isTaggedBigInt(value);
 
 const toSerializable = (value: unknown, _key?: string, depth = 0): unknown => {
   if (depth > MAX_WALK_DEPTH) throw new Error('exportDb: transaction row nested too deeply');
@@ -210,9 +215,18 @@ export async function importDb(dump: string): Promise<void> {
       };
     });
 
-    await db.delete();
-    await db.open();
+    // Replace in ONE transaction rather than `db.delete()` + `bulkAdd`. Deleting
+    // first commits the destruction before a single row is written, so anything
+    // `bulkAdd` rejects on — a dump with duplicate ids, a storage quota, a key
+    // the schema will not accept — leaves the user with no history and nothing
+    // to restore from. Inside a transaction Dexie rolls the `clear` back with
+    // the failed add, so a bad dump costs the user nothing.
+    //
+    // `clear()` covers what `db.delete()` did: `transactions` is the only live
+    // table (`transactionRequests` was dropped in v1.1), and the rows are
+    // written into the current schema either way.
     await db.transaction('rw', transactions, async () => {
+      await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);
     });
   }

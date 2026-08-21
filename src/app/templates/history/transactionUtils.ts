@@ -11,6 +11,7 @@ import {
   ITransactionStatus,
   ITransactionType
 } from 'lib/miden/db/types';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -29,7 +30,11 @@ export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHis
   const secondary = tx.assetTotals.filter(total => total.faucetId !== tx.faucetId);
   return Promise.all(
     secondary.map(async total => {
-      const metadata = await getTokenMetadata(total.faucetId);
+      // Fall back rather than reject. Every entry on a history page is resolved
+      // under one `Promise.all`, so letting a single unresolvable faucet throw
+      // would blank the ENTIRE page — and a batch claim's secondary faucets are
+      // precisely the ones the wallet has never held metadata for.
+      const metadata = await getTokenMetadata(total.faucetId).catch(() => DEFAULT_TOKEN_METADATA);
       return {
         faucetId: total.faucetId,
         amount: formatAmount(total.amount, metadata.decimals),
@@ -115,11 +120,17 @@ export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | un
  * Round a bridge's (USDC) destination output to the standard 2 decimals for
  * display, expanding for small non-zero values. Passes non-numeric input
  * through unchanged.
+ *
+ * Rounds DOWN, never half-up: this now formats the bridge hero's IN side too,
+ * which is the user's own sent amount, and half-up there displays MORE than was
+ * sent (1.239999… → "1.24"). Rounding down also matches the two sibling money
+ * formatters — `formatEarnWithdrawAmount` and the activity row — so the same
+ * value cannot read differently depending on the surface.
  */
 export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
   if (amount === undefined) return undefined;
   const n = new BigNumber(amount);
-  return n.isFinite() ? toAdaptiveFixed(n) : amount;
+  return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
 };
 
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';

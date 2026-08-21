@@ -23,6 +23,7 @@ import {
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetRequest,
+  resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf,
   TRANSACTION_COLORS
@@ -71,6 +72,59 @@ const swapToken = (symbol: string, decimals: number): any => ({ symbol, decimals
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+describe('resolveConsumeExtraAmounts', () => {
+  const consumeTx = (assetTotals?: { faucetId: string; amount: bigint }[]): any => ({
+    type: 'consume',
+    faucetId: 'faucet-a',
+    amount: 20n,
+    assetTotals
+  });
+
+  it('returns nothing for a non-consume transaction', async () => {
+    await expect(resolveConsumeExtraAmounts({ type: 'send', faucetId: 'faucet-a' } as any)).resolves.toEqual([]);
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+  });
+
+  it('returns nothing for a legacy consume row without assetTotals', async () => {
+    await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
+  });
+
+  it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
+    mockGetTokenMetadata.mockImplementation(async (faucetId: string | null) =>
+      faucetId === 'faucet-b' ? ({ symbol: 'BBB', decimals: 2 } as any) : ({ symbol: 'CCC', decimals: 8 } as any)
+    );
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: 'faucet-b', amount: 10n },
+          { faucetId: 'faucet-c', amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([
+      { faucetId: 'faucet-b', amount: 'fmt(10,2)', token: 'BBB' },
+      { faucetId: 'faucet-c', amount: 'fmt(5,8)', token: 'CCC' }
+    ]);
+  });
+
+  // Every entry on a history page resolves under one Promise.all, so a single
+  // unresolvable faucet must not take the whole page down with it.
+  it('falls back to unknown-token metadata instead of rejecting the page', async () => {
+    mockGetTokenMetadata.mockRejectedValue(new Error('faucet lookup failed'));
+
+    const resolved = await resolveConsumeExtraAmounts(
+      consumeTx([
+        { faucetId: 'faucet-a', amount: 20n },
+        { faucetId: 'faucet-b', amount: 10n }
+      ])
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.faucetId).toBe('faucet-b');
+  });
 });
 
 describe('resolveSwapHistoryFields', () => {
@@ -279,8 +333,10 @@ describe('formatBridgeOutputAmount', () => {
     expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
   });
 
-  it('rounds a full-precision value to 2 decimals', () => {
-    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.24');
+  // Rounds DOWN, so the hero can never claim the user sent or received more than
+  // they did. Half-up would render 1.239999… as "1.24".
+  it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
+    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.23');
     expect(formatBridgeOutputAmount('0')).toBe('0.00');
   });
 
@@ -289,7 +345,7 @@ describe('formatBridgeOutputAmount', () => {
   });
 
   it('expands precision for a small non-zero output', () => {
-    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0013');
+    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0012');
   });
 
   it('passes non-numeric input through unchanged', () => {
@@ -355,7 +411,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
-      outAmount: '4.99',
+      // Truncated, not rounded up: a quote must not promise more than it pays.
+      outAmount: '4.98',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'

@@ -223,18 +223,29 @@ function buildRowProps(
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
   } else if (entry.amount !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    // A batch claim spanning several faucets appends each further asset inline.
-    const extra = entry.extraAmounts?.map(line => ({
-      key: line.faucetId,
-      value: `${sign}${line.amount}`,
-      symbol: line.token
-    }));
-    amount = {
-      value: `${sign}${entry.amount.toString()}`,
-      symbol: entry.token,
-      direction: amountDirection,
-      extra: extra && extra.length > 0 ? extra : undefined
-    };
+    // A batch claim spanning several faucets appends each further asset inline —
+    // but only on the unscoped list. On a token page the row is read as a
+    // movement of THAT token (same reasoning as `swapSide` above), so show the
+    // scoped faucet's own total and nothing else: listing "+10 B" on token A's
+    // page states a balance change that never touched A.
+    const scopedExtra = tokenId ? entry.extraAmounts?.find(line => line.faucetId === tokenId) : undefined;
+    if (scopedExtra) {
+      amount = { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
+    } else {
+      const extra = tokenId
+        ? undefined
+        : entry.extraAmounts?.map(line => ({
+            key: line.faucetId,
+            value: `${sign}${line.amount}`,
+            symbol: line.token
+          }));
+      amount = {
+        value: `${sign}${entry.amount.toString()}`,
+        symbol: entry.token,
+        direction: amountDirection,
+        extra: extra && extra.length > 0 ? extra : undefined
+      };
+    }
   }
 
   let statusTone: ActivityStatusTone = 'confirmed';

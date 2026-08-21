@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -108,9 +108,47 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     }
   }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
 
+  // This screen announces "Exported!" the moment it mounts, so an unhandled
+  // rejection here tells the user a backup exists when no file was ever written
+  // — the one failure a backup flow must never report as success.
+  const [exportError, setExportError] = useState(false);
+
   useEffect(() => {
-    getExportFile();
+    let cancelled = false;
+    getExportFile().catch((error: unknown) => {
+      console.error('Failed to export encrypted wallet file:', error);
+      if (!cancelled) setExportError(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [getExportFile]);
+
+  if (exportError) {
+    return (
+      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
+        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
+          <div className="w-49 aspect-square flex items-center justify-center">
+            <Icon name={IconName.Close} size="4xl" className="text-status-negative" />
+          </div>
+          <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+            <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
+              {t('encryptedWalletFileExportFailedTitle')}
+            </h1>
+            <p className="pt-6 text-base leading-[130%] select-text">{t('encryptedWalletFileExportFailedDesc')}</p>
+          </div>
+        </div>
+        <div className="w-full pt-8 pb-4">
+          <Button
+            className="w-full justify-center"
+            title={t('done')}
+            variant={ButtonVariant.Primary}
+            onClick={onDone}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">

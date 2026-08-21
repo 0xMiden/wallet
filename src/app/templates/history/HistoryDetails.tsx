@@ -442,7 +442,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txId: tx.id,
           noteType: tx.noteType,
           noteId: tx.outputNoteIds?.[0],
-          consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined)) : undefined,
+          // Only a COMPLETED claim has consumed anything. `noteIds` is stamped at
+          // queue time, so without the status gate a queued, in-flight or failed
+          // claim renders a "Consumed" list of notes that are still sitting
+          // claimable — the same reason the note type alone does not open the
+          // card (see `hasNoteData`).
+          consumedNoteIds:
+            tx.type === 'consume' && tx.status === ITransactionStatus.Completed
+              ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
+              : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -1008,8 +1016,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // it would put a "Created: 0" card on every pending and failed send.
   const hasNoteData = Boolean(entry?.noteId) || (entry?.outputNoteIds?.length ?? 0) > 0 || consumedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
+  // Priced from the primary faucet alone, so it is only shown when that IS the
+  // whole transaction. A batch claim's hero lists every asset it swept up, and a
+  // single-faucet estimate under it reads as the total while understating it —
+  // no figure is better than a confidently wrong one.
+  const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token
+    entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
   // The shared badge resolves its own amounts from the raw tx; for the types

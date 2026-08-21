@@ -82,19 +82,25 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
   }
 
   return (
+    // Wraps rather than clips. A batch claim's `lhs` lists every asset it swept
+    // up, which is unbounded, and both ancestors of this pill hide overflow —
+    // with a non-shrinking nowrap row the tail simply vanished, and the activity
+    // row's "+N more" pointed here for a full list it could not show. The pill
+    // grows to another line instead; `rounded-3xl` keeps that legible where a
+    // full pill radius would bow the sides.
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-full bg-surface-interactive py-4 text-base',
+        'flex w-full flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
         className
       )}
     >
-      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-heading-gray text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
         {rhs}
       </div>
     </div>
@@ -139,6 +145,43 @@ export const resolveSwapAsset = (
 const EARN_USDC_DECIMALS = 6;
 
 /**
+ * Format a claim's assets as `["20 A", "10 B"]`, one entry per faucet swept up.
+ *
+ * Shared by the in-progress badge and the success receipt because they render
+ * the SAME claim seconds apart on the SAME screen: the receipt replaces the
+ * badge once the row completes. Deriving them separately is what let the receipt
+ * silently drop every secondary asset and label an unresolved faucet MIDEN while
+ * the badge called it Unknown.
+ *
+ * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
+ * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
+ * amount at all, which callers should render as no summary rather than a blank.
+ */
+export const formatConsumeAssetParts = (
+  transaction: ITransaction,
+  assetsMetadata: Record<string, AssetMetadata> | undefined
+): string[] => {
+  const totals =
+    transaction.assetTotals && transaction.assetTotals.length > 0
+      ? transaction.assetTotals
+      : transaction.amount !== undefined && transaction.faucetId
+        ? [{ faucetId: transaction.faucetId, amount: transaction.amount }]
+        : [];
+
+  return totals.map(total => {
+    const tokenMetadata = assetsMetadata?.[total.faucetId];
+    // Mirrors `getTokenMetadata`, which the activity row for this same claim
+    // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
+    // Labelling it MIDEN would name a foreign token after the native one —
+    // and a batch claim's secondary faucets are exactly the ones the wallet
+    // has no metadata for, since it has never held them.
+    const fallback = total.faucetId === getNativeAssetIdSync() ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
+    const symbol = tokenMetadata?.symbol ?? fallback.symbol;
+    return `${formatAmount(total.amount, tokenMetadata?.decimals ?? fallback.decimals)} ${symbol}`;
+  });
+};
+
+/**
  * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
  * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
  * No hardcoded aliases: the badge shows the real market name.
@@ -169,25 +212,7 @@ export const useTransactionSummaryBadgeContent = (
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      // A batch claim sums per faucet (`assetTotals`) — "20 A, 10 B". Legacy rows
-      // without it fall back to the first faucet's `amount`/`faucetId`.
-      const totals =
-        transaction.assetTotals && transaction.assetTotals.length > 0
-          ? transaction.assetTotals
-          : transaction.amount !== undefined && transaction.faucetId
-            ? [{ faucetId: transaction.faucetId, amount: transaction.amount }]
-            : [];
-      const parts = totals.map(total => {
-        const tokenMetadata = assetsMetadata?.[total.faucetId];
-        // Mirrors `getTokenMetadata`, which the activity row for this same claim
-        // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
-        // Labelling it MIDEN would name a foreign token after the native one —
-        // and a batch claim's secondary faucets are exactly the ones the wallet
-        // has no metadata for, since it has never held them.
-        const fallback = total.faucetId === getNativeAssetIdSync() ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
-        const symbol = tokenMetadata?.symbol ?? fallback.symbol;
-        return `${formatAmount(total.amount, tokenMetadata?.decimals ?? fallback.decimals)} ${symbol}`;
-      });
+      const parts = formatConsumeAssetParts(transaction, assetsMetadata);
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
       if (parts.length === 0) return undefined;

@@ -104,14 +104,23 @@ const History = memo<HistoryProps>(
       setIsLoading(true);
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
-      const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-      const allRestEntries = mergeAndSort(restEntries, olderTransactions);
+      try {
+        const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+        const allRestEntries = mergeAndSort(restEntries, olderTransactions);
 
-      if (allRestEntries.length === 0) {
-        setHasMore(false);
+        if (allRestEntries.length === 0) {
+          setHasMore(false);
+        }
+        setRestEntries(allRestEntries);
+      } catch (error) {
+        // Clearing the flag in `finally` is what makes this recoverable: the
+        // guard above returns early while `isLoading` is set, so leaking it on a
+        // rejection would kill pagination for the rest of the session with no
+        // way back short of remounting.
+        console.error('Failed to load more history entries', error);
+      } finally {
+        setIsLoading(false);
       }
-      setRestEntries(allRestEntries);
-      setIsLoading(false);
     };
 
     let entries: IHistoryEntry[] = allEntries;
@@ -121,6 +130,10 @@ const History = memo<HistoryProps>(
         e =>
           e.message?.toLowerCase().includes(query) ||
           e.token?.toLowerCase().includes(query) ||
+          // A batch claim displays its secondary assets on the row, so searching
+          // for one has to find it — otherwise typing a symbol the user can see
+          // hides the very row showing it.
+          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
           e.secondaryAddress?.toLowerCase().includes(query)
       );
     }

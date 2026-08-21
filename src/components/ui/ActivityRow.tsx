@@ -36,8 +36,9 @@ export interface ActivityRowProps {
      * amount and to the same symbol, since an unresolvable one reads "Unknown".
      *
      * Only the first `EXTRA_ASSET_PREVIEW_COUNT` render; the remainder collapse
-     * to a "+N more" count, so pass these in the order worth showing. The row is
-     * a fixed single line and the detail view lists every asset anyway.
+     * to a "+N more" count, so pass these in the order worth showing — they are
+     * rendered in the given order, not sorted. The detail view's summary pill
+     * wraps and lists every asset.
      */
     extra?: { key: string; value: string; symbol?: string }[];
   };
@@ -119,10 +120,11 @@ export const ActivityRow: FC<ActivityRowProps> = ({
     hapticLight();
     onClick();
   };
-  // A "Claim All" can sweep up any number of distinct assets, and this row has a
-  // fixed single line for them; past a couple the amount column starves the
-  // title beside it. Show the largest few and count the rest — the row opens the
-  // detail view, which lists every asset in full.
+  // A "Claim All" can sweep up any number of distinct assets, and this row has
+  // one line for them; past a couple the amount column starves the title beside
+  // it. Show the first few in the order the caller passed and count the rest.
+  // The row opens the detail view, whose summary pill wraps and so does list
+  // every asset in full.
   const extra = amount?.extra ?? [];
   const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
   const extraOverflowCount = extra.length - visibleExtra.length;
@@ -185,6 +187,8 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             ))}
             {extraOverflowCount > 0 && (
               <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+                {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
+                <span>, </span>
                 {t('andMoreAssets', { count: extraOverflowCount })}
               </span>
             )}

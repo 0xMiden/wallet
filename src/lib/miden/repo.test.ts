@@ -156,4 +156,36 @@ describe('miden repo export/import', () => {
     const survivors = await transactions.toArray();
     expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
   });
+
+  // The depth guard above only covers dumps that fail during the WALK. A dump can
+  // also parse and map cleanly and still be rejected by the write itself -- two
+  // rows sharing a primary key is enough. Importing used to `db.delete()` before
+  // writing anything, so that rejection destroyed the user's history and left
+  // nothing to restore from; the replacement has to be atomic.
+  it('keeps existing history when the import write itself fails', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'survivor',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        amount: BigInt(1),
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const duplicateIdDump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'dup', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1 },
+        { id: 'dup', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 2 }
+      ]
+    });
+
+    await expect(importDb(duplicateIdDump)).rejects.toThrow();
+
+    const survivors = await transactions.toArray();
+    expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
+    expect(survivors[0]!.amount).toBe(BigInt(1));
+  });
 });

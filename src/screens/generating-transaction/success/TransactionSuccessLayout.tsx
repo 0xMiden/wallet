@@ -12,7 +12,7 @@ import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
-import { TransactionSummaryBadge } from '../TransactionSummaryBadge';
+import { formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
 
 /**
  * Shared presentational kit for the post-transaction success screens.
@@ -54,15 +54,24 @@ export interface ReceiptRow {
   actionLabel?: string;
 }
 
-/** Resolves the token symbol + formatted amount for a transaction. */
+/**
+ * Resolves the token symbol + formatted amount for a transaction.
+ *
+ * A claim reports EVERY faucet it swept up ("20 A, 10 B"), via the same helper
+ * the in-progress badge uses — this receipt replaces that badge on the same
+ * screen, so deriving the two separately makes the total appear to drop the
+ * moment the transaction succeeds.
+ */
 export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
 
   const tokenMetadata = transaction?.faucetId ? assetsMetadata[transaction.faucetId] : undefined;
   const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';
+  const consumeParts = transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata) : [];
   const amount =
     transaction?.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
-  const amountText = amount ? `${amount} ${tokenSymbol}` : undefined;
+  const amountText =
+    consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
 
   return { tokenMetadata, tokenSymbol, amountText };
 };
