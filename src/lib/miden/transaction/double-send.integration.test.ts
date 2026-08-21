@@ -631,6 +631,106 @@ describe('a plain send with nothing left to prove either way is not retried blin
   });
 });
 
+// The guard's failure mode is not letting a double-send through — it is refusing
+// a send that was never at risk. A plain (non-guardian) send is where the two are
+// easiest to confuse: it holds no bytes, and its pipeline stamps 'sending' ONCE at
+// pickup and never narrows, so `PRE_SUBMIT_STAGES` cannot vouch for any of its
+// failures. Treating that silence as evidence of a crossing refuses every retry
+// it has.
+describe('a plain send is not refused on the strength of a stage it never had', () => {
+  const plainSend = (id: string, overrides: Partial<ITransaction> = {}) =>
+    inFlightSend(id, {
+      stage: 'sending',
+      requestBytes: undefined,
+      status: ITransactionStatus.Failed,
+      ...overrides
+    });
+
+  it('does not invent a crossing for a row with no bytes to protect', async () => {
+    await Repo.transactions.add(plainSend('plain-1'));
+
+    await requeueFailedTransaction('plain-1');
+
+    const row = await read('plain-1');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  // The regression this pair pins: the flag used to be written from the stage
+  // alone, so every plain send earned it on its first requeue and was refused on
+  // its second — Retry working exactly once, then failing shut for good.
+  it('is still retryable after failing again, and again', async () => {
+    await Repo.transactions.add(plainSend('plain-2'));
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await requeueFailedTransaction('plain-2');
+      expect((await read('plain-2')).status).toBe(ITransactionStatus.Queued);
+      await Repo.transactions.where({ id: 'plain-2' }).modify(r => {
+        r.status = ITransactionStatus.Failed;
+        r.stage = 'sending';
+      });
+    }
+  });
+
+  it('including the vault-slot rejection this release exists to fix', async () => {
+    await Repo.transactions.add(
+      plainSend('plain-vault-slot', { error: 'failed to remove the fungible asset from the vault' })
+    );
+
+    await requeueFailedTransaction('plain-vault-slot');
+    await Repo.transactions.where({ id: 'plain-vault-slot' }).modify(r => {
+      r.status = ITransactionStatus.Failed;
+      r.stage = 'sending';
+    });
+
+    await expect(requeueFailedTransaction('plain-vault-slot')).resolves.toBeUndefined();
+    expect((await read('plain-vault-slot')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  // ...while the two producers that DO record a crossing still refuse, so the
+  // scoping above did not simply disable the guard.
+  it('but a recorded crossing on a byteless row still refuses', async () => {
+    await Repo.transactions.add(plainSend('plain-crossed'));
+    await markMayHaveSubmitted('plain-crossed');
+
+    await expect(requeueFailedTransaction('plain-crossed')).rejects.toThrow(/may already have reached the network/);
+  });
+
+  // A row WITH bytes keeps the stage-derived flag: there the flag protects
+  // something, and pinning the note id is what makes the duplicate rejectable.
+  it('still persists the stage verdict when there are bytes to protect', async () => {
+    await Repo.transactions.add(inFlightSend('guardian-row', { stage: 'sending', status: ITransactionStatus.Failed }));
+
+    await requeueFailedTransaction('guardian-row');
+
+    const row = await read('guardian-row');
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.requestBytes).toBeDefined();
+  });
+
+  // An unresolved "don't know yet" must not be laundered into a permanent "yes"
+  // by passing through a requeue: it expires by design, and freezing it would
+  // pin the request — and its absolute reclaim height — forever.
+  it('does not promote an expiring cancel marker into a permanent crossing', async () => {
+    await Repo.transactions.add(
+      inFlightSend('cancel-marker', {
+        stage: 'proving',
+        status: ITransactionStatus.Failed,
+        cancelledInFlightAt: Math.floor(Date.now() / 1000)
+      })
+    );
+
+    await requeueFailedTransaction('cancel-marker');
+
+    const row = await read('cancel-marker');
+    // Bytes held, because the marker still says a submit is possible...
+    expect(row.requestBytes).toBeDefined();
+    // ...but on the expiring marker alone, so it can still lapse.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.cancelledInFlightAt).toBeDefined();
+  });
+});
+
 describe('the guard is scoped to the only type whose bytes it can drop', () => {
   it('never clears a swap, whose bytes the PSWAP flow requires byte-identically', async () => {
     const tx = inFlightSend('swap-row', { type: 'swap' });

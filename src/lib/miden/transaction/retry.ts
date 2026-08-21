@@ -176,10 +176,25 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   // request with a fresh note serial and the chain has no reason to reject
   // it — the recipient is paid twice, silently.
   //
-  // So the answer is to say so. Deliberately narrow: all four conditions have to
-  // hold, and the case this whole change exists for — a send that failed while
-  // executing against the wrong vault slot — satisfies none of the last two, so
-  // it still rebuilds and retries normally.
+  // So where a crossing is actually RECORDED, say so instead of gambling. All
+  // four conditions have to hold, and the case this whole change exists for — a
+  // send that failed executing against the wrong vault slot — satisfies neither
+  // of the last two, so it still rebuilds and retries normally.
+  //
+  // Which is also the limit of this guard, stated plainly because the shape of it
+  // invites over-reading: it fires on a recorded crossing, not on the mere
+  // possibility of one. A plain send has no submit crossing to record. Its
+  // pipeline stamps 'sending' once at pickup and never narrows, so an ordinary
+  // ambiguous failure at or after the submit is indistinguishable from one before
+  // it, and the first Retry of such a row still rebuilds and can pay twice. The
+  // two producers that DO leave a record are covered — an offscreen wedge-kill
+  // (`cancelTransactionAfterPipelineStopped`) and a Cancel racing a live pipeline
+  // (`cancelledInFlightAt`) — and closing the rest needs a captured transaction id
+  // to verify against, or bytes to pin the note id, neither of which this path
+  // has. That is the recovery work `PRE_SUBMIT_STAGES` names as its prerequisite,
+  // and it is not this change. Widening the condition to "not provably
+  // pre-submit" is NOT the fix: for a plain send that is always true, so it would
+  // refuse every retry, vault-slot failures first.
   if (
     tx.type === 'send' &&
     tx.requestBytes === undefined &&
@@ -236,32 +251,42 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // this gate can drop; writing the flag onto a swap or bridged-send row would
     // persist a signal nothing reads and imply a guard those types don't have.
     if (dbTx.type === 'send') {
-      // Sticky OR, and read off the LIVE row rather than the snapshot taken at
-      // the top of this function. Both halves matter:
-      //
-      //   - `dbTx.mayHaveSubmitted` — once any attempt got far enough that a
-      //     submit can't be ruled out, every later attempt inherits that.
-      //     Without the persisted half the signal dies with the `stage` reset
-      //     below, and the NEXT failure (at, say, 'syncing') clears the bytes
-      //     this retry just protected.
-      //   - reading it HERE, not from `tx` — `verifySendLanded` above makes a
-      //     network round trip, and `markMayHaveSubmitted` writes this field and
-      //     nothing else. A crossing recorded during that window therefore sails
-      //     through the status/stage re-check above untouched, and deciding from
-      //     the snapshot would clear the bytes of a send that had just
-      //     broadcast. IndexedDB serializes the two writes, so by the time this
-      //     callback runs the flag is committed and visible.
-      //   - `cancelledInFlightAt` — a Cancel that fired while the pipeline was
-      //     still running, before any leaf could stamp a crossing. Unlike the
-      //     flag above this one expires (see its docstring): a stale "maybe"
-      //     would pin the request forever and brick a send that failed early
-      //     into replaying it.
-      if (dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit) {
-        // Persist BEFORE the stage is forgotten, so the next failure — which may
-        // land on an early stage and look pre-submit — still sees it.
-        dbTx.mayHaveSubmitted = true;
-      } else {
+      // Read off the LIVE row rather than the snapshot taken at the top of this
+      // function: `verifySendLanded` above makes a network round trip, and
+      // `markMayHaveSubmitted` writes that field and nothing else, so a crossing
+      // recorded during that window sails through the status/stage re-check
+      // untouched. Deciding from the snapshot would clear the bytes of a send
+      // that had just broadcast. IndexedDB serializes the two writes, so by the
+      // time this callback runs the flag is committed and visible.
+      const submitPossible =
+        dbTx.mayHaveSubmitted === true || pipelineMayStillBeRunning(dbTx.cancelledInFlightAt) || !failedPreSubmit;
+
+      if (!submitPossible) {
         dbTx.requestBytes = undefined;
+      } else if (dbTx.requestBytes !== undefined && !failedPreSubmit) {
+        // Persist the STAGE's verdict before the stage is forgotten, so the next
+        // failure — which may land early and look pre-submit — still keeps these
+        // bytes. Two conditions, and both are load-bearing:
+        //
+        //   - only when bytes EXIST. The flag's whole job is to protect them,
+        //     and `mayHaveSubmitted` is permanent. Writing it to a byteless row
+        //     protects nothing and instead manufactures a crossing that never
+        //     happened, which the refusal above then reads as fact: a plain send
+        //     is never stage-narrowed (its pipeline stamps 'sending' once, at
+        //     pickup, and that is deliberately not pre-submit), so EVERY plain
+        //     send would earn the flag on its first requeue and be refused on
+        //     its second — the vault-slot failure this release fixes included.
+        //     Nothing is lost by the scoping: bytes are persisted to the row
+        //     before they are ever submitted (`ensureGuardianRecallableSend-
+        //     RequestBytes`), so a byteless attempt provably never broadcast.
+        //   - only from the STAGE. A live `cancelledInFlightAt` also makes a
+        //     submit possible, but it says "we don't know YET" and expires
+        //     saying so (see its docstring); it also survives the reset below on
+        //     its own, so it needs no persisting. Promoting it here would freeze
+        //     an unresolved maybe into a permanent yes and pin the request —
+        //     with it the frozen absolute reclaim height — for good, which is
+        //     the bricking this field was split in two to avoid.
+        dbTx.mayHaveSubmitted = true;
       }
     }
   });
