@@ -6,6 +6,7 @@
 
 - [FIX][all] Guardian operator cards on Choose/Rotate Guardian now shrink to fit narrow viewports instead of being clipped at the screen edges. (#744)
 - [FIX][all] Bridge transaction details: hero amounts now use the adaptive 2-decimal formatter (also for quoted output amounts), and the page can no longer scroll horizontally when a value is long. (#752)
+- [FIX][all] Import Wallet seed-phrase screen: consistent vertical gap between the word grid and the Continue button on short viewports. (#741)
 
 ### Features
 
