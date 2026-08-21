@@ -6,6 +6,7 @@ import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
+import HelpImproveWalletPrompt from 'app/pages/HelpImproveWallet';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
@@ -13,6 +14,7 @@ import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
+import { hasTelemetryChoice } from 'lib/settings/helpers';
 import * as Woozie from 'lib/woozie';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -57,6 +59,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   // open the panel. Still defers to Unlock when locked (e.g. the wallet
   // auto-locks while a tab is parked here) by SKIPping to the `*` catch-all.
   ['/finish-side-panel', (_p, ctx) => (ctx.locked ? Woozie.Router.SKIP : <OpenSidePanel />)],
+  // Telemetry consent prompt. Before the `!ready` catch-all for the same reason
+  // as the handoff screen above — it is reached the moment the wallet is created,
+  // either side of the Ready flip, so an `onlyReady` guard would make it
+  // unreachable and the catch-all would replace it mid-read. Locked SKIPs to
+  // Unlock exactly as `/finish-side-panel` does. It also SKIPs once a choice
+  // exists: putting "never re-ask" on the route rather than only on the flows
+  // that navigate here means a bookmark or hand-typed URL cannot re-open a
+  // question the user has already settled.
+  [
+    '/help-improve-wallet',
+    (_p, ctx) => (ctx.locked || hasTelemetryChoice() ? Woozie.Router.SKIP : <HelpImproveWalletPrompt />)
+  ],
   ['/reset-required', () => <ResetRequired />],
   [
     '/reset-wallet',

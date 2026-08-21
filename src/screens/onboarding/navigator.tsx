@@ -12,7 +12,6 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
-import { HelpImproveWalletScreen } from './common/HelpImproveWallet';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -185,7 +184,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
-    const onHelpImproveWalletSubmit = () => onForwardAction?.({ id: 'help-improve-wallet' });
 
     switch (step) {
       case OnboardingStep.Welcome:
@@ -205,8 +203,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         );
       case OnboardingStep.ChooseGuardian:
         return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
-      case OnboardingStep.HelpImproveWallet:
-        return <HelpImproveWalletScreen onSubmit={onHelpImproveWalletSubmit} />;
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -327,9 +323,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
               step !== OnboardingStep.SetupPasscode &&
               step !== OnboardingStep.SetupBiometric &&
               step !== OnboardingStep.ChooseGuardian &&
-              // The consent prompt's own "Not now" is the way out; a generic
-              // back button would be a second, unrecorded way to answer it.
-              step !== OnboardingStep.HelpImproveWallet &&
               step !== OnboardingStep.Confirmation && (
                 <div className="px-4 pt-2 pb-4">
                   <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />

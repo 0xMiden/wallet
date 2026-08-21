@@ -10,6 +10,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
@@ -62,6 +63,22 @@ function biometricProtectionSupported(): boolean {
  */
 function protectionStepRoute(): string {
   return biometricProtectionSupported() ? '/#choose-protection' : '/#create-password';
+}
+
+/**
+ * Where a finished onboarding goes next.
+ *
+ * The telemetry consent prompt is a one-time detour in front of `destination`,
+ * taken only while the user has never answered it — asking is worth one screen,
+ * re-asking someone who has already decided is not, which is what
+ * `hasTelemetryChoice()` rules out. The prompt continues to `destination`'s own
+ * route itself, so Chrome's chain stays create → consent → /finish-side-panel.
+ *
+ * Only ever called once the wallet exists: a user who has not got a wallet, or
+ * whose creation failed, is not asked at all.
+ */
+function postCreationRoute(destination: string): string {
+  return hasTelemetryChoice() ? destination : '/help-improve-wallet';
 }
 
 /**
@@ -315,7 +332,7 @@ const Welcome: FC = () => {
         // transition and shows the "Open wallet" button. Crucially we do NOT
         // waitForReadyState here — pushing Ready into the store first would
         // route this tab to the wallet home before we navigate.
-        navigate('/finish-side-panel');
+        navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
         // button reverts to running register() in-tab on the next tap.
@@ -463,7 +480,7 @@ const Welcome: FC = () => {
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
           // like Create does, instead of always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          navigate(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);

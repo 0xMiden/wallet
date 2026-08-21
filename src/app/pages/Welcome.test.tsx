@@ -123,6 +123,15 @@ jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
+// Whether the user has already answered the telemetry consent prompt, which
+// decides whether a finished onboarding detours through it. Defaults to `true`
+// below so the existing destination assertions stay about their own subject; the
+// unanswered case has its own describe block.
+const mockTelemetryChoice = { made: true };
+jest.mock('lib/settings/helpers', () => ({
+  hasTelemetryChoice: () => mockTelemetryChoice.made
+}));
+
 // Telemetry: every beginFlow() call records the flow name and hands back a fresh
 // spy handle, so a test can assert both WHICH flows were begun and how each one
 // was settled. classifyError is stubbed to a constant so the assertions pin the
@@ -210,6 +219,7 @@ beforeEach(() => {
   mockClassifyError.mockReturnValue('unknown');
   mockHash = '';
   mockCanHandoff = false;
+  mockTelemetryChoice.made = true;
   mockFlowProps.current = null;
   mockBackHandlerRef.current = null;
   mockIsMobileFn.mockReturnValue(false);
@@ -1028,6 +1038,130 @@ describe('Welcome — side-panel handoff', () => {
 // ===========================================================================
 // Mobile back-button handler
 // ===========================================================================
+
+// ===========================================================================
+// Telemetry consent detour
+// ===========================================================================
+
+describe('Welcome — telemetry consent detour', () => {
+  const CONSENT_ROUTE = '/help-improve-wallet';
+
+  it('sends a finished in-tab onboarding to the consent prompt when nobody has answered yet', async () => {
+    mockTelemetryChoice.made = false;
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' }); // begins the 'create' flow
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await dispatch({ id: 'confirmation' });
+
+    // Positive facts first: the wallet really was created and the flow really
+    // did complete — the detour replaces the destination, not the work.
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(handleFor('create').complete).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith(CONSENT_ROUTE);
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('never re-asks an in-tab user who has already answered', async () => {
+    mockTelemetryChoice.made = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).not.toHaveBeenCalledWith(CONSENT_ROUTE);
+  });
+
+  it('sends the Chrome side-panel handoff through the prompt first', async () => {
+    mockCanHandoff = true;
+    mockTelemetryChoice.made = false;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    // The prompt's own submit continues to /finish-side-panel, so the chain
+    // becomes create → consent → handoff rather than skipping the panel.
+    expect(mockNavigate).toHaveBeenCalledWith(CONSENT_ROUTE);
+    expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
+  });
+
+  it('never re-asks a Chrome user who has already answered', async () => {
+    mockCanHandoff = true;
+    mockTelemetryChoice.made = true;
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+    expect(mockNavigate).not.toHaveBeenCalledWith(CONSENT_ROUTE);
+  });
+
+  it('does not ask until wallet creation has actually finished', async () => {
+    mockCanHandoff = true;
+    mockTelemetryChoice.made = false;
+    // Hold registration open so the "creating" window is a real, observable
+    // state rather than something an await might have already skipped past.
+    let finishRegister!: () => void;
+    mockRegisterWallet.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishRegister = resolve;
+        })
+    );
+
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Mid-creation: registration is genuinely in flight and the screen is
+    // showing its spinner, and no consent question has been put to the user.
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockFlowProps.current.confirmCreating).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalledWith(CONSENT_ROUTE);
+
+    await act(async () => {
+      finishRegister();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Only now, with a wallet in hand, is the user asked.
+    expect(mockNavigate).toHaveBeenCalledWith(CONSENT_ROUTE);
+  });
+
+  it('does not ask a user whose wallet creation failed', async () => {
+    mockTelemetryChoice.made = false;
+    mockRegisterWallet.mockRejectedValue(new Error('creation failed'));
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' }); // begins the 'create' flow
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await dispatch({ id: 'confirmation' });
+
+    expect(handleFor('create').fail).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalledWith(CONSENT_ROUTE);
+  });
+});
 
 describe('Welcome — mobile back handler', () => {
   it('lets the system handle back on the Welcome step', async () => {

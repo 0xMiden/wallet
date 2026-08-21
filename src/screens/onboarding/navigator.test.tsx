@@ -98,9 +98,6 @@ jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => 
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
 jest.mock('./common/ChooseGuardian', () => ({ ChooseGuardianScreen: (p: any) => mockScreen('choose-guardian')(p) }));
-jest.mock('./common/HelpImproveWallet', () => ({
-  HelpImproveWalletScreen: (p: any) => mockScreen('help-improve-wallet')(p)
-}));
 jest.mock('./create-wallet-flow/BackUpSeedPhrase', () => ({
   BackUpSeedPhraseScreen: (p: any) => mockScreen('backup-seed')(p)
 }));
@@ -154,10 +151,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
     [OnboardingStep.ChooseGuardian, 'screen-choose-guardian'],
-    [OnboardingStep.Confirmation, 'screen-confirmation'],
-    // The consent prompt carries its own "Not now", so a generic back button
-    // would offer a second, unrecorded way out of the same question.
-    [OnboardingStep.HelpImproveWallet, 'screen-help-improve-wallet']
+    [OnboardingStep.Confirmation, 'screen-confirmation']
   ];
   it.each(headerNoBack)('renders %s with a header but no back button', (step, testid) => {
     renderFlow({ step });
@@ -215,22 +209,6 @@ describe('OnboardingFlow — action wiring per screen', () => {
     renderFlow({ step: OnboardingStep.Welcome });
     expect(() => act(() => mockCaptured.welcome.onSubmit('select-wallet-type'))).not.toThrow();
     expect(() => act(() => mockCaptured.welcome.onSubmit('select-import-type'))).not.toThrow();
-  });
-
-  it('HelpImproveWallet: reports the answered prompt and does not renumber the progress indicator', () => {
-    const onAction = jest.fn();
-    renderFlow({ step: OnboardingStep.HelpImproveWallet, onAction });
-
-    act(() => mockCaptured['help-improve-wallet'].onSubmit());
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'help-improve-wallet' });
-
-    // Absent from STEP_TO_PROGRESS on purpose: an extra numbered step would
-    // renumber every other screen's "n of 4". An unmapped step yields a null
-    // position, which the indicator renders as the hidden `currentStep ?? 1` —
-    // so `data-current` is asserted too, since a mapped position would still be
-    // hidden here and `opacity-0` alone cannot tell the two apart.
-    expect(progress()).toHaveAttribute('data-current', '1');
-    expect(progress()).toHaveAttribute('data-classname', 'opacity-0');
   });
 
   it('ChooseProtection: wires biometric and passcode selections', () => {

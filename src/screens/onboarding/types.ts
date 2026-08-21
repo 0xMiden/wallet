@@ -38,7 +38,6 @@ export enum OnboardingStep {
   SelectRecoveryMethod = 'select-recovery-method',
   ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
-  HelpImproveWallet = 'help-improve-wallet',
   Confirmation = 'confirmation'
 }
 export type OnboardingActionId =
@@ -62,7 +61,6 @@ export type OnboardingActionId =
   | 'select-recovery-method'
   | 'choose-guardian'
   | 'import-select-recovery-method'
-  | 'help-improve-wallet'
   | 'confirmation'
   | 'retry-guardian-probe'
   | 'import-from-seed';
@@ -147,14 +145,6 @@ export type ConfirmationAction = {
   id: 'confirmation';
 };
 
-/**
- * The telemetry consent prompt was answered. Carries no payload: the answer
- * itself is already persisted by the screen, so the host only needs to move on.
- */
-export type HelpImproveWalletAction = {
-  id: 'help-improve-wallet';
-};
-
 export type BiometricSetupSubmitAction = {
   id: 'biometric-setup-submit';
   payload: boolean; // Whether biometric was enabled
@@ -197,7 +187,6 @@ export type OnboardingAction =
   | SelectRecoveryMethodAction
   | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
-  | HelpImproveWalletAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction

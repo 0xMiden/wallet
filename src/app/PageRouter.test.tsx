@@ -44,6 +44,9 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
+// Whether the user has already answered the telemetry consent prompt. Read by
+// the `/help-improve-wallet` route factory, which refuses to re-ask.
+const mockTelemetryChoice = { made: false };
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -55,6 +58,14 @@ jest.mock('lib/woozie', () => ({
   HistoryAction: { Push: 'PUSH', Pop: 'POP', Replace: 'REPLACE' },
   resetHistoryPosition: jest.fn(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />
+}));
+
+// Partial mock: only the consent probe is driven. A wholesale mock would strip
+// `getThemeSetting`, which one of the router's transitive imports calls at module
+// scope, taking the whole suite down before a single test runs.
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  hasTelemetryChoice: () => mockTelemetryChoice.made
 }));
 
 // root-view: partial mock. By default `resolveRootView` delegates to the real
@@ -108,6 +119,10 @@ jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div da
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
+}));
+jest.mock('app/pages/HelpImproveWallet', () => ({
+  __esModule: true,
+  default: () => <div data-testid="help-improve-wallet" />
 }));
 jest.mock('app/pages/PendingNotes', () => ({
   __esModule: true,
@@ -232,6 +247,7 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+  mockTelemetryChoice.made = false;
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -244,6 +260,61 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     renderAt('/finish-side-panel', { locked: true });
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByTestId('open-side-panel')).not.toBeInTheDocument();
+  });
+
+  // The telemetry consent prompt. Same placement rationale as
+  // `/finish-side-panel`: it is reached the moment the wallet is created, and
+  // creation flips the app to the wallet home, so it must render either side of
+  // that flip or the user never gets to answer.
+  it('/help-improve-wallet renders the prompt before the wallet reports Ready', () => {
+    // The exact state the create flow navigates in: hydrated, unlocked, and
+    // Ready not yet broadcast. Ahead of the `!ready` catch-all, so the prompt
+    // wins over Welcome.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('welcome')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet keeps rendering once Ready arrives', () => {
+    // Ready lands while the user is still reading. The prompt must not be
+    // swapped out from under them for the wallet home.
+    renderAt('/help-improve-wallet', ready);
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('explore')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet renders on a cold start, and with no wallet at all', () => {
+    // Reached directly — a reopened tab, a bookmark, a hand-typed URL — before
+    // the service worker has hydrated and with nothing created. The prompt only
+    // reads and writes a setting, so it needs no wallet and must not sit behind
+    // the hydration spinner waiting for one.
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: false });
+    expect(screen.getByTestId('help-improve-wallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('root-suspense-fallback')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs to the locked catch-all (Unlock) when locked', () => {
+    renderAt('/help-improve-wallet', { locked: true, ready: true, hydrated: true });
+    expect(screen.getByTestId('unlock')).toBeInTheDocument();
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+  });
+
+  it('/help-improve-wallet SKIPs once a choice exists, so nobody is ever re-asked', () => {
+    // The guard lives on the route, not just on the flows that navigate here, so
+    // a bookmark or hand-typed URL cannot re-open a settled question either.
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', ready);
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/');
+  });
+
+  it('/help-improve-wallet with a choice already made and no wallet falls through to onboarding', () => {
+    mockTelemetryChoice.made = true;
+    renderAt('/help-improve-wallet', { ready: false, locked: false, hydrated: true });
+
+    expect(screen.queryByTestId('help-improve-wallet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('welcome')).toBeInTheDocument();
   });
 
   it('/reset-required renders ResetRequired', () => {
