@@ -1778,8 +1778,8 @@ In `public/_locales/en/en.json` (flat keys):
 
 ```json
   "helpImproveWallet": "Help improve Wallet",
-  "helpImproveWalletDescription": "Share anonymous data about which parts of Wallet you use and any crashes, so we can fix what's broken. Never your keys, balances, addresses, amounts, or transactions. You can change this any time.",
-  "helpImproveWalletAccept": "Share anonymous data",
+  "helpImproveWalletDescription": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. You can change this any time.",
+  "helpImproveWalletAccept": "Share usage data",
   "helpImproveWalletDecline": "Not now",
 ```
 
@@ -1836,7 +1836,7 @@ describe('HelpImproveWalletScreen', () => {
   it('records acceptance', async () => {
     const onSubmit = jest.fn();
     render(<HelpImproveWalletScreen onSubmit={onSubmit} />);
-    await userEvent.click(screen.getByText('Share anonymous data'));
+    await userEvent.click(screen.getByText('Share usage data'));
     expect(isTelemetryEnabled()).toBe(true);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
