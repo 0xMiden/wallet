@@ -56,26 +56,33 @@ describe('transaction models', () => {
       ...over
     });
 
+    // Amounts are deliberately UNEQUAL: with three identical notes, summing each
+    // note's own amount and summing the first note's amount three times give the
+    // same answer, so the test would pass against a constructor that ignores
+    // every note but the first.
     it('totals a mixed batch per faucet and keeps amount on the first note s faucet', () => {
       const tx = new ConsumeTransaction('acc', [
         note({ id: 'n1', faucetId: 'faucet-a', amount: '10' }),
-        note({ id: 'n2', faucetId: 'faucet-a', amount: '10' }),
-        note({ id: 'n3', faucetId: 'faucet-b', amount: '10' })
+        note({ id: 'n2', faucetId: 'faucet-a', amount: '3' }),
+        note({ id: 'n3', faucetId: 'faucet-b', amount: '7' })
       ]);
 
       expect(tx.assetTotals).toEqual([
-        { faucetId: 'faucet-a', amount: 20n },
-        { faucetId: 'faucet-b', amount: 10n }
+        { faucetId: 'faucet-a', amount: 13n },
+        { faucetId: 'faucet-b', amount: 7n }
       ]);
       // The headline amount is one entry of assetTotals, never a separate tally.
-      expect(tx.amount).toBe(20n);
+      expect(tx.amount).toBe(13n);
       expect(tx.noteIds).toEqual(['n1', 'n2', 'n3']);
     });
 
-    it('leaves assetTotals off a single-faucet batch s odd note out when it has no amount', () => {
+    // The empty-amount note sits on its OWN faucet, so its absence is visible.
+    // On a shared faucet it is invisible: `BigInt('')` is `0n`, so dropping the
+    // skip changes nothing and the test passes against a missing guard.
+    it('leaves assetTotals off a batch s odd note out when it has no amount', () => {
       const tx = new ConsumeTransaction('acc', [
         note({ id: 'n1', amount: '7' }),
-        note({ id: 'n2', amount: '' }),
+        note({ id: 'n2', faucetId: 'faucet-empty', amount: '' }),
         note({ id: 'n3', amount: '5' })
       ]);
 

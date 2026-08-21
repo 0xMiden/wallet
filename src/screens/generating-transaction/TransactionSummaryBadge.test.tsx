@@ -27,8 +27,13 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetIdSync: () => mockNativeAssetId
 }));
 
+// A spy, not a bare function: the rendered text alone cannot show WHICH decimals
+// each asset was scaled by, so a helper that formats every asset at the wrong
+// scale is invisible to every assertion on `textContent`.
+const mockFormatAmount = jest.fn((amount: bigint, _decimals?: number) => String(amount));
+
 jest.mock('lib/shared/format', () => ({
-  formatAmount: (amount: bigint) => String(amount)
+  formatAmount: (amount: bigint, decimals?: number) => mockFormatAmount(amount, decimals)
 }));
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
@@ -162,7 +167,10 @@ describe('useTransactionSummaryBadgeContent', () => {
   // the normal case, not an edge one. Listing only `assetTotals[0]` understates
   // what arrived — the row would say "20 AAA" for a claim that also brought 10 B.
   it('lists every faucet of a batch claim, not just the row faucet', async () => {
-    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 6 } };
+    // Decimals deliberately NOT 6, so they differ from the Unknown fallback's:
+    // with both at 6 the two assertions below cannot tell the two scales apart.
+    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 2 } };
+    mockFormatAmount.mockClear();
     const { container, root } = await renderProbe(
       baseTransaction({
         type: 'consume',
@@ -178,6 +186,11 @@ describe('useTransactionSummaryBadgeContent', () => {
     // Secondary faucet has no metadata (the wallet has never held it) → Unknown,
     // NOT MIDEN: naming a foreign token after the native one misstates the asset.
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, 10 Unknown');
+    // Each asset must be scaled by ITS OWN decimals. The rendered text cannot
+    // show this — formatting both at 6, or both at the fallback, produces the
+    // same string under the mock while being wrong by orders of magnitude.
+    expect(mockFormatAmount).toHaveBeenCalledWith(20n, 2);
+    expect(mockFormatAmount).toHaveBeenCalledWith(10n, 6);
     act(() => root.unmount());
   });
 

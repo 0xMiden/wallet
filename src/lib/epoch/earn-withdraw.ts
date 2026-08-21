@@ -434,13 +434,21 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
   for (const row of rows) {
     if (row.type !== 'earn-withdraw') continue;
-    // A restored row is a record of someone else's withdrawal, not live work of
-    // ours. Resuming would register bridge-ins and poll for delivery against the
-    // `evmOwner` in the dump — attacker-chosen, and reached with no user action
-    // at all, since reconcile runs once per session on unlock.
-    if (row.restoredFromBackup) continue;
     const ei: IEarnWithdrawExtraInputs = row.extraInputs;
     if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei.phase)) continue;
+    // Terminalize rather than skip. Resuming would register bridge-ins and poll
+    // for delivery against the dump's `evmOwner` with no user action at all,
+    // since this runs on unlock — but skipping alone strands the row: these rows
+    // are born `Completed` with their lifecycle in `extraInputs.phase`, and the
+    // phase's only other writers are driven by the pending-bridge-in registry,
+    // which does not travel in the dump. It would read "Redeeming" forever and
+    // keep suppressing its linked consume row from history.
+    if (row.restoredFromBackup) {
+      await updatePhase(row.id, 'failed', {
+        error: 'Restored from a backup — this withdrawal could not be verified.'
+      }).catch(() => undefined);
+      continue;
+    }
     if (row.initiatedAt < cutoffSec) {
       await updatePhase(row.id, 'failed', { error: 'Withdrawal timed out.' }).catch(() => undefined);
       continue;

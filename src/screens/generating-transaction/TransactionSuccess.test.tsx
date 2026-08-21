@@ -214,9 +214,11 @@ describe('TransactionSuccess', () => {
       />
     );
 
+    // The `toContain` above is what actually bites: the two failure modes this
+    // guards against render "20 AAA, 10 MIDEN" (native fallback for a foreign
+    // faucet) and "20 AAA" (secondary dropped), and neither of those contains
+    // the string a negative assertion here would look for.
     expect(container.textContent).toContain('20 AAA, 10 Unknown');
-    // The dropped-secondary bug rendered exactly this instead.
-    expect(container.textContent).not.toContain('20 AAA MIDEN');
     act(() => root.unmount());
   });
 

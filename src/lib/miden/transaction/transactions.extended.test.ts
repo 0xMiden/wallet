@@ -487,7 +487,11 @@ describe('completeConsumeTransaction', () => {
     } as any;
     await completeConsumeTransaction('tx-1', txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-    expect(txStore[0]!.faucetId).toBeDefined();
+    // The values, not merely their presence: `toBeDefined()` alone passes
+    // against a hardcoded faucet id and a dropped amount, which is exactly the
+    // pair this test's name claims to protect.
+    expect(txStore[0]!.faucetId).toBe('faucet-1');
+    expect(txStore[0]!.amount).toBe(50n);
   });
 
   it('sums every consumed asset for the displayed faucet in a batch', async () => {

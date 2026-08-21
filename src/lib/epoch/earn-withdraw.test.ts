@@ -261,6 +261,36 @@ describe('reconcileEarnWithdrawals', () => {
     );
     expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
   });
+
+  // A restored row's `evmOwner` comes from whoever authored the backup, and this
+  // runs on unlock with no user action — so it must not be resumed. It must not
+  // simply be skipped either: these rows are born Completed with their lifecycle
+  // in `extraInputs.phase`, and the phase's other writers are driven by a
+  // registry that does not travel in the dump, so a skipped row would read
+  // "Redeeming" forever and keep suppressing its linked consume row.
+  it('terminalizes a restored row instead of resuming it, even inside the TTL', async () => {
+    (Repo.transactions.filter as jest.Mock).mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([
+        {
+          id: 'RESTORED',
+          type: 'earn-withdraw',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          restoredFromBackup: true,
+          extraInputs: { phase: 'redeeming', evmOwner: EVM_OWNER }
+        }
+      ])
+    });
+    const deps = baseDeps();
+
+    await reconcileEarnWithdrawals(deps);
+
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'RESTORED',
+      'failed',
+      expect.objectContaining({ error: expect.any(String) })
+    );
+    expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
+  });
 });
 
 // `./config` is mocked with MIDEN_DESTINATION_CHAIN_ID = 999.

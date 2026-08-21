@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
@@ -65,8 +65,14 @@ const History = memo<HistoryProps>(
     // setter only checks that the component is still MOUNTED, not that the key
     // still matches, so a page already in flight when the user switches account
     // would land its rows in the new account's list.
+    //
+    // `useLayoutEffect`, not `useEffect`: a passive effect is flushed by the
+    // scheduler AFTER paint, while a resolving fetch is a microtask. In that
+    // window the ref would still hold the old key and the stale page would sail
+    // through the guard. A layout effect runs inside commit, closing it. (Tests
+    // cannot see the difference — `act` flushes passive effects synchronously.)
     const scopeRef = useRef(safeStateKey);
-    useEffect(() => {
+    useLayoutEffect(() => {
       scopeRef.current = safeStateKey;
       setHasMore(true);
       setIsLoading(false);

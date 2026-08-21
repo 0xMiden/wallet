@@ -226,22 +226,36 @@ const neutralizeUnfinishedTransaction = <T extends object>(tx: T): T => {
   // its own `restoredFromBackup: false` and disable the whole gate.
   const restored = { ...tx, restoredFromBackup: true };
   const status = Reflect.get(tx, 'status');
+  const initiatedAt = Reflect.get(tx, 'initiatedAt');
+  const completedAt = Reflect.get(tx, 'completedAt');
+  // Unconditional, on the terminal path too. Any row that ends up Completed or
+  // Failed is read back through the completed-history path, which takes
+  // `completedAt` as the row's timestamp with NO fallback — a missing one
+  // becomes an invalid `Date` and throws while grouping history by day, taking
+  // down the whole activity list. A dump is free to carry `{status: 2}` and no
+  // `completedAt` at all, so this cannot be left to the unfinished branch.
+  const timestamp =
+    typeof completedAt === 'number'
+      ? completedAt
+      : typeof initiatedAt === 'number'
+        ? initiatedAt
+        : Math.floor(Date.now() / 1000);
+
   // An allow-list of the terminal statuses, not a deny-list of the running ones.
   // A dump is free to carry `status: 99`, or the string `"0"`, or no status at
   // all; every consumer compares with `===`, so such a row is invisible in every
   // history view while still occupying its id — and a deny-list would wave it
   // through unstamped. Anything not recognisably terminal is treated as unfinished.
   if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
-    return restored;
+    return { ...restored, completedAt: timestamp };
   }
-  const initiatedAt = Reflect.get(tx, 'initiatedAt');
   return {
     ...restored,
     status: ITransactionStatus.Failed,
     error: IMPORTED_UNFINISHED_REASON,
     // `displayIcon`/`displayMessage` are re-derived for failed rows when history
     // renders, so only the fields history reads straight off the row are set here.
-    completedAt: typeof initiatedAt === 'number' ? initiatedAt : Math.floor(Date.now() / 1000)
+    completedAt: timestamp
   };
 };
 

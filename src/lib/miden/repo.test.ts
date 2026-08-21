@@ -293,6 +293,44 @@ describe('miden repo export/import', () => {
     expect(restored!.restoredFromBackup).toBe(true);
   });
 
+  // A Completed row skips the neutralization branch entirely, so it was the one
+  // path that could still reach history without a timestamp. History reads
+  // `completedAt` straight off the row with no fallback and builds a Date from
+  // it — a missing one throws while grouping by day and takes down the list.
+  it('stamps a timestamp on a terminal row that arrives without one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'no-ts', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 42 }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Completed);
+    expect(restored!.completedAt).toBe(42);
+  });
+
+  it('keeps a terminal row own completedAt when it has one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'has-ts',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'a',
+          initiatedAt: 42,
+          completedAt: 99
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.completedAt).toBe(99);
+  });
+
   it('leaves terminal rows untouched on import', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
