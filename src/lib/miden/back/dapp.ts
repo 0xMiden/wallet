@@ -1234,10 +1234,6 @@ export async function requestSendTransaction(
   // the wallet hands the dApp `dApp.accountId` as its address at connect time,
   // and the same account can legitimately come back in composite, bech32, or
   // hex form.
-  if (!sameWalletAccountId(req.transaction.senderAddress, dApp.accountId)) {
-    throw new Error(MidenDAppErrorType.NotGranted);
-  }
-
   return new Promise((resolve, reject) =>
     generatePromisifySendTransaction(resolve, reject, origin, dApp, req, sessionId)
   );
@@ -1253,6 +1249,31 @@ const generatePromisifySendTransaction = async (
 ) => {
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
+
+  // Authorization, and it has to live HERE rather than in `requestSendTransaction`.
+  // A session authorizes exactly one account, but the account to debit is taken
+  // from the request, so without this a page connected to A names B as the
+  // sender and spends from B — and the approval sheet shows amount, recipient,
+  // token and note type but not the sender, so nothing on screen gives it away.
+  //
+  // `requestSendTransaction` is only ONE of the two ways in. The generalized
+  // `TRANSACTION_REQUEST` entrypoint routes a `{ type: 'send' }` payload
+  // straight into this function (`generatePromisifyTransaction`), reaching the
+  // same `initiateSendTransaction` while validating only `sourcePublicKey`
+  // against the session — which the attacking page satisfies with its own
+  // connected account. A check on the outer function is simply not on that
+  // path; the two other boundary validations below are here for that reason.
+  const senderAddress = req.transaction?.senderAddress;
+  if (typeof senderAddress !== 'string' || senderAddress === '') {
+    // Checked before the comparison, which would otherwise `.split` undefined
+    // and hand the page a raw TypeError instead of the documented error.
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: senderAddress is required`));
+    return;
+  }
+  if (!sameWalletAccountId(senderAddress, dApp.accountId)) {
+    reject(new Error(MidenDAppErrorType.NotGranted));
+    return;
+  }
 
   let transactionMessages: string[] = [];
   try {

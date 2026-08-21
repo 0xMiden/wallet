@@ -167,11 +167,6 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
   // of returning the row to Queued, so it cannot be consulted from in there.
   const failedStage = tx.stage;
   const failedPreSubmit = failedStage !== undefined && PRE_SUBMIT_STAGES.has(failedStage);
-  // Sticky OR: once any attempt got far enough that a submit can't be ruled out,
-  // every later attempt inherits that. Without the persisted half, the signal
-  // died with the `stage` reset below and the NEXT failure — at, say, 'syncing'
-  // — would clear bytes this retry just protected.
-  const mayHaveSubmitted = tx.mayHaveSubmitted === true || !failedPreSubmit;
 
   await Repo.transactions.where({ id: txId }).modify((dbTx: ITransaction) => {
     // `verifySendLanded` above makes a network round trip, so the row read at the
@@ -212,7 +207,22 @@ export const requeueFailedTransaction = async (txId: string): Promise<void> => {
     // this gate can drop; writing the flag onto a swap or bridged-send row would
     // persist a signal nothing reads and imply a guard those types don't have.
     if (dbTx.type === 'send') {
-      if (mayHaveSubmitted) {
+      // Sticky OR, and read off the LIVE row rather than the snapshot taken at
+      // the top of this function. Both halves matter:
+      //
+      //   - `dbTx.mayHaveSubmitted` — once any attempt got far enough that a
+      //     submit can't be ruled out, every later attempt inherits that.
+      //     Without the persisted half the signal dies with the `stage` reset
+      //     below, and the NEXT failure (at, say, 'syncing') clears the bytes
+      //     this retry just protected.
+      //   - reading it HERE, not from `tx` — `verifySendLanded` above makes a
+      //     network round trip, and `markMayHaveSubmitted` writes this field and
+      //     nothing else. A crossing recorded during that window therefore sails
+      //     through the status/stage re-check above untouched, and deciding from
+      //     the snapshot would clear the bytes of a send that had just
+      //     broadcast. IndexedDB serializes the two writes, so by the time this
+      //     callback runs the flag is committed and visible.
+      if (dbTx.mayHaveSubmitted === true || !failedPreSubmit) {
         // Persist BEFORE the stage is forgotten, so the next failure — which may
         // land on an early stage and look pre-submit — still sees it.
         dbTx.mayHaveSubmitted = true;

@@ -1684,20 +1684,23 @@ describe('MidenClientInterface', () => {
       // suffix before parsing, or the bech32 parser sees a string it can reject.
       const entry = await client.executeAndProveForSpeculation({
         accountId: 'mtst1sender_qr7qqq9wr6w',
-        recipientAccountId: '0xrecipient',
+        // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+        // that is otherwise valid would fail to resolve here.
+        recipientAccountId: '0XRecipient',
         faucetId: 'mtst1faucet',
         noteType: 'private',
         amount: 250n
       });
 
-      expect(entry.paramsHash).toBe('mtst1sender_qr7qqq9wr6w|0xrecipient|mtst1faucet|private|250');
+      expect(entry.paramsHash).toBe('mtst1sender_qr7qqq9wr6w|0XRecipient|mtst1faucet|private|250');
       expect(entry.txResultBytes).toEqual(new Uint8Array([0xa, 0xb]));
       expect(new Uint8Array(entry.provenBytes)).toEqual(new Uint8Array([0xc, 0xd]));
 
-      // Account ID resolution: accounts beginning with 0x → fromHex,
-      // otherwise → fromBech32, and the composite suffix is stripped first.
+      // Account ID resolution: accounts beginning with 0x → fromHex (with the
+      // prefix lowercased, and only the prefix), otherwise → fromBech32, and
+      // the composite suffix is stripped first.
       expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
-      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xrecipient');
+      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
       expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
 
       // The whole point of the PR on the DEFAULT send path: the sender's account

@@ -16,7 +16,7 @@ import {
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
 import { getTransactionsInProgress } from './get';
-import { updateTransactionStatus } from './helper';
+import { markMayHaveSubmitted, updateTransactionStatus } from './helper';
 import { notifyBackgroundTransactionFailed } from '../back/background-notification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
@@ -74,9 +74,43 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
   if (isGenuineFailure) notifyBackgroundTransactionFailed();
 };
 
+/**
+ * Fail a row from OUTSIDE its pipeline, recording that a submit can no longer
+ * be ruled out.
+ *
+ * The Cancel button and the stuck reaper do not abort the work already in
+ * flight — they only mark the row. The pipeline runs on and can still submit,
+ * and both writes that would have recorded it are refused because the row is
+ * now terminal: the `setStage('submitting')` the guard reads, and the
+ * completion write that captures the transaction id. The row is left frozen at
+ * whichever pre-submit stage the cancel caught it in, and Retry reads exactly
+ * that as proof nothing was broadcast — then rebuilds the request with a fresh
+ * note serial and pays the recipient twice.
+ *
+ * The leaf's own crossing stamp closes that gap only from the moment it runs.
+ * A cancel during execute or prove lands before it, and that window is seconds
+ * to minutes — precisely when a user reaches for Cancel. Recording the
+ * uncertainty at the cancel is what covers the whole in-flight span.
+ *
+ * Deliberately NOT used by the pipeline's own catch handlers. By the time those
+ * run the pipeline has stopped, and had it submitted, the leaf would already
+ * have stamped. Leaving them unflagged is what still lets a genuine execute or
+ * prove failure rebuild its request — the rebuild this guard exists to gate,
+ * not to prevent.
+ */
+const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
+  // Only a `send` has cached bytes this protects, and only an in-flight row has
+  // a pipeline to outlive the cancel. A Queued row was never picked up.
+  if (tx.type === 'send' && tx.status === ITransactionStatus.GeneratingTransaction) {
+    // Before the cancel: if that throws, the row is still guarded.
+    await markMayHaveSubmitted(tx.id);
+  }
+  await cancelTransaction(tx, error);
+};
+
 export const cancelTransactionById = async (id: string, error: any) => {
   const tx = await Repo.transactions.where({ id }).first();
-  if (tx) await cancelTransaction(tx, error);
+  if (tx) await cancelWhilePipelineMayStillRun(tx, error);
 };
 
 /**
@@ -126,7 +160,9 @@ export const cancelStuckTransactions = async () => {
       const hidden = tx.processingStartedAt ? hiddenSecondsForTx(tx.processingStartedAt) : 0;
       return isTransactionStuck(tx.processingStartedAt, nowSeconds, hidden, MAX_WAIT_BEFORE_CANCEL);
     })
-    .map(async tx => cancelTransaction(tx, TRANSACTION_STUCK_ERROR));
+    // The reaper takes rows that are still processing, so their pipelines are
+    // by definition not known to have stopped.
+    .map(async tx => cancelWhilePipelineMayStillRun(tx, TRANSACTION_STUCK_ERROR));
 
   await Promise.all(cancelTransactionUpdates);
 };

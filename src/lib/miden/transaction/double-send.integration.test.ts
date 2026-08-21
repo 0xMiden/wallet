@@ -25,7 +25,7 @@
  */
 import * as Repo from 'lib/miden/repo';
 
-import { cancelTransaction } from './cancel';
+import { cancelTransaction, cancelTransactionById } from './cancel';
 import { markMayHaveSubmitted, setTransactionStage, updateTransactionStatus } from './helper';
 import { requeueFailedTransaction } from './retry';
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
@@ -315,6 +315,109 @@ describe('rows written by an older build, which carry no crossing record at all'
     await requeueFailedTransaction('legacy-reset');
 
     expect((await read('legacy-reset')).requestBytes).toBeDefined();
+  });
+});
+
+/**
+ * The leaf's crossing stamp only runs from the moment the leaf reaches it. A
+ * cancel during execute or prove lands BEFORE that — a window of seconds to
+ * minutes, and the one a user actually reaches for Cancel in — so between the
+ * cancel and the stamp the row looks, to Retry, exactly like a send that never
+ * broadcast. Retry in that window is one click away on the same screen.
+ *
+ * Cancelling from outside the pipeline therefore records the uncertainty
+ * itself, because a cancel does not abort the work in flight.
+ */
+describe('a cancel that does not stop the pipeline says so', () => {
+  it('flags an in-flight send cancelled while it was only proving', async () => {
+    const tx = inFlightSend('mid-prove', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionById('mid-prove', 'user cancelled');
+
+    const row = await read('mid-prove');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.mayHaveSubmitted).toBe(true);
+  });
+
+  it('keeps the bytes when Retry lands before the leaf ever reached its stamp', async () => {
+    const tx = inFlightSend('retry-before-stamp', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+
+    // Cancel, then Retry immediately — the leaf is still proving and has not
+    // stamped anything. This is the sequence the leaf-side stamp alone misses.
+    await cancelTransactionById('retry-before-stamp', 'user cancelled');
+    await requeueFailedTransaction('retry-before-stamp');
+
+    expect((await read('retry-before-stamp')).requestBytes).toBeDefined();
+  });
+
+  it.each(['executing', 'creating-proposal', 'signing-proposal'] as const)(
+    'covers a cancel at %s, well before any submit',
+    async stage => {
+      const tx = inFlightSend(`live-${stage}`, { stage });
+      await Repo.transactions.add(tx);
+
+      await cancelTransactionById(`live-${stage}`, 'user cancelled');
+      await requeueFailedTransaction(`live-${stage}`);
+
+      expect((await read(`live-${stage}`)).requestBytes).toBeDefined();
+    }
+  );
+
+  it('leaves a QUEUED send alone — it was never picked up, so nothing is in flight', async () => {
+    const tx = inFlightSend('never-picked-up', { status: ITransactionStatus.Queued, stage: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionById('never-picked-up', 'user cancelled');
+
+    expect((await read('never-picked-up')).mayHaveSubmitted).toBeUndefined();
+  });
+
+  // The counterweight. If every failure were flagged, the rebuild this guard
+  // gates would never happen and the PR's actual fix — a send whose request was
+  // built against the wrong vault slot — could never recover.
+  it('leaves the pipeline\u2019s OWN failure unflagged, so a bad request still rebuilds', async () => {
+    const tx = inFlightSend('prove-died', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+
+    // What the pipeline's catch does: it has already stopped, and had it
+    // submitted the leaf would have stamped.
+    await cancelTransaction(tx, new Error('prover exploded'));
+    await requeueFailedTransaction('prove-died');
+
+    const row = await read('prove-died');
+    expect(row.mayHaveSubmitted).toBeUndefined();
+    expect(row.requestBytes).toBeUndefined();
+  });
+});
+
+/**
+ * `requeueFailedTransaction` reads the row, awaits a network round trip in
+ * `verifySendLanded`, and only then writes. `markMayHaveSubmitted` writes the
+ * flag and nothing else, so a crossing recorded inside that window passes the
+ * status/stage re-check untouched — and deciding from the pre-await snapshot
+ * would clear the bytes of a send that had just broadcast.
+ */
+describe('a crossing recorded while Retry is mid-flight is not missed', () => {
+  it('keeps the bytes when the leaf stamps between the read and the write', async () => {
+    const tx = inFlightSend('race', { stage: 'proving' });
+    await Repo.transactions.add(tx);
+    await cancelTransaction(tx, 'boom');
+    // Precondition: unflagged, so the snapshot Retry takes says "pre-submit".
+    expect((await read('race')).mayHaveSubmitted).toBeUndefined();
+
+    // The leaf reaches its submit crossing during the node check.
+    mockVerifySendLanded.mockImplementation(async () => {
+      await markMayHaveSubmitted('race');
+      return 'unknown';
+    });
+
+    await requeueFailedTransaction('race');
+
+    const row = await read('race');
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.requestBytes).toBeDefined();
   });
 });
 

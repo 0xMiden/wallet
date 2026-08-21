@@ -129,6 +129,16 @@ describe('miden sdk helpers', () => {
       expect(Address.fromBech32).not.toHaveBeenCalled();
     });
 
+    // `AccountId.fromHex` throws on an uppercase '0X', so a reference that is
+    // otherwise perfectly valid would fail to canonicalize and fall back to its
+    // raw text — a different account, as far as every comparison downstream is
+    // concerned. Only the prefix is lowercased; the digits are left alone.
+    it('accepts an uppercase 0X prefix, which the SDK parser rejects', () => {
+      accountRefToSdk('0XABCDEF');
+      expect(AccountId.fromHex).toHaveBeenCalledWith('0xABCDEF');
+      expect(Address.fromBech32).not.toHaveBeenCalled();
+    });
+
     it('parses anything else as bech32', () => {
       accountRefToSdk('mtst1qabc');
       expect(Address.fromBech32).toHaveBeenCalledWith('mtst1qabc');

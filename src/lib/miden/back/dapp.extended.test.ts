@@ -454,6 +454,47 @@ describe('requestTransaction', () => {
     expect(mockInitiateSendTransaction).toHaveBeenCalled();
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
   });
+
+  // The session authorizes ONE account, but the account to debit comes from the
+  // request. This entrypoint reaches the same send flow as `requestSendTransaction`
+  // while validating only `sourcePublicKey` — which the attacking page satisfies
+  // with its own connected account — so a sender check on the outer function is
+  // not on this path at all. The approval sheet does not show the sender, so
+  // nothing on screen would have given it away either.
+  it('refuses a Send-typed transaction that names an account the session never authorized', async () => {
+    mockInitiateSendTransaction.mockResolvedValue('tx-send-evil');
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'send',
+          payload: {
+            senderAddress: 'miden-account-2',
+            recipientAddress: 'attacker',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '100'
+          }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // Rejected before anything is queued — not merely reported after the fact.
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Send-typed transaction with no sender at all as InvalidParams', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'send',
+          payload: { recipientAddress: 'bob', faucetId: 'faucet-1', noteType: 'Private', amount: '100' }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
 });
 
 // ── requestSendTransaction ─────────────────────────────────────────
