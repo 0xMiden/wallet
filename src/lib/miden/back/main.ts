@@ -212,7 +212,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
     case WalletMessageType.ReportTelemetryEventRequest:
-      return await Actions.handleReportTelemetryEvent(req);
+      return Actions.handleReportTelemetryEvent(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {

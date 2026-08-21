@@ -266,7 +266,7 @@ export class MobileIntercomAdapter {
       }
 
       case WalletMessageType.ReportTelemetryEventRequest:
-        return await Actions.handleReportTelemetryEvent(req);
+        return Actions.handleReportTelemetryEvent(req);
 
       case MidenMessageType.DAppGetAllSessionsRequest: {
         const allSessions = await Actions.getAllDAppSessions();
