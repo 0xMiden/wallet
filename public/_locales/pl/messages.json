@@ -717,6 +717,14 @@
     "message": "Możesz wkleić cały swój tajny adres Seed phrase w dowolne pole",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Jedno lub więcej słów nie znajduje się na liście słów frazy odzyskiwania. Sprawdź zaznaczone słowa.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Nie udało się zweryfikować miejsc po przecinku tego tokenu, więc kwoty nie mogą być wyświetlane ani wysyłane.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Ups!",
     "englishSource": "Oops!"
@@ -2532,6 +2540,30 @@
     "message": "Automatycznie księguje przychodzące MIDEN notes na Twoim saldzie — tak samo jak po naciśnięciu przycisku „Claim”. Nie powoduje to wydatkowania Twoich środków ani naliczania żadnych opłat.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Tworzenie pliku portfela…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Eksport nie powiódł się",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Nie udało się utworzyć pliku portfela, więc nic nie zostało zapisane. Spróbuj ponownie wykonać eksport.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Jeszcze nie zapisano",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Plik portfela jest gotowy, ale zamknąłeś okno udostępniania przed wybraniem miejsca, w którym chcesz go zapisać.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Wybierz miejsce przechowywania",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Zaszyfrowany plik portfela",
     "englishSource": "Encrypted Wallet File"
@@ -3295,6 +3327,24 @@
   "showAllDapps": {
     "message": "+ $count$ oraz inne aplikacje dApps",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ więcej",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ więcej",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
