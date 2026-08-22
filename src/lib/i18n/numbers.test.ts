@@ -199,12 +199,13 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(-1000), 0)).toBe('-1000');
   });
 
-  it('treats a zero-decimal token as whole units', () => {
-    // Base units ARE the amount for a 0-decimal faucet. This used to render
-    // "0.05" for 5 whole tokens, because `-0 === 0` made the slice arithmetic
-    // shift by a decimal place that does not exist.
+  it('renders whole units verbatim for a zero-decimal faucet', () => {
+    // Previously this documented the quirk instead of fixing it: `-decimals` was
+    // `-0`, `slice(0, -0)` returned the empty string, and 5 came out as "0.05" —
+    // two orders of magnitude off. It is rendered on the dApp approval sheet
+    // beside the amount being sent, so it has to be the amount.
     expect(formatBigInt(BigInt(5), 0)).toBe('5');
-    expect(formatBigInt(BigInt(1000), 0)).toBe('1000');
+    expect(formatBigInt(BigInt(100), 0)).toBe('100');
   });
 });
 
@@ -213,38 +214,47 @@ describe('stringToBigInt', () => {
     expect(stringToBigInt('1.5', 6)).toBe(BigInt(1_500_000));
   });
 
-  it('rounds half up, on the decimal value rather than its float approximation', () => {
+  it('does not drift on values a float cannot hold', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
-    // 101, not 100. The old assertion recorded what a double does to this
-    // input, not what the input says: 1.005 is stored as 1.00499999999999989,
-    // so scaling it landed just under the halfway point and rounded down.
-    expect(stringToBigInt('1.005', 2)).toBe(BigInt(101));
-  });
-
-  it('keeps every digit of an amount too large for a double', () => {
-    // 2^53 base units is ~9 whole tokens at 18 decimals, so this is an ordinary
-    // transfer, not an extreme one. Scaling through a float silently rounded the
-    // low digits away and sent a different quantity than the one on screen.
-    expect(stringToBigInt('1234.567890123456789', 18)).toBe(1_234_567_890_123_456_789_000n);
-    // 2^53 + 1, the first integer a double cannot hold. It used to come back as
-    // 2^53 exactly.
+    // The regression: `parseFloat('1.000001') * 1e18` is 1000000999999999872,
+    // 128 base units short of the amount the review screen displayed.
+    expect(stringToBigInt('1.000001', 18)).toBe(1_000_001_000_000_000_000n);
+    expect(stringToBigInt('123456789.123456789', 18)).toBe(123_456_789_123_456_789_000_000_000n);
+    // Exact at any width, where the float path lost the low digits entirely.
     expect(stringToBigInt('9007199254740993', 0)).toBe(9_007_199_254_740_993n);
   });
 
-  it('converts an amount that used to overflow a double to Infinity', () => {
-    // `parseFloat(str) * 10 ** decimals` reached Infinity here and `BigInt()`
-    // threw RangeError on it. Nothing about the value requires that.
-    expect(stringToBigInt('1e40', 0)).toBe(BigInt('1' + '0'.repeat(40)));
+  it('truncates digits finer than the faucet can represent', () => {
+    expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
+    expect(stringToBigInt('0.999', 2)).toBe(BigInt(99));
+    // Never rounds up: an outgoing amount must not exceed what was typed.
+    expect(stringToBigInt('1.999999', 2)).toBe(BigInt(199));
   });
 
-  it('still throws on input that is not a number', () => {
-    // Callers rely on this: an empty amount field reaches here.
-    expect(() => stringToBigInt('not a number', 6)).toThrow();
-    expect(() => stringToBigInt('', 6)).toThrow();
+  it.each([
+    ['no fractional part', '5', 3, 5000n],
+    ['a bare leading point', '.5', 2, 50n],
+    ['a trailing point', '5.', 2, 500n],
+    ['zero', '0', 6, 0n],
+    ['zero decimals', '1234', 0, 1234n],
+    ['a negative amount', '-1.5', 2, -150n],
+    ['an explicit plus', '+1.5', 2, 150n],
+    ['surrounding whitespace', '  1.5  ', 2, 150n],
+    ['exponent notation, as a number input can produce', '1e3', 2, 100000n],
+    ['a negative exponent', '1.5e-2', 4, 150n]
+  ])('handles %s', (_label, input, decimals, expected) => {
+    expect(stringToBigInt(input as string, decimals as number)).toBe(expected);
   });
 
-  it('scales a negative amount without moving the sign into the digits', () => {
-    expect(stringToBigInt('-1.5', 6)).toBe(BigInt(-1_500_000));
+  it.each([
+    ['an empty string', ''],
+    ['whitespace only', '   '],
+    ['a bare point', '.'],
+    ['letters', 'abc'],
+    ['a partial number', '1.2.3'],
+    ['a currency symbol', '$5']
+  ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
+    expect(() => stringToBigInt(input as string, 2)).toThrow();
   });
 });
 

@@ -157,6 +157,7 @@ _gh.__noteTypeForTest = 'public';
 // A note whose metadata reports a string type maps through as itself, so a batch
 // can mix types per note; numeric stand-ins keep using the global switch.
 jest.mock('../helpers', () => ({
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: (noteType: unknown) =>
     typeof noteType === 'string' ? noteType : (globalThis as any).__noteTypeForTest
 }));

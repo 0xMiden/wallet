@@ -853,15 +853,29 @@ export const midenClientProxy = {
    * MidenClientInterface.getTransactionCommitState). Backs the send/swap
    * idempotent-retry guard so a Failed row whose submit actually landed is never
    * resubmitted (double-send).
+   *
+   * Both flag paths must really answer. This used to return a hardcoded
+   * 'not-found' when the flag was on, described as conservative — it is the
+   * opposite. `verifySendLanded` maps 'not-found' to 'unknown', its "cannot
+   * prove it landed" verdict, and the retry goes ahead on that: the guard exists
+   * precisely to catch the case the stub silently waved through. And the flag is
+   * ON by default in the service worker, so the shipping path was the one with
+   * no guard at all.
+   *
+   * A dispatch failure therefore throws rather than degrading to a verdict. The
+   * caller's own catch treats a throw as indeterminate, which is the same
+   * conservative answer — but it logs, instead of quietly reporting a state the
+   * client never checked.
    */
   async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return (await getMidenClient()).getTransactionCommitState(txId);
     }
-    // Offscreen (mobile) dispatch for this read isn't wired yet; conservatively
-    // report indeterminate so the retry guard blocks a possible double-send
-    // rather than risk one. Extension/desktop + E2E run flag-off (the path above).
-    return 'not-found';
+    const resultB64 = await this.call('getTransactionCommitState', [txId], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) {
+      throw new Error('getTransactionCommitState: offscreen returned no result');
+    }
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as 'committed' | 'pending' | 'not-found';
   },
 
   /**

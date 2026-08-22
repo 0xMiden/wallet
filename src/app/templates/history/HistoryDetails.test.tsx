@@ -30,6 +30,7 @@ const mockCancelTransactionById = jest.fn();
 const mockRequeueFailedTransaction = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockIsRequeueableTransaction = jest.fn();
+const mockIsUnverifiableSendRetryError = jest.fn((..._args: unknown[]) => false);
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -48,6 +49,7 @@ jest.mock('lib/miden/activity', () => ({
   requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
   requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
   isRequeueableTransaction: (...args: unknown[]) => mockIsRequeueableTransaction(...args),
+  isUnverifiableSendRetryError: (...args: unknown[]) => mockIsUnverifiableSendRetryError(...args),
   retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',
   isUserCancelledTransaction: (error: unknown) => error === 'Transaction was cancelled by user'
@@ -302,6 +304,7 @@ beforeEach(() => {
     (tx: { status?: number; type: string }) =>
       tx.status === 3 && ['send', 'consume', 'swap', 'bridged-send', 'execute'].includes(tx.type)
   );
+  mockIsUnverifiableSendRetryError.mockReturnValue(false);
   mockCancelTransactionById.mockResolvedValue(undefined);
   mockRequeueFailedTransaction.mockResolvedValue(undefined);
 
@@ -2543,9 +2546,45 @@ describe('HistoryDetails', () => {
       fireEvent.click(screen.getByText('retry'));
       await flush();
 
-      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1');
+      expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    // Same contract as the progress screen: a send the wallet cannot verify is
+    // refused with an explanation, and only then can the user vouch for it.
+    it('offers "retry anyway" after refusing a send it cannot verify', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValueOnce(new Error('may already have reached the network'));
+      mockIsUnverifiableSendRetryError.mockReturnValue(true);
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(screen.getByTestId('history-retry-error').textContent).toContain('may already have reached the network');
+      expect(mockNavigate).not.toHaveBeenCalled();
+
+      mockRequeueFailedTransaction.mockResolvedValueOnce(undefined);
+      fireEvent.click(screen.getByTestId('history-retry-anyway-button'));
+      await flush();
+
+      expect(mockRequeueFailedTransaction).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    it('does not offer it for an ordinary retry failure', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx());
+      mockRequeueFailedTransaction.mockRejectedValue(new Error('row is gone'));
+      mockIsUnverifiableSendRetryError.mockReturnValue(false);
+      await renderAndLoad();
+
+      fireEvent.click(screen.getByText('retry'));
+      await flush();
+
+      expect(screen.queryByTestId('history-retry-anyway-button')).toBeNull();
     });
 
     it('surfaces a retry failure inline and does not navigate', async () => {

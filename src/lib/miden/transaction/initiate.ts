@@ -30,7 +30,7 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteType as NoteTypeString } from '../types';
@@ -310,6 +310,16 @@ export const initiateSendTransaction = async (
   recallBlocks?: number,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  // Every send funnels through here — the wallet's own review screen and the
+  // dApp boundary both — so this is where the reclaim window has to be sound.
+  // It is stored on chain as a 32-bit block height, and a value that does not
+  // fit is truncated rather than refused: a window just past the limit wraps to
+  // zero and the note becomes reclaimable the moment it lands, while the screen
+  // that asked for consent says years. The review screen reaches this by
+  // `parseInt`ing a date the user picked from a calendar, so an out-of-range
+  // choice is a couple of taps away and needs no hostile page at all.
+  assertValidRecallBlocks(recallBlocks);
+
   const dbTransaction = new SendTransaction(
     senderAccountId,
     amount,

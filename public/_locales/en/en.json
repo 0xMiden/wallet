@@ -144,6 +144,7 @@
   "resetExtension": "Reset Extension",
   "resetExtensionConfirmation": "Are you sure you want to reset the Bread?\nAs a result, all your data will be deleted.",
   "retry": "Retry",
+  "retryAnyway": "Retry anyway",
   "maximalAmount": "Maximal: $amount$",
   "privateKeyRevealWarningTitle": "Before you continue",
   "privateKeyRevealWarningBody": "Your private key gives full control of this account to whoever holds it. Miden accounts cannot rotate keys, so a leaked key compromises the account permanently.",
