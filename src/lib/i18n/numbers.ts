@@ -94,11 +94,11 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
   // decimals came out as "-0.00005" spelled "0.000-5" — not a number at all.
   const negative = amount < BigInt(0);
   const amountString = (negative ? -amount : amount).toString();
-  // A zero-decimal faucet is a whole-unit token, so its base units ARE the
-  // amount. Falling through would divide by a phantom decimal place: `-0 === 0`
-  // makes `slice(0, -decimals)` return '' and `slice(-decimals)` return the
-  // whole string, so 1000 renders as "0.01". Batch claims put arbitrary
-  // third-party faucets through here, and 0 decimals is a legal choice.
+  // A zero-decimal faucet denominates in whole units, so the amount already IS
+  // the display string. The general path below cannot produce that: `-decimals`
+  // is `-0`, and `slice(0, -0)` is `slice(0, 0)` — the empty string — so the
+  // integer part is dropped and 100 renders as "0.01". That number is shown on
+  // the dApp approval sheet next to the amount actually being sent.
   if (decimals <= 0) {
     return negative ? `-${amountString}` : amountString;
   }
@@ -111,23 +111,40 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
 }
 
 /**
- * A decimal amount string to base units.
+ * Convert a human-typed decimal amount into faucet base units.
  *
- * This is the conversion that decides how much value actually leaves the wallet
- * on every send, swap and deposit, so it runs in arbitrary precision rather than
- * through a double. `parseFloat(str) * 10 ** decimals` cannot represent the
- * result exactly once it exceeds 2^53 — for an 18-decimal token that is any
- * amount over about 9 units, so a routine transfer was silently rounded in its
- * low digits, and a large enough one overflowed to `Infinity`, where `BigInt()`
- * throws `RangeError` instead of sending anything.
+ * Lexical, not arithmetic. This used to be `parseFloat(str) * 10 ** decimals`
+ * rounded, which cannot represent what the user typed once the scaled value
+ * exceeds 2^53: on an 18-decimal asset, `1.000001` came out as
+ * 1000000999999999872 base units — 128 short of the amount shown on the review
+ * screen the user approved. Shifting the decimal point across the digit STRING
+ * has no such limit, so what is built is exactly what was displayed.
  *
- * Still throws on input that is not a number, which is what callers already
- * guard against (an empty amount field reaches here).
+ * Digits beyond the faucet's precision are TRUNCATED, not rounded, which is both
+ * what the old float path happened to do at the boundary (`1.005` at 2 decimals
+ * scaled to 100.49999999999999 and rounded to 100) and the safer direction for an
+ * outgoing amount — rounding up would send more than was typed.
+ *
+ * Throws on input that denotes no number, `''` included; callers depend on that
+ * (see `SendManager`, which treats it as "amount not yet valid").
  */
 export function stringToBigInt(str: string, decimals: number): bigint {
-  const shifted = new BigNumber(str).shiftedBy(decimals).integerValue(BigNumber.ROUND_HALF_UP);
-  if (!shifted.isFinite()) throw new RangeError(`Cannot convert ${str} to base units`);
-  return BigInt(shifted.toFixed(0));
+  const match = /^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?\s*$/.exec(str ?? '');
+  const intDigits = match?.[2] ?? '';
+  const fracDigits = match?.[3] ?? '';
+  if (!match || (intDigits === '' && fracDigits === '')) {
+    throw new RangeError(`Cannot convert "${str}" to a base-unit amount`);
+  }
+
+  const digits = intDigits + fracDigits;
+  const exponent = match[4] ? parseInt(match[4], 10) : 0;
+  // value = digits × 10^(exponent − fracDigits.length), and we want it scaled by
+  // 10^decimals, so the whole conversion is one power-of-ten shift of `digits`.
+  const shift = decimals + exponent - fracDigits.length;
+  // BigInt division truncates toward zero, which is the drop-excess-digits case.
+  const magnitude = shift >= 0 ? BigInt(digits) * 10n ** BigInt(shift) : BigInt(digits) / 10n ** BigInt(-shift);
+
+  return match[1] === '-' ? -magnitude : magnitude;
 }
 
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {

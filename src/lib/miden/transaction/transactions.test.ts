@@ -1301,6 +1301,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     }));
 
     jest.doMock('../helpers', () => ({
+      ...jest.requireActual('../helpers'),
       toNoteTypeString: jest.fn(() => 'public')
     }));
 
@@ -1439,6 +1440,7 @@ describe('completeCustomTransaction (isolated)', () => {
     }));
 
     jest.doMock('../helpers', () => ({
+      ...jest.requireActual('../helpers'),
       toNoteTypeString: jest.fn(() => 'public')
     }));
 

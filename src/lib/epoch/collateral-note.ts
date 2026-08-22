@@ -1,6 +1,5 @@
 import {
   AccountId,
-  FungibleAsset,
   Note,
   NoteArray,
   NoteAssets,
@@ -9,7 +8,8 @@ import {
   TransactionRequestBuilder
 } from '@miden-sdk/miden-sdk/lazy';
 
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { accountIdStringToSdk, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { getCurrentMidenBlock } from './chain';
@@ -77,7 +77,21 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
   // before the note classes below are constructed.
   const currentBlock = await getCurrentMidenBlock();
   return withWasmClientLock(async () => {
-    const asset = new FungibleAsset(toAccountId(args.faucetId), args.amount);
+    // The collateral asset is REMOVED from the sender's vault, so it has to carry
+    // the vault key of the slot it is actually held in — the callback flag is part
+    // of that key. Building it from faucet id + amount always yields the default
+    // Disabled flag, so a collateral faucet issuing callback-ENABLED assets
+    // addressed an empty slot and the kernel rejected the note ("failed to remove
+    // the fungible asset from the vault"), taking the whole bridge or deposit with
+    // it. Same resolution as every send path; see `resolveHeldFungibleAsset`.
+    //
+    // Read through the proxy, like the chain head above, so that under the
+    // offscreen client the vault key comes from the realm that will EXECUTE this
+    // request rather than from a second client that could disagree. The proxy read
+    // is unlocked by design and this scope already holds the client lock, which is
+    // what that contract requires.
+    const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
+    const asset = resolveHeldFungibleAsset(senderAccount ?? undefined, args.faucetId, args.amount);
     const attachment = new NoteAttachment(BigUint64Array.from(args.bindingAttachmentFelts));
     const note = Note.createP2IDENote(
       toAccountId(args.senderAccountId),

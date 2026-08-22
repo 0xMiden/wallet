@@ -10,6 +10,7 @@ import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
 import {
   isRequeueableTransaction,
+  isUnverifiableSendRetryError,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   safeGenerateTransactionsLoop as dbTransactionsLoop
@@ -67,6 +68,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
 
   // Single source of truth: the tracked row, watched by id. It advances
   // Queued → GeneratingTransaction → Completed | Failed and never disappears,
@@ -127,22 +129,33 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // withdraw-status screen — so there is no earn branch to handle.
   const canRetry = !!active && isRequeueableTransaction(active);
 
-  const handleRetry = useCallback(async () => {
-    if (!active) return;
-    setIsRetrying(true);
-    setRetryError(null);
-    try {
-      // Requeue flips this row back to Queued; the page (subscribed via
-      // useTransactionRow) re-renders as processing — no navigation needed.
-      await requeueFailedTransaction(active.id);
-      requestSWTransactionProcessing();
-    } catch (error) {
-      console.error('[GeneratingTransaction] Failed to retry transaction:', error);
-      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsRetrying(false);
-    }
-  }, [active, t]);
+  const handleRetry = useCallback(
+    async (acknowledgeUnverifiedSend = false) => {
+      if (!active) return;
+      setIsRetrying(true);
+      setRetryError(null);
+      setNeedsSendAcknowledgement(false);
+      try {
+        // Requeue flips this row back to Queued; the page (subscribed via
+        // useTransactionRow) re-renders as processing — no navigation needed.
+        await requeueFailedTransaction(active.id, { acknowledgeUnverifiedSend });
+        requestSWTransactionProcessing();
+      } catch (error) {
+        console.error('[GeneratingTransaction] Failed to retry transaction:', error);
+        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        // Not a dead end: the wallet cannot tell whether this send landed, but the
+        // user can see it in their balance. Offer that as an explicit second step
+        // rather than leaving a Retry button that throws the same error forever.
+        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
+      } finally {
+        setIsRetrying(false);
+      }
+    },
+    [active, t]
+  );
+
+  const onRetry = useCallback(() => handleRetry(false), [handleRetry]);
+  const onRetryAnyway = useCallback(() => handleRetry(true), [handleRetry]);
 
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
@@ -204,7 +217,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           completedTransaction={active}
           completedTxHash={receiptTxHash}
           onViewExplorer={explorerUrl ? onViewExplorer : undefined}
-          onRetry={handleRetry}
+          onRetry={onRetry}
+          onRetryAnyway={needsSendAcknowledgement ? onRetryAnyway : undefined}
           canRetry={canRetry}
           isRetrying={isRetrying}
           retryError={retryError}
@@ -226,6 +240,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   completedTxHash,
   onViewExplorer,
   onRetry,
+  onRetryAnyway,
   canRetry = false,
   isRetrying = false,
   retryError
@@ -424,6 +439,22 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           <p role="alert" className="text-center text-sm text-status-negative">
             {retryError}
           </p>
+        )}
+        {/* The wallet cannot confirm whether this send landed; the user's own
+            balance can. Deliberately a separate, secondary tap AFTER the warning
+            rather than a smarter first Retry. */}
+        {onRetryAnyway && (
+          <Button
+            type="button"
+            data-testid="retry-anyway-button"
+            variant={ButtonVariant.Secondary}
+            isLoading={isRetrying}
+            disabled={isRetrying}
+            onClick={onRetryAnyway}
+            className="w-full"
+          >
+            <span className="text-lg font-semibold">{t('retryAnyway')}</span>
+          </Button>
         )}
       </div>
     </div>

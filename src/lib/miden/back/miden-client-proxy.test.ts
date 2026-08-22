@@ -135,6 +135,7 @@ function resetControl() {
       remainingRequested: () => 20n
     })),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
+    inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
     inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
     inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
@@ -150,6 +151,7 @@ function resetControl() {
       sendPrivateNote: (...a: any[]) => G.__px.inlineSendPrivateNote(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
@@ -786,6 +788,67 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
     expect(env.argsB64).toEqual(['s:null']);
     expect(details).toEqual([]);
+  });
+});
+
+/**
+ * This read backs the send/swap idempotent-retry guard, and it used to be a
+ * hardcoded 'not-found' whenever the flag was on — which is the DEFAULT in the
+ * service worker. 'not-found' is not a safe placeholder: `verifySendLanded` maps
+ * it to 'unknown', its "cannot prove it landed" verdict, and the retry proceeds
+ * on that. So the only path that shipped was the one where the guard could never
+ * fire, and a Failed row whose submit had landed was resubmitted — paying twice.
+ */
+describe('MidenClientProxy — getTransactionCommitState (retry double-send guard)', () => {
+  it('flag OFF → goes inline, forwarding the tx id', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const state = await midenClientProxy.getTransactionCommitState('0xtxid');
+
+    expect(G.__px.inlineGetTransactionCommitState).toHaveBeenCalledWith('0xtxid');
+    expect(state).toBe('committed');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['committed', 'pending', 'not-found'] as const)(
+    'flag ON → dispatches and returns %p verbatim',
+    async expected => {
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(expected))).toString('base64'),
+        durationMs: 3
+      }));
+
+      const p = midenClientProxy.getTransactionCommitState('0xtxid');
+      await flush();
+      fireReady();
+      const state = await p;
+
+      expect(G.__px.inlineGetTransactionCommitState).not.toHaveBeenCalled();
+      const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+      expect(env.method).toBe('getTransactionCommitState');
+      expect(env.argsB64).toEqual(['s:"0xtxid"']);
+      expect(state).toBe(expected);
+    }
+  );
+
+  it('flag ON → an empty dispatch result THROWS rather than reporting a state nobody checked', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getTransactionCommitState('0xtxid');
+    await flush();
+    fireReady();
+
+    // The caller's catch turns a throw into the same conservative 'unknown', but
+    // it also logs — where a fabricated 'not-found' was silent.
+    await expect(p).rejects.toThrow(/getTransactionCommitState/);
   });
 });
 
