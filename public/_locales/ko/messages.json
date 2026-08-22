@@ -717,6 +717,14 @@
     "message": "비밀번호Seed phrase 전체를 어떤 입력란에든 붙여넣을 수 있습니다.",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "복구 문구의 단어 목록에 하나 이상의 단어가 포함되어 있지 않습니다. 강조 표시된 단어를 확인해 주십시오.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "이 토큰의 소수점 자릿수를 확인할 수 없어, 금액을 표시하거나 전송할 수 없습니다.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "이런!",
     "englishSource": "Oops!"
@@ -2532,6 +2540,30 @@
     "message": "수신된 MIDENnotes을 잔액에 자동으로 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 이 과정에서 자금이 지출되거나 수수료가 추가되지 않습니다.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "지갑 파일 생성 중…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "내보내기 실패",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "지갑 파일을 생성할 수 없었으므로 아무것도 저장되지 않았습니다. 다시 내보내기를 시도해 주십시오.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "아직 저장되지 않음",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "지갑 파일이 준비되었지만, 저장 위치를 선택하기 전에 공유 시트를 닫았습니다.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "저장 위치 선택",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "암호화된 지갑 파일",
     "englishSource": "Encrypted Wallet File"
@@ -3295,6 +3327,24 @@
   "showAllDapps": {
     "message": "+ $count$ 등 추가로 출시된 dApp들",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ 더 보기",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ 더 보기",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
