@@ -2540,6 +2540,30 @@
     "message": "Reclama automáticamente los MIDEN entrantes notes en tu saldo, igual que al pulsar «Reclamar». No gasta tus fondos ni añade ninguna comisión.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Creando tu archivo de monedero…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Error al exportar",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "No se ha podido crear el archivo de tu monedero, por lo que no se ha guardado nada. Intenta exportarlo de nuevo.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Aún no guardado",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Tu archivo de monedero está listo, pero has cerrado la hoja de compartir antes de elegir dónde guardarlo.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Elige dónde guardar",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Archivo de monedero cifrado",
     "englishSource": "Encrypted Wallet File"
@@ -3303,6 +3327,24 @@
   "showAllDapps": {
     "message": "+ $count$, entre otras dApps en fase de desarrollo",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ más",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ más",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
