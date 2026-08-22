@@ -297,7 +297,11 @@ export const earnWithdrawAmountFields = (
 ): EarnWithdrawAmountFields => {
   if (extra.phase === 'received' && rowAmount !== undefined) {
     return {
-      amount: formatAmount(rowAmount, destinationMetadata?.decimals),
+      // The whole point of this branch is that the received leg is denominated
+      // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
+      // that faucet never resolved, scaling by the placeholder's guess reports a
+      // withdrawal the user did not receive; the asset is still named.
+      amount: hasKnownScale(destinationMetadata) ? formatAmount(rowAmount, destinationMetadata?.decimals) : undefined,
       token: destinationMetadata?.symbol ?? extra.outputSymbol
     };
   }

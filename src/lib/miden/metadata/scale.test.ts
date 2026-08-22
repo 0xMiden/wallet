@@ -1,5 +1,6 @@
 import { DEFAULT_TOKEN_METADATA, EMPTY_ASSET_METADATA, MIDEN_METADATA } from './defaults';
-import { hasKnownScale, resolveDisplayMetadata } from './scale';
+import { resolveDisplayMetadata } from './resolve';
+import { hasKnownScale } from './scale';
 import { AssetMetadata } from './types';
 
 describe('hasKnownScale', () => {

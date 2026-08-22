@@ -1142,8 +1142,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         ) : entry.txType === 'swap' && requestedToken ? (
           <SwapDetail
             entry={entry}
-            requestedAmount={requestedToken.scaleIsKnown ? requestedToken.amount : undefined}
+            requestedAmount={requestedToken.amount}
             requestedDecimals={requestedToken.decimals}
+            requestedScaleIsKnown={requestedToken.scaleIsKnown}
             requestedSymbol={requestedToken.symbol}
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}

@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
 
@@ -19,7 +20,14 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   return useMemo(() => {
+    // A token whose decimals were never resolved contributes a `balance` that was
+    // divided by the placeholder's guessed 6, so it can be off by a factor of a
+    // trillion. Folding that into the portfolio total does not make the total
+    // partly wrong — it makes it meaningless, and unlike a single row there is no
+    // way for the user to see which asset spoiled it. Leaving such an asset out
+    // understates the total; including it can invent one.
     const totalFiat = allTokenBalances.reduce((sum, token) => {
+      if (!hasKnownScale(token.metadata)) return sum;
       const { price } = getTokenPrice(tokenPrices, token.metadata.symbol);
       return sum + token.balance * price;
     }, 0);

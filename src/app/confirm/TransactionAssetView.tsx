@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { truncateAddress } from 'utils/string';
 
@@ -26,6 +27,15 @@ interface ResolvedAsset {
   // formatAmount's own decimals default.
   symbol: string | undefined;
   decimals: number | undefined;
+  /**
+   * False when the lookup failed or returned the unknown-token placeholder.
+   *
+   * This is a security screen: the user decides whether to approve a transfer
+   * from what it says. Formatting an unreadable faucet at the placeholder's
+   * guessed 6 decimals shows an authoritative quantity that can be off by a
+   * factor of a trillion, on the one screen where being wrong costs money.
+   */
+  scaleIsKnown: boolean;
 }
 
 function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
@@ -41,8 +51,14 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // faucet is never mislabeled as native MIDEN on this security screen.
           const md = await fetchTokenMetadata(a.faucetId)
             .then(r => r.base)
-            .catch(() => ({ symbol: undefined, decimals: undefined }));
-          return { faucetId: a.faucetId, amount: a.amount, symbol: md.symbol, decimals: md.decimals };
+            .catch(() => undefined);
+          return {
+            faucetId: a.faucetId,
+            amount: a.amount,
+            symbol: md?.symbol,
+            decimals: md?.decimals,
+            scaleIsKnown: hasKnownScale(md)
+          };
         })
       );
       if (!cancelled) setResolved(out);
@@ -53,6 +69,15 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
   }, [assets]);
   return resolved;
 }
+
+/**
+ * The quantity for one asset row, or `?` when the faucet's decimals are a guess.
+ *
+ * A question mark rather than a translated phrase: the row already names the
+ * asset, this slot is a number, and it sits inline with a +/- sign.
+ */
+const quantityOf = (asset: ResolvedAsset): string =>
+  asset.scaleIsKnown ? formatAmount(asset.amount, asset.decimals) : '?';
 
 export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view, mode, onDownload }) => {
   const { t } = useTranslation();
@@ -104,7 +129,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                     isVerified ? 'text-black-500 font-semibold' : 'text-text-muted font-normal'
                   )}
                   data-verified={isVerified ? 'true' : 'false'}
-                >{`${formatAmount(a.amount, a.decimals)} ${a.symbol ?? t('unknown')}`}</span>
+                >{`${quantityOf(a)} ${a.symbol ?? t('unknown')}`}</span>
                 {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}
@@ -127,7 +152,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
                     isVerified ? 'text-green-500 font-semibold' : 'text-text-muted font-normal'
                   )}
                   data-verified={isVerified ? 'true' : 'false'}
-                >{`${formatAmount(a.amount, a.decimals)} ${a.symbol ?? t('unknown')}`}</span>
+                >{`${quantityOf(a)} ${a.symbol ?? t('unknown')}`}</span>
                 {!isVerified && <span className="text-text-muted text-xs ml-2">{t('unverified')}</span>}
               </div>
             ))}

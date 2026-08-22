@@ -46,6 +46,7 @@ import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
 import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
@@ -1703,7 +1704,12 @@ function isAllowedNetwork() {
  */
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
   const tokenMetadata = await getTokenMetadata(transaction.faucetId);
-  const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
+  const amount = formatAmountSafe(
+    BigInt(transaction.amount),
+    'send',
+    tokenMetadata?.decimals,
+    hasKnownScale(tokenMetadata)
+  );
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
@@ -1722,7 +1728,12 @@ async function formatSendTransactionPreview(transaction: SendTransaction): Promi
 async function formatConsumeTransactionPreview(transaction: MidenConsumeTransaction): Promise<string[]> {
   const faucetId = transaction.faucetId;
   const tokenMetadata = await getTokenMetadata(faucetId);
-  const amount = formatAmountSafe(BigInt(transaction.amount), 'consume', tokenMetadata?.decimals);
+  const amount = formatAmountSafe(
+    BigInt(transaction.amount),
+    'consume',
+    tokenMetadata?.decimals,
+    hasKnownScale(tokenMetadata)
+  );
   return [
     `Consuming note from faucet: ${truncateAddress(transaction.faucetId, false)}`,
     `Amount, ${amount}`,
@@ -1739,8 +1750,22 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)
-function formatAmountSafe(amount: bigint, transactionType: 'send' | 'consume', tokenDecimals: number | undefined) {
-  const normalizedAmount = formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals);
+/**
+ * `scaleIsKnown === false` renders the amount as `?` rather than a number.
+ *
+ * This text is what a dApp's transaction confirmation shows the user before they
+ * approve it. A faucet the wallet could not read has no trustworthy decimals,
+ * and printing the placeholder's guess here states a quantity the user is about
+ * to authorise on the strength of that guess. A question mark is unhelpful; a
+ * confident wrong number is worse.
+ */
+function formatAmountSafe(
+  amount: bigint,
+  transactionType: 'send' | 'consume',
+  tokenDecimals: number | undefined,
+  scaleIsKnown: boolean
+) {
+  const normalizedAmount = scaleIsKnown ? formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals) : '?';
   if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }

@@ -676,10 +676,24 @@ describe('earnWithdrawAmountFields', () => {
     });
   });
 
-  it('falls back to the recorded output symbol when destination metadata is missing', () => {
+  // This branch exists BECAUSE the received leg is denominated in the
+  // destination faucet's asset, so its decimals are the whole point. Without
+  // them there is no scale to apply — `formatAmount`'s own default is a
+  // statement about a different token. The asset is still named from the
+  // recorded output symbol, so the row says what landed, just not how much.
+  it('withholds the amount when the destination faucet never resolved', () => {
     expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
-      amount: formatAmount(100n, undefined),
+      amount: undefined,
       token: 'MDN'
+    });
+  });
+
+  it('withholds the amount when the destination resolved only to the placeholder', () => {
+    const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, placeholder)).toEqual({
+      amount: undefined,
+      token: 'Unknown'
     });
   });
 

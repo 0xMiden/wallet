@@ -3,6 +3,7 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -40,7 +41,12 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   // USDC symbol/decimals rather than the native-asset defaults
   // `useReceiptAmount` would pick.
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
-  const tokenMetadata = transaction?.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
+  const stored = transaction?.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
+  // A stored record only outranks the USDC constants when it actually resolved.
+  // The unknown-token placeholder is not evidence about this faucet — falling
+  // back to the collateral token's stated decimals is strictly better than
+  // scaling a deposit by a guess.
+  const tokenMetadata = hasKnownScale(stored) ? stored : undefined;
   const amountText =
     transaction?.amount !== undefined
       ? `${formatAmount(transaction.amount, tokenMetadata?.decimals ?? EARN_USDC_DECIMALS)} ${

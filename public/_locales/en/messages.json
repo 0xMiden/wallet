@@ -721,6 +721,10 @@
     "message": "One or more words aren't in the recovery phrase word list. Check the highlighted words.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
   },
+  "unknownTokenScale": {
+    "message": "This token's decimals could not be verified, so amounts can't be shown or sent.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Oops!",
     "englishSource": "Oops!"
