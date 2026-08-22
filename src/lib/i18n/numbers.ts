@@ -110,18 +110,24 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
   return negative ? `-${withLeadingZero}` : withLeadingZero;
 }
 
-export function stringToBigInt(str: string, decimals: number) {
-  // Parse the string as a float
-  let num = parseFloat(str);
-
-  // Multiply by 10 to the power of the decimal count
-  num *= Math.pow(10, decimals);
-
-  // Round the number to avoid float precision issues
-  num = Math.round(num);
-
-  // Return the result as a BigInt
-  return BigInt(num);
+/**
+ * A decimal amount string to base units.
+ *
+ * This is the conversion that decides how much value actually leaves the wallet
+ * on every send, swap and deposit, so it runs in arbitrary precision rather than
+ * through a double. `parseFloat(str) * 10 ** decimals` cannot represent the
+ * result exactly once it exceeds 2^53 — for an 18-decimal token that is any
+ * amount over about 9 units, so a routine transfer was silently rounded in its
+ * low digits, and a large enough one overflowed to `Infinity`, where `BigInt()`
+ * throws `RangeError` instead of sending anything.
+ *
+ * Still throws on input that is not a number, which is what callers already
+ * guard against (an empty amount field reaches here).
+ */
+export function stringToBigInt(str: string, decimals: number): bigint {
+  const shifted = new BigNumber(str).shiftedBy(decimals).integerValue(BigNumber.ROUND_HALF_UP);
+  if (!shifted.isFinite()) throw new RangeError(`Cannot convert ${str} to base units`);
+  return BigInt(shifted.toFixed(0));
 }
 
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {

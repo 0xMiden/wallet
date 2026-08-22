@@ -37,7 +37,10 @@ jest.mock('app/env', () => ({
 
 const mockIsMobile = jest.fn();
 jest.mock('lib/platform', () => ({
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  // Reached through `hasKnownScale` -> `metadata/defaults` -> `getAssetUrl`,
+  // which branches on the platform to build the placeholder's logo URL.
+  isExtension: () => false
 }));
 
 const mockUseAccount = jest.fn();
@@ -303,6 +306,42 @@ describe('TokenDetail', () => {
       expect(screen.getByTestId('nav-title')).toHaveTextContent('USDC');
       // balance ?? 0 -> "0.00".
       expect(screen.getByText('0.00')).toBeInTheDocument();
+    });
+  });
+
+  // The hero is the most emphatic number in the wallet. For a faucet whose
+  // decimals never resolved, `balance` was divided by the placeholder's guessed
+  // 6 upstream, so it is not this user's holding — and the fiat line under it is
+  // that same wrong number multiplied by a price.
+  describe('a token whose scale never resolved', () => {
+    const unresolved = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+
+    it('shows an em dash instead of a quantity', () => {
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
+        priceInfo: { price: 2000, change24h: 0 }
+      });
+
+      expect(screen.getByText('—')).toBeInTheDocument();
+      expect(screen.queryByText('12.50')).not.toBeInTheDocument();
+    });
+
+    it('omits the fiat line rather than pricing a quantity it does not have', () => {
+      renderPage({
+        balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }],
+        priceInfo: { price: 2000, change24h: 0 }
+      });
+
+      // The market price elsewhere on the page is a price PER token and does not
+      // depend on the scale, so it stays. What goes is 12.5 × $2000, the value
+      // of a holding the wallet cannot size.
+      expect(screen.queryByText('$25000.00')).not.toBeInTheDocument();
+    });
+
+    it('still names the token in the header and the logo', () => {
+      renderPage({ balances: [{ tokenId: TOKEN_ID, balance: 12.5, metadata: unresolved }] });
+
+      expect(screen.getByTestId('nav-title')).toHaveTextContent('Unknown');
     });
   });
 

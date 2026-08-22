@@ -136,6 +136,7 @@
   "seedPasteFailedTooManyWords": "Paste failed because it contained over 24 words.",
   "seedPhraseTip": "You can paste your entire secret Seed phrase into any field",
   "importSeedPhraseError": "One or more words aren't in the recovery phrase word list. Check the highlighted words.",
+  "unknownTokenScale": "This token's decimals could not be verified, so amounts can't be shown or sent.",
   "oops": "Oops!",
   "smthWentWrongWhile": "Something went wrong while $action$",
   "mayHappenBecauseYouAreOffline": "This may happen because you are currently offline",

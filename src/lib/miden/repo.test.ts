@@ -1,4 +1,4 @@
-import { ITransactionStatus } from './db/types';
+import { ITransaction, ITransactionStatus } from './db/types';
 import { exportDb, importDb, transactions, Table } from './repo';
 import { NoteTypeEnum } from './types';
 
@@ -170,6 +170,114 @@ describe('miden repo export/import', () => {
     expect(imported[0]!.amount).toBe(BigInt(42));
     expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
     expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  // A byte field holds a cryptographic blob. `new Uint8Array(...)` accepts every
+  // one of these inputs and quietly stores something else — 999 as 231, -1 as
+  // 255, a string as 0 — which is a different blob, and nothing downstream can
+  // tell. `importDb` is atomic, so failing here costs the user nothing.
+  describe('a byte field that is not bytes', () => {
+    const dumpWith = (fields: Record<string, unknown>) =>
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            id: 'bad-bytes',
+            type: 'send',
+            status: ITransactionStatus.Completed,
+            accountId: 'acc1',
+            initiatedAt: 3,
+            displayIcon: 'SEND',
+            ...fields
+          }
+        ]
+      });
+
+    it.each([
+      ['a value above 255', { requestBytes: [1, 999, 3] }],
+      ['a negative value', { requestBytes: [1, -1, 3] }],
+      ['a fractional value', { requestBytes: [1, 1.5, 3] }],
+      ['a non-number', { requestBytes: [1, 'two', 3] }],
+      ['a value above 255, index-keyed', { resultBytes: { '0': 9, '1': 300 } }]
+    ])('is rejected rather than truncated: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte/);
+    });
+
+    // The old decoder sized the array by key COUNT and then read 0…count-1, so a
+    // gap made it read a key the file did not have: this restored as [1, 0],
+    // inventing a zero and dropping the byte at index 2 without a word.
+    it.each([
+      ['a gap', { resultBytes: { '0': 1, '2': 3 } }],
+      ['an index past the end', { resultBytes: { '0': 1, '5': 3 } }],
+      ['a negative index', { resultBytes: { '0': 1, '-1': 3 } }],
+      ['a non-numeric key', { resultBytes: { '0': 1, x: 3 } }]
+    ])('is rejected rather than silently reshaped: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/dense byte sequence/);
+    });
+
+    // An empty Uint8Array serializes to exactly this, so it has to stay valid.
+    it('accepts an empty index-keyed object as an empty byte array', async () => {
+      await importDb(dumpWith({ resultBytes: {} }));
+      expect((await transactions.toArray())[0]!.resultBytes).toEqual(new Uint8Array([]));
+    });
+  });
+
+  // `$bigint` is a reserved word in a namespace the wallet does not own:
+  // `extraInputs` carries objects a dApp had a hand in. Without escaping, such an
+  // object came back from a round-trip as a number instead of itself — and when
+  // its string was not numeric, `BigInt()` threw and took the whole import down.
+  describe('data that looks like the BigInt tag', () => {
+    const roundTrip = async (extraInputs: unknown) => {
+      await transactions.clear();
+      await transactions.bulkAdd([
+        {
+          id: 'collide',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 3,
+          displayIcon: 'SEND',
+          extraInputs
+        } as unknown as ITransaction
+      ]);
+      const dump = await exportDb();
+      await importDb(dump);
+      return (await transactions.toArray())[0]!.extraInputs;
+    };
+
+    it.each([
+      ['a non-numeric string', { $bigint: 'not a number' }],
+      ['a numeric string, indistinguishable from a real tag', { $bigint: '123' }],
+      ['an already-escaped-looking key', { $bigint$: 'x' }],
+      ['nested inside another object', { note: { $bigint: '7' } }]
+    ])('survives a round-trip unchanged: %s', async (_label, extraInputs) => {
+      expect(await roundTrip(extraInputs)).toEqual(extraInputs);
+    });
+
+    it('still restores a real BigInt written by the exporter', async () => {
+      expect(await roundTrip({ requestedAmount: 5n })).toEqual({ requestedAmount: 5n });
+    });
+
+    // A tag whose payload is not a canonical integer was never written by this
+    // code, so it is foreign data — and feeding it to `BigInt()` threw.
+    it('leaves a foreign tag alone rather than throwing on import', async () => {
+      await importDb(
+        JSON.stringify({
+          [Table.Transactions]: [
+            {
+              id: 'foreign-tag',
+              type: 'send',
+              status: ITransactionStatus.Completed,
+              accountId: 'acc1',
+              initiatedAt: 3,
+              displayIcon: 'SEND',
+              extraInputs: { $bigint: 'not a number' }
+            }
+          ]
+        })
+      );
+
+      expect((await transactions.toArray())[0]!.extraInputs).toEqual({ $bigint: 'not a number' });
+    });
   });
 
   // A malformed dump must fail in the pure mapping step, which runs before the

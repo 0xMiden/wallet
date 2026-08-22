@@ -213,9 +213,38 @@ describe('stringToBigInt', () => {
     expect(stringToBigInt('1.5', 6)).toBe(BigInt(1_500_000));
   });
 
-  it('rounds to avoid float precision drift', () => {
+  it('rounds half up, on the decimal value rather than its float approximation', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
-    expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
+    // 101, not 100. The old assertion recorded what a double does to this
+    // input, not what the input says: 1.005 is stored as 1.00499999999999989,
+    // so scaling it landed just under the halfway point and rounded down.
+    expect(stringToBigInt('1.005', 2)).toBe(BigInt(101));
+  });
+
+  it('keeps every digit of an amount too large for a double', () => {
+    // 2^53 base units is ~9 whole tokens at 18 decimals, so this is an ordinary
+    // transfer, not an extreme one. Scaling through a float silently rounded the
+    // low digits away and sent a different quantity than the one on screen.
+    expect(stringToBigInt('1234.567890123456789', 18)).toBe(1_234_567_890_123_456_789_000n);
+    // 2^53 + 1, the first integer a double cannot hold. It used to come back as
+    // 2^53 exactly.
+    expect(stringToBigInt('9007199254740993', 0)).toBe(9_007_199_254_740_993n);
+  });
+
+  it('converts an amount that used to overflow a double to Infinity', () => {
+    // `parseFloat(str) * 10 ** decimals` reached Infinity here and `BigInt()`
+    // threw RangeError on it. Nothing about the value requires that.
+    expect(stringToBigInt('1e40', 0)).toBe(BigInt('1' + '0'.repeat(40)));
+  });
+
+  it('still throws on input that is not a number', () => {
+    // Callers rely on this: an empty amount field reaches here.
+    expect(() => stringToBigInt('not a number', 6)).toThrow();
+    expect(() => stringToBigInt('', 6)).toThrow();
+  });
+
+  it('scales a negative amount without moving the sign into the digits', () => {
+    expect(stringToBigInt('-1.5', 6)).toBe(BigInt(-1_500_000));
   });
 });
 

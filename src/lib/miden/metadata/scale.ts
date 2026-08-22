@@ -1,5 +1,21 @@
-import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from './defaults';
 import { AssetMetadata } from './types';
+
+/**
+ * The unknown-token placeholder's identifying fields, declared here rather than
+ * read off `DEFAULT_TOKEN_METADATA` so that asking this question costs nothing.
+ *
+ * `defaults.ts` builds its `thumbnailUri` by calling into `lib/platform` at
+ * module scope, so importing it has a side effect at load time. This predicate
+ * is imported by every screen that displays a quantity; making all of them
+ * depend on a platform probe to ask "are these decimals real" is the wrong
+ * shape, and it made unrelated suites fail to load. `DEFAULT_TOKEN_METADATA`
+ * spreads these fields in, so the two cannot drift.
+ */
+export const UNKNOWN_TOKEN_IDENTITY = {
+  decimals: 6,
+  symbol: 'Unknown',
+  name: 'Unknown'
+} as const;
 
 /**
  * Whether `metadata.decimals` can be trusted to convert base units into a
@@ -43,39 +59,8 @@ export function hasKnownScale(metadata: AssetMetadata | undefined): boolean {
 
 function isUnmarkedPlaceholder(metadata: AssetMetadata): boolean {
   return (
-    metadata.symbol === DEFAULT_TOKEN_METADATA.symbol &&
-    metadata.name === DEFAULT_TOKEN_METADATA.name &&
-    metadata.decimals === DEFAULT_TOKEN_METADATA.decimals
+    metadata.symbol === UNKNOWN_TOKEN_IDENTITY.symbol &&
+    metadata.name === UNKNOWN_TOKEN_IDENTITY.name &&
+    metadata.decimals === UNKNOWN_TOKEN_IDENTITY.decimals
   );
-}
-
-/**
- * The metadata record that governs how a faucet is displayed, resolved the way
- * `getTokenMetadata` resolves it, so a screen reading the in-memory store
- * agrees with an activity row reading persisted metadata.
- *
- * Always returns a record, and the choice it makes for a missing one is the
- * whole point:
- *
- * - No faucet at all — the row is about the native asset, so MIDEN.
- * - A faucet the store has resolved — that record.
- * - The native faucet, not yet in the store — MIDEN, whose scale is fixed and
- *   known regardless of what the store has cached.
- * - Any other unresolved faucet — the unknown-token placeholder, so the caller
- *   sees a record that openly declares its scale a guess.
- *
- * That last case is why this exists. Reading `undefined` straight from the
- * store loses the distinction between "native" and "not resolved yet", and
- * every caller that then reached for a default reached for MIDEN's 6 —
- * rendering an unresolved 18-decimal token a trillion times too large.
- */
-export function resolveDisplayMetadata(
-  faucetId: string | undefined,
-  assetsMetadata: Record<string, AssetMetadata> | undefined,
-  nativeFaucetId: string | null
-): AssetMetadata {
-  if (faucetId === undefined) return MIDEN_METADATA;
-  const stored = assetsMetadata?.[faucetId];
-  if (stored) return stored;
-  return nativeFaucetId !== null && faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
 }

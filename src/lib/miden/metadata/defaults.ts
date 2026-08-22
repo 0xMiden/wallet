@@ -1,5 +1,6 @@
 import { isExtension } from 'lib/platform';
 
+import { UNKNOWN_TOKEN_IDENTITY } from './scale';
 import { AssetMetadata } from './types';
 
 // Get asset URL that works on extension, mobile, and desktop
@@ -34,11 +35,11 @@ export const EMPTY_ASSET_METADATA: AssetMetadata = {
 };
 
 export const DEFAULT_TOKEN_METADATA: AssetMetadata = {
-  decimals: 6,
-  symbol: 'Unknown',
-  name: 'Unknown',
-  // The 6 above is a placeholder so consumers have something to read, NOT a
-  // fact about any faucet. See `scaleIsUnknown` on `AssetMetadata`.
+  // The 6 decimals in here are a placeholder so consumers have something to
+  // read, NOT a fact about any faucet — which is what `scaleIsUnknown` says.
+  // `hasKnownScale` recognises pre-marker cached copies by these same three
+  // fields, so they are declared once, next to the predicate.
+  ...UNKNOWN_TOKEN_IDENTITY,
   scaleIsUnknown: true,
   thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
 };

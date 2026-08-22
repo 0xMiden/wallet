@@ -92,6 +92,7 @@ const baseToken = (overrides: Partial<UIToken> = {}): UIToken => ({
   decimals: 6,
   balance: 200,
   fiatPrice: 0.2,
+  scaleIsKnown: true,
   ...overrides
 });
 
@@ -182,6 +183,31 @@ describe('SelectAmount', () => {
     it('hides the network pill when showNetworkPill is false', () => {
       renderComponent({ showNetworkPill: false });
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
+    });
+
+    // The amount typed here is converted to base units with `token.decimals`.
+    // When those are the unknown-token placeholder's guess of 6, a "1" typed for
+    // an 18-decimal faucet is a millionth of what the screen says — so the flow
+    // stops at the point of entry rather than at the confirmation.
+    describe('a token whose scale never resolved', () => {
+      const unscaled = () => baseToken({ name: 'Unknown', scaleIsKnown: false });
+
+      it('blocks the confirm CTA', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+      });
+
+      it('says so in place of an available balance it cannot vouch for', () => {
+        renderComponent({ token: unscaled() });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent('unknownTokenScale');
+        expect(helper).not.toHaveTextContent('available');
+      });
+
+      it('withholds the fiat estimate, which is that same balance times a price', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+      });
     });
 
     it('hides the balance helper when showBalanceHelper is false', () => {
