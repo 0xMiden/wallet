@@ -88,6 +88,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MIDEN_NETWORK: ${{ matrix.network }}
+          # Baked into the bundle, so not confidential once shipped -- these are
+          # write-only ingestion ids, and a secret only keeps them out of git.
+          # Absent (a fork) each resolves to '' and turns its feature off.
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
