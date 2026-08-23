@@ -33,13 +33,21 @@ import { ProgressBar } from './ProgressBar';
 const SETTLE_RETRY_MS = 50;
 
 /**
- * Cap on those re-checks, per measurement attempt. `mobile-page-enter` runs for
- * 150ms, so 3s is far longer than it can legitimately take — generous enough to
- * absorb an animation whose start was deferred on a loaded device, while still
- * bounded so a permanently transformed ancestor cannot leave a timer looping
- * for the lifetime of the screen.
+ * How long to keep re-checking before measuring anyway.
+ *
+ * The only transformed ancestor is `TabLayout`'s `motion.div`, whose `x: '8%'`
+ * → `0` runs on `springs.standard` (stiffness 322, damping 32, mass 1). That is
+ * underdamped-but-close, ~16 rad/s decay, so a ~31px offset on a 390px viewport
+ * is still ~2.4px at 200ms and only falls under the 1px threshold around 235ms.
+ * 3s is an order of magnitude beyond that — wide enough to absorb an animation
+ * whose start was deferred on a loaded device.
+ *
+ * A wall-clock deadline rather than a retry count: `update` has several callers,
+ * and any of them landing on a skip would spend a counted attempt, so a burst
+ * (a ResizeObserver run while the slot resizes) could exhaust a counter in a
+ * fraction of the intended window.
  */
-const MAX_SETTLE_RETRIES = 60;
+const SETTLE_TIMEOUT_MS = 3000;
 
 export const DappActive: FC = () => {
   const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
@@ -112,19 +120,21 @@ export const DappActive: FC = () => {
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   //
-  // CAREFUL: TabLayout runs a `mobile-page-enter` slide-in animation
-  // (translateX 8% → 0 over 150ms) on the contentRef wrapper that
-  // contains DappActive. `getBoundingClientRect` returns coordinates
-  // that INCLUDE ancestor transforms, so any measurement taken
-  // DURING the slide-in lands ~32pt to the right of the real
-  // resting position.
+  // CAREFUL: TabLayout slides its `motion.div` in from `x: '8%'` on
+  // `springs.standard` (framer-motion, keyed on the pathname), and that
+  // wrapper contains DappActive. `getBoundingClientRect` returns
+  // coordinates that INCLUDE ancestor transforms, so any measurement
+  // taken DURING the slide-in lands ~32pt to the right of the real
+  // resting position. (Not `mobile-page-enter`, which an earlier version
+  // of this comment named — that CSS animation belongs to
+  // FullScreenPage, a layout `/browser` never uses.)
   //
   // If a measurement happens DURING the tab slide-in transform, the
   // `getBoundingClientRect` call returns mid-transition x coordinates.
   // That wrong rect then flows into `setSlotRect` → provider's restore
   // effect → `instance.setRect(wrong)` → WKWebView renders ~32pt too
-  // far right. 200ms later the transform settles, another re-measure
-  // pushes the correct x, and the webview jumps back.
+  // far right. Once the spring settles, another re-measure pushes the
+  // correct x, and the webview jumps back.
   //
   // GUARD (moved inside `update` itself so EVERY path — immediate,
   // 200ms timer, 400ms timer, ResizeObserver — respects it): if any
@@ -160,22 +170,22 @@ export const DappActive: FC = () => {
       }
       return false;
     };
-    let settleRetries = 0;
+    let settleDeadline: number | null = null;
     let settleTimer: number | undefined;
     const clearSettleRetry = () => {
       if (settleTimer === undefined) return;
       window.clearTimeout(settleTimer);
       settleTimer = undefined;
     };
-    // At most one retry may be in flight. `update` has four other callers (the
+    // At most one retry may be in flight. `update` has five callers (the
     // immediate measurement, three fixed timers, the ResizeObserver), and each
     // of them can land on a skip while a retry is already pending — scheduling
     // per skip would leave every earlier handle untracked, so cleanup could
     // only cancel the last one and the rest would fire after unmount and push
     // a rect for a screen that is gone, racing the unmount that clears it.
+    // (Worse than stale: the node is detached by then, so the ancestor walk
+    // finds no transform and the rect pushed would be an all-zero one.)
     const scheduleSettleRetry = () => {
-      if (settleRetries >= MAX_SETTLE_RETRIES) return;
-      settleRetries += 1;
       clearSettleRetry();
       settleTimer = window.setTimeout(() => {
         settleTimer = undefined;
@@ -188,20 +198,36 @@ export const DappActive: FC = () => {
         // A ResizeObserver does not fire on transform changes (the observed
         // box does not change size while something slides), so once the fixed
         // timers below have been spent the only remaining trigger is a real
-        // resize, which never arrives. And `mobile-page-enter` is an animation
-        // with `fill-mode: both`, so the element holds the 8% offset from the
-        // moment it mounts — before the animation has even started. On a
-        // loaded device the start can be deferred past all of them, and then
-        // every measurement is skipped, `slotRect` stays null for the lifetime
-        // of the screen, and the provider never calls setRect/setVisible: the
-        // dApp is foreground in state and invisible on screen, permanently.
-        // So keep asking until it settles instead of dropping the measurement.
-        scheduleSettleRetry();
-        return;
+        // resize, which never arrives. And the slide is framer-motion's
+        // `initial` prop on TabLayout's `motion.div`, written as an inline
+        // style at commit and only animated from a later frame — so the
+        // element holds the 8% offset from the moment it mounts, before the
+        // animation has begun. Stall the main thread right after commit and
+        // all three fixed timers drain against that un-started offset.
+        //
+        // When that happens every measurement is skipped, `slotRect` stays
+        // null for the lifetime of the screen, and the provider never calls
+        // setRect/setVisible: the dApp is foreground in state and invisible on
+        // screen. It cannot even be recovered by leaving the tab, because the
+        // auto-park that would recycle it is itself gated on a rect having been
+        // reported. So keep asking until it settles.
+        const now = Date.now();
+        if (settleDeadline === null) settleDeadline = now + SETTLE_TIMEOUT_MS;
+        if (now < settleDeadline) {
+          scheduleSettleRetry();
+          return;
+        }
+        // Out of patience, so fall through and measure anyway. A rect that is
+        // ~32pt off is strictly better than none: it makes the dApp visible,
+        // and it re-arms the auto-park escape hatch above. Giving up here
+        // instead would land in exactly the permanent-null state this guard
+        // exists to prevent — reachable by backgrounding the app mid-slide,
+        // where the animation stops advancing while timers keep firing. A
+        // later measurement corrects the position.
       }
-      // This measurement is the one the pending retry was waiting to take.
+      // Either settled, or the deadline passed. Both end the current window.
+      settleDeadline = null;
       clearSettleRetry();
-      settleRetries = 0;
       const r = el.getBoundingClientRect();
       setSlotRect({
         x: Math.round(r.left),
