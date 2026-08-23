@@ -162,6 +162,26 @@ export const DappActive: FC = () => {
     };
     let settleRetries = 0;
     let settleTimer: number | undefined;
+    const clearSettleRetry = () => {
+      if (settleTimer === undefined) return;
+      window.clearTimeout(settleTimer);
+      settleTimer = undefined;
+    };
+    // At most one retry may be in flight. `update` has four other callers (the
+    // immediate measurement, three fixed timers, the ResizeObserver), and each
+    // of them can land on a skip while a retry is already pending — scheduling
+    // per skip would leave every earlier handle untracked, so cleanup could
+    // only cancel the last one and the rest would fire after unmount and push
+    // a rect for a screen that is gone, racing the unmount that clears it.
+    const scheduleSettleRetry = () => {
+      if (settleRetries >= MAX_SETTLE_RETRIES) return;
+      settleRetries += 1;
+      clearSettleRetry();
+      settleTimer = window.setTimeout(() => {
+        settleTimer = undefined;
+        update();
+      }, SETTLE_RETRY_MS);
+    };
     const update = () => {
       if (hasActiveAncestorTransform()) {
         // Skipping alone is not enough: nothing is guaranteed to come back.
@@ -176,12 +196,11 @@ export const DappActive: FC = () => {
         // of the screen, and the provider never calls setRect/setVisible: the
         // dApp is foreground in state and invisible on screen, permanently.
         // So keep asking until it settles instead of dropping the measurement.
-        if (settleRetries < MAX_SETTLE_RETRIES) {
-          settleRetries += 1;
-          settleTimer = window.setTimeout(update, SETTLE_RETRY_MS);
-        }
+        scheduleSettleRetry();
         return;
       }
+      // This measurement is the one the pending retry was waiting to take.
+      clearSettleRetry();
       settleRetries = 0;
       const r = el.getBoundingClientRect();
       setSlotRect({
@@ -204,7 +223,7 @@ export const DappActive: FC = () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
-      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+      clearSettleRetry();
       ro.disconnect();
     };
   }, [setSlotRect]);
