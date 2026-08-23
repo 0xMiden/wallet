@@ -5,7 +5,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_STUCK_ERROR,
-  USER_CANCELLED_TRANSACTION_REASON
+  USER_CANCELLED_TRANSACTION_REASON,
+  isUserCancelledTransaction
 } from 'lib/miden/transaction/constants';
 
 // Imported after the mocks so the module graph is wired to the stubs.
@@ -2420,8 +2421,10 @@ describe('HistoryDetails', () => {
     // The two cancel routes leave an identical row apart from the error string,
     // and that string alone decides whether Retry exists at all. The
     // infra-resilience E2E depends on the distinction: it plants a reaped row
-    // precisely so Retry is on screen to click. Pinned here because the E2E pays
-    // for a chain and a guardian to discover a regression this can catch.
+    // precisely so Retry is on screen to click. Stated as a pair because the
+    // negative case is what carries the weight — the positive one restates the
+    // ordinary failed-send path a few tests up, and passes for any string that
+    // is not the hand-cancel text.
     it('offers Retry for a row the reaper failed', async () => {
       mockGetTransactionById.mockResolvedValue(failedSendTx({ error: TRANSACTION_STUCK_ERROR }));
       await renderAndLoad();
@@ -2434,6 +2437,15 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.queryByTestId('history-retry-button')).toBeNull();
+    });
+
+    // Both cases above render against this file's mock of `lib/miden/activity`,
+    // which reimplements the predicate rather than re-exporting it. Widening the
+    // real one to match the reaper's reason too would leave them green and send
+    // the E2E straight back to timing out, so assert the real predicate itself.
+    it('treats only the hand-cancel reason as a user cancel', () => {
+      expect(isUserCancelledTransaction(USER_CANCELLED_TRANSACTION_REASON)).toBe(true);
+      expect(isUserCancelledTransaction(TRANSACTION_STUCK_ERROR)).toBe(false);
     });
 
     // Same contract as the progress screen: a send the wallet cannot verify is
