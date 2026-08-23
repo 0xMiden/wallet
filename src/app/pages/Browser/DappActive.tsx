@@ -29,6 +29,18 @@ import { DappActionsSheet } from './DappActionsSheet';
 import { NativeWebViewSlot } from './NativeWebViewSlot';
 import { ProgressBar } from './ProgressBar';
 
+/** How often to re-check whether an ancestor slide-in has settled. */
+const SETTLE_RETRY_MS = 50;
+
+/**
+ * Cap on those re-checks, per measurement attempt. `mobile-page-enter` runs for
+ * 150ms, so 3s is far longer than it can legitimately take — generous enough to
+ * absorb an animation whose start was deferred on a loaded device, while still
+ * bounded so a permanently transformed ancestor cannot leave a timer looping
+ * for the lifetime of the screen.
+ */
+const MAX_SETTLE_RETRIES = 60;
+
 export const DappActive: FC = () => {
   const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
   const { t } = useTranslation();
@@ -148,8 +160,29 @@ export const DappActive: FC = () => {
       }
       return false;
     };
+    let settleRetries = 0;
+    let settleTimer: number | undefined;
     const update = () => {
-      if (hasActiveAncestorTransform()) return;
+      if (hasActiveAncestorTransform()) {
+        // Skipping alone is not enough: nothing is guaranteed to come back.
+        // A ResizeObserver does not fire on transform changes (the observed
+        // box does not change size while something slides), so once the fixed
+        // timers below have been spent the only remaining trigger is a real
+        // resize, which never arrives. And `mobile-page-enter` is an animation
+        // with `fill-mode: both`, so the element holds the 8% offset from the
+        // moment it mounts — before the animation has even started. On a
+        // loaded device the start can be deferred past all of them, and then
+        // every measurement is skipped, `slotRect` stays null for the lifetime
+        // of the screen, and the provider never calls setRect/setVisible: the
+        // dApp is foreground in state and invisible on screen, permanently.
+        // So keep asking until it settles instead of dropping the measurement.
+        if (settleRetries < MAX_SETTLE_RETRIES) {
+          settleRetries += 1;
+          settleTimer = window.setTimeout(update, SETTLE_RETRY_MS);
+        }
+        return;
+      }
+      settleRetries = 0;
       const r = el.getBoundingClientRect();
       setSlotRect({
         x: Math.round(r.left),
@@ -171,6 +204,7 @@ export const DappActive: FC = () => {
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
       ro.disconnect();
     };
   }, [setSlotRect]);
