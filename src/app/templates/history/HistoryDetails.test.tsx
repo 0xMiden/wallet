@@ -2,7 +2,11 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+import {
+  REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from 'lib/miden/transaction/constants';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -2411,6 +2415,25 @@ describe('HistoryDetails', () => {
       expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    // The two cancel routes leave an identical row apart from the error string,
+    // and that string alone decides whether Retry exists at all. The
+    // infra-resilience E2E depends on the distinction: it plants a reaped row
+    // precisely so Retry is on screen to click. Pinned here because the E2E pays
+    // for a chain and a guardian to discover a regression this can catch.
+    it('offers Retry for a row the reaper failed', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ error: TRANSACTION_STUCK_ERROR }));
+      await renderAndLoad();
+
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+    });
+
+    it('withholds Retry for a row the user cancelled by hand', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-retry-button')).toBeNull();
     });
 
     // Same contract as the progress screen: a send the wallet cannot verify is

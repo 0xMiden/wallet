@@ -44,6 +44,19 @@ const TX_STATUS_NAME: Record<number, string> = {
 /** Mirror of `USER_CANCELLED_TRANSACTION_REASON` (src/lib/miden/transaction/constants.ts). */
 export const USER_CANCELLED_REASON = 'Transaction was cancelled by user';
 
+/**
+ * Mirror of `TRANSACTION_STUCK_ERROR` (src/lib/miden/transaction/constants.ts) —
+ * the reason the stale-queued reaper writes.
+ *
+ * Not interchangeable with `USER_CANCELLED_REASON` even though both routes call
+ * `cancelWhilePipelineMayStillRun` and leave the same row shape: the details
+ * screen derives `isCancelled` from the error string alone
+ * (`isUserCancelledTransaction`), and hides Retry entirely when it is set. A row
+ * failed by the reaper therefore offers Retry; a row the user cancelled by hand
+ * does not.
+ */
+export const TRANSACTION_STUCK_REASON = 'Transaction took too long to process and was cancelled';
+
 /** The Dexie database + store the wallet keeps its transaction rows in (src/lib/miden/repo.ts). */
 const TX_DB = 'TridentMain';
 const TX_STORE = 'transactions';
