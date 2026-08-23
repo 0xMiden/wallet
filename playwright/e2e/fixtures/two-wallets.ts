@@ -27,7 +27,7 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
-import { captureBestEffort } from '../harness/screen-capture';
+import { SCREEN_CHANGE_BINDING, captureBestEffort, trackScreenCapture } from '../harness/screen-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -204,22 +204,33 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
 export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
   const screensDir = path.join(outputDir, 'screens');
   const handler = async (key: string, seq: number) => {
-    // A screen-change can fire right after a page (re)load, before React has
-    // painted -- capturing then yields a blank white viewport. Wait briefly for
-    // the page to have rendered visible text, and skip the frame if it never
-    // does, so the filmstrip never contains blank frames.
-    try {
-      await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
-        timeout: 1500,
-        polling: 100
-      });
-    } catch {
-      return;
-    }
-    await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+    if (page.isClosed()) return;
+    // Registered so a caller that is about to destroy this page or its browser
+    // can wait this out rather than race it -- see `suspendScreenCapture`. The
+    // tracked promise must not reject, hence the guard around the whole body
+    // rather than just the wait: a page can go away mid-screenshot too, and a
+    // diagnostic must never be able to fail the test it is documenting.
+    const work = (async () => {
+      // A screen-change can fire right after a page (re)load, before React has
+      // painted -- capturing then yields a blank white viewport. Wait briefly for
+      // the page to have rendered visible text, and skip the frame if it never
+      // does, so the filmstrip never contains blank frames.
+      try {
+        await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
+          timeout: 1500,
+          polling: 100
+        });
+      } catch {
+        return;
+      }
+      if (page.isClosed()) return;
+      await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+    })().catch(() => {});
+    trackScreenCapture(page, work);
+    await work;
   };
   try {
-    await page.exposeFunction('__e2eScreenChanged', handler);
+    await page.exposeFunction(SCREEN_CHANGE_BINDING, handler);
   } catch {
     // Already exposed on this page instance (e.g. the binding survived a
     // soft reload) -- nothing to do.
