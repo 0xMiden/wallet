@@ -39,6 +39,25 @@ inputs:
       over-firing is correct but spammy.
     required: false
     default: "false"
+  build-napi:
+    description: >
+      Whether to also build the SDK's napi (Node.js) binding and export
+      MIDEN_MODULE_PATH pointing at it. Default false, because the binary
+      takes a full native release build and only jobs that load the SDK
+      under Node need it (`playwright/tests/mock-web-client.spec.ts` is
+      the only one today). Every other job consumes the WASM dist/ only.
+
+      Why this is needed at all: the published @miden-sdk/miden-sdk finds
+      the .node binary through an optionalDependency on a per-platform
+      package (@miden-sdk/node-linux-x64-gnu et al), and web-sdk's publish
+      workflow adds those entries at publish time — they are absent from
+      `crates/web-client/package.json` in source. So a `file:` dep built
+      from a linked PR has no route to a binary, and the loader's
+      last-resort repo-root walk looks for Cargo.toml + crates/ next to
+      the package, which the wallet root doesn't have. Without this the
+      Node-side loader throws "Miden napi module not found".
+    required: false
+    default: "false"
 
 outputs:
   patched:
@@ -142,6 +161,7 @@ runs:
         HEAD_REF: ${{ steps.parse.outputs.head_ref }}
         HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
         MERGED: ${{ steps.parse.outputs.merged }}
+        BUILD_NAPI: ${{ inputs.build-napi }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
@@ -268,6 +288,39 @@ runs:
         cd "$SDK_DIR/packages/vite-plugin"
         $PNPM run build
         echo "::endgroup::"
+
+        # The napi (Node.js) binding, for jobs that import the SDK under
+        # Node rather than in a browser. Mirrors web-sdk's own
+        # test-web-client-nodejs job: cargo build with --features nodejs,
+        # then stage the cdylib under the .node name napi's require()
+        # needs. `release-fast` is the same LTO-off profile the WASM build
+        # above uses, for the same reason — CI verifies behaviour, it never
+        # ships this artifact. Older linked branches may predate the
+        # profile, hence the fallback.
+        if [ "${BUILD_NAPI:-false}" = "true" ]; then
+          echo "::group::Build @miden-sdk/miden-sdk napi binding"
+          cd "$SDK_DIR"
+          if grep -q '^\[profile\.release-fast\]' Cargo.toml; then
+            NAPI_PROFILE=release-fast
+          else
+            NAPI_PROFILE=release
+          fi
+          cargo build -p miden-client-web --no-default-features --features nodejs --profile "$NAPI_PROFILE"
+          if [ "$(uname)" = "Darwin" ]; then EXT="dylib"; else EXT="so"; fi
+          napi_binary=$(find "target/${NAPI_PROFILE}" -maxdepth 1 -name "libmiden_client_web.${EXT}" | head -1)
+          if [ -z "$napi_binary" ]; then
+            echo "::error title=inject-linked-web-sdk-pr::napi binary not found under target/${NAPI_PROFILE} after a successful cargo build."
+            exit 1
+          fi
+          cp "$napi_binary" "$SDK_DIR/miden_client_web.node"
+          # The loader consults MIDEN_MODULE_PATH first, which is the only
+          # hook that survives the `file:` dep rewrite: it can't find the
+          # platform package (unpublished) and its repo-root walk lands in
+          # the wallet, not the SDK checkout.
+          echo "MIDEN_MODULE_PATH=$SDK_DIR/miden_client_web.node" >> "$GITHUB_ENV"
+          cd -
+          echo "::endgroup::"
+        fi
 
         # Now patch the wallet's package.json to depend on the local
         # builds via `file:` URIs. Yarn 1 supports file: deps natively

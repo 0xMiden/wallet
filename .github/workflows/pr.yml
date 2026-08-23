@@ -144,8 +144,16 @@ jobs:
       # comment=false (default): translations is the designated
       # comment-poster — see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.
+      #
+      # build-napi: this is the only job that loads the SDK under Node
+      # (playwright/tests/mock-web-client.spec.ts), so it's the only one
+      # that needs the napi binary a linked-PR build doesn't otherwise
+      # produce. Every other job reads the WASM dist/ and shouldn't pay
+      # for a native build.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          build-napi: 'true'
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
