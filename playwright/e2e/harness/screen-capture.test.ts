@@ -44,6 +44,9 @@ describe('startScreenPoll', () => {
 const fakePage = (isClosed = false): Page =>
   ({ isClosed: () => isClosed, evaluate: async () => undefined }) as unknown as Page;
 
+/** Yield long enough for an awaited promise chain to drain, not just one hop. */
+const flushMacrotasks = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0));
+
 describe('suspendScreenCapture', () => {
   it('suspends before it awaits anything, so a call already queued cannot slip past', () => {
     const page = fakePage();
@@ -59,26 +62,54 @@ describe('suspendScreenCapture', () => {
 
   it('waits for a capture already in flight rather than racing it', async () => {
     const page = fakePage();
-    let released = false;
     let release = (): void => {};
-    const work = new Promise<void>(resolve => {
-      release = () => {
-        released = true;
-        resolve();
-      };
-    });
-    trackScreenCapture(page, work);
+    trackScreenCapture(
+      page,
+      new Promise<void>(resolve => {
+        release = resolve;
+      })
+    );
 
     let settled = false;
     const pending = suspendScreenCapture(page).then(() => {
       settled = true;
     });
-    await Promise.resolve();
+    // A macrotask, not `await Promise.resolve()`: one microtask only gets as far
+    // as the `page.evaluate` this is parked on, so a `settled === false` there
+    // would hold even with the drain removed entirely, and the test would be
+    // asserting nothing. Getting past the evaluate is what makes the check below
+    // about the drain.
+    await flushMacrotasks();
     expect(settled).toBe(false);
 
     release();
     await pending;
-    expect(released).toBe(true);
+    expect(settled).toBe(true);
+  });
+
+  it('does not wait out the deadline a second time for work it already abandoned', async () => {
+    jest.useFakeTimers();
+    const page = fakePage();
+    trackScreenCapture(page, new Promise(() => {}));
+    let first = false;
+    void suspendScreenCapture(page).then(() => {
+      first = true;
+    });
+    await jest.advanceTimersByTimeAsync(3001);
+    expect(first).toBe(true);
+
+    // `killBrowser()` then `reopen()` suspends the same page twice. Without the
+    // set being emptied on the way out, the second call would wait out the full
+    // deadline again for a capture already given up on.
+    let settled = false;
+    void suspendScreenCapture(page).then(() => {
+      settled = true;
+    });
+    // Far short of the 3s deadline, so this only passes if the second call
+    // found nothing to wait for.
+    await jest.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(true);
+    jest.useRealTimers();
   });
 
   it('gives up on a capture that never settles instead of hanging', async () => {
@@ -97,12 +128,6 @@ describe('suspendScreenCapture', () => {
     await jest.advanceTimersByTimeAsync(2);
     expect(settled).toBe(true);
     jest.useRealTimers();
-  });
-
-  it('does not let a rejecting tracked promise reach the test as an unhandled rejection', async () => {
-    const page = fakePage();
-    trackScreenCapture(page, Promise.reject(new Error('capture blew up')));
-    await expect(suspendScreenCapture(page)).resolves.toBeUndefined();
   });
 
   it('skips the page evaluate once the page is already closed', async () => {

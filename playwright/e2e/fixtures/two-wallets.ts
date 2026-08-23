@@ -28,6 +28,7 @@ import {
   type NetworkOrigins
 } from '../harness/network-faults';
 import {
+  BLANK_FRAME_WAIT_MS,
   SCREEN_CHANGE_BINDING,
   captureBestEffort,
   isScreenCaptureSuspended,
@@ -225,8 +226,11 @@ export async function installScreenCapture(page: Page, label: string, outputDir:
       // the page to have rendered visible text, and skip the frame if it never
       // does, so the filmstrip never contains blank frames.
       try {
+        // This wait is the only call here whose reply names a handle, so its
+        // timeout is what lets `suspendScreenCapture`'s drain be bounded --
+        // hence the shared constant rather than a literal.
         await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
-          timeout: 1500,
+          timeout: BLANK_FRAME_WAIT_MS,
           polling: 100
         });
       } catch {

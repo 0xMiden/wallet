@@ -83,6 +83,12 @@ export function trackScreenCapture(page: Page, work: Promise<unknown>): void {
   // unhandled rejection here would be charged to the running test — the exact
   // failure class this module exists to prevent. Callers are asked not to pass
   // a rejecting promise; this makes it harmless if one ever does.
+  //
+  // Deliberately untested, rather than tested badly. An absence of unhandled
+  // rejections is not observable from a jest test here: the sandbox's `process`
+  // is not the real one, so a listener never fires, and jest does not fail the
+  // test on it either — verified by removing this `.catch()` and watching all
+  // tests stay green. Any assertion written for it would pass regardless.
   void work.finally(() => set.delete(work)).catch(() => {});
 }
 
@@ -101,8 +107,40 @@ export function isScreenCaptureSuspended(page: Page): boolean {
   return suspended.has(page);
 }
 
-/** Cap on the drain, in case a tracked capture never settles. */
-const DRAIN_TIMEOUT_MS = 3000;
+/**
+ * How long the handler may wait for the page to have painted before it gives up
+ * on a frame. Lives here, next to the drain, because the two are coupled — see
+ * `DRAIN_TIMEOUT_MS`.
+ */
+export const BLANK_FRAME_WAIT_MS = 1500;
+
+/**
+ * Cap on the drain, in case a tracked capture never settles.
+ *
+ * MUST exceed `BLANK_FRAME_WAIT_MS`, and that is the whole reason abandoning
+ * the drain is safe. The handler makes exactly one call whose reply names a
+ * handle — the `waitForFunction` — and it is bounded by that wait, so it has
+ * always settled by the time the drain gives up. What can still be outstanding
+ * is the screenshot, whose reply carries image bytes and no handle, and so
+ * cannot produce the failure this module exists to prevent.
+ *
+ * Derived rather than written as a literal: as two independent numbers, raising
+ * the wait past the drain would silently restore the original bug, with the
+ * fix still looking intact.
+ */
+const DRAIN_TIMEOUT_MS = BLANK_FRAME_WAIT_MS * 2;
+
+/** Resolve when `work` does, or after `DRAIN_TIMEOUT_MS`, whichever is first. */
+async function withDeadline(work: Promise<unknown>): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    work,
+    new Promise(resolve => {
+      timer = setTimeout(resolve, DRAIN_TIMEOUT_MS);
+    })
+  ]);
+  if (timer) clearTimeout(timer);
+}
 
 /**
  * Stop screen capture on this page and wait for anything already running.
@@ -122,13 +160,16 @@ const DRAIN_TIMEOUT_MS = 3000;
  * has to not be outstanding.
  *
  * This is how `guardian-recovery-stress`'s browser-crash spec failed on main.
- * Not inferred — the trace from run 32640782490 has one action left open, the
- * handler's own `waitForFunction`, with `Close browser` from `killBrowser()`
- * logged immediately after it and no `after` for either; the error it records
- * names the same guid the CI log reported.
+ * Not inferred — the trace from run 32640782490 leaves six actions open, and
+ * exactly one of them can name a handle: the handler's own `waitForFunction`,
+ * with `Close browser` from `killBrowser()` logged right after it. (The other
+ * five are four `page.evaluate`s from network-capture, whose replies carry a
+ * serialized value, and the close itself.) The error the trace records names
+ * the same guid the CI log reported.
  *
  * Both halves matter: the suspend flag stops further captures starting, and
- * draining the in-flight set covers the ones already under way.
+ * draining the in-flight set covers the ones already under way — for the
+ * handle-producing call, in full; see `DRAIN_TIMEOUT_MS`.
  *
  * One-way, and deliberately so: every caller is discarding the page. Calling
  * `installScreenCapture` again on a suspended page will NOT revive it — the
@@ -138,11 +179,20 @@ const DRAIN_TIMEOUT_MS = 3000;
 export async function suspendScreenCapture(page: Page): Promise<void> {
   suspended.add(page);
   if (!page.isClosed()) {
-    await page
-      .evaluate(name => {
-        delete (globalThis as unknown as Record<string, unknown>)[name];
-      }, SCREEN_CHANGE_BINDING)
-      .catch(() => {});
+    // `page.evaluate` takes no timeout, and this now runs on the teardown path
+    // of every test as well as before a deliberate kill — so a wedged renderer,
+    // exactly what a crash-stress spec produces, would stall teardown until the
+    // suite timeout. Bounded because it is inessential: the flag above already
+    // does the work, and this only spares the page a call it would no-op.
+    // (`harness/fetch-faults.ts` bounds its own arming evaluate for the same
+    // reason.)
+    await withDeadline(
+      page
+        .evaluate(name => {
+          delete (globalThis as unknown as Record<string, unknown>)[name];
+        }, SCREEN_CHANGE_BINDING)
+        .catch(() => {})
+    );
   }
   const set = inFlight.get(page);
   if (set && set.size > 0) {
@@ -150,14 +200,11 @@ export async function suspendScreenCapture(page: Page): Promise<void> {
     // the client drops its callback before it throws, so that promise is
     // waited on forever. Unbounded, a residual loss there would trade a
     // spurious failure for a test-timeout hang, which is the worse diagnostic.
-    let timer: NodeJS.Timeout | undefined;
-    await Promise.race([
-      Promise.allSettled([...set]),
-      new Promise(resolve => {
-        timer = setTimeout(resolve, DRAIN_TIMEOUT_MS);
-      })
-    ]);
-    if (timer) clearTimeout(timer);
+    await withDeadline(Promise.allSettled([...set]));
+    // So a second suspend on this page does not wait out the deadline again for
+    // work already abandoned. `killBrowser()` then `reopen()` does exactly that.
+    // Nothing can re-add: the handler consults the flag before it tracks, and
+    // suspension is one-way.
     set.clear();
   }
 }

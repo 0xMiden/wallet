@@ -129,10 +129,17 @@ export async function attachServiceWorkerFetchCapture(
   // Inside the guard, like the evaluate below. Attaching to a worker that has
   // ALREADY gone (extension service workers are recycled aggressively, and a
   // spec that kills the browser destroys them outright) throws a Playwright
-  // protocol error — "Object with guid handle@… was not bound in the
-  // connection" — and because callers invoke this fire-and-forget that becomes
-  // an unhandled rejection Playwright charges to whichever test is running.
-  // Losing capture on a dead worker is fine; failing the test for it is not.
+  // protocol error, and because callers invoke this fire-and-forget that
+  // becomes an unhandled rejection Playwright charges to whichever test is
+  // running. Losing capture on a dead worker is fine; failing the test for it
+  // is not.
+  //
+  // NOT the "Object with guid handle@… was not bound in the connection" failure
+  // an earlier version of this comment named, which is a different mechanism
+  // this `try` could not have caught anyway: it is raised out of band while the
+  // client validates a reply naming a handle, and the only call below is an
+  // `evaluate`, whose reply carries a serialized value and no handle. See
+  // `suspendScreenCapture` in `screen-capture.ts` for the real one.
   try {
     serviceWorker.on('console', msg => {
       const text = msg.text();
