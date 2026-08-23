@@ -127,6 +127,15 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+/**
+ * The custom path now dry-runs the request before raising the sheet, to state
+ * its effects there (see `dapp.custom-consent.test.ts`). Stubbed so this file's
+ * assertions do not depend on a real client, and cannot wait on its timeout.
+ */
+jest.mock('./simulate-custom-tx', () => ({
+  simulateCustomTransaction: jest.fn(async () => ({ error: 'no client in this suite' }))
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     getCurrentAccountPublicKey: jest.fn().mockResolvedValue('miden-account-1')
@@ -141,6 +150,21 @@ jest.mock('lib/miden/back/vault', () => ({
  * so it is unmocked here.
  */
 jest.unmock('lib/i18n/numbers');
+
+/**
+ * The shared wasm mock stubs `NoteType` as the STRINGS 'Private'/'Public', but
+ * the real SDK enum is NUMERIC with `Private = 0`. Note-type validation is the
+ * subject of one of the describes below, and under the string stub two of its
+ * cases are wrong: a miscased `'Private'` would compare equal to the enum and be
+ * accepted, and the numeric `0` a page can actually send would not be
+ * recognized at all. Override with the real values so the boundary is tested
+ * against what production sees — the same thing `lib/miden/helpers.test.ts`
+ * does, and for the same reason.
+ */
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+  NoteType: { Private: 0, Public: 1 }
+}));
 
 // ── Imports under test ─────────────────────────────────────────────
 import { requestSendTransaction, requestConsumeTransaction, requestTransaction } from './dapp';
@@ -170,15 +194,18 @@ const capturedConfirmation = (): CapturedConfirmation => {
 const amountRow = (confirmation: CapturedConfirmation): string | undefined =>
   confirmation.transactionMessages?.find(message => message.startsWith('Amount, '));
 
-const sendRequest = (faucetId: string, amount: string) =>
+/** Distinguishes "caller omitted it" from "caller passed undefined on purpose". */
+const OMITTED = Symbol('omitted');
+
+const sendRequest = (faucetId: string, amount: string, noteType: unknown = OMITTED) =>
   ({
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      senderAddress: 'mtst1sender',
+      senderAddress: 'miden-account-1',
       recipientAddress: 'mtst1recipient',
       faucetId,
-      noteType: 'private',
+      noteType: noteType === OMITTED ? 'private' : noteType,
       amount,
       recallBlocks: 0
     }
@@ -283,7 +310,9 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
       sourcePublicKey: 'miden-account-1',
       transaction: {
         payload: {
-          address: 'mtst1sender',
+          // Must be the session's own account: the custom path is bound to it,
+          // so a foreign address never reaches a sheet to inspect.
+          address: 'miden-account-1',
           transactionRequest: 'tx',
           recipientAddress: 'mtst1recipient',
           inputNoteIds: [],
@@ -295,5 +324,217 @@ describe('dApp approval sheets name the verified origin, not the dApp-supplied n
     await expect(requestTransaction(DAPP_ORIGIN, customReq, 'session-1')).rejects.toThrow(DECLINED);
 
     expect(capturedConfirmation().origin).toBe(DAPP_ORIGIN);
+  });
+});
+
+// ── 3. The note type is resolved before the user is asked ──────────
+
+/**
+ * `noteType` is required by the SendTransaction contract, but it crosses
+ * postMessage from an untrusted page, so the type is a claim rather than a
+ * guarantee. The wallet now builds the note itself, and its resolver treats a
+ * missing type as PUBLIC — so an omitted one would have rendered "Note Type,
+ * undefined" on the sheet and then gone out as a public note. Reject before the
+ * sheet is ever raised.
+ */
+describe('dApp send approval: the note type must resolve before the user is asked', () => {
+  beforeEach(() => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+  });
+
+  const noteTypeRow = (confirmation: CapturedConfirmation): string | undefined =>
+    confirmation.transactionMessages?.find(message => message.startsWith('Note Type, '));
+
+  // The numeric cases are the SDK enum a page may legitimately send. They must
+  // normalize to the persisted STRING before the row is written: everything
+  // downstream compares the string, including the private-note relay in
+  // `completeSendTransaction`, so a stored `0` would build a private note and
+  // then silently skip delivering it to the recipient.
+  it.each([
+    ['private', 'Note Type, Private'],
+    ['public', 'Note Type, Public'],
+    [0, 'Note Type, Private'],
+    [1, 'Note Type, Public']
+  ])('renders the resolved label for %p', async (noteType, expected) => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    expect(noteTypeRow(capturedConfirmation())).toBe(expected);
+  });
+
+  it.each([
+    [0, 'private'],
+    [1, 'public'],
+    ['private', 'private']
+  ])('normalizes %p to the persisted string %p before initiating', async (noteType, persisted) => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true });
+    mockInitiateSendTransaction.mockResolvedValue('tx-1');
+
+    await requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1');
+
+    // initiateSendTransaction(sender, recipient, faucet, noteType, amount, …)
+    expect(mockInitiateSendTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      persisted,
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  // Built inline rather than through `sendRequest`: a default parameter fires
+  // for an explicitly-passed `undefined` too, which would silently substitute a
+  // valid note type and make this assertion vacuous.
+  const requestWithNoteType = (noteType: unknown) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'miden-account-1',
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType,
+        amount: '1500000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['absent', OMITTED]
+  ])('rejects a %s note type without prompting', async (_label, noteType) => {
+    const request =
+      noteType === OMITTED
+        ? ({
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'miden-account-1',
+              recipientAddress: 'mtst1recipient',
+              faucetId: 'faucet-6dp',
+              amount: '1500000',
+              recallBlocks: 0
+            }
+          } as unknown as Parameters<typeof requestSendTransaction>[1])
+        : requestWithNoteType(noteType);
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, request, 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  // An unrecognized value must not quietly become public either — that is the
+  // silent privacy downgrade `isPrivateNoteType` exists to stop. 'Private' is
+  // included because a miscased string is the likeliest real mistake, and it is
+  // only distinguishable from the enum once `NoteType` carries its real numeric
+  // values (see the override at the top of this file).
+  it.each(['Private', 'PRIVATE', 'secret', '', 2, -1])('rejects the unrecognized note type %p', async noteType => {
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-6dp', '1500000', noteType), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+// ── 4. The recall window must survive the u32 it is stored in ──────
+
+// `recallBlocks` becomes `syncHeight + recallBlocks` and is handed to the SDK as
+// a u32 block height. wasm-bindgen truncates at that boundary instead of
+// throwing, so an out-of-range offset does not fail — it silently becomes a
+// DIFFERENT recall window than the one rendered on the sheet the user approved.
+describe('dApp send approval: the recall window must be representable', () => {
+  const requestWithRecall = (recallBlocks: unknown) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'miden-account-1',
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '1500000',
+        recallBlocks
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it.each([
+    ['wraps to an instant recall', 2 ** 32],
+    ['wraps past the u32 ceiling', 0x8000_0000],
+    ['strands the recall for ~4 billion blocks', -1],
+    ['truncates to a shorter window', 100.5],
+    ['is not a number at all', Infinity],
+    ['is NaN', NaN]
+  ])('rejects an offset that %s, without prompting', async (_label, recallBlocks) => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestWithRecall(recallBlocks), 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a real window', 2016],
+    ['zero, meaning not recallable', 0],
+    ['omitted, meaning not recallable', undefined]
+  ])('still prompts for %s', async (_label, recallBlocks) => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestWithRecall(recallBlocks), 'session-1')).rejects.toThrow(
+      DECLINED
+    );
+
+    expect(mockRequestConfirmation).toHaveBeenCalled();
+  });
+});
+
+// ── 5. The sender must be the account the session authorized ───────
+
+// A session authorizes exactly one account. `senderAddress` rides in the request
+// body, and the approval sheet renders amount, recipient, faucet and note type
+// but NOT the sender — so a page connected to account A naming account B as the
+// sender would debit B with nothing on screen to give it away.
+describe('dApp send approval: the sender is bound to the connected account', () => {
+  const requestFrom = (senderAddress: string) =>
+    ({
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress,
+        recipientAddress: 'mtst1recipient',
+        faucetId: 'faucet-6dp',
+        noteType: 'private',
+        amount: '1500000',
+        recallBlocks: 0
+      }
+    }) as unknown as Parameters<typeof requestSendTransaction>[1];
+
+  it('refuses a send drawn on an account the session does not cover', async () => {
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestFrom('miden-account-2'), 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+
+    // Rejected before the user is asked: an approval sheet that does not name
+    // the sender cannot be the place this is caught.
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('allows the session account through', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6 });
+
+    await expect(requestSendTransaction(DAPP_ORIGIN, requestFrom('miden-account-1'), 'session-1')).rejects.toThrow(
+      DECLINED
+    );
+
+    expect(mockRequestConfirmation).toHaveBeenCalled();
   });
 });

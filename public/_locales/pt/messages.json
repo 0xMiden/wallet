@@ -750,6 +750,10 @@
     "message": "Tentar novamente",
     "englishSource": "Retry"
   },
+  "retryAnyway": {
+    "message": "Tentar novamente mesmo assim",
+    "englishSource": "Retry anyway"
+  },
   "maximalAmount": {
     "message": "Maximal: $amount$",
     "englishSource": "Maximal: $amount$",

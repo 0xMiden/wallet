@@ -11,6 +11,7 @@ import { NoteFilterTypes, NoteType, type NoteQuery } from '@miden-sdk/miden-sdk/
 import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
+import { type AssetAmount, summaryBytesToView } from 'app/confirm/decode';
 import {
   MidenDAppDisconnectRequest,
   MidenDAppDisconnectResponse,
@@ -72,6 +73,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { assertValidRecallBlocks, toPersistedNoteType } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -138,6 +140,56 @@ async function getAccountPublicKeyB64(accountId: string): Promise<string> {
     throw new Error('Account has no public key commitments');
   }
   return u8ToB64(publicKeyCommitments[0]!.serialize());
+}
+
+/**
+ * The 32 bytes a signer-commitment string denotes, whatever form it arrived in,
+ * as lowercase hex — or undefined if it denotes none.
+ *
+ * Both forms are in circulation for the same commitment, and a comparison that
+ * knew only one would be worse than none: it would refuse legitimate signing
+ * while looking like a working check. `connect` hands the page b64 of
+ * `Word.serialize()`; the vault stores its key blobs under `Word.toHex()` with
+ * the `0x` dropped, which is the form `signData` looks up by. Those two encode
+ * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
+ * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
+ * them comparable rather than merely similar.
+ */
+function commitmentToHex(value: string): string | undefined {
+  const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
+  if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
+    return unprefixed.toLowerCase();
+  }
+  try {
+    const bytes = b64ToU8(value);
+    if (bytes.length !== 32) return undefined;
+    return Buffer.from(bytes).toString('hex');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True when `suppliedPublicKey` names a signing key that `accountId` actually
+ * authenticates with.
+ *
+ * `signData`'s default path loads whatever secret sits at
+ * `accAuthSecretKeyStrgKey(publicKey)` and signs with it. The vault is keyed by
+ * commitment alone, with no back-reference to an account, so that lookup will
+ * happily return a DIFFERENT account's key — every account in the wallet is
+ * reachable from that one string. Nothing else on the path narrows it: the
+ * session is resolved from the separate `sourceAccountId`, which an attacking
+ * page fills in with its own connected account so the permission check passes.
+ * So the key has to be checked against the account here, or not at all.
+ */
+async function publicKeyBelongsToAccount(accountId: string, suppliedPublicKey: string): Promise<boolean> {
+  const supplied = commitmentToHex(suppliedPublicKey);
+  if (supplied === undefined) return false;
+  const account = await midenClientProxy.getAccount(accountId);
+  if (!account) return false;
+  return resolvePublicKeyCommitments(account).some(
+    commitment => commitmentToHex(Buffer.from(commitment.serialize()).toString('hex')) === supplied
+  );
 }
 
 // Lazy-loaded browser polyfill (only in extension context)
@@ -447,6 +499,20 @@ const generatePromisifySign = async (
     handleIntercomRequest: async (confirmReq, decline) => {
       if (confirmReq?.type === MidenMessageType.DAppSignConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
+          // The key is authorized HERE, after approval, rather than at the top
+          // of `requestSign`: resolving it reads the local client, and the
+          // wallet is only reliably unlocked from this point. Checking earlier
+          // would refuse legitimate requests that arrive while locked, which is
+          // worse than approving and then declining.
+          const authorized = await withUnlocked(() =>
+            withWasmClientLock(() => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey))
+          ).catch(() => false);
+          if (!authorized) {
+            reject(new Error(MidenDAppErrorType.NotGranted));
+            return {
+              type: MidenMessageType.DAppSignConfirmationResponse
+            };
+          }
           try {
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(
@@ -1078,14 +1144,38 @@ const generatePromisifyTransaction = async (
     );
   }
 
+  // Authorization for the custom path, and it belongs here — above the preview,
+  // the simulate handler and both confirm branches — because every one of those
+  // reads the same `payload.address` and there is no later point all of them
+  // pass through.
+  //
+  // A session authorizes exactly one account, but the account this executes
+  // against is `payload.address`, taken from the request. `requestCustomTransaction`
+  // stores it verbatim as the row's `accountId` and the transaction loop signs
+  // for whatever it finds there, so without this a page connected to A names B
+  // and spends from B. This is the broadest of the dApp entrypoints — the
+  // request is an opaque base64 `TransactionRequest`, so it can do anything the
+  // account can, and the approval sheet renders that blob's own description
+  // without naming the account being debited. Nothing on screen gives it away.
+  const customAddress = (req.transaction.payload as MidenCustomTransaction | undefined)?.address;
+  if (typeof customAddress !== 'string' || customAddress === '') {
+    // Before the comparison, which would otherwise hand the page a raw
+    // TypeError instead of the documented error.
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`));
+    return;
+  }
+  if (!sameWalletAccountId(customAddress, dApp.accountId)) {
+    reject(new Error(MidenDAppErrorType.NotGranted));
+    return;
+  }
+
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
+  const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
   let transactionMessages: string[] = [];
   try {
     transactionMessages = await withUnlocked(async () => {
-      const { payload } = req.transaction;
-      const customTransaction = payload as MidenCustomTransaction;
       if (!customTransaction.address || !customTransaction.transactionRequest) {
         throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
       }
@@ -1101,6 +1191,10 @@ const generatePromisifyTransaction = async (
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
 
+    // The effects go in front of the user BEFORE the sheet is raised, because
+    // this sheet cannot ask for them itself — see `formatSimulatedCustomEffects`.
+    const simulatedEffects = await withUnlocked(async () => formatSimulatedCustomEffects(customTransaction));
+
     const result = await dappConfirmationStore.requestConfirmation({
       id,
       sessionId,
@@ -1112,7 +1206,7 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages,
+      transactionMessages: [...transactionMessages, ...simulatedEffects],
       sourcePublicKey: req.sourcePublicKey
     });
 
@@ -1136,6 +1230,10 @@ const generatePromisifyTransaction = async (
           recipientAddress || undefined
         );
       });
+      // Same reason as the extension branch below: the dry run above quarantined
+      // the carried notes, and the queued transaction is about to consume them.
+      // Not released on the decline path, so a declined request stays hidden.
+      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
       startDappBackgroundProcessing();
       resolve({
         type: MidenDAppMessageType.TransactionResponse,
@@ -1146,8 +1244,6 @@ const generatePromisifyTransaction = async (
     }
     return;
   }
-
-  const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
   await requestConfirm({
     id,
@@ -1223,6 +1319,16 @@ export async function requestSendTransaction(
     throw new Error(MidenDAppErrorType.NotGranted);
   }
 
+  // A session authorizes exactly ONE account — `getDApp` selects it by the
+  // public key the page connected with — but `senderAddress` rides in the
+  // request body, and until now nothing tied the two together. A page granted
+  // access to account A could name account B as the sender and debit it, and
+  // the approval sheet renders amount, recipient, faucet and note type but not
+  // the sender, so the swap was invisible at the one point the user could have
+  // caught it. Compare through the canonicalizing comparator rather than `===`:
+  // the wallet hands the dApp `dApp.accountId` as its address at connect time,
+  // and the same account can legitimately come back in composite, bech32, or
+  // hex form.
   return new Promise((resolve, reject) =>
     generatePromisifySendTransaction(resolve, reject, origin, dApp, req, sessionId)
   );
@@ -1239,8 +1345,51 @@ const generatePromisifySendTransaction = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
+  // Authorization, and it has to live HERE rather than in `requestSendTransaction`.
+  // A session authorizes exactly one account, but the account to debit is taken
+  // from the request, so without this a page connected to A names B as the
+  // sender and spends from B — and the approval sheet shows amount, recipient,
+  // token and note type but not the sender, so nothing on screen gives it away.
+  //
+  // `requestSendTransaction` is only ONE of the two ways in. The generalized
+  // `TRANSACTION_REQUEST` entrypoint routes a `{ type: 'send' }` payload
+  // straight into this function (`generatePromisifyTransaction`), reaching the
+  // same `initiateSendTransaction` while validating only `sourcePublicKey`
+  // against the session — which the attacking page satisfies with its own
+  // connected account. A check on the outer function is simply not on that
+  // path; the two other boundary validations below are here for that reason.
+  const senderAddress = req.transaction?.senderAddress;
+  if (typeof senderAddress !== 'string' || senderAddress === '') {
+    // Checked before the comparison, which would otherwise `.split` undefined
+    // and hand the page a raw TypeError instead of the documented error.
+    reject(new Error(`${MidenDAppErrorType.InvalidParams}: senderAddress is required`));
+    return;
+  }
+  if (!sameWalletAccountId(senderAddress, dApp.accountId)) {
+    reject(new Error(MidenDAppErrorType.NotGranted));
+    return;
+  }
+
   let transactionMessages: string[] = [];
   try {
+    // Normalize the note type ONCE, before anything reads it. It crosses
+    // postMessage from an untrusted page, so its type is a claim rather than a
+    // guarantee, and the wallet accepts both the persisted 'public'/'private'
+    // strings and the SDK's numeric enum. Everything downstream compares the
+    // STRING form — including the private-note relay in
+    // `completeSendTransaction` — so persisting a numeric `0` would build a
+    // Private note and then skip its delivery, leaving the recipient unable to
+    // ever see it. A missing or unrecognized value throws, which the catch
+    // below turns into InvalidParams before the user is prompted.
+    if (req.transaction.noteType === undefined || req.transaction.noteType === null) {
+      throw new Error('noteType is required');
+    }
+    req.transaction.noteType = toPersistedNoteType(req.transaction.noteType) as typeof req.transaction.noteType;
+    // Same reasoning one field over: the recall offset also crosses postMessage
+    // unvalidated, and it ends up as a u32 block height that wasm-bindgen
+    // truncates rather than rejects. Check it here so the number the approval
+    // sheet renders below is the number the note is actually built with.
+    assertValidRecallBlocks(req.transaction.recallBlocks);
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
@@ -1704,6 +1853,11 @@ function isAllowedNetwork() {
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
   const tokenMetadata = await getTokenMetadata(transaction.faucetId);
   const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
+  // `noteType` was normalized to the persisted 'public'/'private' string by the
+  // caller, which also rejected a missing or unrecognized one — so the label
+  // below states what will actually be built rather than echoing whatever the
+  // page sent. This text is the user's consent surface, and it used to be able
+  // to read "Note Type, undefined" for a send that then went out public.
   const tsTexts = [
     'Transfer note from faucet:',
     transaction.faucetId,
@@ -1736,6 +1890,66 @@ function formatCustomTransactionPreview(payload: MidenCustomTransaction): string
     'please ensure you know the details of the transaction before proceeding.',
     `Recipient, ${truncateAddress(payload.recipientAddress)}`
   ];
+}
+
+/**
+ * What a custom transaction will actually do, as lines for an approval sheet.
+ *
+ * A custom transaction is an opaque base64 `TransactionRequest`, so it can do
+ * anything the account can, and the three lines of
+ * {@link formatCustomTransactionPreview} describe none of it. The extension's
+ * approval page resolves that by running the dry run itself over the intercom
+ * (`makeSimulateHandler`) and rendering the asset movements it returns. The
+ * mobile and desktop sheets have no route to that call and render only
+ * `transactionMessages`, so they asked for consent to an unnamed transfer of an
+ * unnamed amount — "please ensure you know the details" and a recipient. Run the
+ * same dry run here, on the same account binding checked above, and put its
+ * result into the list those sheets already render.
+ *
+ * A dry run that could not be produced is STATED rather than omitted: no
+ * movement lines is otherwise indistinguishable from a transaction that moves
+ * nothing, which is the reading most likely to get an approval. Nothing in here
+ * throws — a preview that fails must not take down the request that a user could
+ * still legitimately decline.
+ */
+async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Promise<string[]> {
+  try {
+    const { summaryBytes, error } = await simulateCustomTransaction({
+      address: payload.address,
+      transactionRequest: payload.transactionRequest,
+      importNotes: payload.importNotes
+    });
+    if (!summaryBytes) throw new Error(error ?? 'no summary was produced');
+
+    const view = summaryBytesToView(summaryBytes);
+    const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
+      const metadata = await getTokenMetadata(asset.faucetId);
+      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals);
+      return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
+        metadata?.symbol ?? ''
+      }`.trimEnd();
+    };
+
+    const effects = [
+      ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
+      ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
+    ];
+    if (effects.length === 0) {
+      effects.push('No assets move');
+    }
+    effects.push(`Notes consumed, ${view.inputNotesConsumed}`, `Notes created, ${view.outputNotesCreated}`);
+    if (view.storageChanged) {
+      effects.push('Changes this account’s stored data');
+    }
+
+    return ['Simulated effects:', ...effects];
+  } catch (e: any) {
+    console.error('Failed to simulate a custom transaction for approval', e);
+    return [
+      'This transaction could not be simulated, so its effects are unknown.',
+      `Reason, ${e?.message ?? String(e)}`
+    ];
+  }
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)
