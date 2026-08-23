@@ -32,13 +32,14 @@ function getSetting(key: string, defaultValue: boolean) {
  * (which has no `localStorage`) can read it via `readMirroredSetting`. Guarded:
  * `getStorageProvider()` can throw before platform detection is ready.
  */
-function mirrorSetting(key: string, value: boolean): void {
+function mirrorSetting(key: string, value: boolean): Promise<void> {
   try {
-    void getStorageProvider()
+    return getStorageProvider()
       .set({ [key]: value })
       .catch(() => {});
   } catch {
     /* storage not ready — the startup mirror / defaults cover it */
+    return Promise.resolve();
   }
 }
 
@@ -90,9 +91,26 @@ export function isAutoConsumeEnabledAsync(): Promise<boolean> {
   return readMirroredSetting(AUTO_CONSUME_STORAGE_KEY, DEFAULT_AUTO_CONSUME);
 }
 
-export function setTelemetrySetting(enabled: boolean) {
+/**
+ * Awaitable, unlike its siblings, because for telemetry the TIMING of the
+ * mirror is part of the guarantee.
+ *
+ * The background reads consent from the mirror, so until that write lands the
+ * gate still answers with the old value. For auto-consume or delegated proving
+ * that window is harmless. Here it means a user can switch telemetry off and
+ * have an event about their session sent afterwards — which is precisely what
+ * "off stops the sharing already under way" promises not to happen. Callers that
+ * turn it OFF must await this before anything that could produce an event; the
+ * telemetry egress e2e caught exactly that ordering (a flow cancelled by the
+ * navigation right after the toggle still reported itself).
+ *
+ * Not a complete ordering guarantee, and cannot be: an event already dispatched
+ * to the background is past the gate. It closes the window that is ours to
+ * close, which is everything the UI does after the switch is flipped.
+ */
+export function setTelemetrySetting(enabled: boolean): Promise<void> {
   setSetting(TELEMETRY_STORAGE_KEY, enabled);
-  mirrorSetting(TELEMETRY_STORAGE_KEY, enabled);
+  return mirrorSetting(TELEMETRY_STORAGE_KEY, enabled);
 }
 
 export function isTelemetryEnabled() {

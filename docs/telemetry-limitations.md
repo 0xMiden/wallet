@@ -156,6 +156,48 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
   There is no identifier to join on, so retention, MAU, and repeat-user funnels
   cannot be computed from this data and are not a future extension of it.
 
+## Withdrawing consent is not instantaneous
+
+Turning the setting off drops the queue and tears down the crash client
+immediately, and no flow that *starts* afterwards is ever reported. What is not
+ordered is a flow that was **already open** at the moment consent was withdrawn:
+the event is built in the page when the flow ends, and gated in the background,
+which reads consent from a mirrored storage write. Nothing sequences that write
+against an unrelated unmount elsewhere in the app, so a flow ending inside the
+propagation window can still send its `flow_ended`.
+
+Found by `playwright/telemetry/telemetry-egress.spec.ts`, which observed a
+`send` flow arriving with `result: cancelled` seconds after the toggle went off.
+The window is small and what escapes is one flow-shaped event — a name, a
+`cancelled` result, a duration — carrying nothing about the user or the money.
+It is recorded rather than fixed because closing it properly means routing
+withdrawal through the same channel the events take, so that ordering is
+guaranteed instead of likely; the settings handler awaits its own write, which
+covers everything that handler goes on to do and no more.
+
+## What a local sink can and cannot prove
+
+`playwright/telemetry/telemetry-egress.spec.ts` runs the shipped extension
+against a local HTTP server standing in for Aptabase. It is the only test that
+sees a real request leave a real service worker, and it covers the half of the
+boundary that is ours: silence before consent, the envelope's exact contents,
+and — against a real wallet holding a real seed, password and address — that
+none of those bytes reach the wire in any encoding.
+
+Two things it deliberately does not prove:
+
+- **That Aptabase accepts the envelope.** Self-hosting Aptabase needs Postgres
+  *and* ClickHouse plus an authenticated session to mint an app key, off an
+  image tagged `:main`. `assertAptabaseContract` encodes the vendor's documented
+  contract instead, so if they change it this suite stays green while production
+  events start being rejected.
+- **That `host_permissions` covers the production endpoints.** The manifest
+  lists `http://localhost/*`, which is why the sink is reachable, but neither
+  `eu.aptabase.com` nor Sentry's ingest host. Production egress therefore rests
+  on both vendors serving permissive CORS to an extension origin. That works
+  today and is load-bearing; a vendor tightening CORS would break telemetry in
+  a way no test here would catch.
+
 ## Coupling to be aware of
 
 `src/lib/telemetry/guarantees.test.ts` reads the repository as text — the native

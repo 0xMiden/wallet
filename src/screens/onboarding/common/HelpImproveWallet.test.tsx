@@ -42,6 +42,13 @@ jest.mock('lib/telemetry/crash', () => ({
 
 const mockInitCrashReporting = initCrashReporting as jest.Mock;
 
+/**
+ * Both buttons now AWAIT the consent write before calling `onSubmit`, so that
+ * the background cannot still be reading the old value when navigation ends a
+ * flow. Everything after the click therefore lands a microtask later.
+ */
+const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
+
 // "Usage data" rather than "anonymous data": the ingest endpoint sees an IP like
 // any request, so "anonymous" is a term of art that invites a stronger reading
 // than this feature can support — and this is the one string doing the legal
@@ -108,11 +115,12 @@ describe('HelpImproveWalletScreen', () => {
     }
   });
 
-  it('declining by test id is what records the refusal — the path the E2E suites take', () => {
+  it('declining by test id is what records the refusal — the path the E2E suites take', async () => {
     const onSubmit = jest.fn();
     renderScreen({ onSubmit });
 
     fireEvent.click(screen.getByTestId('help-improve-wallet-decline'));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     expect(hasTelemetryChoice()).toBe(true);
@@ -207,11 +215,12 @@ describe('HelpImproveWalletScreen', () => {
     expect(prompt).toContain(ACCEPT_LABEL);
   });
 
-  it('records acceptance and starts crash reporting', () => {
+  it('records acceptance and starts crash reporting', async () => {
     const onSubmit = jest.fn();
     renderScreen({ onSubmit });
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(true);
     expect(hasTelemetryChoice()).toBe(true);
@@ -219,11 +228,12 @@ describe('HelpImproveWalletScreen', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('is skippable, and records the refusal so the prompt does not reappear', () => {
+  it('is skippable, and records the refusal so the prompt does not reappear', async () => {
     const onSubmit = jest.fn();
     renderScreen({ onSubmit });
 
     fireEvent.click(screen.getByText(DECLINE_LABEL));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     // A skip is still an answer — otherwise `hasTelemetryChoice()` stays false
@@ -238,8 +248,7 @@ describe('HelpImproveWalletScreen', () => {
     renderScreen({ onSubmit: jest.fn() });
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
-    // `mirrorSetting` writes through a floating promise.
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await flushConsentWrite();
 
     expect(mockKvStore['telemetry_consent_setting']).toBe(true);
   });

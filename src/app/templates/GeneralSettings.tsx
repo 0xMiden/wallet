@@ -79,20 +79,25 @@ const GeneralSettings: FC = () => {
   }, []);
 
   const [telemetryEnabled, setTelemetryEnabled] = useState(() => isTelemetryEnabled());
-  const handleTelemetryChange = useCallback((evt: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTelemetryChange = useCallback(async (evt: React.ChangeEvent<HTMLInputElement>) => {
     const nextEnabled = evt.target.checked;
-    setTelemetrySetting(nextEnabled);
-    setTelemetryEnabled(nextEnabled);
 
-    if (nextEnabled) {
-      initCrashReporting();
-      return;
+    // Stop-sharing first. Both are needed and neither is sufficient: the queue
+    // holds payloads already built, the mirror is what gates the next one.
+    if (!nextEnabled) {
+      dropQueue();
+      stopCrashReporting();
     }
 
-    // Off has to stop the sharing already under way, not merely the next event:
-    // the queued payloads are discarded and the crash client is torn down.
-    dropQueue();
-    stopCrashReporting();
+    // Reflected at once so the switch never lags the tap, and the write awaited
+    // rather than left floating so anything this handler does afterwards runs
+    // against a gate that already agrees. It does NOT make withdrawal ordered
+    // against the whole app: a flow ending elsewhere in the propagation window
+    // is past this handler's reach. See `setTelemetrySetting`.
+    setTelemetryEnabled(nextEnabled);
+    await setTelemetrySetting(nextEnabled);
+
+    if (nextEnabled) initCrashReporting();
   }, []);
 
   return (

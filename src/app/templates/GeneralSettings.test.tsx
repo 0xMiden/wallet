@@ -134,6 +134,15 @@ const mockSetAutoConsumeSetting = setAutoConsumeSetting as jest.Mock;
 const mockSetDelegateProofSetting = setDelegateProofSetting as jest.Mock;
 const mockSetHapticFeedbackSetting = setHapticFeedbackSetting as jest.Mock;
 const mockSetTelemetrySetting = setTelemetrySetting as jest.Mock;
+
+/**
+ * The telemetry handler AWAITS the consent write before starting the crash
+ * reporter, so the background cannot still read the old value while navigation
+ * ends a flow. Anything after that await lands a microtask later. The mock must
+ * therefore be thenable — a bare `jest.fn()` returning undefined would still be
+ * awaitable, but keeping it a promise matches the real signature.
+ */
+const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
 const mockDropQueue = dropQueue as jest.Mock;
 const mockInitCrashReporting = initCrashReporting as jest.Mock;
 const mockStopCrashReporting = stopCrashReporting as jest.Mock;
@@ -384,11 +393,12 @@ describe('GeneralSettings', () => {
       expect(mockStopCrashReporting).not.toHaveBeenCalled();
     });
 
-    it('turning it on persists the opt-in, starts crash reporting, and checks the toggle', () => {
+    it('turning it on persists the opt-in, starts crash reporting, and checks the toggle', async () => {
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
       fireEvent.click(toggle);
+      await flushConsentWrite();
 
       expect(mockSetTelemetrySetting).toHaveBeenCalledTimes(1);
       // Exact argument: an inverted consent write is the bug the old logger
@@ -418,12 +428,14 @@ describe('GeneralSettings', () => {
       expect(toggle).not.toBeChecked();
     });
 
-    it('survives a full opt-in / opt-out round trip', () => {
+    it('survives a full opt-in / opt-out round trip', async () => {
       render(<GeneralSettings />);
       const toggle = screen.getByTestId(GeneralSettingsSelectors.TelemetryToggle);
 
       fireEvent.click(toggle);
+      await flushConsentWrite();
       fireEvent.click(toggle);
+      await flushConsentWrite();
 
       expect(mockSetTelemetrySetting.mock.calls).toEqual([[true], [false]]);
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);

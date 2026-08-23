@@ -79,6 +79,13 @@ describe('app/pages/HelpImproveWallet', () => {
       </I18nextProvider>
     );
 
+  /**
+   * The consent buttons AWAIT the write before navigating, so the background
+   * cannot still read the old value while a route change ends a flow. Everything
+   * after the click therefore lands a microtask later.
+   */
+  const flushConsentWrite = () => new Promise(resolve => setTimeout(resolve, 0));
+
   it('renders the consent prompt', () => {
     renderPrompt();
     expect(screen.getByTestId('onboarding-help-improve-wallet')).toBeInTheDocument();
@@ -86,10 +93,11 @@ describe('app/pages/HelpImproveWallet', () => {
     expect(screen.getByText(DECLINE_LABEL)).toBeInTheDocument();
   });
 
-  it('records acceptance and hands off to the post-onboarding route', () => {
+  it('records acceptance and hands off to the post-onboarding route', async () => {
     renderPrompt();
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(true);
     expect(hasTelemetryChoice()).toBe(true);
@@ -97,10 +105,11 @@ describe('app/pages/HelpImproveWallet', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('records a refusal and hands off to the same route', () => {
+  it('records a refusal and hands off to the same route', async () => {
     renderPrompt();
 
     fireEvent.click(screen.getByText(DECLINE_LABEL));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     // Declining is an answer, so the prompt is done with for good.
@@ -109,18 +118,19 @@ describe('app/pages/HelpImproveWallet', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('preserves the Chrome chain by handing off to the side-panel screen', () => {
+  it('preserves the Chrome chain by handing off to the side-panel screen', async () => {
     mockPostOnboardingRoute = '/finish-side-panel';
     renderPrompt();
 
     fireEvent.click(screen.getByText(ACCEPT_LABEL));
+    await flushConsentWrite();
 
     // create → consent → /finish-side-panel, whose own "Open wallet" click
     // keeps the live user gesture `sidePanel.open()` needs.
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
-  it('is the chain the E2E suites drive: decline by test id, land on the handoff screen', () => {
+  it('is the chain the E2E suites drive: decline by test id, land on the handoff screen', async () => {
     mockPostOnboardingRoute = '/finish-side-panel';
     renderPrompt();
 
@@ -128,6 +138,7 @@ describe('app/pages/HelpImproveWallet', () => {
     // clicks exactly this id and then expects the prompt to unmount onto the
     // handoff screen, which is what the Chrome smoke test asserts next.
     fireEvent.click(screen.getByTestId('help-improve-wallet-decline'));
+    await flushConsentWrite();
 
     expect(isTelemetryEnabled()).toBe(false);
     expect(hasTelemetryChoice()).toBe(true);

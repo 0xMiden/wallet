@@ -21,8 +21,12 @@ export interface HelpImproveWalletScreenProps {
 export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = ({ onSubmit }) => {
   const { t } = useTranslation();
 
-  const onAccept = useCallback(() => {
-    setTelemetrySetting(true);
+  // Awaited before navigating away, on both paths: `onSubmit` routes onward,
+  // which unmounts screens and can end flows, and those events are gated on a
+  // consent value the background reads from the mirror. Leaving the write in
+  // flight makes which value they see a race. See `setTelemetrySetting`.
+  const onAccept = useCallback(async () => {
+    await setTelemetrySetting(true);
     // Startup gated the reporter on a consent that was not yet given, so start
     // it here rather than leaving this whole first session unreported.
     initCrashReporting();
@@ -33,8 +37,8 @@ export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = (
   // screen only renders before the user has ever answered, and consent defaults
   // to off, so there is nothing running here to stop. The Settings toggle, which
   // *can* be reached with sharing under way, does the tearing down.
-  const onDecline = useCallback(() => {
-    setTelemetrySetting(false);
+  const onDecline = useCallback(async () => {
+    await setTelemetrySetting(false);
     onSubmit?.();
   }, [onSubmit]);
 
