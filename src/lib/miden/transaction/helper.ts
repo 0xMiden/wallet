@@ -174,8 +174,10 @@ export const completeVerifiedLandedTransaction = async (
  * Unlike `setTransactionStage` this deliberately does NOT skip terminal rows,
  * and that exemption is the entire reason it exists. Nothing aborts a running
  * pipeline when its row is failed out from under it — the Cancel button and the
- * stale-queued reaper both go through `cancelTransaction`, which writes
- * `Failed` and no stage — so the pipeline runs on and submits. The
+ * stuck-row reaper (`cancelStuckTransactions`) both go through
+ * `cancelWhilePipelineMayStillRun`, which writes `Failed` and no stage — so the
+ * pipeline runs on and submits. (Not `cancelStaleQueuedTransactions`, which
+ * takes rows that were never picked up, so there is no pipeline to outlive.) The
  * `setStage('submitting')` that would have recorded the crossing is exactly what
  * the terminal guard suppresses, leaving the row frozen at whichever pre-submit
  * stage it happened to hold when the cancel landed. Retry then reads that stage
