@@ -27,7 +27,13 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
-import { SCREEN_CHANGE_BINDING, captureBestEffort, trackScreenCapture } from '../harness/screen-capture';
+import {
+  SCREEN_CHANGE_BINDING,
+  captureBestEffort,
+  isScreenCaptureSuspended,
+  suspendScreenCapture,
+  trackScreenCapture
+} from '../harness/screen-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -204,12 +210,15 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
 export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
   const screensDir = path.join(outputDir, 'screens');
   const handler = async (key: string, seq: number) => {
-    if (page.isClosed()) return;
-    // Registered so a caller that is about to destroy this page or its browser
-    // can wait this out rather than race it -- see `suspendScreenCapture`. The
-    // tracked promise must not reject, hence the guard around the whole body
-    // rather than just the wait: a page can go away mid-screenshot too, and a
-    // diagnostic must never be able to fail the test it is documenting.
+    // Bail before issuing any Playwright call once a caller has begun tearing
+    // this page down: an outstanding call when the browser dies fails in
+    // Playwright's own bookkeeping and is charged to the running test. See
+    // `suspendScreenCapture`, which also waits out whatever is already running.
+    if (page.isClosed() || isScreenCaptureSuspended(page)) return;
+    // The `.catch()` below is what makes the tracked promise safe to await
+    // without it ever rejecting; the `try` merely lets a blank frame be skipped
+    // without becoming an error. A diagnostic must never be able to fail the
+    // test it is documenting.
     const work = (async () => {
       // A screen-change can fire right after a page (re)load, before React has
       // painted -- capturing then yields a blank white viewport. Wait briefly for
@@ -658,7 +667,13 @@ async function captureFailureSnapshot(
  * the page closes in `launchWalletInstance` — so these were the outliers.
  * Teardown must not be able to invent a failure.
  */
-async function closeContextQuietly(context: BrowserContext): Promise<void> {
+async function closeContextQuietly(context: BrowserContext, page: Page): Promise<void> {
+  // Swallowing the close error is not enough on its own: this destroys the
+  // context out from under the screen-capture binding, and an outstanding
+  // capture call then fails in Playwright's own bookkeeping, out of band, where
+  // no `catch` here can reach it. Take capture down first. The page is the
+  // wallet's CURRENT one, which `reopen()` may have replaced since launch.
+  await suspendScreenCapture(page);
   await context.close().catch(() => {});
 }
 
@@ -850,14 +865,14 @@ export const test = base.extend<TwoWalletFixtures>({
     if (isAgentic && failed) {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
-        await closeContextQuietly(instance.context);
+        await closeContextQuietly(instance.context, instance.walletPage.page);
       }, AGENTIC_TIMEOUT_MS);
       timer.unref();
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) so the SDK state can be
       // recovered offline if the in-page forensic dump was incomplete (e.g. the
       // page died mid-dump under memory pressure). Only the context is closed.
-      await closeContextQuietly(instance.context);
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -866,7 +881,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await closeContextQuietly(instance.context);
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   },
@@ -908,13 +923,13 @@ export const test = base.extend<TwoWalletFixtures>({
 
       // Schedule auto-cleanup with process exit safety net
       const cleanupTimer = setTimeout(async () => {
-        await closeContextQuietly(instance.context);
+        await closeContextQuietly(instance.context, instance.walletPage.page);
       }, AGENTIC_TIMEOUT_MS);
       cleanupTimer.unref(); // Don't keep process alive just for this timer
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) for offline SDK-state
       // recovery when the in-page forensic dump may be incomplete.
-      await closeContextQuietly(instance.context);
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -923,7 +938,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await closeContextQuietly(instance.context);
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   }
