@@ -7,7 +7,7 @@ import {
 } from '../../helpers/balance-truth';
 import {
   TxStatus,
-  USER_CANCELLED_REASON,
+  TRANSACTION_STUCK_REASON,
   openHistoryDetails,
   waitForSendRow,
   waitForTransactionRow
@@ -21,9 +21,10 @@ import { armRecallBlocks } from '../../helpers/recall';
  * ── The bug this exists to keep dead ────────────────────────────────────────
  *
  * Nothing aborts a running pipeline when its row is failed out from under it.
- * The Cancel button and the stale-queued reaper both go through
- * `cancelTransaction`, which writes `Failed` and no stage, and the pipeline runs
- * on and submits anyway. Two writes are then refused because the row is
+ * The Cancel button and the stuck-row reaper (`cancelStuckTransactions`, for a
+ * row that outran `MAX_WAIT_BEFORE_CANCEL`) both go through
+ * `cancelWhilePipelineMayStillRun`, which writes `Failed` and no stage, and the
+ * pipeline runs on and submits anyway. Two writes are then refused because the row is
  * terminal: the `setStage('submitting')` that would have recorded the broadcast,
  * and the completion write that would have captured the transaction id. The row
  * is left frozen at whichever PRE-submit stage it held when the cancel landed,
@@ -53,15 +54,54 @@ import { armRecallBlocks } from '../../helpers/recall';
  * avoid, so the sequence is split: the send below is a REAL recallable guardian
  * send that really lands, and the post-cancel row shape is then written
  * directly (the same harness-writes-product-state trade `plantQueueBlocker`
- * makes, for the same reason). The planted shape is not invented — it is what
- * the refused writes leave behind, pinned field by field by the integration
- * test named above.
+ * makes, for the same reason). The fields the refused writes account for are
+ * what the integration test named above pins, field by field.
+ *
+ * The shape is nonetheless a deliberate composite rather than a transcript of
+ * one production row: it carries the reaper's reason at the INLINE pipeline's
+ * stage. A real reaper cancel caught at 'proving' would not persist that string
+ * — `cancelTransaction` passes an error through verbatim only for the user
+ * cancel and the startup interruption, and routes everything else through
+ * `resolveTransactionErrorMessage`, which rewrites at 'proving'. So the stuck
+ * reason arrives there as the prover-failed copy, demoted to `rawError`. (It
+ * survives verbatim at stages that mapper falls through, which is how it reaches
+ * a row's `error` at all.) Each half is chosen for a reason the other cannot supply, and
+ * the pairing is what makes the branch under test both reachable and
+ * falsifiable:
+ *
+ *   - the reason, because it is the only thing that decides whether Retry
+ *     exists at all (see the next section);
+ *   - the stage, because 'proving' is in `PRE_SUBMIT_STAGES` and 'sending' is
+ *     deliberately not. At 'sending' the `!failedPreSubmit` disjunct makes
+ *     `submitPossible` true on its own, the cached bytes survive with or
+ *     without the crossing stamp, and the first falsifiability claim below
+ *     would quietly stop holding — removing the stamp would no longer produce a
+ *     double payment.
  *
  * `verifySendLanded` returns `'unknown'` precisely when the row carries no
  * `transactionId` (transaction/cancel.ts), so clearing it is also what forces
  * Retry down the requeue path being tested rather than letting the node-verify
  * shortcut complete the row. That makes the interesting branch reachable every
  * run instead of most runs.
+ *
+ * ── Which of the two cancel routes is reproduced, and why ───────────────────
+ *
+ * The reaper's, not the Cancel button's. The two routes differ in the error
+ * string they write (and, where that string is then rewritten, in the `rawError`
+ * the demotion leaves behind), and that string is load-bearing for this spec: the
+ * details screen derives `isCancelled` from it alone
+ * (`isUserCancelledTransaction`, matching only the user-cancel text) and drops
+ * the Retry button entirely when it is set. Planting the user's reason
+ * therefore builds the one state in which the control this spec must click
+ * cannot exist, and the wait for it can only time out.
+ *
+ * A hand-cancelled send being unretryable is deliberate and long-standing (the
+ * `!entry.isCancelled` guard arrived with `isUserCancelledTransaction` itself,
+ * around 1.15.12, well before the double-pay work), so the reachable form of
+ * "cancelled mid-flight and may already have broadcast" is the stuck-row
+ * reaper's: it fails the row through the same `cancelWhilePipelineMayStillRun`,
+ * leaves Retry on screen, and is the route the guard under test actually has to
+ * defend. That is what is planted below.
  *
  * Falsifiability, in both directions:
  *   - Remove the leaf's crossing stamp and the flag is absent, Retry drops the
@@ -127,7 +167,9 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
 }
 
 /**
- * Rewrite a landed send into the row a mid-flight cancel leaves behind.
+ * Rewrite a landed send into the row a mid-flight cancel leaves behind — the
+ * stuck-row reaper's, whose error string leaves Retry reachable (see the
+ * header, which also covers why this pairing is a composite).
  *
  * Only the fields the refused writes account for are touched: the status and
  * error a cancel writes, the stage frozen where the cancel caught it, and the
@@ -136,6 +178,21 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
  * `mayHaveSubmitted` are deliberately left EXACTLY as the real pipeline wrote
  * them — they are the subject of the test, and planting them would be assuming
  * the answer.
+ *
+ * Two things a real reaper cancel also does are left out.
+ * `cancelTransaction` sets `displayIcon`, which nothing this spec asserts on
+ * reads (the screen still renders it, so the planted row shows a completed
+ * send's icon on a Failed row in the step screenshots).
+ *
+ * `cancelWhilePipelineMayStillRun` stamps `cancelledInFlightAt` for a send, and
+ * leaving it off is required rather than merely harmless. It is never consulted
+ * on this run only because `mayHaveSubmitted` short-circuits the `submitPossible`
+ * disjunction ahead of it; strip the crossing stamp, as the first falsifiability
+ * claim below does, and a live marker would be reached, keep the cached bytes on
+ * its own and produce no double payment — the mutation would stop killing the
+ * test. Omitting it plants the same verdict an expired stamp gives
+ * (`pipelineMayStillBeRunning` is false for both), i.e. a user retrying after
+ * the window has passed.
  */
 async function plantCancelledMidFlightShape(page: import('@playwright/test').Page, rowId: string): Promise<void> {
   const planted = await page.evaluate(
@@ -176,7 +233,7 @@ async function plantCancelledMidFlightShape(page: import('@playwright/test').Pag
         db.close();
       }
     },
-    { dbName: TX_DB, storeName: TX_STORE, id: rowId, reason: USER_CANCELLED_REASON }
+    { dbName: TX_DB, storeName: TX_STORE, id: rowId, reason: TRANSACTION_STUCK_REASON }
   );
 
   if (!planted) {
@@ -292,8 +349,9 @@ test.describe('infra resilience — a cancelled send is not paid twice on retry'
         category: 'blockchain_state',
         severity: 'info',
         message:
-          `Send row ${sendRowId} rewritten to the shape a cancel-mid-flight leaves: Failed at stage 'proving', ` +
-          `no transactionId, cached requestBytes and mayHaveSubmitted left as the pipeline wrote them`,
+          `Send row ${sendRowId} rewritten to a reaper cancel-mid-flight shape: Failed with the stuck-row ` +
+          `reaper's reason at the inline pipeline's stage 'proving', no transactionId, cached requestBytes and ` +
+          `mayHaveSubmitted left as the pipeline wrote them`,
         data: { rowId: sendRowId, sentBaseUnits: SEND_BASE_UNITS.toString() }
       });
     });
