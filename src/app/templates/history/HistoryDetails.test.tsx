@@ -2443,6 +2443,10 @@ describe('HistoryDetails', () => {
     // which reimplements the predicate rather than re-exporting it. Widening the
     // real one to match the reaper's reason too would leave them green and send
     // the E2E straight back to timing out, so assert the real predicate itself.
+    // It lives here, next to what it protects, rather than in
+    // `constants.test.ts` — which means: do NOT add a `jest.mock` for
+    // `lib/miden/transaction/constants` to this file, or this becomes an
+    // assertion about a mock and stops saying anything.
     it('treats only the hand-cancel reason as a user cancel', () => {
       expect(isUserCancelledTransaction(USER_CANCELLED_TRANSACTION_REASON)).toBe(true);
       expect(isUserCancelledTransaction(TRANSACTION_STUCK_ERROR)).toBe(false);

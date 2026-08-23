@@ -61,9 +61,11 @@ import { armRecallBlocks } from '../../helpers/recall';
  * one production row: it carries the reaper's reason at the INLINE pipeline's
  * stage. A real reaper cancel caught at 'proving' would not persist that string
  * — `cancelTransaction` passes an error through verbatim only for the user
- * cancel and the startup interruption, and remaps everything else, so at
- * 'proving' the stuck reason is rewritten to the prover-failed copy and demoted
- * to `rawError`. Each half is chosen for a reason the other cannot supply, and
+ * cancel and the startup interruption, and routes everything else through
+ * `resolveTransactionErrorMessage`, which rewrites at 'proving'. So the stuck
+ * reason arrives there as the prover-failed copy, demoted to `rawError`. (It
+ * survives verbatim at stages that mapper falls through, which is how it reaches
+ * a row's `error` at all.) Each half is chosen for a reason the other cannot supply, and
  * the pairing is what makes the branch under test both reachable and
  * falsifiable:
  *
@@ -84,8 +86,9 @@ import { armRecallBlocks } from '../../helpers/recall';
  *
  * ── Which of the two cancel routes is reproduced, and why ───────────────────
  *
- * The reaper's, not the Cancel button's. The two leave an identical row apart
- * from the error string, but that string is load-bearing for this spec: the
+ * The reaper's, not the Cancel button's. The two routes differ in the error
+ * string they write (and, where that string is then rewritten, in the `rawError`
+ * the demotion leaves behind), and that string is load-bearing for this spec: the
  * details screen derives `isCancelled` from it alone
  * (`isUserCancelledTransaction`, matching only the user-cancel text) and drops
  * the Retry button entirely when it is set. Planting the user's reason
@@ -176,14 +179,20 @@ async function readGuardFields(page: import('@playwright/test').Page, rowId: str
  * them — they are the subject of the test, and planting them would be assuming
  * the answer.
  *
- * Two things a real reaper cancel also does are left out, both inert here.
+ * Two things a real reaper cancel also does are left out.
+ * `cancelTransaction` sets `displayIcon`, which nothing this spec asserts on
+ * reads (the screen still renders it, so the planted row shows a completed
+ * send's icon on a Failed row in the step screenshots).
+ *
  * `cancelWhilePipelineMayStillRun` stamps `cancelledInFlightAt` for a send, and
- * `cancelTransaction` sets `displayIcon`. Nothing on the path under test reads
- * the icon, and no reader reaches `cancelledInFlightAt` either: the only
- * consumer is the unverifiable-send refusal, which is gated on
- * `requestBytes === undefined` and this row keeps its bytes. Omitting the marker
- * is equivalent to planting an expired one — a user who retries after the window
- * has passed, which is the state this spec means to exercise.
+ * leaving it off is required rather than merely harmless. It is never consulted
+ * on this run only because `mayHaveSubmitted` short-circuits the `submitPossible`
+ * disjunction ahead of it; strip the crossing stamp, as the first falsifiability
+ * claim below does, and a live marker would be reached, keep the cached bytes on
+ * its own and produce no double payment — the mutation would stop killing the
+ * test. Omitting it plants the same verdict an expired stamp gives
+ * (`pipelineMayStillBeRunning` is false for both), i.e. a user retrying after
+ * the window has passed.
  */
 async function plantCancelledMidFlightShape(page: import('@playwright/test').Page, rowId: string): Promise<void> {
   const planted = await page.evaluate(
