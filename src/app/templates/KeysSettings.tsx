@@ -9,7 +9,7 @@ import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
-const KeysSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
+const KeysSettings: FC = () => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
@@ -24,7 +24,6 @@ const KeysSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
 
   const openPage = (path: string) => {
     hapticLight();
-    onClose?.();
     navigate(path);
   };
 

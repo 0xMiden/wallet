@@ -63,6 +63,19 @@ jest.mock('lib/shared/format', () => ({
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
 
+// The guardian success view resolves provider names and renders the v2 Icon
+// barrel; both are stubbed so the dispatcher test stays lightweight.
+jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
+  guardianEndpointDisplayName: (endpoint: string | undefined, unknown: string) =>
+    endpoint ? `guardian(${endpoint})` : unknown
+}));
+
+jest.mock('app/icons/v2', () => ({
+  __esModule: true,
+  IconName: new Proxy({}, { get: (_t, prop) => String(prop) }),
+  Icon: ({ name }: { name: string }) => <span data-testid="v2-icon" data-name={name} />
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
 }));
@@ -249,6 +262,23 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('routes switch-guardian transactions to the guardian success view with the provider transition', async () => {
+    const tx = baseTransaction({
+      type: 'switch-guardian',
+      extraInputs: { previousGuardianEndpoint: 'https://old.gd', newGuardianEndpoint: 'https://new.gd' }
+    } as Partial<ITransaction>);
+    const { container, root } = await renderInto(<TransactionSuccess transaction={tx} onDoneClick={() => {}} />);
+
+    expect(container.textContent).toContain('guardianSwitchSuccessTitle');
+    // Previous → new provider pair resolved from the recorded endpoints.
+    expect(container.textContent).toContain('guardian(https://old.gd)');
+    expect(container.textContent).toContain('guardian(https://new.gd)');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfoTitle');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfo1');
+
+    act(() => root.unmount());
+  });
+
   it('renders a Fast route row for an epoch bridged send', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess
@@ -297,10 +327,12 @@ describe('TransactionSuccess', () => {
       />
     );
 
-    // The provider transition hero is present and names both operators.
-    expect(container.querySelector('[data-testid="guardian-transition-hero"]')).not.toBeNull();
-    expect(container.textContent).toContain('OpenZeppelin');
-    expect(container.textContent).toContain('Koda');
+    // The dedicated switch-guardian success view is rendered, naming both
+    // operators in its previous → new transition line (the mocked display-name
+    // helper renders `guardian(<endpoint>)`).
+    expect(container.textContent).toContain('guardianSwitchSuccessTitle');
+    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
     // NOT the generic SendSuccess fallback.
     expect(container.textContent).not.toContain('Transaction Complete!');
 
@@ -319,9 +351,15 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 100n, extraInputs })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).not.toContain('Arriving on Ethereum');
-    expect(container.textContent).not.toContain('FAST');
-    expect(container.textContent).not.toContain('SLOW');
+    // The same strings the positive cases above assert. The previous three —
+    // 'Arriving on Ethereum', 'FAST', 'SLOW' — appear in no receipt at all (the
+    // first only in a comment, and the speed copy is 'Fast'/'Slow'), so this case
+    // held even when the guard was reduced to `typeof value === 'object'` and
+    // every input below rendered as a bridged send.
+    expect(container.textContent).not.toContain('Route');
+    expect(container.textContent).not.toContain('Via Epoch');
+    expect(container.textContent).not.toContain('Fast');
+    expect(container.textContent).not.toContain('Slow');
     act(() => root.unmount());
   });
 

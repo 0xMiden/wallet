@@ -20,7 +20,7 @@ jest.mock('react-i18next', () => ({
 // forwards) plus a minimal `IconName` enum exposing the single member used.
 jest.mock('app/icons/v2', () => ({
   __esModule: true,
-  IconName: { ArrowRightUp: 'arrow-right-up' },
+  IconName: { ArrowRightUp: 'arrow-right-up', Checkmark: 'checkmark', Close: 'close' },
   Icon: ({ name, size, fill }: { name: string; size?: string; fill?: string }) => (
     <span data-testid="v2-icon" data-name={name} data-size={size} data-fill={fill} />
   )
@@ -40,6 +40,18 @@ jest.mock('lib/miden/db/types', () => ({
   }
 }));
 
+// The mock above hand-copies the ordinals, so on its own this whole suite would
+// keep passing if the real enum were renumbered — every status assertion below is
+// really an assertion about the copy. Pin the copy to the original.
+it('mocks ITransactionStatus with the real ordinals', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/db/types')>('lib/miden/db/types');
+
+  expect(actual.ITransactionStatus.Queued).toBe(0);
+  expect(actual.ITransactionStatus.GeneratingTransaction).toBe(1);
+  expect(actual.ITransactionStatus.Completed).toBe(2);
+  expect(actual.ITransactionStatus.Failed).toBe(3);
+});
+
 describe('DetailCard and DetailRow', () => {
   it('renders a compact pill title without a bordered card shell', () => {
     const { container } = render(
@@ -51,7 +63,7 @@ describe('DetailCard and DetailRow', () => {
     const section = container.querySelector('section')!;
     expect(section).toHaveClass('font-heading');
     expect(section).not.toHaveClass('border', 'rounded-10', 'bg-white');
-    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-[#F1F1F1]');
+    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-gray-50');
     expect(screen.getByText('content').parentElement).toHaveClass('mt-2');
   });
 
@@ -77,7 +89,7 @@ describe('DetailCard and DetailRow', () => {
     render(<DetailRow label="Status" icon={<span data-testid="row-icon" />} badge="Active" isLast />);
 
     expect(screen.getByTestId('row-icon')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-[#FFF3EB]');
+    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-yellow-50');
   });
 });
 
@@ -121,17 +133,26 @@ describe('ExternalLinkValue', () => {
 describe('StatusPill', () => {
   const pill = (container: HTMLElement) => container.firstChild as HTMLElement;
   const dot = (container: HTMLElement) => pill(container).querySelector('div') as HTMLElement;
-  const label = (container: HTMLElement) => pill(container).querySelector('span') as HTMLElement;
+  // The leading decoration is a <span> too — the aria-hidden wrapper, and inside
+  // it the v2-icon mock — so the label is identified by NOT being hidden. That
+  // doubles as the assertion that the glyph stays out of the accessibility tree:
+  // it restates the label, and announcing both named the status twice.
+  const label = (container: HTMLElement) =>
+    pill(container).querySelector('span:not([aria-hidden]):not([data-testid="v2-icon"])') as HTMLElement;
 
-  it('renders the completed (green) variant for status === Completed', () => {
+  it('renders the completed variant as a solid green pill with dark ink and a matching checkmark', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
 
-    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-green-600/20');
-    expect(dot(container)).toHaveClass('bg-[#1A9C52]');
-    expect(dot(container)).not.toHaveClass('bg-status-negative', 'bg-blue-500');
+    // Dark ink, not white: these fills are mid-tone, so white 12px text on them
+    // sits near 2.4:1 — under AA. The icon inherits the same ink.
+    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-tx-received', 'text-pure-black');
+
+    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
+    expect(icon).toHaveAttribute('data-name', 'checkmark');
+    expect(icon).toHaveAttribute('data-fill', 'currentColor');
 
     const text = label(container);
-    expect(text).toHaveClass('text-[#1A9C52]');
+    expect(text).toHaveClass('font-semibold');
     expect(text).toHaveTextContent('t:confirmed');
   });
 
@@ -145,10 +166,27 @@ describe('StatusPill', () => {
     expect(label(container)).not.toHaveTextContent('t:confirmed');
   });
 
-  it('reports a reclaimed swap as reclaimed, not confirmed', () => {
+  it('reports a reclaimed swap as reclaimed, and tones it like a cancellation', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="reclaimed" />);
 
     expect(label(container)).toHaveTextContent('t:reclaimed');
+    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
+  });
+
+  it('inks a cancellation for its own grey fill rather than inheriting the failure pill\u2019s', () => {
+    // A user cancellation is recorded as a failure (`cancel.ts`), so it is BOTH
+    // Failed and cancelled — the ink ternary has to branch on muted first or this
+    // pill gets the failure pill's ink. grey #737373 is the one fill that wants
+    // white (4.74:1; black is 4.43:1, under AA).
+    const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
+
+    expect(label(container)).toHaveTextContent('t:cancelled');
+    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
+    expect(pill(container)).not.toHaveClass('text-pure-black');
+    // ...and it wears the neutral dot rather than the failure ✕, which would name
+    // a second outcome the label does not.
+    expect(pill(container).querySelector('[data-testid="v2-icon"]')).toBeNull();
+    expect(dot(container)).toHaveClass('bg-current');
   });
 
   it('lets failure outrank a reported settlement rather than labelling it in red', () => {
@@ -159,37 +197,39 @@ describe('StatusPill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} swapSettlement="pending" />);
 
     expect(label(container)).toHaveTextContent('t:failed');
-    expect(label(container)).toHaveClass('text-status-negative');
-    expect(dot(container)).toHaveClass('bg-status-negative');
+    expect(pill(container)).toHaveClass('bg-status-negative');
   });
 
-  it('renders the failed (negative) variant for status === Failed', () => {
+  it('renders the failed variant as a solid negative pill whose ink flips with the theme', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    expect(dot(container)).toHaveClass('bg-status-negative');
-    expect(dot(container)).not.toHaveClass('bg-[#1A9C52]', 'bg-blue-500');
+    // status-negative is the one fill that flips with the theme (light #ff5500,
+    // dark #c51a0a) and neither ink clears AA on both, so this is the one pill
+    // that carries a dark: variant: 6.55:1 light, 5.96:1 dark.
+    expect(pill(container)).toHaveClass('bg-status-negative', 'text-pure-black', 'dark:text-pure-white');
 
-    const text = label(container);
-    expect(text).toHaveClass('text-status-negative');
-    expect(text).toHaveTextContent('t:failed');
+    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
+    expect(icon).toHaveAttribute('data-name', 'close');
+    expect(icon).toHaveAttribute('data-fill', 'currentColor');
+
+    expect(label(container)).toHaveTextContent('t:failed');
   });
 
   it('renders the in-progress (blue) fallback when status is undefined', () => {
     const { container } = render(<StatusPill />);
 
-    expect(dot(container)).toHaveClass('bg-blue-500');
-    expect(dot(container)).not.toHaveClass('bg-[#1A9C52]', 'bg-status-negative');
+    expect(pill(container)).toHaveClass('bg-tx-sent', 'text-pure-black');
+    // The dot inherits the pill's ink instead of hardcoding white.
+    expect(dot(container)).toHaveClass('bg-current');
 
-    const text = label(container);
-    expect(text).toHaveClass('text-blue-500');
-    expect(text).toHaveTextContent('t:inProgress');
+    expect(label(container)).toHaveTextContent('t:inProgress');
   });
 
   it('treats non-terminal statuses (Queued / GeneratingTransaction) as in-progress', () => {
     const { container: queued } = render(<StatusPill status={ITransactionStatus.Queued} />);
-    expect(queued.querySelector('span')).toHaveTextContent('t:inProgress');
+    expect(label(queued)).toHaveTextContent('t:inProgress');
 
     const { container: generating } = render(<StatusPill status={ITransactionStatus.GeneratingTransaction} />);
-    expect(generating.querySelector('span')).toHaveTextContent('t:inProgress');
+    expect(label(generating)).toHaveTextContent('t:inProgress');
   });
 });

@@ -813,15 +813,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    *
    * Navigates straight to `/rotate-guardian` (the real top-level route
    * `RotateGuardian.tsx` renders at -- see `PageRouter.tsx`) rather than via
-   * Settings → "Guardian Settings" → its `rotateGuardian` button: that path
-   * is a `<Drawer>` (`Settings.tsx`'s `guardian-settings` tab has `isDrawer:
-   * true`), and `Settings`'s `activeTab` lookup explicitly excludes drawer
-   * tabs (`allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer)`), so
-   * a direct hash navigation to `/settings/guardian-settings` never opens
-   * it -- it silently falls back to the Settings root list. `/rotate-guardian`
-   * mounts `ChooseGuardianScreen` directly with no further click needed,
-   * matching how every other flow helper in this file (`sendTokens`, etc.)
-   * navigates straight to a flow's route instead of clicking through menus.
+   * Settings → "Guardian Settings" → its `rotateGuardian` button. That page is
+   * now reachable by hash nav too (`/settings/guardian-settings` used to be a
+   * `<Drawer>` that `Settings`'s `activeTab` lookup deliberately excluded, which
+   * made a direct hash navigation fall back to the Settings root list), but
+   * `/rotate-guardian` still mounts `ChooseGuardianScreen` with no further click
+   * needed, matching how every other flow helper in this file (`sendTokens`,
+   * etc.) navigates straight to a flow's route instead of clicking through
+   * menus. Note the guardian row only exists for a Guardian account.
    */
   async switchGuardian(newEndpoint: string): Promise<void> {
     await this.navigateTo('/rotate-guardian');

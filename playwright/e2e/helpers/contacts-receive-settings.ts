@@ -15,13 +15,13 @@
  *
  * ── Traps this module encodes, each of which costs a debugging cycle ──────────
  *
- *  1. `navigateTo('/settings/address-book')` SILENTLY DOES NOTHING USEFUL.
- *     `Settings.tsx`'s `activeTab` lookup is `allTabs.find(t => t.slug === tabSlug
- *     && !t.isDrawer)`, and both address-book and general-settings are
- *     `isDrawer: true` — so a direct hash nav falls back to the Settings ROOT
- *     list and the spec then times out on drawer content that was never asked
- *     for. These tabs are only reachable by CLICKING their menu row.
- *     (`wallet-page.ts:805-817` documents the same trap for guardian-settings.)
+ *  1. `navigateTo('/settings/address-book')` DOES now resolve. These tabs used
+ *     to be bottom-sheet drawers, excluded from `Settings.tsx`'s `activeTab`
+ *     lookup by a `!t.isDrawer` filter, so a direct hash nav silently fell back
+ *     to the Settings ROOT list and the spec timed out on drawer content nobody
+ *     had asked for. They are routed full-screen pages now and the filter is
+ *     gone. The helpers below still drive them by CLICKING the menu row, which
+ *     is what a user does and exercises the row wiring as well as the page.
  *
  *  2. `AddressBook/AddNewContact` is a PHANTOM selector. It is written as
  *     `testID` on `FormSubmitButton`, but `FormSubmitButton` destructures
@@ -46,7 +46,7 @@ import { type Locator, type Page } from '@playwright/test';
 
 import type { ChromeWalletPageApi } from './wallet-page';
 
-// ── Settings drawers ────────────────────────────────────────────────────────
+// ── Settings sub-pages ──────────────────────────────────────────────────────
 
 /** The two Settings tabs this module drives, and the menu row that opens each. */
 const SETTINGS_TAB_BUTTON = {
@@ -69,18 +69,19 @@ export async function reloadWallet(wallet: ChromeWalletPageApi, timeoutMs = 60_0
 }
 
 /**
- * Open one of the drawer-backed Settings tabs THE ONLY WAY IT CAN BE OPENED:
- * by navigating to the Settings root and clicking its menu row (see trap 1).
+ * Open one of these Settings tabs the way a user does: navigate to the Settings
+ * root and click its menu row. These were drawers once (see trap 1) and are
+ * routed pages now, so a direct hash nav would work too — clicking exercises
+ * the row wiring as well as the page.
  *
  * Bounces through home FIRST, deliberately. `navigateTo` is a hash navigation,
  * so going straight to `/settings` while already ON `/settings` remounts
- * nothing: the drawer would still be open and its content would still be
- * showing whatever component-local state it had, which makes "reopen it and see
- * what it re-reads" a vacuous check. Leaving the route unmounts `Settings`
- * (a routed FullScreenPage), so the drawer is genuinely re-created and its
- * content re-runs the real getters at mount.
+ * nothing: the sub-page would still be showing whatever component-local state
+ * it had, which makes "reopen it and see what it re-reads" a vacuous check.
+ * Leaving the route unmounts `Settings` (a routed FullScreenPage), so the
+ * sub-page is genuinely re-created and re-runs the real getters at mount.
  *
- * @returns a locator for the drawer's content root, already confirmed visible.
+ * @returns a locator for the sub-page's content root, already confirmed visible.
  */
 export async function openSettingsDrawer(
   wallet: ChromeWalletPageApi,
@@ -111,9 +112,9 @@ export async function openSettingsDrawer(
   } catch {
     throw new Error(
       `openSettingsDrawer("${drawer}"): clicked [data-testid="${buttonTestId}"] but no ` +
-        `[data-testid="${drawer}"] drawer content appeared within ${timeoutMs}ms. ` +
-        `URL: ${wallet.page.url()}. Note a direct hash nav to /settings/${drawer} would ALSO ` +
-        `show nothing — drawer tabs are excluded from Settings' activeTab lookup.`
+        `[data-testid="${drawer}"] page content appeared within ${timeoutMs}ms. ` +
+        `URL: ${wallet.page.url()} — expected /settings/${drawer}, since these tabs are ` +
+        `routed pages now rather than drawers.`
     );
   }
   return content;

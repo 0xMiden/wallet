@@ -22,7 +22,19 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>
+  // Fires the haptic the real Button fires on every click (Button.tsx). Without it
+  // a handler adding its own looked like the only one, which is how the rotate CTA
+  // came to buzz twice — the mock counted one call either way.
+  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
+    <button
+      onClick={() => {
+        mockHapticLight();
+        onClick();
+      }}
+    >
+      {title}
+    </button>
+  )
 }));
 
 const mockHapticLight = jest.fn();
@@ -90,10 +102,34 @@ it('opens the Guardian explainer drawer from the About section', () => {
   expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
 });
 
-it('fires haptics and navigates to guardian rotation', () => {
+it('navigates to guardian rotation, buzzing once', () => {
   render(<GuardianSettings />);
   fireEvent.click(screen.getByRole('button', { name: 'rotateGuardian' }));
 
+  // Once, from Button's own wrapper — the handler must not add a second. The
+  // "Learn more" button above is a plain <button>, so its haptic is its own.
   expect(mockHapticLight).toHaveBeenCalledTimes(1);
   expect(mockNavigate).toHaveBeenCalledWith('/rotate-guardian');
+});
+
+it('keeps the status pill readable in both themes', () => {
+  render(<GuardianSettings />);
+
+  // green-700 is the darkest shade that existed and reaches only 4.34:1 on the
+  // green-50 fill, short of AA for text this size; green-800 (#1F5C33) is 7.34:1.
+  // The palette entry is additive and this pill is its only consumer, so without
+  // this assertion dropping either the shade or the class would leave
+  // `text-green-800` compiling to nothing, with the ink silently inherited.
+  const pill = screen.getByText('online').closest('div');
+  expect(pill).toHaveClass('text-green-800', 'dark:text-green-300');
+});
+
+it('nests the section headings under the guardian name rather than beside it', () => {
+  render(<GuardianSettings />);
+
+  // The rendered outline is h1 (Settings' NavigationHeader) → h2 (guardian name)
+  // → h3 (these two). Promoting them to h2 put them on a level with the name they
+  // sit under, which is what a screen reader's heading list shows.
+  expect(screen.getByText('about').tagName).toBe('H3');
+  expect(screen.getByText('details').tagName).toBe('H3');
 });
