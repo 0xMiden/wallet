@@ -388,6 +388,36 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
   });
 
+  it('restores the list scroll position when the user comes back from a sub-page', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
+    if (!listScroller) throw new Error('List scroller did not render');
+
+    listScroller.scrollTop = 420;
+    fireEvent.scroll(listScroller);
+
+    rerender(<Settings tabSlug="language" />);
+    rerender(<Settings tabSlug={null} />);
+
+    // The key that gives each page its own scroller is also what loses the list's
+    // place: returning built a fresh one at the top, so a user who opened Language
+    // from the bottom of a long list came back to the top. The drawers this
+    // replaced kept the list mounted underneath.
+    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(420);
+  });
+
+  it('does not carry the list offset into the sub-page it opens', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
+    listScroller!.scrollTop = 420;
+    fireEvent.scroll(listScroller!);
+
+    rerender(<Settings tabSlug="language" />);
+
+    // The restore is for the root only — a sub-page still opens at its top.
+    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
+  });
+
   it('takes focus to the sub-page title, which a route change does not announce', () => {
     render(<Settings tabSlug="language" />);
 

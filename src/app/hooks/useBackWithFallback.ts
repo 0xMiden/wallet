@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
@@ -11,11 +11,24 @@ import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
  * inert with no other way off the screen. PageLayout's toolbar has always
  * guarded that with a fallback destination (`PageLayout.tsx`, `registerBackHandler`),
  * so screens that opt out of the toolbar need the same guard.
+ *
+ * Fires at most once per location: `history.go(-1)` resolves on a later task, so
+ * the screen stays mounted and interactive after the first call and a double tap
+ * queued two traversals, overshooting the intended parent. The latch clears when
+ * the location actually changes, which is also what makes it safe on a screen the
+ * user navigates back INTO.
  */
 export const useBackWithFallback = (fallbackPath = '/') => {
-  const { historyPosition } = useLocation();
+  const { historyPosition, pathname } = useLocation();
+  const leaving = useRef(false);
+
+  useEffect(() => {
+    leaving.current = false;
+  }, [pathname, historyPosition]);
 
   return useCallback(() => {
+    if (leaving.current) return;
+    leaving.current = true;
     if (historyPosition > 0) {
       goBack();
     } else {

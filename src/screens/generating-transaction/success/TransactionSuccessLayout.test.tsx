@@ -67,6 +67,18 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
+it('takes focus on mount so the outcome is announced', () => {
+  render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
+
+  // The receipt replaces the in-progress view in place — no navigation, no live
+  // region — so without this the result of the transaction the user just
+  // authorized was never announced, and focus sat on the unmounted view's body.
+  const heading = screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' });
+  expect(heading).toHaveFocus();
+  // Focusable, but not a tab stop: -1 is the standard shape for a focus target.
+  expect(heading).toHaveAttribute('tabindex', '-1');
+});
+
 it('renders the green check hero when no custom artwork is supplied', () => {
   render(<TransactionSuccessLayout {...baseProps} />);
 

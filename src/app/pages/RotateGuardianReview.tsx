@@ -19,7 +19,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isDelegateProofEnabled, isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import colors from 'utils/tailwind-colors';
@@ -35,14 +35,34 @@ const RotateGuardianReview: FC = () => {
   // than dumped at the wallet home.
   const popBack = useBackWithFallback('/rotate-guardian');
 
-  const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
+  // Sanitized, because this screen takes its target from the query string rather
+  // than from the picker's validated `onSubmit`, and `sanitizeGuardianUrl`'s
+  // contract is to normalize "before persisting or comparing". Unsanitized, a
+  // trailing slash or stray whitespace made a no-op switch look like a change to
+  // both guards below and then persisted a second spelling of the same endpoint.
+  const newEndpoint = useMemo(() => sanitizeGuardianUrl(new URLSearchParams(search).get('endpoint') ?? ''), [search]);
   // The picker refuses to rotate onto the active guardian, but this screen takes
   // its target from the query string, so backing into it after the rotation landed
   // would queue a second switch to the endpoint that is now already current.
-  const endpointUnchanged = newEndpoint === currentEndpoint;
+  // Both sides sanitized: `currentEndpoint` comes from storage or a built-in
+  // default, neither of which is guaranteed to be in the same spelling.
+  const endpointUnchanged = newEndpoint === sanitizeGuardianUrl(currentEndpoint ?? '');
+  // The picker validates a custom URL before handing it over (ChooseGuardian),
+  // but nothing validates the query string, and a stale or hand-edited review URL
+  // goes straight to `initiateSwitchGuardianTransaction`, which only checks the
+  // account type before persisting whatever it is given. Refuse it here.
+  const endpointInvalid = newEndpoint !== '' && !isValidGuardianUrl(newEndpoint);
 
   const [authStep, setAuthStep] = useState(false);
   const [password, setPassword] = useState('');
+  // The credential step reads `newEndpoint` live from the query, so a navigation
+  // that changed the query without remounting this route would have authenticated
+  // for one endpoint and submitted another. Leaving the step is the safe response:
+  // the user must re-read the target before authorizing it.
+  useEffect(() => {
+    setAuthStep(false);
+    setPassword('');
+  }, [newEndpoint]);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +122,10 @@ const RotateGuardianReview: FC = () => {
         setError(t('guardianEndpointUnchanged'));
         return;
       }
+      if (endpointInvalid) {
+        setError(t('invalidUrl'));
+        return;
+      }
       submissionRef.current = true;
       setSubmitting(true);
       setError(null);
@@ -122,7 +146,7 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, endpointUnchanged, unlock, t]
+    [currentAccount, newEndpoint, endpointUnchanged, endpointInvalid, unlock, t]
   );
 
   const handleContinue = useCallback(() => {
@@ -134,6 +158,12 @@ const RotateGuardianReview: FC = () => {
       setError(t('guardianEndpointUnchanged'));
       return;
     }
+    // Before the credential step, not after it: authenticating and only then
+    // being told the target is malformed reads as an auth failure.
+    if (endpointInvalid) {
+      setError(t('invalidUrl'));
+      return;
+    }
     if (hasHardwareProtector) {
       void authenticateAndSwitch(undefined);
       return;
@@ -141,7 +171,16 @@ const RotateGuardianReview: FC = () => {
     setPassword('');
     setError(null);
     setAuthStep(true);
-  }, [authenticateAndSwitch, currentAccount, endpointUnchanged, hasHardwareProtector, newEndpoint, submitting, t]);
+  }, [
+    authenticateAndSwitch,
+    currentAccount,
+    endpointUnchanged,
+    endpointInvalid,
+    hasHardwareProtector,
+    newEndpoint,
+    submitting,
+    t
+  ]);
 
   const handlePasswordSubmit = useCallback(
     (event?: FormEvent) => {

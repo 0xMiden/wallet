@@ -7,6 +7,7 @@ import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint
 import PageLayout from 'app/layouts/PageLayout';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { navigate } from 'lib/woozie';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
@@ -28,7 +29,11 @@ const RotateGuardian: FC = () => {
 
   const handleSubmit = useCallback(
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
-      if (guardianEndpoint === currentEndpoint) {
+      // Sanitized on both sides: the picker hands over a normalized custom URL but
+      // a built-in option's endpoint is a literal, and `currentEndpoint` comes from
+      // storage or a default — so a difference in trailing slash alone read as a
+      // real change and persisted a second spelling of the Guardian already in use.
+      if (sanitizeGuardianUrl(guardianEndpoint) === sanitizeGuardianUrl(currentEndpoint ?? '')) {
         setError(t('guardianEndpointUnchanged'));
         return;
       }

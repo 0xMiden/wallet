@@ -25,6 +25,9 @@ jest.mock('react-i18next', () => ({
 }));
 
 let mockCurrentEndpoint = 'https://old.example';
+// Mutable: the screen rebuilds its whole target from the query string, so the
+// endpoint guards can only be exercised by varying it.
+let mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
 let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
@@ -173,7 +176,13 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile()
 }));
 
-jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
+// Real `sanitizeGuardianUrl`/`isValidGuardianUrl`: they ARE the endpoint guards
+// under test here, and stubbing them would have made the sanitizing and validation
+// tests below pass no matter what the screen did with the query string.
+jest.mock('lib/settings/helpers', () => ({
+  ...jest.requireActual('lib/settings/helpers'),
+  isDelegateProofEnabled: () => false
+}));
 
 // Captured rather than executed: on mobile this is the only back affordance on
 // the credential step, and the screen hides PageLayout's toolbar, so nothing
@@ -190,7 +199,7 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: () => ({ search: '?endpoint=https%3A%2F%2Fnew.example', historyPosition: 1 }),
+  useLocation: () => ({ search: mockSearch, historyPosition: 1 }),
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
   HistoryAction: { Push: 'push', Replace: 'replace' }
@@ -200,6 +209,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mobileBackHandler = undefined;
   mockCurrentEndpoint = 'https://old.example';
+  mockSearch = '?endpoint=https%3A%2F%2Fnew.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
@@ -378,6 +388,69 @@ it('still refuses it from the password step, which submits straight past the fir
   expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+// The picker sanitizes and validates a custom URL before handing it over, but this
+// screen takes its target from the query string instead — a stale bookmark, a
+// restored session or a hand-edited URL reaches `initiateSwitchGuardianTransaction`,
+// which only checks the account type before persisting whatever string it is given.
+describe('endpoint from the query string', () => {
+  it('treats a trailing-slash spelling of the current endpoint as unchanged', async () => {
+    mockCurrentEndpoint = 'https://new.example';
+    mockSearch = '?endpoint=https%3A%2F%2Fnew.example%2F';
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
+    // Unsanitized this read as a real change and would have persisted a second
+    // spelling of the Guardian already in use.
+    expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed endpoint before asking for a credential', async () => {
+    mockSearch = '?endpoint=not-a-url';
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
+    expect(await screen.findByText('invalidUrl')).toBeInTheDocument();
+    expect(document.querySelector('#rotate-guardian-password')).toBeNull();
+    expect(mockUnlock).not.toHaveBeenCalled();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a plaintext-http endpoint, which the picker also rejects', async () => {
+    mockSearch = '?endpoint=http%3A%2F%2Fevil.example';
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+
+    fireEvent.click(confirm);
+
+    expect(await screen.findByText('invalidUrl')).toBeInTheDocument();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
+
+  it('leaves the credential step when the target changes underneath it', async () => {
+    const { rerender } = render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    expect(document.querySelector('#rotate-guardian-password')).not.toBeNull();
+
+    mockSearch = '?endpoint=https%3A%2F%2Fother.example';
+    rerender(<RotateGuardianReview />);
+
+    // Authenticating for one endpoint and submitting another is the one outcome
+    // that must not be possible: the user has to re-read the target first.
+    expect(document.querySelector('#rotate-guardian-password')).toBeNull();
+    expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  });
 });
 
 describe('hardware back', () => {

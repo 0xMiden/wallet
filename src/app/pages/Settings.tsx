@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
@@ -319,6 +319,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
   const [showSeedWarning, setShowSeedWarning] = useState(false);
+  // Survives the keyed scroll container below, which remounts per page — see the
+  // comment there. Lives on this component, which stays mounted across the whole
+  // `/settings/:slug` route.
+  const rootScrollTop = useRef(0);
 
   // On mobile, move parked dApp trays out while the seed-warning overlay or a
   // settings sub-page owns the screen. The sub-pages need it for the same
@@ -398,7 +402,27 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           Keyed on the RESOLVED tab, not the raw slug: an unrecognised slug falls
           through to the root list, and keying on the slug gave that same list a
           different identity per bad URL. */}
-      <div key={activeTab?.slug ?? 'root'} className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
+      <div
+        key={activeTab?.slug ?? 'root'}
+        // The key above is what loses the root list's place: opening a sub-page
+        // unmounts the root scroller, so returning built a fresh one at the top
+        // and a user who opened Language from the bottom of a long list came back
+        // to the top of it. The drawers this replaced kept the list mounted
+        // underneath. So: remember the root offset while it is showing, and put it
+        // back when it remounts. A ref, not state — this must not re-render on
+        // every scroll event, and the value is only ever read during a mount.
+        ref={node => {
+          if (node && !activeTab) node.scrollTop = rootScrollTop.current;
+        }}
+        onScroll={
+          activeTab
+            ? undefined
+            : event => {
+                rootScrollTop.current = event.currentTarget.scrollTop;
+              }
+        }
+        className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
+      >
         {activeTab ? (
           activeTab.hasOwnLayout ? (
             <activeTab.Component />

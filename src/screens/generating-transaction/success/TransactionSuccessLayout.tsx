@@ -1,4 +1,4 @@
-import React, { FC, ReactNode } from 'react';
+import React, { FC, ReactNode, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -221,11 +221,22 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   onClose
 }) => {
   const { t } = useTranslation();
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   // The success view owns the whole screen — keep the bottom tab navbar
   // hidden for as long as it's mounted (no-op on full-screen routes that
   // already render outside TabLayout).
   useHideNavbarWhileOpen();
+
+  // The receipt replaces the in-progress view in place, after a delay, with no
+  // navigation and no live region — so the outcome of the transaction the user
+  // just authorized was never announced. The view they were on unmounts, which
+  // drops focus to `<body>`; moving it to the title both names the new screen
+  // and puts the user at the top of it. Same shape as NavigationHeader's
+  // `focusTitleOnMount`, and this layout only ever mounts on that transition.
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg px-4 text-heading-gray">
@@ -238,11 +249,16 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 
         {/* The receipts pass no `headerTitle`, so this IS the screen's heading and
             has to be the h1; when a header title is present this stays a level
-            below it. */}
-        {headerTitle ? (
-          <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
-        ) : (
-          <h1 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h1>
+            below it. `tabIndex={-1}` makes it focusable without joining the tab
+            order — the standard shape for a focus target on a view change. */}
+        {React.createElement(
+          headerTitle ? 'h2' : 'h1',
+          {
+            ref: titleRef,
+            tabIndex: -1,
+            className: 'mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray'
+          },
+          title
         )}
 
         {children}

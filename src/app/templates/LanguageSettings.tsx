@@ -63,8 +63,11 @@ const LanguageSettings: FC = () => {
 
   // `goBack()` is `history.go(-1)`, which lands on a later task, so the rows stay
   // live and mounted after the first tap. As a drawer the exit was an idempotent
-  // `onClose`; as a route a second tap queues a second traversal and overshoots
-  // past Settings.
+  // `onClose`; as a route a second tap ran the whole handler again.
+  //
+  // NOT redundant with the latch inside `useBackWithFallback`: that one only makes
+  // the traversal idempotent, while this also stops a second haptic, a second
+  // analytics event and a second `updateLocale` for the row the user grazed.
   const leaving = useRef(false);
 
   const handleSelect = useCallback(
