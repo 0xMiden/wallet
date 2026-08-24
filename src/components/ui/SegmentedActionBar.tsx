@@ -57,6 +57,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             key={item.id}
             type="button"
             role="tab"
+            data-testid={`action-segment-${item.id}`}
             aria-selected={isActive}
             aria-label={item.label}
             onClick={() => handleSelect(item.id)}

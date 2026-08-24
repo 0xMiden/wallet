@@ -8,6 +8,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { durations, easings, useMotion, useSprings } from 'lib/animation';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { isSwapEnabled } from 'lib/feature-flags';
 import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -15,6 +16,7 @@ import Portal from 'lib/ui/Portal';
 import { useLocation } from 'lib/woozie';
 
 import { NotesIllustration } from './NotesIllustration';
+import { SwipeIllustration } from './SwipeIllustration';
 import { TourStep, useTourStore } from './tour-store';
 
 /** Padding around the anchored element inside the spotlight cutout. */
@@ -26,6 +28,9 @@ const CARD_MARGIN = 16;
 /** Bottom offset for anchorless steps (explainers / waiting) — roomy enough
  *  to clear the iOS home indicator without reading the safe-area inset. */
 const CARD_FALLBACK_BOTTOM = 40;
+/** Anchorless bottom offset while the navbar is visible (the swipe-teaching
+ *  phase drops the navbar hold), so the card clears the BottomNav too. */
+const CARD_FALLBACK_BOTTOM_WITH_NAV = 116;
 
 /**
  * Anchors are looked up by selector, not by importing the host components —
@@ -37,8 +42,11 @@ const STEP_ANCHORS: Partial<Record<TourStep, string>> = {
   fund: '[data-testid="faucet-prompt-action"]',
   'go-claim': '[data-testid="pending-notes-prompt-action"]',
   claim: '[data-testid="claim-all-button"]',
-  finish: '[data-tutorial="balance"]'
+  finish: '[data-tutorial="balance"]',
+  overview: '[data-testid="action-segment-overview"]'
 };
+
+const SWIPE_STEPS: readonly TourStep[] = ['swipe-send', 'swipe-receive', 'swipe-earn', 'swipe-swap'];
 
 interface SpotlightRect {
   left: number;
@@ -79,11 +87,14 @@ const ActiveTour: FC = () => {
   const end = useTourStore(s => s.end);
   const { pathname } = useLocation();
   useOverlayScreenKey(true, 'tutorial-tour');
-  // Hide the bottom tab navbar for the tour's whole run (refcounted; reverses
-  // on end/skip). Raising `data-hide-navbar` also locks the home carousel's
-  // horizontal swipe (#481), which is wanted here — a stray swipe mid-step
-  // would drag an adjacent pane over the spotlighted one.
-  useHideNavbarWhileOpen(true);
+  // Hide the bottom tab navbar during the guided claim phase (refcounted;
+  // reverses on end/skip). Raising `data-hide-navbar` also locks the home
+  // carousel's horizontal swipe (#481) — wanted early on (a stray swipe would
+  // drag an adjacent pane over the spotlighted one), but it MUST drop for the
+  // swipe-teaching phase, where that same lock would make the taught gesture
+  // impossible.
+  const swipePhase = SWIPE_STEPS.includes(step) || step === 'overview' || step === 'wrap-up';
+  useHideNavbarWhileOpen(!swipePhase);
 
   // Fund-step arrival signal: the faucet's MIDEN note showing up in claimable
   // notes. Only watched while the fund/notes steps need it.
@@ -132,6 +143,26 @@ const ActiveTour: FC = () => {
         // mounted navbar hold strands the user with no bottom nav (the hold
         // and the E2E overlay key release on ActiveTour unmount).
         else if (!pathname.includes('generating-transaction')) end();
+        break;
+      case 'swipe-send':
+      case 'swipe-receive':
+      case 'swipe-earn':
+      case 'swipe-swap': {
+        // Ladder keyed by the pane REACHED, not the step order — a segment-bar
+        // tap that jumps ahead (or a swipe back) just re-syncs the tour to
+        // wherever the carousel actually is.
+        const swipeLadder: Array<[string, TourStep]> = [
+          ['/send', 'swipe-receive'],
+          ['/receive', 'swipe-earn'],
+          ['/earn', isSwapEnabled() ? 'swipe-swap' : 'overview'],
+          ['/swap', 'overview']
+        ];
+        const reached = swipeLadder.find(([path]) => pathname === path || pathname.startsWith(`${path}/`));
+        if (reached && reached[1] !== step) setStep(reached[1]);
+        break;
+      }
+      case 'overview':
+        if (pathname === '/') setStep('wrap-up');
         break;
     }
   }, [pathname, step, setStep, end]);
@@ -198,7 +229,8 @@ const ActiveTour: FC = () => {
   // puts the card above it, top half puts it below — always CARD_GAP clear of
   // the cutout, clamped to the viewport. Anchorless steps rest near the bottom.
   const viewportHeight = window.innerHeight;
-  let cardTop = viewportHeight - cardHeight - CARD_FALLBACK_BOTTOM;
+  const fallbackBottom = swipePhase ? CARD_FALLBACK_BOTTOM_WITH_NAV : CARD_FALLBACK_BOTTOM;
+  let cardTop = viewportHeight - cardHeight - fallbackBottom;
   if (rect) {
     const spotTop = rect.top - SPOTLIGHT_PAD;
     const spotBottom = rect.top + rect.height + SPOTLIGHT_PAD;
@@ -210,7 +242,12 @@ const ActiveTour: FC = () => {
   const finishWaiting = step === 'finish' && !hasBalance;
   const waiting = fundWaiting || finishWaiting;
   const copy = stepCopy(step, fundWaiting, finishWaiting);
-  const cta = step === 'balance' || step === 'notes' ? 'next' : step === 'finish' && hasBalance ? 'done' : null;
+  const cta =
+    step === 'balance' || step === 'notes' || (step === 'finish' && hasBalance)
+      ? 'next'
+      : step === 'wrap-up'
+        ? 'done'
+        : null;
   const advance = () => {
     switch (step) {
       case 'balance':
@@ -220,6 +257,9 @@ const ActiveTour: FC = () => {
         setStep('go-claim');
         break;
       case 'finish':
+        setStep('swipe-send');
+        break;
+      case 'wrap-up':
         end();
         break;
     }
@@ -266,6 +306,7 @@ const ActiveTour: FC = () => {
                 className="flex flex-col gap-1"
               >
                 {step === 'notes' && <NotesIllustration />}
+                {SWIPE_STEPS.includes(step) && <SwipeIllustration />}
                 <div className="flex items-center gap-2">
                   {waiting && (
                     <span className="text-accent-primary">
@@ -302,6 +343,18 @@ function stepCopy(step: TourStep, fundWaiting: boolean, finishWaiting: boolean):
       return { titleKey: 'tourGoClaimTitle', bodyKey: 'tourGoClaimBody' };
     case 'claim':
       return { titleKey: 'tourClaimTitle', bodyKey: 'tourClaimBody' };
+    case 'swipe-send':
+      return { titleKey: 'tourSwipeSendTitle', bodyKey: 'tourSwipeSendBody' };
+    case 'swipe-receive':
+      return { titleKey: 'tourSwipeReceiveTitle', bodyKey: 'tourSwipeReceiveBody' };
+    case 'swipe-earn':
+      return { titleKey: 'tourSwipeEarnTitle', bodyKey: 'tourSwipeEarnBody' };
+    case 'swipe-swap':
+      return { titleKey: 'tourSwipeSwapTitle', bodyKey: 'tourSwipeSwapBody' };
+    case 'overview':
+      return { titleKey: 'tourOverviewTitle', bodyKey: 'tourOverviewBody' };
+    case 'wrap-up':
+      return { titleKey: 'tourWrapUpTitle', bodyKey: 'tourWrapUpBody' };
     default:
       return { titleKey: 'tourFinishTitle', bodyKey: 'tourFinishBody' };
   }

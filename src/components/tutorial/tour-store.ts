@@ -12,9 +12,30 @@ import { holdAutoConsumeForTutorial, releaseTutorialAutoConsumeHold } from 'lib/
  *   go-claim   → spotlight the pending-notes prompt card (user taps through)
  *   claim      → on /pending-notes, spotlight Claim All
  *   await-return → claim running (generating-transaction screen); tour hidden
- *   finish     → back home, spotlight the updated balance (Done)
+ *   finish     → back home, spotlight the updated balance (Next)
+ *   swipe-send / swipe-receive / swipe-earn / swipe-swap → teach the home
+ *                carousel: each step prompts a left swipe and is named after
+ *                the pane it leads TO (swipe-swap is skipped when the Swap
+ *                pane is feature-gated off). The navbar hold is dropped for
+ *                this whole phase — `data-hide-navbar` is what locks carousel
+ *                dragging (#481).
+ *   overview   → spotlight the Overview segment (user taps back home)
+ *   wrap-up    → final card (Done)
  */
-export type TourStep = 'balance' | 'fund' | 'notes' | 'go-claim' | 'claim' | 'await-return' | 'finish';
+export type TourStep =
+  | 'balance'
+  | 'fund'
+  | 'notes'
+  | 'go-claim'
+  | 'claim'
+  | 'await-return'
+  | 'finish'
+  | 'swipe-send'
+  | 'swipe-receive'
+  | 'swipe-earn'
+  | 'swipe-swap'
+  | 'overview'
+  | 'wrap-up';
 
 interface TourState {
   status: 'idle' | 'active';
