@@ -24,6 +24,8 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -864,14 +866,45 @@ const runGuardianPipeline = async (
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      // Reported here as well as in `proveWithFallback`, because this is a second
+      // implementation of the same fallback and shares none of that one's code.
+      // Left out, every guardian operation would contribute nothing to prover
+      // health — and this fallback exists precisely BECAUSE delegated proving was
+      // failing under load, so it is the last path that should be silent about it.
+      const proveStartedAt = performance.now();
       try {
         provenTx = await executedTx.prove({});
+        reportOperation({
+          operation: 'prove',
+          result: 'completed',
+          durationMs: performance.now() - proveStartedAt,
+          step: 'prove_delegate'
+        });
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: fallbackProver });
+        try {
+          provenTx = await executedTx.prove({ prover: fallbackProver });
+          // A success, and the fact worth having: the transaction landed and the
+          // user waited for a remote prover that never answered first.
+          reportOperation({
+            operation: 'prove',
+            result: 'completed',
+            durationMs: performance.now() - proveStartedAt,
+            step: 'prove_fallback'
+          });
+        } catch (fallbackError) {
+          reportOperation({
+            operation: 'prove',
+            result: 'errored',
+            durationMs: performance.now() - proveStartedAt,
+            errorKind: classifyError(fallbackError),
+            step: 'prove_fallback'
+          });
+          throw fallbackError;
+        }
       }
     }
     await setStage('submitting');

@@ -185,6 +185,13 @@ export function clearReachabilityIssues(): void {
   const next = { ...current };
   for (const cat of ['network', 'node', 'resolving'] as const) {
     if (next[cat].active) {
+      // Reported here as well as in `clearConnectivityIssue`, because for
+      // `node` and `network` this is the ONLY way they are ever cleared — a
+      // successful sync clears all three at once rather than naming one. Without
+      // this, those two categories could report an outage beginning and never
+      // its end, so every node outage would read as unresolved and none would
+      // carry a duration.
+      reportOutage(cat, 'completed', outageMs(next[cat]));
       next[cat] = { active: false, since: null };
       changed = true;
     }

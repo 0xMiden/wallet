@@ -1,4 +1,8 @@
-import { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+// Type-only, and written as such rather than relying on erasure: the module-graph
+// assertion in `guarantees.test.ts` treats a bare `import` as a real edge, so a
+// plain import here would show this module reaching into the database layer when
+// nothing of the sort survives the build.
+import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
 import { TelemetryOperation, TelemetryStep } from './types';
 

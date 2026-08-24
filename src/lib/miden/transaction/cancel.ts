@@ -83,11 +83,13 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
   // could lower. The stage is why this is the right place to report from — by
   // here the row has recorded where it died, which is the difference between
   // "the prover is down" and "the node rejected it".
-  if (isGenuineFailure) {
+  // `existing` also gates it: if the row was gone, the `.modify` above matched
+  // nothing and no transaction was failed, so there is no outcome to report.
+  if (isGenuineFailure && existing !== undefined) {
     reportOperation({
       operation: operationOfType(transaction.type),
       result: 'errored',
-      durationMs: elapsedMsSince(existing?.initiatedAt),
+      durationMs: elapsedMsSince(existing.initiatedAt),
       errorKind: classifyError(rawError),
       step: stepOfStage(failedStage)
     });

@@ -205,6 +205,7 @@ export const completeVerifiedLandedTransaction = async (
   id: string,
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
+  let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Failed) return;
     Object.assign(tx, otherValues);
@@ -214,7 +215,24 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    reconciled = tx;
   });
+
+  // The row already reported `errored` when it was failed, and that report was
+  // true at the time — the wallet genuinely could not tell whether the money had
+  // moved. Reporting the success as well leaves both, which is the honest
+  // record: one operation that failed and was later reconciled from node
+  // evidence. Suppressing the failure is not an option, since it was reported
+  // from a realm that may no longer exist, and suppressing this one would leave
+  // the ambiguous post-submit abort — the case this whole function exists for —
+  // permanently counted as a failure and never as a success.
+  if (reconciled !== undefined) {
+    reportOperation({
+      operation: operationOfType(reconciled.type),
+      result: 'completed',
+      durationMs: Date.now() - reconciled.initiatedAt * 1000
+    });
+  }
 };
 
 /**

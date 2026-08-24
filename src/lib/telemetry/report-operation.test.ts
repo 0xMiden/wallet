@@ -29,6 +29,14 @@ const capturing: OperationTransport = event => {
   return Promise.resolve();
 };
 
+/** The one event that should have been sent, or a failure naming what went wrong. */
+const onlyEvent = (): OperationSettledEvent => {
+  expect(sent).toHaveLength(1);
+  const [event] = sent;
+  if (event === undefined) throw new Error('expected one reported event');
+  return event;
+};
+
 beforeEach(() => {
   sent.length = 0;
   __resetRunForTest();
@@ -70,7 +78,7 @@ describe('reporting an operation', () => {
     reportOperation({ operation: 'prove', result: 'completed', durationMs: 10 });
     await settle();
 
-    expect(Object.keys(sent[0]).sort()).toEqual(['durationMs', 'operation', 'phase', 'result', 'runId']);
+    expect(Object.keys(onlyEvent()).sort()).toEqual(['durationMs', 'operation', 'phase', 'result', 'runId']);
   });
 
   it('groups everything one realm reported under a single run', async () => {
@@ -95,7 +103,7 @@ describe('a duration that cannot be true', () => {
 
     // Zero, not absent: the event still says the operation finished, which is
     // the fact worth having. Only the number it could not measure is discarded.
-    expect(sent[0].durationMs).toBe(0);
+    expect(onlyEvent().durationMs).toBe(0);
   });
 });
 

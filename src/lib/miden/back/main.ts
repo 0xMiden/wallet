@@ -8,8 +8,10 @@ import { handleOffscreenSignRequest, markOpStarted, midenClientProxy } from 'lib
 import {
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
-  type OffscreenSignRequest
+  type OffscreenSignRequest,
+  type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
@@ -17,7 +19,7 @@ import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -111,6 +113,20 @@ function registerOffscreenSignHandler(): void {
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
     if (m.type === OFFSCREEN_OP_STARTED) {
       if (typeof m.op_id === 'string') markOpStarted(m.op_id);
+      return false;
+    }
+    // A telemetry event the offscreen document reported. It has a `window` and
+    // never loads the React app, so it is the one realm that can neither install
+    // a page transport nor be detected as the worker — and proving happens there
+    // by default, so without this forward every prove event is dropped. Handled
+    // exactly like a page's: straight to the same consent-gated sink.
+    // Fire-and-forget, so don't hold the port.
+    if (m.type === OFFSCREEN_TELEMETRY_EVENT) {
+      const { event } = msg as OffscreenTelemetryEvent;
+      // The sink's serializer builds the payload from an allowlist, so a
+      // malformed event cannot widen the wire — but it can throw, and this
+      // listener is shared with signing, which must not fail because of it.
+      void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;

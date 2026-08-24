@@ -31,6 +31,7 @@ import {
   OFFSCREEN_CALL,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   b64ToBytes,
   bytesToB64,
@@ -46,6 +47,7 @@ import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-cli
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { setOperationTransport } from 'lib/telemetry/report-operation';
 
 const TAG = '[offscreen-prover]';
 
@@ -59,6 +61,21 @@ const TAG = '[offscreen-prover]';
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
+
+// Telemetry reported from THIS realm has to be forwarded, and nothing else would
+// do it. `report-operation.ts` sends directly when it is the worker and uses an
+// installed transport when it is a page; this document is neither. It has a
+// `window`, so it takes the page branch, and it never loads the React app, so
+// nothing installs a transport — every event would be dropped on the floor.
+//
+// That matters here specifically because proving happens in this realm whenever
+// the offscreen client is on, which is the default for the extension. Without
+// this, `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
+// events never leave the device: exactly the signals that answer "was the remote
+// prover down when this failed".
+setOperationTransport(async event => {
+  await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
+});
 
 let initPromise: Promise<void> | null = null;
 

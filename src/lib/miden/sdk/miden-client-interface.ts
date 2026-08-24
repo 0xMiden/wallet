@@ -1447,9 +1447,9 @@ export async function proveWithFallback<T>(
     );
     // #466: always-on structured timing so an occasional 20s+ prove is visible.
     attempt.record({ path: pathLabel, durationMs, fellBack: false });
-    // Both literals named rather than picked by a ternary, so the source scan in
-    // `instrumentation-coverage.test.ts` can see that each is actually reported.
-    // That test exists because a step nothing emits typechecks perfectly.
+    // Both literals named rather than picked by a ternary. Longer, but the two
+    // outcomes are then legible one per line, which is how every other
+    // `reportOperation` call in the pipeline reads.
     reportOperation(
       shouldDelegate
         ? { operation: 'prove', result: 'completed', durationMs, step: 'prove_delegate' }

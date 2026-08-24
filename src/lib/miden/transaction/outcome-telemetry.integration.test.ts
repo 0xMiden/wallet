@@ -26,6 +26,14 @@ import { updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus, ITransactionType, SendTransaction } from '../db/types';
 
 const reported: SettledOperation[] = [];
+
+/** The one operation that should have been reported, or a failure saying so. */
+const onlyReported = (): SettledOperation => {
+  expect(reported).toHaveLength(1);
+  const [event] = reported;
+  if (event === undefined) throw new Error('expected one reported operation');
+  return event;
+};
 jest.mock('lib/telemetry/report-operation', () => ({
   reportOperation: (settled: unknown) => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -100,8 +108,8 @@ describe('a transaction that failed', () => {
     // Rows keep seconds and telemetry reports milliseconds; a missing conversion
     // would land here as 30 rather than 30_000 and quietly make every duration
     // in the dashboard a thousand times too small.
-    expect(reported[0].durationMs).toBeGreaterThanOrEqual(STARTED_SECONDS_AGO * 1000);
-    expect(reported[0].durationMs).toBeLessThan((STARTED_SECONDS_AGO + 30) * 1000);
+    expect(onlyReported().durationMs).toBeGreaterThanOrEqual(STARTED_SECONDS_AGO * 1000);
+    expect(onlyReported().durationMs).toBeLessThan((STARTED_SECONDS_AGO + 30) * 1000);
   });
 
   it.each<[string, ITransactionType, string]>([
@@ -129,7 +137,7 @@ describe('a transaction that failed', () => {
 
     await cancelTransaction(tx, new Error('boom'));
 
-    expect(reported[0].step).toBeUndefined();
+    expect(onlyReported().step).toBeUndefined();
   });
 });
 
@@ -180,8 +188,8 @@ describe('a transaction that succeeded', () => {
 
     // Same seconds-to-milliseconds conversion as the failure side, and the same
     // way to get it wrong. This is the number a latency regression shows up in.
-    expect(reported[0].durationMs).toBeGreaterThanOrEqual(STARTED_SECONDS_AGO * 1000);
-    expect(reported[0].durationMs).toBeLessThan((STARTED_SECONDS_AGO + 30) * 1000);
+    expect(onlyReported().durationMs).toBeGreaterThanOrEqual(STARTED_SECONDS_AGO * 1000);
+    expect(onlyReported().durationMs).toBeLessThan((STARTED_SECONDS_AGO + 30) * 1000);
   });
 
   it('reports a failure written straight through the status writer, which cancel never sees', async () => {
