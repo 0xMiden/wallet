@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
+import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
 // Must satisfy CreatePassword's real strength gate (CreatePasswordScreen:
@@ -1018,6 +1019,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // `.close()` below redundant. `Page.close()` on an already-closed page is
     // documented as a no-op, but guard explicitly rather than rely on that.
     const context = this.page.context();
+    // Take screen capture down before discarding this page -- an outstanding
+    // capture call when the page goes away fails out of band and is charged to
+    // the test. See `suspendScreenCapture`.
+    await suspendScreenCapture(this.page);
     if (!this.page.isClosed()) {
       await this.page.close();
     }
@@ -1112,6 +1117,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // whatever the test is actually asserting: a page that's already mid-
     // teardown (e.g. from a crash) throwing here shouldn't fail the "kill"
     // step, only the "did the wallet recover" step that follows it.
+    //
+    // Swallowing that error is not sufficient on its own -- see
+    // `suspendScreenCapture` for the failure it cannot reach.
+    await suspendScreenCapture(this.page);
     await this.page.close().catch(() => {});
   }
 
@@ -1124,7 +1133,36 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // `context.browser()?.isConnected() === false` and takes its crash-recovery
     // path (relaunch from the on-disk profile). Swallow errors: the browser may
     // already be gone (e.g. it genuinely crashed first).
+    //
+    // Before anything is destroyed: the screen-capture handler drives real
+    // Playwright calls, and one still outstanding when the browser goes away
+    // fails inside Playwright's own object bookkeeping, out of band, reported
+    // as this test's failure even though its body passed. That is exactly how
+    // this spec failed on main. See `suspendScreenCapture`.
+    await suspendScreenCapture(this.page);
+    // Close the page FIRST. Its exposed bindings (the screen-change capture)
+    // and any in-flight page calls are torn down in order that way; pulling the
+    // whole browser out from under a live page can leave a response carrying a
+    // JSHandle to arrive after the handle was disposed, which Playwright reports
+    // as "Object with guid handle@… was not bound in the connection" and
+    // charges to the test. The `requestfinished` capture
+    // (`harness/network-capture.ts`) cannot be hardened against that from its
+    // own listener -- see the comment there -- so this ordering is the only
+    // lever for it.
+    //
+    // This is a deliberate fidelity trade: a real process crash grants no
+    // orderly page teardown, whereas this lets `pagehide`/`visibilitychange`
+    // run. It is safe only because no wallet code persists state on those --
+    // the `visibilitychange` listeners (`useForegroundRefresh`, `useClaimNotes`)
+    // just drive refresh polling, and `useBeforeUnload` only calls
+    // `preventDefault` (and `page.close()` defaults to `runBeforeUnload: false`,
+    // so it never fires). If the wallet ever gains a teardown flush, this
+    // ordering would start hiding exactly the data-loss bug the browser-crash
+    // spec exists to catch, and it must be revisited then.
     const browser = this.page.context().browser();
+    if (!this.page.isClosed()) {
+      await this.page.close().catch(() => {});
+    }
     await browser?.close().catch(() => {});
   }
 

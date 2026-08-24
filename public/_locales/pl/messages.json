@@ -717,6 +717,14 @@
     "message": "Możesz wkleić cały swój tajny adres Seed phrase w dowolne pole",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Jedno lub więcej słów nie znajduje się na liście słów frazy odzyskiwania. Sprawdź zaznaczone słowa.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Nie udało się zweryfikować miejsc po przecinku tego tokenu, więc kwoty nie mogą być wyświetlane ani wysyłane.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Ups!",
     "englishSource": "Oops!"
@@ -749,6 +757,10 @@
   "retry": {
     "message": "Spróbuj ponownie",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "Ponów mimo to",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1698,6 +1710,34 @@
     "message": "Nie udało nam się zasilić Twojego portfela. Spróbuj ponownie.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Wykryto próbę odzyskania konta",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Skanowanie prywatnego adresu notes: opróżnianie transportu note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Skanowanie prywatnego notes: importowanie notes z oczekujących propozycji…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Synchronizacja publicznego notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Synchronizacja publicznego notes: blok $current$ z $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Masz oczekujące „Notes”",
     "englishSource": "You have Pending Notes"
@@ -2528,6 +2568,30 @@
     "message": "Automatycznie księguje przychodzące MIDEN notes na Twoim saldzie — tak samo jak po naciśnięciu przycisku „Claim”. Nie powoduje to wydatkowania Twoich środków ani naliczania żadnych opłat.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Tworzenie pliku portfela…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Eksport nie powiódł się",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Nie udało się utworzyć pliku portfela, więc nic nie zostało zapisane. Spróbuj ponownie wykonać eksport.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Jeszcze nie zapisano",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Plik portfela jest gotowy, ale zamknąłeś okno udostępniania przed wybraniem miejsca, w którym chcesz go zapisać.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Wybierz miejsce przechowywania",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Zaszyfrowany plik portfela",
     "englishSource": "Encrypted Wallet File"
@@ -3297,6 +3361,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ więcej",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ więcej",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Nie można załadować tej aplikacji dApp",
     "englishSource": "Can't load this dApp"
@@ -3588,16 +3670,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Otwórz",
+    "message": "Otwarte",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Wypełnione",
+    "message": "Zrealizowane",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
     "message": "Odzyskane",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Częściowo zrealizowane",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Częściowo zrealizowane, resztę odzyskano",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Wypełnij krążki",
@@ -3607,9 +3697,96 @@
     "message": "Wypełnione",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ z $total$$symbol$ zrealizowano",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes powiązane z tym swapem",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note realizacji $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Wykorzystano · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Oczekująca realizacja",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Dopasowywanie na DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Nie zgrupowano jeszcze żadnych Notes.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Przejdź do Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Niedostępne",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "Identyfikator transakcji wykorzystania",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "Identyfikator transakcji wykorzystania $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Utworzono",
@@ -4002,6 +4179,10 @@
   "consumed": {
     "message": "Zużyte",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Typ",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Identyfikator transakcji",

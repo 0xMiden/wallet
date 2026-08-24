@@ -27,11 +27,11 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep accountIdStringToSdk simple — we only assert it was called with the
-// inputs we passed; the real implementation parses bech32 which needs WASM.
-const mockAccountIdStringToSdk = jest.fn((id: string) => ({ toString: () => `sdk(${id})` }));
+// Keep the id parser simple — we only assert it was called with the inputs we
+// passed; the real implementation parses bech32/hex, which needs WASM.
+const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 jest.mock('../sdk/helpers', () => ({
-  accountIdStringToSdk: (...args: unknown[]) => mockAccountIdStringToSdk(...(args as [string]))
+  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string]))
 }));
 
 const mockGetAccount = jest.fn();
@@ -107,8 +107,13 @@ jest.mock('lib/secure-hot-key', () => ({
 }));
 
 const mockGetSignerDetailsFromAccount = jest.fn();
+// The staleness guard itself is a collaborator here, covered against real
+// nonces in account.test.ts; these tests only assert that the import path
+// routes its write THROUGH it rather than calling accounts.insert directly.
+const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
   // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
   resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
@@ -217,16 +222,35 @@ describe('MultisigService', () => {
   });
 
   describe('proposal builders', () => {
-    it('createSendProposal normalizes recipient+faucet ids through accountIdStringToSdk', async () => {
+    // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
+    // the wallet in both hex and bech32 form, and the sibling recallable-send
+    // path already accepts both — a hex id it sends fine must not throw here.
+    it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
+      const proposal = await service.createSendProposal('rec', 'fauc', 1000n, 'Private' as never);
 
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
         noteType: 'Private'
       });
       expect(proposal).toEqual({ kind: 'p2id' });
+    });
+
+    // Was hardcoded Private, so a Public guardian send emitted a private note
+    // the recipient was never handed — the row said 'public', so the relay in
+    // completeSendTransaction was skipped too.
+    it('createSendProposal forwards the caller-resolved note type', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.createSendProposal('rec', 'fauc', 1000n, 'Public' as never);
+
+      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
+        noteType: 'Public'
+      });
     });
 
     it('createConsumeNotesProposal forwards note ids untouched', async () => {
@@ -521,7 +545,7 @@ describe('MultisigService', () => {
       guardianConfig.getState.mockReset();
     });
 
-    it('fetches state, base64-decodes into Account, and inserts into the webClient', async () => {
+    it('fetches state, base64-decodes into Account, and adopts it through the staleness guard', async () => {
       const webClient = {
         accounts: { insert: jest.fn(async () => {}) }
       };
@@ -534,7 +558,10 @@ describe('MultisigService', () => {
 
       expect(guardianConfig.setSigner).toHaveBeenCalled();
       expect(mockAccountDeserialize).toHaveBeenCalled();
-      expect(webClient.accounts.insert).toHaveBeenCalledWith({ account: fakeAccount, overwrite: true });
+      // Routed through the guard, never straight to accounts.insert — an
+      // unguarded overwrite here is what let a stale snapshot win.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalledWith(webClient, fakeAccount);
+      expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
     it('rejects (and does not insert) when the guardian returns a mismatched account id', async () => {
@@ -571,7 +598,8 @@ describe('MultisigService', () => {
 
       await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
 
-      expect(webClient.accounts.insert).toHaveBeenCalled();
+      // Reached the adoption step, i.e. the import ran to completion.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalled();
       // The global-key read is gone: storage is never consulted for the import.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });

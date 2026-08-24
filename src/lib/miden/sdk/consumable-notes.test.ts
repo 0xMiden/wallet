@@ -113,6 +113,21 @@ describe('attachmentOrderAndDepth', () => {
     expect(attachmentOrderAndDepth(rec)).toEqual({ orderId: '42', depth: 9 });
   });
 
+  // `new NoteAttachment()` encodes "no attachment" as one zero word — which
+  // every P2ID/P2IDE note this wallet sends now carries. It fits the
+  // terminal-0 shape, so without the all-zero guard it reads as order 0.
+  it('skips the all-zero word the SDK uses for an empty attachment', () => {
+    const rec = fakeRecord({ attachments: [[[0n, 0n, 0n, 0n]]] });
+    expect(attachmentOrderAndDepth(rec)).toBeNull();
+  });
+
+  it('still finds a real payback word alongside an empty attachment', () => {
+    const rec = fakeRecord({
+      attachments: [[[0n, 0n, 0n, 0n]], [[7n, 55n, 2n, 0n]]]
+    });
+    expect(attachmentOrderAndDepth(rec)).toEqual({ orderId: '55', depth: 2 });
+  });
+
   it('tolerates a note whose attachments() throws (returns null, does not propagate)', () => {
     const rec: any = {
       attachments: () => {

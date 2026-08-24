@@ -38,7 +38,10 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
   name: token.symbol,
   decimals: token.decimals,
   balance,
-  fiatPrice: 0
+  fiatPrice: 0,
+  // A registry token carries its own decimals — that is the point of the
+  // registry, and why swap sides never fall back to the placeholder.
+  scaleIsKnown: true
 });
 
 /**

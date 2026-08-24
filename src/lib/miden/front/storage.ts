@@ -63,8 +63,14 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
     return () => {};
   }
 
-  // Lazy load browser for extension
+  // Lazy load browser for extension. The import resolves after this function
+  // returns, so unsubscribing has to cope with both orders: cancelled before
+  // the listener was ever added, and cancelled after.
+  let unsubscribe: (() => void) | undefined;
+  let cancelled = false;
+
   import('webextension-polyfill').then(browserModule => {
+    if (cancelled) return;
     const browser = browserModule.default;
     const handleChanged = (changes: Record<string, { newValue?: unknown; oldValue?: unknown }>, areaName: string) => {
       if (areaName === 'local' && key in changes) {
@@ -73,11 +79,13 @@ export function onStorageChanged<T = any>(key: string, callback: (newValue: T) =
     };
 
     browser.storage.onChanged.addListener(handleChanged);
-    // Note: cleanup won't work perfectly with async load, but this is acceptable for now
+    unsubscribe = () => browser.storage.onChanged.removeListener(handleChanged);
   });
 
   return () => {
-    // Cleanup is handled when component unmounts
+    cancelled = true;
+    unsubscribe?.();
+    unsubscribe = undefined;
   };
 }
 

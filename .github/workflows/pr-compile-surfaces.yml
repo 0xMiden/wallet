@@ -64,8 +64,14 @@ jobs:
       # Rust in src-tauri is what this gate is checking and it compiles here far
       # cheaper than on a macOS runner.
       - name: Install Tauri system dependencies
+        # Same mirror hardening as the xvfb steps in the e2e workflows: the
+        # azure mirror intermittently blackholes and an unbounded `apt-get
+        # update` can eat the whole job budget.
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: yarn install --frozen-lockfile
       # REQUIRED before cargo: `tauri::generate_context!()` reads tauri.conf.json's

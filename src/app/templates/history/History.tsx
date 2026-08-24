@@ -1,4 +1,4 @@
-import React, { memo, RefObject, useMemo, useState } from 'react';
+import React, { memo, RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
 import {
@@ -20,6 +20,7 @@ import {
   ITransactionStatus,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -30,7 +31,9 @@ import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
-  resolveSwapHistoryFields
+  resolveConsumeExtraAmounts,
+  resolveSwapHistoryFields,
+  swapSettlementOf
 } from './transactionUtils';
 
 type HistoryProps = {
@@ -52,6 +55,35 @@ const History = memo<HistoryProps>(
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
+
+    // `restEntries` is keyed to the scope; these two are not, so without this
+    // they outlive it. A failed page sets `hasMore` false to stop the retry spin
+    // — correct for the scope that failed, but the flag would then follow the
+    // user to every other account and token page in this mount and silently
+    // disable their pagination too.
+    //
+    // The ref is the same problem seen from the other end: `useSafeState`'s
+    // setter only checks that the component is still MOUNTED, not that the key
+    // still matches, so a page already in flight when the user switches account
+    // would land its rows in the new account's list.
+    //
+    // `useLayoutEffect`, not `useEffect`: a passive effect is flushed by the
+    // scheduler AFTER paint, while a resolving fetch is a microtask. In that
+    // window the ref would still hold the old key and the stale page would sail
+    // through the guard. A layout effect runs inside commit, closing it. (Tests
+    // cannot see the difference — `act` flushes passive effects synchronously.)
+    //
+    // A monotonic counter rather than the key itself: comparing keys says "the
+    // scope matches now", which an A → B → A round trip satisfies while the
+    // original A request is still in flight. That request would then merge
+    // against the `restEntries` its closure captured — the list as it was before
+    // the user left — discarding whatever the second visit loaded.
+    const scopeRef = useRef(0);
+    useLayoutEffect(() => {
+      scopeRef.current += 1;
+      setHasMore(true);
+      setIsLoading(false);
+    }, [safeStateKey]);
 
     const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
@@ -100,16 +132,44 @@ const History = memo<HistoryProps>(
         return;
       }
       setIsLoading(true);
+      const scope = scopeRef.current;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
-      const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-      const allRestEntries = mergeAndSort(restEntries, olderTransactions);
-
-      if (allRestEntries.length === 0) {
-        setHasMore(false);
+      try {
+        const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+        // Answer for a scope the user has since left: `restEntries` in this
+        // closure is the OLD account's list, so merging would show one account's
+        // history under another's.
+        if (scopeRef.current !== scope) return;
+        // Key off what the PAGE returned, not the merged list. Merged, the list
+        // is non-empty from the first successful page onward, so an exhausted
+        // history never sets the flag: the scroller re-arms on each parent
+        // render (SWR re-renders this on a timer) and fires an endless run of
+        // empty queries. A short page is also the last one, so stop there rather
+        // than spending one more round trip to see an empty one.
+        if (olderTransactions.length < limit) {
+          setHasMore(false);
+        }
+        setRestEntries(mergeAndSort(restEntries, olderTransactions));
+      } catch (error) {
+        // Stop paging on failure. Clearing `isLoading` without this would spin:
+        // the infinite scroller re-arms on every parent render (and SWR re-renders
+        // this on a timer), so a persistently failing page would be retried for
+        // the rest of the session. Leaving `isLoading` set instead would wedge
+        // pagination permanently, so neither flag alone is the answer — the list
+        // keeps everything already loaded and simply stops extending.
+        console.error(
+          `Failed to load history page ${page} (offset ${offset}, limit ${limit}) for ${address}${
+            tokenId ? ` token ${tokenId}` : ''
+          }`,
+          error
+        );
+        // Same reasoning as the success path: do not disable pagination for a
+        // scope the user has already moved on to.
+        if (scopeRef.current === scope) setHasMore(false);
+      } finally {
+        if (scopeRef.current === scope) setIsLoading(false);
       }
-      setRestEntries(allRestEntries);
-      setIsLoading(false);
     };
 
     let entries: IHistoryEntry[] = allEntries;
@@ -119,6 +179,10 @@ const History = memo<HistoryProps>(
         e =>
           e.message?.toLowerCase().includes(query) ||
           e.token?.toLowerCase().includes(query) ||
+          // A batch claim displays its secondary assets on the row, so searching
+          // for one has to find it — otherwise typing a symbol the user can see
+          // hides the very row showing it.
+          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
           e.secondaryAddress?.toLowerCase().includes(query)
       );
     }
@@ -200,10 +264,15 @@ async function fetchTransactionsAsHistoryEntries(
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
-      timestamp: tx.completedAt,
+      // Same fallback the query sorts by (`getCompletedTransactions`) and the
+      // detail view renders. A terminal row is not guaranteed to carry
+      // `completedAt`, and the day grouping builds a Date from this with no
+      // fallback of its own — one missing value takes down the whole list.
+      timestamp: tx.completedAt ?? tx.initiatedAt,
       message: updateMessageForFailed,
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
@@ -212,7 +281,15 @@ async function fetchTransactionsAsHistoryEntries(
         ? earnWithdrawFields.amount
         : swapFields
           ? swapFields.amount
-          : tx.amount
+          : // `!== undefined`, not truthiness: `0n` is a real total. A claim whose
+            // primary faucet sums to zero would otherwise render no amount at all,
+            // and take every secondary asset down with it (see `buildRowProps`).
+            //
+            // `hasKnownScale` withholds the number when the faucet resolved only
+            // to the unknown-token placeholder, whose 6 decimals are a guess: the
+            // asset is still NAMED below, so the row keeps its headline slot
+            // rather than promoting a secondary over it.
+            tx.amount !== undefined && hasKnownScale(tokenMetadata)
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
       token: earnWithdrawFields
@@ -222,6 +299,7 @@ async function fetchTransactionsAsHistoryEntries(
           : tokenMetadata
             ? tokenMetadata.symbol
             : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
       // The Miden collateral note landing is only half a deposit — the chip
       // tracks the Sepolia lending leg.
@@ -282,6 +360,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
       address: address,
@@ -289,8 +368,16 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
       status: tx.status,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
+      amount: swapFields
+        ? swapFields.amount
+        : // See the completed-history fetcher above: `0n` is a real total, and a
+          // faucet that resolved only to the unknown-token placeholder has no
+          // trustworthy scale to convert by.
+          tx.amount !== undefined && hasKnownScale(tokenMetadata)
+          ? formatAmount(tx.amount, tokenMetadata?.decimals)
+          : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
@@ -358,23 +445,6 @@ function linkedPrimaryTxId(tx: ITransaction): string | undefined {
     tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
     tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
   );
-}
-
-/**
- * Settlement state for a completed swap order, driving the single swap row's
- * status chip; `undefined` renders Confirmed. Pending only for auto-consumed
- * orders that carry an explicit expiry (stamped since settlement shipped) and
- * have no settlement stamp yet — settled, legacy, and manual-claim orders all
- * fall through to Confirmed. A settledAt stamp wins over reclaimedAt (a batch
- * containing payback notes delivered funds even if the order later expired).
- */
-function swapSettlementOf(tx: ITransaction): 'pending' | 'reclaimed' | undefined {
-  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
-  const extra = tx.extraInputs ?? {};
-  if (extra.settledAt != null) return undefined;
-  if (extra.reclaimedAt != null) return 'reclaimed';
-  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
-  return undefined;
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

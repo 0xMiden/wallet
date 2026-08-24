@@ -717,6 +717,14 @@
     "message": "Ви можете вставити весь свій секретний код Seed phrase у будь-яке поле",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Одне або кілька слів відсутні у списку слів фрази відновлення. Перевірте виділені слова.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Десятичні знаки цього токена не вдалося перевірити, тому суми не можна відобразити чи надіслати.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Ой!",
     "englishSource": "Oops!"
@@ -749,6 +757,10 @@
   "retry": {
     "message": "Спробувати ще раз",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "Усе одно повторити",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1698,6 +1710,34 @@
     "message": "Нам не вдалося поповнити ваш гаманець. Спробуйте ще раз.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Виявлено спробу відновлення облікового запису",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Сканування приватного notes: вичерпування транспортного потоку note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Сканування приватного notes: імпорт notes із пропозицій, що очікують на розгляд…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Синхронізація публічного notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Синхронізація публічного notes: блок $current$ з $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас є «Pending» (Notes)",
     "englishSource": "You have Pending Notes"
@@ -2528,6 +2568,30 @@
     "message": "Автоматично зараховує надходження MIDEN notes на ваш баланс — так само, як при натисканні кнопки «Отримати». Це не витрачає ваші кошти та не додає жодних комісій.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Створення файлу вашого гаманця…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Експорт не вдався",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Файл вашого гаманця не вдалося створити, тому нічого не було збережено. Спробуйте експортувати ще раз.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Ще не збережено",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Файл вашого гаманця готовий, але ви закрили вікно спільного доступу, не встигнувши вибрати місце для його збереження.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Виберіть, де зберігати",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрований файл гаманця",
     "englishSource": "Encrypted Wallet File"
@@ -3297,6 +3361,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ більше",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ більше",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Не вдається завантажити цей dApp",
     "englishSource": "Can't load this dApp"
@@ -3588,16 +3670,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Відкрити",
+    "message": "Відкрито",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заповнено",
+    "message": "Виконано",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Відновлений",
+    "message": "Повернено",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частково виконано",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частково виконано, залишок повернено",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заповнити кола",
@@ -3607,9 +3697,96 @@
     "message": "Заповнено",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ з $total$$symbol$ виконано",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes, об’єднані в цей свап",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note виконання $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Використано · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Очікуване виконання",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Підбір на DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Notes ще не об’єднано.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Перейти до Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Недоступно",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "ID транзакції використання",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "ID транзакції використання $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Створено",
@@ -4002,6 +4179,10 @@
   "consumed": {
     "message": "Спожито",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Тип",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Ідентифікатор транзакції",

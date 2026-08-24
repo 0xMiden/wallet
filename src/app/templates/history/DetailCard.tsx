@@ -71,39 +71,62 @@ export const ExternalLinkValue: FC<{
  * Confirmed / Failed / In Progress pill, driven by the transaction's actual
  * `status` (message-string sniffing broke for types whose completion message
  * wasn't in the known list — e.g. a completed swap's "Swapped").
+ *
+ * `swapSettlement` overrides it for a swap, because a swap row is Completed the
+ * moment the order note is created: the place-order transaction confirmed, the
+ * swap did not. The history list already draws that distinction, so without this
+ * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  */
-export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean; testId?: string }> = memo(
-  ({ status, isCancelled, testId }) => {
-    const { t } = useTranslation();
-    const isCompleted = status === ITransactionStatus.Completed;
-    const isFailed = status === ITransactionStatus.Failed;
+export const StatusPill: FC<{
+  status?: ITransactionStatus;
+  isCancelled?: boolean;
+  swapSettlement?: 'pending' | 'reclaimed';
+  testId?: string;
+}> = memo(({ status, isCancelled, swapSettlement: reportedSettlement, testId }) => {
+  const { t } = useTranslation();
+  const isFailed = status === ITransactionStatus.Failed;
+  // A swap that failed or was cancelled never placed its order, so it has no
+  // settlement to report; taking the caller's word for one produced a pill
+  // labelled "Pending" in failure red, which names two different outcomes at
+  // once. Failure is the stronger and more actionable fact, so it wins.
+  const swapSettlement = isFailed || isCancelled ? undefined : reportedSettlement;
+  const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
+  // A reclaimed order ended without delivering what was asked for, so it gets
+  // the same muted treatment as a cancellation — the history list already tones
+  // it that way.
+  const isMuted = isCancelled || swapSettlement === 'reclaimed';
 
-    const bgColor = isCancelled
-      ? 'bg-gray-400'
-      : isCompleted
-        ? 'bg-[#99AC94]'
-        : isFailed
-          ? 'bg-status-negative'
-          : 'bg-[#91ACC1]';
-    const label = isCancelled
-      ? t('cancelled')
-      : isCompleted
-        ? t('confirmed')
-        : isFailed
-          ? t('failed')
-          : t('inProgress');
+  // Muted rather than just cancelled, so a reclaimed order is toned the same way
+  // here as it is in the history list.
+  const bgColor = isMuted
+    ? 'bg-gray-400'
+    : isCompleted
+      ? 'bg-[#99AC94]'
+      : isFailed
+        ? 'bg-status-negative'
+        : 'bg-[#91ACC1]';
+  const label = isCancelled
+    ? t('cancelled')
+    : swapSettlement === 'reclaimed'
+      ? t('reclaimed')
+      : swapSettlement === 'pending'
+        ? t('pending')
+        : isCompleted
+          ? t('confirmed')
+          : isFailed
+            ? t('failed')
+            : t('inProgress');
 
-    return (
-      <div data-testid={testId} className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor)}>
-        {isCompleted ? (
-          <Icon name={IconName.Checkmark} size="xs" fill="white" />
-        ) : isFailed ? (
-          <Icon name={IconName.Close} size="xs" fill="white" />
-        ) : (
-          <div className="w-2 h-2 rounded-full bg-pure-white" />
-        )}
-        <span className="text-xs font-semibold text-pure-white">{label}</span>
-      </div>
-    );
-  }
-);
+  return (
+    <div data-testid={testId} className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor)}>
+      {isCompleted ? (
+        <Icon name={IconName.Checkmark} size="xs" fill="white" />
+      ) : isFailed ? (
+        <Icon name={IconName.Close} size="xs" fill="white" />
+      ) : (
+        <div className="w-2 h-2 rounded-full bg-pure-white" />
+      )}
+      <span className="text-xs font-semibold text-pure-white">{label}</span>
+    </div>
+  );
+});

@@ -8,14 +8,21 @@ import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 
 /**
- * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
- * it is filed under the offered `faucetId`, but it also delivers the requested
- * faucet — and the consume that settles that delivery is suppressed in history
- * (the swap row is the order's single trace), so without the requested-side
- * match the received funds would appear in no row of that token's history.
+ * Token-scoped history filter. A row belongs to a token view whenever it moved
+ * that token, which is not always the faucet it is filed under:
+ *
+ * - A swap is filed under the offered `faucetId` but also delivers the requested
+ *   faucet, and the consume that settles that delivery is suppressed in history
+ *   (the swap row is the order's single trace) — so without the requested-side
+ *   match the received funds would appear in no row of that token's history.
+ * - A batch claim is filed under its FIRST note's faucet while sweeping up every
+ *   other faucet in `assetTotals`. Same argument: a claim of 20 A and 10 B is
+ *   filed under A, so B's history would never show the 10 B arriving.
  */
 const matchesTokenId = (tx: ITransaction, tokenId: string): boolean =>
-  tx.faucetId === tokenId || (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId);
+  tx.faucetId === tokenId ||
+  (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId) ||
+  tx.assetTotals?.some(total => total.faucetId === tokenId) === true;
 
 export const hasQueuedTransactions = async () => {
   const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
@@ -76,7 +83,12 @@ export const getCompletedTransactions = async (
   if (tokenId) {
     transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
-  return transactions.slice(offset, limit);
+  // `limit` is a page size, not an end index — `slice(offset, limit)` returned
+  // nothing for every page after the first, since offset >= limit there, which
+  // silently capped history at one page. Both are optional, and `offset + limit`
+  // would be NaN if either were missing, so only window when a limit is given.
+  if (limit === undefined) return offset === undefined ? transactions : transactions.slice(offset);
+  return transactions.slice(offset ?? 0, (offset ?? 0) + limit);
 };
 
 export const getTransactionById = async (id: string) => {
@@ -85,24 +97,43 @@ export const getTransactionById = async (id: string) => {
   return tx;
 };
 
+/** One completed consume transaction belonging to a swap-order settlement. */
+export interface SwapSettlementTransaction {
+  /** Local wallet transaction id, always available. */
+  id: string;
+  /** Submitted Miden transaction id, available after completion. */
+  transactionId?: string;
+  noteIds: string[];
+  amount?: bigint;
+  faucetId?: string;
+  completedAt?: number;
+}
+
 /** Notes a swap order settled, grouped by how the settlement consume claimed them. */
 export interface SwapSettlementNotes {
   /** Payback notes claimed on a fill — the requested funds arriving. */
   settled: string[];
   /** Remainder notes reclaimed after expiry — the unfilled tip coming back. */
   reclaimed: string[];
+  /** Completed payback-consume transactions, used by the swap receipt. */
+  settledTransactions: SwapSettlementTransaction[];
+  /** Completed reclaim-consume transactions, used by the swap receipt. */
+  reclaimedTransactions: SwapSettlementTransaction[];
 }
 
 /**
- * Note ids claimed by the settlement consumes belonging to a swap order.
+ * Note ids and completed-consume metadata belonging to a swap order.
  *
  * Those consume rows are suppressed in the history list (`suppressLinkedConsumes`
  * in `History.tsx`) so the order reads as a single swap row — which would
  * otherwise make their notes invisible. The detail page surfaces them here
- * instead. Rows are linked by `extraInputs.swapOrderTxId`, tagged at queue time
- * by `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from
- * expiry reclaims. Only completed consumes count — a queued or failed one has
- * claimed nothing yet.
+ * instead. The receipt also needs each consume's amount, completion time and
+ * submitted transaction id, so those fields stay grouped by consume alongside
+ * the deduplicated note-id buckets. Rows are linked by
+ * `extraInputs.swapOrderTxId`, tagged at queue time by
+ * `reconcileSwapOrderNotes`; `swapSettleKind` splits payback claims from expiry
+ * reclaims. Only completed consumes count — a queued or failed one has claimed
+ * nothing yet.
  */
 export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
   const consumes = await Repo.transactions
@@ -116,13 +147,73 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
 
   const settled = new Set<string>();
   const reclaimed = new Set<string>();
+  const settledTransactions: SwapSettlementTransaction[] = [];
+  const reclaimedTransactions: SwapSettlementTransaction[] = [];
+  // The receipt numbers fill rows by position, so the order has to be the order
+  // they settled in — the Dexie scan yields rows by uuid, which would number a
+  // multi-fill order arbitrarily and renumber it when a later fill lands. A row
+  // without a completion stamp sorts last rather than first.
+  // `completedAt` is a one-second local stamp and auto-consume settles batches
+  // within a single tick, so ties are the common case rather than the edge. With
+  // no tie-break the order fell through to the Dexie scan's primary-key order —
+  // row UUIDs — so two fills in the same second were numbered arbitrarily, and
+  // differently on every device. Break on the submitted chain id, which every
+  // device agrees on.
+  consumes.sort(
+    (a, b) =>
+      (a.completedAt ?? Infinity) - (b.completedAt ?? Infinity) ||
+      (a.transactionId ?? a.id).localeCompare(b.transactionId ?? b.id)
+  );
+  // A note must be attributed to exactly one consume. Two completed rows can
+  // name the same note — a broader batch overlapping an earlier claim — and
+  // deduplicating only the id sets left the per-transaction arrays disagreeing
+  // with them: the receipt drew the note twice, and a caller summing the rows'
+  // amounts to infer the fill counted the same funds twice. The sort above is
+  // deterministic, so "the earlier consume owns it" is a stable rule. A row
+  // whose notes were all claimed earlier is that same claim seen again and is
+  // dropped, rather than contributing its amount a second time.
+  const claimed = new Set<string>();
+
   for (const tx of consumes) {
-    const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
-    const bucket = tx.extraInputs?.swapSettleKind === 'reclaim' ? reclaimed : settled;
+    const rawNoteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
+    const noteIds = rawNoteIds.filter(noteId => !claimed.has(noteId));
+    if (rawNoteIds.length > 0 && noteIds.length === 0) continue;
+    for (const noteId of noteIds) claimed.add(noteId);
+
+    // `amount` is an aggregate over every note on the row sharing the first
+    // note's faucet (see the ConsumeTransaction constructor), so it is only a
+    // fact about the row's WHOLE note list. Once part of that list has been
+    // attributed to an earlier consume, the aggregate no longer describes what
+    // is left, and reporting it anyway overstated the money: rows
+    // `[n1] = 400` and `[n1,n2] = 600` were emitted as `[n1] = 400` and
+    // `[n2] = 600`, so a caller summing them read 1000 where 600 arrived.
+    // There is no per-note breakdown to split it with, so the honest value for
+    // a partially attributed row is "unknown".
+    const partiallyAttributed = noteIds.length !== rawNoteIds.length;
+    const transaction = {
+      id: tx.id,
+      transactionId: tx.transactionId,
+      noteIds,
+      amount: partiallyAttributed ? undefined : tx.amount,
+      faucetId: tx.faucetId,
+      completedAt: tx.completedAt
+    };
+    const isReclaim = tx.extraInputs?.swapSettleKind === 'reclaim';
+    const bucket = isReclaim ? reclaimed : settled;
     for (const noteId of noteIds) bucket.add(noteId);
+    if (isReclaim) {
+      reclaimedTransactions.push(transaction);
+    } else {
+      settledTransactions.push(transaction);
+    }
   }
 
-  return { settled: [...settled], reclaimed: [...reclaimed] };
+  return {
+    settled: [...settled],
+    reclaimed: [...reclaimed],
+    settledTransactions,
+    reclaimedTransactions
+  };
 };
 
 /**
@@ -132,6 +223,13 @@ export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSett
  *   - active    : still fillable / reclaimable
  *   - filled    : fully filled (terminal)
  *   - reclaimed : reclaimed by the creator (terminal)
+ *
+ * From a live lineage, 'filled' means FULLY filled. The swap receipt reuses the
+ * same values for a locally-inferred state when no lineage is resolvable, where
+ * 'filled' is only "this wallet consumed a settlement note" — a weaker claim,
+ * since an expiry batch carrying a partial payback is also tagged 'settle'. Any
+ * reader of an inferred state must qualify it with the fill amount; see
+ * `deriveSwapReceipt`, which is the only place that mixes the two.
  */
 export type SwapOrderState = 'active' | 'filled' | 'reclaimed';
 

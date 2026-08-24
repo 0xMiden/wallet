@@ -81,6 +81,8 @@ export const DappTile: FC<DappTileProps> = ({
       // line up at consistent horizontal positions across tiles.
       className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-gray-100"
       aria-label={accessibleLabel}
+      data-testid="dapp-tile"
+      data-dapp-url={url}
     >
       <motion.div
         layoutId={enableSharedLayout ? `dapp-favicon-${url}` : undefined}

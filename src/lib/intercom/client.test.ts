@@ -454,3 +454,120 @@ describe('DesktopIntercomClientWrapper', () => {
     expect(innerUnsub).toHaveBeenCalled();
   });
 });
+
+/**
+ * Regression cover for the console-spam fix.
+ *
+ * The old `buildPort` reconnected on a flat 1s timer forever and never read
+ * `runtime.lastError` in `onDisconnect`. In a page whose receiving end was gone
+ * (service worker down, or the context orphaned by an extension reload) that
+ * produced one "Unchecked runtime.lastError: Could not establish connection"
+ * per second, for the life of the page, in every tab via the content script.
+ */
+describe('IntercomClient reconnect hygiene', () => {
+  let lastErrorReads: number;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    disconnectCallback = null;
+    lastErrorReads = 0;
+    // `lastError` as a getter so the test can prove the code READ it — reading
+    // is what marks it handled and stops Chrome logging "Unchecked".
+    Object.defineProperty(mockRuntime, 'lastError', {
+      configurable: true,
+      get() {
+        lastErrorReads++;
+        return undefined;
+      }
+    });
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    delete (mockRuntime as unknown as Record<string, unknown>).lastError;
+  });
+
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  it('reads runtime.lastError when the port disconnects', async () => {
+    new IntercomClient();
+    await settle();
+    expect(disconnectCallback).not.toBeNull();
+
+    disconnectCallback!();
+
+    expect(lastErrorReads).toBeGreaterThan(0);
+  });
+
+  it('backs off instead of retrying every second forever', async () => {
+    new IntercomClient();
+    await settle();
+    const connectsAfterInit = mockRuntime.connect.mock.calls.length;
+
+    // First failure: retried at the base delay.
+    disconnectCallback!();
+    jest.advanceTimersByTime(1_000);
+    await settle();
+    expect(mockRuntime.connect.mock.calls.length).toBe(connectsAfterInit + 1);
+
+    // Second failure: 1s is no longer enough — the delay has doubled.
+    disconnectCallback!();
+    jest.advanceTimersByTime(1_000);
+    await settle();
+    expect(mockRuntime.connect.mock.calls.length).toBe(connectsAfterInit + 1);
+
+    jest.advanceTimersByTime(1_000);
+    await settle();
+    expect(mockRuntime.connect.mock.calls.length).toBe(connectsAfterInit + 2);
+  });
+
+  it('stops reconnecting for good once the extension context is invalidated', async () => {
+    new IntercomClient();
+    await settle();
+    const connectsAfterInit = mockRuntime.connect.mock.calls.length;
+
+    Object.defineProperty(mockRuntime, 'lastError', {
+      configurable: true,
+      get() {
+        lastErrorReads++;
+        return { message: 'Extension context invalidated.' };
+      }
+    });
+
+    disconnectCallback!();
+    // Far longer than any backoff step: an orphaned context can never recover,
+    // so the loop must be over rather than merely slower.
+    jest.advanceTimersByTime(120_000);
+    await settle();
+
+    expect(mockRuntime.connect.mock.calls.length).toBe(connectsAfterInit);
+  });
+
+  it('resets the backoff after a port stays connected', async () => {
+    new IntercomClient();
+    await settle();
+
+    // Two failures in a row push the delay out to 2s.
+    disconnectCallback!();
+    jest.advanceTimersByTime(1_000);
+    await settle();
+    disconnectCallback!();
+    jest.advanceTimersByTime(2_000);
+    await settle();
+    const connectsAfterTwoFailures = mockRuntime.connect.mock.calls.length;
+
+    // This port survives the healthy window, so the next outage starts over
+    // at the base delay rather than inheriting the earlier backoff.
+    jest.advanceTimersByTime(10_000);
+    await settle();
+
+    disconnectCallback!();
+    jest.advanceTimersByTime(1_000);
+    await settle();
+    expect(mockRuntime.connect.mock.calls.length).toBe(connectsAfterTwoFailures + 1);
+  });
+});

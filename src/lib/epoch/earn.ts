@@ -13,7 +13,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
-import { createEarnP2IDNote } from './earn-note';
+import { createEarnP2IDENote } from './earn-note';
 import type { BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
@@ -65,7 +65,10 @@ export interface EarnIntentParams {
   depositAmount: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: `0x${string}`;
-  /** Absolute future Miden block at which the P2IDE note becomes reclaimable. */
+  /**
+   * Mandate-only reclaim-height estimate (hashed into the witness). The note's
+   * real reclaim height derives from the SDK callback's `recallBlocks` instead.
+   */
   midenReclaimHeight: number;
 }
 
@@ -140,11 +143,11 @@ export async function getEarnQuote(
   return { taskTypeString, intentData, quoteResult, params };
 }
 
-/** Step 2: submit the lending intent, locking Miden collateral via `createMidenP2IDNote`. */
+/** Step 2: submit the lending intent, locking Miden collateral via `createMidenP2IDENote`. */
 export async function buildEarnIntent(
   sdk: EpochIntentSDK,
   params: EarnIntentParams & {
-    createMidenP2IDNote?: SolveIntentParams['createMidenP2IDNote'];
+    createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
     /** Pre-fetched quote from `getEarnQuote` — skips the getTaskData step. */
     preFetchedQuote?: EarnQuote;
     /**
@@ -182,7 +185,7 @@ export async function buildEarnIntent(
       collateralType: CollateralType.Miden,
       midenFaucetId: midenFaucetHex,
       midenSourceAccount: midenSourceHex,
-      createMidenP2IDNote: params.createMidenP2IDNote
+      createMidenP2IDENote: params.createMidenP2IDENote
     });
     // The nonce lands on one of several fields depending on the solve path.
     const nonce =
@@ -326,7 +329,7 @@ export interface OpenEarnPositionArgs {
  * directly via the read-only client.
  *
  * There is exactly ONE on-chain transaction: the recallable P2IDE note created by
- * the `createMidenP2IDNote` callback (`createEarnP2IDNote`). That note IS the
+ * the `createMidenP2IDENote` callback (`createEarnP2IDENote`). That note IS the
  * `earn-deposit` activity row — created, proved, and submitted by the normal send
  * pipeline, then marked "Deposited to lending".
  */
@@ -347,9 +350,11 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     midenFaucetId: getEarnCollateralFaucet(),
     depositAmount: args.amount.toString(),
     evmRecipient,
-    // Minimum window + headroom for the blocks that elapse while the collateral
-    // note is proved and submitted (the allocator validates against its later
-    // chain head). Mirrors `buildEpochSendIntentParams`.
+    // Mandate-only estimate (hashed into the witness, echoed back by the
+    // allocator). The NOTE's actual reclaim height is NOT derived from this —
+    // it uses the SDK-supplied `recallBlocks` from the mint callback (allocator
+    // minimum + SDK buffer); the allocator validates the note's REMAINING
+    // window against its own chain head, not this exact height.
     midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
   };
 
@@ -368,12 +373,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
         console.warn('[epoch] updateEarnDepositStatus(pending) failed', err)
       );
     },
-    createMidenP2IDNote: async (faucet, amount, allocatorId) => {
-      const res = await createEarnP2IDNote({
+    createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      const res = await createEarnP2IDENote({
         senderAccountId: args.senderPublicKey,
         faucetId: faucet,
         amount,
         allocatorId,
+        recallBlocks,
+        bindingAttachmentFelts,
         evmRecipient,
         marketUid: EARN_MARKET_UID,
         deps: args.deps,

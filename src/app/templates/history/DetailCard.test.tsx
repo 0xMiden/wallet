@@ -140,6 +140,34 @@ describe('StatusPill', () => {
     expect(text).toHaveTextContent('t:confirmed');
   });
 
+  it('reports an unsettled swap as pending even though its row is Completed', () => {
+    // A swap row is Completed once the order note exists — the place-order
+    // transaction confirmed, the swap itself has not. Reading "Confirmed" there
+    // contradicts both the history list and the order status on the receipt.
+    const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="pending" />);
+
+    expect(label(container)).toHaveTextContent('t:pending');
+    expect(label(container)).not.toHaveTextContent('t:confirmed');
+  });
+
+  it('reports a reclaimed swap as reclaimed, and tones it like a cancellation', () => {
+    const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="reclaimed" />);
+
+    expect(label(container)).toHaveTextContent('t:reclaimed');
+    expect(pill(container)).toHaveClass('bg-gray-400');
+  });
+
+  it('lets failure outrank a reported settlement rather than labelling it in red', () => {
+    // A failed swap never placed its order, so it has no settlement to report.
+    // Taking the caller's word for one produced a pill reading "Pending" in
+    // failure red — two different outcomes at once, with the actionable one
+    // spelled only in colour.
+    const { container } = render(<StatusPill status={ITransactionStatus.Failed} swapSettlement="pending" />);
+
+    expect(label(container)).toHaveTextContent('t:failed');
+    expect(pill(container)).toHaveClass('bg-status-negative');
+  });
+
   it('renders the failed variant as a solid negative pill with a white close icon', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 

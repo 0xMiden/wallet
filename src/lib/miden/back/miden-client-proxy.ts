@@ -10,9 +10,10 @@
 // wedged WASM call dies with it — reopens a fresh doc, and rejects the
 // in-flight op(s) with `OperationAbortedError`.
 //
-// This is behind `MIDEN_USE_OFFSCREEN_CLIENT`, DEFAULT OFF. With the flag off,
-// every method here is a strict pass-through to the existing inline
-// `getMidenClient()` singleton, so production behavior is unchanged.
+// This is behind `MIDEN_USE_OFFSCREEN_CLIENT` (see the flag's own doc below for
+// the per-bundle defaults — ON in the extension service worker, off elsewhere).
+// With the flag off, every method here is a strict pass-through to the inline
+// `getMidenClient()` singleton.
 
 import { Account, getWasmOrThrow, Note, TransactionResult, type NoteQuery } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
@@ -23,7 +24,7 @@ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import type { InputNoteDetails } from 'lib/miden/sdk/miden-client-interface';
+import type { InputNoteDetails, RecoveryRangeResult } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
@@ -59,10 +60,19 @@ import type { NoteType } from '../types';
 /**
  * Feature flag: route proxied methods through the offscreen document.
  *
- * DEFAULT OFF. Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`)
- * so a build with the flag off dead-code-eliminates the offscreen branch. All
- * vite configs default `MIDEN_USE_OFFSCREEN_CLIENT` to `'false'`; mobile
- * hardcodes it off (no `chrome.offscreen` in WKWebView / Android WebView).
+ * Read as a module constant (mirroring `USE_OFFSCREEN_PROVING`) so a build with
+ * the flag off dead-code-eliminates the offscreen branch.
+ *
+ * Defaults per bundle, which decide whether an op has a deadline at all:
+ *   - extension service worker (`vite.background.config.ts`): ON. Ops are
+ *     dispatched to the offscreen realm and DO get their `deadlineMs`.
+ *   - extension UI, desktop, content scripts: OFF (env-overridable).
+ *   - mobile: hardcoded off (no `chrome.offscreen` in WKWebView / Android
+ *     WebView).
+ *
+ * So a backend op runs offscreen-with-deadline on the extension and INLINE WITH
+ * NO DEADLINE on mobile and desktop. Anything long-running has to bound itself;
+ * it cannot rely on a deadline to cut it off.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
@@ -80,6 +90,69 @@ const READ_DEADLINE_MS = 15_000;
  * genuinely-wedged realm (design §1.2 `SYNC_DEADLINE`).
  */
 const SYNC_DEADLINE_MS = 45_000;
+
+/**
+ * Per-op deadline (ms) for one pending-note recovery chunk (transport drain,
+ * proposal-note import, scan-range resolution, or one bounded public-backfill
+ * range). Recovery is deliberately chunked into ops of this size — a single
+ * long-held op starves queued reads past their dispatch-armed deadlines and
+ * gets the realm killed.
+ */
+const NOTE_RECOVERY_CHUNK_DEADLINE_MS = 60_000;
+
+/**
+ * Decode one recovery chunk's JSON payload. Recovery decides whether to clear
+ * the one-shot pending flag from these numbers, so a malformed payload has to
+ * throw rather than degrade: an absent `failures` would otherwise make the
+ * orchestrator's `sourceFailures` accumulator NaN, and `NaN > 0` is false —
+ * reading as "every source succeeded" over a chunk that reported nothing.
+ */
+function parseRecoveryResult(method: string, resultB64: string | null): unknown {
+  if (resultB64 == null) throw new Error(`${method}: offscreen document returned no result`);
+  return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+}
+
+function readRecoveryCount(method: string, parsed: unknown, field: string): number {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, field) : undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${method}: offscreen document returned a malformed ${field}`);
+  }
+  return value;
+}
+
+function parseRecoveryCounts(method: string, resultB64: string | null): { imported: number; failures: number } {
+  const parsed = parseRecoveryResult(method, resultB64);
+  return {
+    imported: readRecoveryCount(method, parsed, 'imported'),
+    failures: readRecoveryCount(method, parsed, 'failures')
+  };
+}
+
+/**
+ * `saturated` drives the caller's range-splitting loop, so a non-boolean has to
+ * throw rather than be coerced: a truthy string would make it split forever.
+ */
+function readRecoverySaturated(method: string, parsed: unknown): boolean {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'saturated') : undefined;
+  if (typeof value !== 'boolean') {
+    throw new Error(`${method}: offscreen document returned a malformed saturated`);
+  }
+  return value;
+}
+
+/**
+ * `nextNoteOffset` re-offers the same block range, so like `saturated` it can
+ * loop: absent means finished, and anything present that is not a non-negative
+ * integer throws rather than being coerced into a cursor that never advances.
+ */
+function readRecoveryNoteOffset(method: string, parsed: unknown): number | undefined {
+  const value = parsed && typeof parsed === 'object' ? Reflect.get(parsed, 'nextNoteOffset') : undefined;
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${method}: offscreen document returned a malformed nextNoteOffset`);
+  }
+  return value;
+}
 
 /**
  * Per-op deadline (ms) for a whole-op offscreen WRITE (`consumeNoteId`).
@@ -780,15 +853,29 @@ export const midenClientProxy = {
    * MidenClientInterface.getTransactionCommitState). Backs the send/swap
    * idempotent-retry guard so a Failed row whose submit actually landed is never
    * resubmitted (double-send).
+   *
+   * Both flag paths must really answer. This used to return a hardcoded
+   * 'not-found' when the flag was on, described as conservative — it is the
+   * opposite. `verifySendLanded` maps 'not-found' to 'unknown', its "cannot
+   * prove it landed" verdict, and the retry goes ahead on that: the guard exists
+   * precisely to catch the case the stub silently waved through. And the flag is
+   * ON by default in the service worker, so the shipping path was the one with
+   * no guard at all.
+   *
+   * A dispatch failure therefore throws rather than degrading to a verdict. The
+   * caller's own catch treats a throw as indeterminate, which is the same
+   * conservative answer — but it logs, instead of quietly reporting a state the
+   * client never checked.
    */
   async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return (await getMidenClient()).getTransactionCommitState(txId);
     }
-    // Offscreen (mobile) dispatch for this read isn't wired yet; conservatively
-    // report indeterminate so the retry guard blocks a possible double-send
-    // rather than risk one. Extension/desktop + E2E run flag-off (the path above).
-    return 'not-found';
+    const resultB64 = await this.call('getTransactionCommitState', [txId], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) {
+      throw new Error('getTransactionCommitState: offscreen returned no result');
+    }
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as 'committed' | 'pending' | 'not-found';
   },
 
   /**
@@ -954,6 +1041,65 @@ export const midenClientProxy = {
       throw new Error('importNoteBytes: offscreen document returned no note id');
     }
     return new TextDecoder().decode(b64ToBytes(resultB64));
+  },
+
+  /** Pending-note recovery chunk: drain the private-note transport backlog. */
+  async drainPrivateNoteTransport(): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).drainPrivateNoteTransport());
+    }
+    await this.call('drainPrivateNoteTransport', [], { deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS });
+  },
+
+  /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));
+    }
+    const encodedNotes = proposalNoteBytes.map(bytesToB64);
+    const resultB64 = await this.call('importRecoveryNoteBytes', [encodedNotes], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    return parseRecoveryCounts('importRecoveryNoteBytes', resultB64);
+  },
+
+  /** Pending-note recovery chunk: resolve the creation-block scan range. */
+  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () => (await getMidenClient()).resolveRecoveryScanRange(createdAtSeconds));
+    }
+    const resultB64 = await this.call('resolveRecoveryScanRange', [createdAtSeconds], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    const parsed = parseRecoveryResult('resolveRecoveryScanRange', resultB64);
+    return {
+      startBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'startBlock'),
+      latestBlock: readRecoveryCount('resolveRecoveryScanRange', parsed, 'latestBlock')
+    };
+  },
+
+  /** Pending-note recovery chunk: public backfill over ONE bounded block range. */
+  async recoverPublicNotesRange(
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset = 0
+  ): Promise<RecoveryRangeResult> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return withWasmClientLock(async () =>
+        (await getMidenClient()).recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset)
+      );
+    }
+    const resultB64 = await this.call('recoverPublicNotesRange', [accountId, blockFrom, blockTo, noteOffset], {
+      deadlineMs: NOTE_RECOVERY_CHUNK_DEADLINE_MS
+    });
+    const parsed = parseRecoveryResult('recoverPublicNotesRange', resultB64);
+    return {
+      imported: readRecoveryCount('recoverPublicNotesRange', parsed, 'imported'),
+      failures: readRecoveryCount('recoverPublicNotesRange', parsed, 'failures'),
+      saturated: readRecoverySaturated('recoverPublicNotesRange', parsed),
+      nextNoteOffset: readRecoveryNoteOffset('recoverPublicNotesRange', parsed)
+    };
   },
 
   /**

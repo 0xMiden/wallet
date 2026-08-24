@@ -132,9 +132,20 @@ jobs:
           fi
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run blockchain E2E (devnet)
@@ -210,9 +221,20 @@ jobs:
           fi
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run blockchain E2E (testnet)
@@ -336,9 +358,20 @@ jobs:
           fi
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Build Chrome extension (devnet)
@@ -411,9 +444,20 @@ jobs:
           fi
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Build Chrome extension (testnet)
@@ -545,6 +589,29 @@ jobs:
       # exit status because `open -a` returns 0 even if already open.
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       # Fresh-create + boot of custom simulators hangs multi-minute then
       # errors on macos-26 runners. Pin the test harness to preinstalled
@@ -733,6 +800,29 @@ jobs:
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       - name: Pin test pair to preinstalled simulators
         shell: bash
@@ -973,6 +1063,29 @@ jobs:
       - name: Launch Simulator.app
         run: open -a Simulator || true
 
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
       # Fresh-create + boot of custom simulators hangs multi-minute then
       # errors on macos-26 runners. Pin the test harness to preinstalled
       # Xcode sims by writing .device-pair.json before globalSetup reads it.
@@ -1158,6 +1271,29 @@ jobs:
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       - name: Pin test pair to preinstalled simulators
         shell: bash

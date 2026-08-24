@@ -154,8 +154,12 @@ jest.mock('shared/logger', () => ({
 // the global control variable.
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'public';
+// A note whose metadata reports a string type maps through as itself, so a batch
+// can mix types per note; numeric stand-ins keep using the global switch.
 jest.mock('../helpers', () => ({
-  toNoteTypeString: () => (globalThis as any).__noteTypeForTest
+  ...jest.requireActual('../helpers'),
+  toNoteTypeString: (noteType: unknown) =>
+    typeof noteType === 'string' ? noteType : (globalThis as any).__noteTypeForTest
 }));
 
 jest.mock('../sdk/helpers', () => ({
@@ -484,7 +488,11 @@ describe('completeConsumeTransaction', () => {
     } as any;
     await completeConsumeTransaction('tx-1', txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-    expect(txStore[0]!.faucetId).toBeDefined();
+    // The values, not merely their presence: `toBeDefined()` alone passes
+    // against a hardcoded faucet id and a dropped amount, which is exactly the
+    // pair this test's name claims to protect.
+    expect(txStore[0]!.faucetId).toBe('faucet-1');
+    expect(txStore[0]!.amount).toBe(50n);
   });
 
   it('sums every consumed asset for the displayed faucet in a batch', async () => {
@@ -511,6 +519,125 @@ describe('completeConsumeTransaction', () => {
     await completeConsumeTransaction('tx-batch', txResult);
 
     expect(txStore[0]!.amount).toBe(75n);
+  });
+
+  // The completed row is what history, the details card and the receipt read, so
+  // these fields have to describe the whole batch — the queue-time estimate the
+  // ConsumeTransaction constructor wrote only sees the first asset of each note.
+  function fakeMultiAssetNote(opts: { assets: Array<[string, bigint]>; noteType?: string | number }) {
+    return {
+      note: () => ({
+        metadata: () => ({
+          sender: () => 'sender-1',
+          noteType: () => opts.noteType ?? 0
+        }),
+        assets: () => ({
+          fungibleAssets: () =>
+            opts.assets.map(([faucetId, amount]) => ({ faucetId: () => faucetId, amount: () => amount }))
+        })
+      })
+    };
+  }
+
+  function resultOf(notes: unknown[]) {
+    return {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'on-chain-hash' }),
+        inputNotes: () => ({ notes: () => notes })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    } as any;
+  }
+
+  it('records a per-faucet total for every asset the batch swept up', async () => {
+    txStore.push({
+      id: 'tx-multi',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+
+    await completeConsumeTransaction(
+      'tx-multi',
+      resultOf([
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 50n }),
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-2', amount: 10n }),
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 25n })
+      ])
+    );
+
+    expect(txStore[0]!.assetTotals).toEqual([
+      { faucetId: 'faucet-1', amount: 75n },
+      { faucetId: 'faucet-2', amount: 10n }
+    ]);
+    // `amount` stays the displayed faucet's entry in that list.
+    expect(txStore[0]!.faucetId).toBe('faucet-1');
+    expect(txStore[0]!.amount).toBe(75n);
+  });
+
+  it('counts every asset inside a single note, not just its first', async () => {
+    txStore.push({
+      id: 'tx-fat-note',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+
+    await completeConsumeTransaction(
+      'tx-fat-note',
+      resultOf([
+        fakeMultiAssetNote({
+          assets: [
+            ['faucet-1', 5n],
+            ['faucet-2', 7n]
+          ]
+        })
+      ])
+    );
+
+    expect(txStore[0]!.assetTotals).toEqual([
+      { faucetId: 'faucet-1', amount: 5n },
+      { faucetId: 'faucet-2', amount: 7n }
+    ]);
+  });
+
+  it('reports the note type of a uniform batch and nothing for a mixed one', async () => {
+    txStore.push({
+      id: 'tx-uniform',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    await completeConsumeTransaction(
+      'tx-uniform',
+      resultOf([
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' }),
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' })
+      ])
+    );
+    expect(txStore[0]!.noteType).toBe('public');
+
+    txStore.length = 0;
+    txStore.push({
+      id: 'tx-mixed',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    await completeConsumeTransaction(
+      'tx-mixed',
+      resultOf([
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' }),
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'private' })
+      ])
+    );
+    // Labelling a mixed batch by its first note would also drag it onto the
+    // private-note delivery path further down `completeConsumeTransaction`.
+    expect(txStore[0]!.noteType).toBeUndefined();
   });
 
   it('throws when the executed transaction has no input notes', async () => {

@@ -434,8 +434,10 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
   for (const row of rows) {
     if (row.type !== 'earn-withdraw') continue;
-    const ei: IEarnWithdrawExtraInputs = row.extraInputs;
-    if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei.phase)) continue;
+    // Optional-chained: a row with no `extraInputs` has no phase to advance, and
+    // throwing here would stall every row behind it in the loop.
+    const ei: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
+    if (!NON_TERMINAL_WITHDRAW_PHASES.has(ei?.phase ?? '')) continue;
     if (row.initiatedAt < cutoffSec) {
       await updatePhase(row.id, 'failed', { error: 'Withdrawal timed out.' }).catch(() => undefined);
       continue;
