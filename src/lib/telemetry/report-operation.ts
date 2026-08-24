@@ -78,8 +78,11 @@ async function egress(event: OperationSettledEvent): Promise<void> {
 export interface SettledOperation {
   operation: TelemetryOperation;
   result: 'completed' | 'errored';
-  /** End to end, in ms. Negative or non-finite values are dropped, not sent. */
-  durationMs: number;
+  /**
+   * End to end, in ms. Omit it when there is no meaningful interval; negative
+   * and non-finite values are dropped rather than sent.
+   */
+  durationMs?: number;
   errorKind?: TelemetryErrorKind;
   step?: TelemetryStep;
 }
@@ -127,14 +130,16 @@ export function reportOperation(settled: SettledOperation): void {
     try {
       // A clock that jumped, or a row with no start time, produces a duration
       // that is worse than absent — it would land in an average. The event is
-      // still worth sending; the number is not.
-      const durationMs = Number.isFinite(settled.durationMs) && settled.durationMs >= 0 ? settled.durationMs : 0;
+      // still worth sending; the number is not. Omitted rather than zeroed,
+      // because a zero averages and an absent field does not.
+      const { durationMs } = settled;
+      const usable = durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0;
       await egress({
         phase: 'settled',
         operation: settled.operation,
         runId: touchRun(),
         result: settled.result,
-        durationMs,
+        ...(usable ? { durationMs } : {}),
         ...(settled.errorKind !== undefined ? { errorKind: settled.errorKind } : {}),
         ...(settled.step !== undefined ? { step: settled.step } : {})
       });

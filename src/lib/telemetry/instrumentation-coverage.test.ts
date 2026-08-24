@@ -53,6 +53,16 @@ function sourceFiles(directory: string): string[] {
  */
 const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
 
+/**
+ * The only files whose `key: 'step_name'` entries count as instrumentation.
+ *
+ * A step reached through a table is passed to the reporter as a variable, so
+ * there is no call site naming it and the table entry is the only evidence there
+ * is. Which is fine — as long as the search for one is confined to the tables
+ * that actually feed a reporter, and not to every object literal in the tree.
+ */
+const STEP_TABLES: readonly string[] = [WIRING_INSIDE_TELEMETRY, 'app/pages/Welcome.tsx'];
+
 /** Non-test sources, excluding the telemetry module's own plumbing. */
 const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
   .map(path => ({ path: relative(SRC, path).split(sep).join('/'), text: readFileSync(path, 'utf8') }))
@@ -102,6 +112,7 @@ const EVERY_STEP: Record<TelemetryStep, TelemetryStep> = {
   syncing: 'syncing',
   executing: 'executing',
   proving: 'proving',
+  sending: 'sending',
   confirming: 'confirming',
   signing: 'signing',
   prove_delegate: 'prove_delegate',
@@ -198,9 +209,24 @@ describe('every declared operation is actually reported somewhere', () => {
 
 describe('every declared step is actually reported somewhere', () => {
   it.each(Object.keys(EVERY_STEP) as TelemetryStep[])('%s has a call site that reports it', step => {
-    // Either a `.step(...)` / `report*Step(...)` call, or an entry in a step
-    // table mapping a screen onto it (how onboarding reports its funnel).
-    const reported = filesMatching(new RegExp(String.raw`(\.step\(|Step\()[^)]*'${step}'|:\s*'${step}'`));
+    // Three shapes: a `.step(...)` / `report*Step(...)` call, a `step:` key in a
+    // reporter's own argument, or an entry in a table that maps something else
+    // onto a step.
+    //
+    // Only the third is a bare `key: 'value'`, and it is confined to the files
+    // holding those tables. That confinement is load-bearing rather than
+    // tidiness. Unmatched by key name and unconfined by file, most of these
+    // names are ordinary English words that turn up as unrelated status values:
+    // `signing` was satisfied by a Zustand store's `set({ status: 'signing' })`
+    // in `lib/epoch/store.ts`, so deleting all four `signing` entries from
+    // `STEP_BY_STAGE` left this test green, and `submitting` had the same
+    // exposure twice over. A test that passes on the strength of an unrelated
+    // string is worse than no test, because it reads as coverage.
+    const named = new RegExp(String.raw`(\.step\(|Step\()[^)]*'${step}'|step:\s*'${step}'`);
+    const inTable = new RegExp(String.raw`:\s*'${step}'`);
+    const reported = CALL_SITES.filter(
+      file => named.test(file.text) || (STEP_TABLES.includes(file.path) && inTable.test(file.text))
+    ).map(file => file.path);
 
     expect(reported.length).toBeGreaterThan(0);
   });

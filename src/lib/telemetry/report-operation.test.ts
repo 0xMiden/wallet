@@ -96,14 +96,29 @@ describe('a duration that cannot be true', () => {
     ['negative, from a clock that stepped back', -5000],
     ['not a number, from arithmetic on a missing start time', Number.NaN],
     ['infinite', Number.POSITIVE_INFINITY]
-  ])('drops a %s duration to zero rather than polluting an average', async (_why, durationMs) => {
+  ])('drops a %s duration rather than polluting an average', async (_why, durationMs) => {
     setOperationTransport(capturing);
     reportOperation({ operation: 'tx_send', result: 'completed', durationMs });
     await settle();
 
-    // Zero, not absent: the event still says the operation finished, which is
-    // the fact worth having. Only the number it could not measure is discarded.
-    expect(onlyEvent().durationMs).toBe(0);
+    // Absent, not zero. The event still goes — that the operation finished is
+    // the fact worth having — but a zero would be counted as a real measurement
+    // by anything that averages, which is the thing being avoided. Asserted as
+    // an own-property check because `undefined` alone would also pass if the
+    // field were sent explicitly as `undefined` and then serialized to `null`.
+    expect('durationMs' in onlyEvent()).toBe(false);
+  });
+
+  it('reports an operation that has no meaningful interval at all', async () => {
+    // A reconciliation, which is the real caller: the row is promoted from
+    // Failed to Completed when the user taps Retry, so the only interval
+    // available is how long the user was away. Omitting it is the point.
+    setOperationTransport(capturing);
+    reportOperation({ operation: 'tx_send', result: 'completed' });
+    await settle();
+
+    expect(onlyEvent().result).toBe('completed');
+    expect('durationMs' in onlyEvent()).toBe(false);
   });
 });
 

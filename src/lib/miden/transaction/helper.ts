@@ -5,7 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
@@ -129,14 +129,22 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   // send with no note to deliver, a guardian rotation that could not be applied
   // — arrive here and would otherwise be the only failures that reported
   // nothing at all.
+  //
+  // Two more writers exist and both report for themselves, because both are
+  // *transitions between* terminal states and this function's guard refuses
+  // those outright: `completeVerifiedLandedTransaction` promotes Failed →
+  // Completed on node evidence, and `markBridgedSendFailed` demotes Completed →
+  // Failed when the allocator rejects an intent whose note already committed.
+  // Adding a writer that skips this function is therefore also adding a report;
+  // `rg 'status = ITransactionStatus\.(Completed|Failed)'` is the list to check
+  // against, and every hit on it should be one of these five.
   if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
     reportOperation({
       operation: operationOfType(tx.type),
       result: status === ITransactionStatus.Completed ? 'completed' : 'errored',
-      // `initiatedAt` is in seconds. This is how long the user waited from
-      // pressing the button to the money having moved, which is the number
-      // worth watching for regressions.
-      durationMs: Date.now() - tx.initiatedAt * 1000,
+      // How long the user waited from pressing the button to the money having
+      // moved, which is the number worth watching for regressions.
+      durationMs: elapsedMsSince(tx.initiatedAt),
       // The stage of a failure written this way is whatever the row was in when
       // it happened, which is exactly the diagnostic the failure carries. A
       // success has none: `stage` was just stamped `complete` above, which is
@@ -226,12 +234,15 @@ export const completeVerifiedLandedTransaction = async (
   // from a realm that may no longer exist, and suppressing this one would leave
   // the ambiguous post-submit abort — the case this whole function exists for —
   // permanently counted as a failure and never as a success.
+  //
+  // Deliberately without a duration. The only caller is `requeueFailedTransaction`,
+  // which runs when the user taps Retry — possibly days after `initiatedAt`. That
+  // interval is "how long until somebody came back", and putting it in the field
+  // a reader uses to watch for latency regressions would let a handful of them
+  // own the tail of every send's distribution. There is no honest interval to
+  // report here, so none is.
   if (reconciled !== undefined) {
-    reportOperation({
-      operation: operationOfType(reconciled.type),
-      result: 'completed',
-      durationMs: Date.now() - reconciled.initiatedAt * 1000
-    });
+    reportOperation({ operation: operationOfType(reconciled.type), result: 'completed' });
   }
 };
 

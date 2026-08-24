@@ -247,6 +247,9 @@ function resetControl() {
     // flag (the delegated remote→local fallback). Overridable per test.
     guardianProveCalls: [] as any[],
     guardianProveShouldFailOnce: false,
+    // Overridable so a test can choose between a transport-shaped failure (which
+    // is what marks a prover outage) and a semantic one (which must not).
+    guardianProveFailureMessage: 'remote prover deadline expired',
     guardianSubmitted: false,
     guardianApplied: false,
     guardianExecuteRequest: jest.fn(async (_accountId: string, _tr: unknown) => {
@@ -258,7 +261,7 @@ function resetControl() {
           g2.__off.guardianProveCalls.push(options);
           if (g2.__off.guardianProveShouldFailOnce) {
             g2.__off.guardianProveShouldFailOnce = false;
-            throw new Error('remote prover deadline expired');
+            throw new Error(g2.__off.guardianProveFailureMessage);
           }
           return {
             submit: jest.fn(async () => {
@@ -1800,6 +1803,72 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
     expect(G.__off.guardianApplied).toBe(true);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a transport-shaped prove failure reports a prover outage from THIS realm', async () => {
+    // The realm bug this closes, which is the third of its kind. The worker's
+    // guardian catch gates `markConnectivityIssue('prover')` on the row's stage
+    // being `proving`, and only the INLINE leaf ever stamps that. This leaf
+    // reports no stages back at all, so on the default build — where every
+    // guardian type routes here — the row is still frozen at `sending`, that
+    // gate can never fire, and a prover failing only on guardian operations
+    // produced no `service_prover` event from anywhere.
+    //
+    // Asserted through the forward rather than through module state, because the
+    // forward is the only part the worker can see.
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    G.__off.guardianProveFailureMessage = 'transport error: connection refused';
+    G.chrome.runtime.sendMessage.mockClear();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const forwarded = G.chrome.runtime.sendMessage.mock.calls
+      .map(([message]: [{ event?: { operation?: string } }]) => message.event?.operation)
+      .filter((operation: string | undefined) => operation !== undefined);
+
+    // The outage AND the fallback: the transaction still succeeded on the local
+    // prover, so a reader needs both to tell "the prover is down" from "the
+    // prover is down and transactions are failing".
+    expect(forwarded).toContain('service_prover');
+    expect(forwarded).toContain('prove');
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): a semantic prove failure reports no outage', async () => {
+    // The gate has to be the error's shape, not merely that a prove failed.
+    // Marking an outage on "invalid transaction request" would attribute a
+    // malformed request to the prover being down, and since a mark no-ops while
+    // one is already active it would then swallow the next real outage entirely.
+    await loadModule();
+    G.__off.guardianProveShouldFailOnce = true;
+    G.__off.guardianProveFailureMessage = 'invalid transaction request';
+    G.chrome.runtime.sendMessage.mockClear();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    const forwarded = G.chrome.runtime.sendMessage.mock.calls.map(
+      ([message]: [{ event?: { operation?: string } }]) => message.event?.operation
+    );
+
+    expect(forwarded).not.toContain('service_prover');
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 

@@ -21,7 +21,12 @@ import * as Repo from 'lib/miden/repo';
 import { SettledOperation } from 'lib/telemetry/report-operation';
 
 import { cancelTransaction } from './cancel';
-import { TRANSACTION_INTERRUPTED_ON_STARTUP, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import { markBridgedSendFailed } from './complete';
+import {
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { completeVerifiedLandedTransaction, updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus, ITransactionType, SendTransaction } from '../db/types';
 
@@ -157,6 +162,31 @@ describe('what is not a failure', () => {
     expect(reported).toEqual([]);
   });
 
+  it('DOES report a consume the node said never landed, despite the reason being named an interruption', async () => {
+    // `TRANSACTION_INTERRUPTED_ERROR` is on the notification's suppression list
+    // and must not be on the reporting one. Its single caller is
+    // `verifyStuckTransactionsFromNode`, reached only after the node has been
+    // asked and has said the input note is still unconsumed on a consume past
+    // the grace window — a node-verified terminal failure, whose name is a
+    // leftover from the user-facing copy. Suppressing it undercounts `tx_receive`
+    // failures by exactly the share the reaper resolves, and those are the ones
+    // nothing else reports either, since no pipeline catch ever ran for them.
+    const tx = row('reaped-consume', { type: 'consume' as ITransactionType, stage: 'sending' });
+    await Repo.transactions.add(tx);
+
+    await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
+
+    expect(reported).toEqual([
+      {
+        operation: 'tx_receive',
+        result: 'errored',
+        durationMs: expect.any(Number),
+        errorKind: 'unknown',
+        step: 'sending'
+      }
+    ]);
+  });
+
   it('reports nothing for a row that had already finished', async () => {
     // A late error against a completed row is refused by cancel itself. It must
     // be refused here too, or a successful transaction would report a failure
@@ -223,12 +253,18 @@ describe('a transaction that succeeded', () => {
     // events stand — the failure was true when reported, and without this one the
     // case that motivated the reconciliation existing would be permanently
     // counted as a failure and never as a success.
+    //
+    // With no duration, deliberately. The only caller runs when the user taps
+    // Retry, so the interval available is how long they were away — and putting
+    // that in the field a reader watches for latency regressions would let a
+    // handful of them own the tail of every send. Asserted as an absent KEY, not
+    // a zero: a zero is counted by anything that averages.
     const tx = row('reconciled', { status: ITransactionStatus.Failed, error: 'Could not verify' });
     await Repo.transactions.add(tx);
 
     await completeVerifiedLandedTransaction(tx.id);
 
-    expect(reported).toEqual([{ operation: 'tx_send', result: 'completed', durationMs: expect.any(Number) }]);
+    expect(reported).toEqual([{ operation: 'tx_send', result: 'completed' }]);
   });
 
   it('reports nothing when there was no failed row to reconcile', async () => {
@@ -238,6 +274,32 @@ describe('a transaction that succeeded', () => {
     await completeVerifiedLandedTransaction(tx.id);
 
     expect(reported).toEqual([]);
+  });
+
+  it('takes back the success when a bridge intent is rejected after the note committed', async () => {
+    // The mirror of the reconciliation above, and the case where reporting
+    // nothing is worse than useless. As far as the send pipeline is concerned a
+    // bridged-send succeeded — it wrote `Completed` and reported it — and the
+    // allocator then rejects the intent, leaving the funds in a recallable note.
+    // Without a second event the only thing a failed bridge ever says is that it
+    // worked, which moves a failure into the denominator and makes the bridge
+    // look healthier the more often it fails this exact way.
+    const tx = row('bridge-rejected', { type: 'bridged-send' as ITransactionType });
+    await Repo.transactions.add(tx);
+
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {});
+    await markBridgedSendFailed(tx.id, 'solver has no liquidity for this route', 12345);
+
+    expect(reported).toEqual([
+      { operation: 'tx_bridge', result: 'completed', durationMs: expect.any(Number) },
+      {
+        operation: 'tx_bridge',
+        result: 'errored',
+        durationMs: expect.any(Number),
+        errorKind: 'unknown',
+        step: 'submitting'
+      }
+    ]);
   });
 
   it('reports nothing for a status on the way there', async () => {

@@ -352,16 +352,39 @@ failed every transaction for everyone would have produced no product event
 own errors and renders failure UX rather than letting one reach a global
 handler).
 
-These arrive as a single `<operation>_settled` event, with `result` and
+These arrive as a single `<operation>_settled` event, with `result` and usually a
 `durationMs`, plus a `step` naming where a failure happened.
 
 | Event | What it means |
 |---|---|
-| `tx_send_settled`, `tx_swap_settled`, `tx_receive_settled`, `tx_earn_settled`, `tx_bridge_settled`, `tx_guardian_settled`, `tx_dapp_settled` | One transaction reached a terminal state. `result: errored` with `step: proving` is a prover problem; with `step: submitting` or `confirming`, a node problem. |
+| `tx_send_settled`, `tx_swap_settled`, `tx_receive_settled`, `tx_earn_settled`, `tx_bridge_settled`, `tx_guardian_settled`, `tx_dapp_settled` | One transaction reached a terminal state. On `result: errored`, read `step` as below. |
+| `tx_other_settled` | A row whose type this build has never heard of, written by a newer version. Should be zero; a non-zero count means a downgrade happened. |
 | `prove_settled` | One prove attempt. `step: prove_delegate` or `prove_local` for a normal one; `step: prove_fallback` means the delegated prover failed and the local one finished the job — the transaction succeeded and the user waited twice. |
 | `service_prover_settled`, `service_node_settled`, `service_network_settled` | A dependency went down (`result: errored`) or came back (`result: completed`, with `durationMs` as the outage length). |
 
-Three things to know before reading them:
+**Reading `step` on a failed transaction, which is not as direct as it looks.**
+Only a guardian transaction whose leaf ran inline stamps an explicit `proving`.
+Everything else — every ordinary send, and every guardian transaction on the
+default build, where the leaf runs in the offscreen document and reports no
+stages back — is stamped `sending` once when the pipeline picks it up, and runs
+execute, prove *and* submit under it.
+
+| `step` | What failed |
+|---|---|
+| `syncing` | Before anything was built. Usually the node. |
+| `signing` | Talking to the guardian while building the transaction. |
+| `executing` | Local execution, before proving. Usually a wallet bug or a bad request. |
+| `proving` | The prover, unambiguously — but only guardian-inline transactions can say this. |
+| `sending` | **Somewhere in execute → prove → submit, indistinguishable from the stage alone.** The commonest step on a failure by a wide margin. Cross it with `errorKind`: `proving` or `timeout` points at the prover, `rpc` or `network` at the node or the connection. |
+| `submitting` | Genuinely at or after the hand-off to the network. |
+| `confirming` | Submitted, waiting for inclusion. The node. |
+
+Do not read `sending` as a submission failure. Folding it into `submitting` was
+the first thing this reporting did and it was wrong: it filed every prover outage
+on the wallet's commonest transaction type as a node problem, which is precisely
+the conclusion the whole feature exists to make impossible.
+
+Four things to know before reading them:
 
 - **They carry no `flowId`,** so an operation cannot be joined to the flow that
   started it. Doing so would mean writing a telemetry identifier onto the
@@ -384,6 +407,18 @@ Three things to know before reading them:
   could, when a real prove hits it. If the fallback rate is ever needed as an
   early warning, the speculative path needs its own operation rather than a share
   of this one.
+- **A missing `durationMs` is deliberate, not a dropped field.** Two outcomes
+  have no honest interval and so report none: a row reconciled from `Failed` to
+  `Completed` when the user finally taps Retry, where the only interval available
+  is how long they were away, and a row that never recorded a start time. Filter
+  them out of a latency percentile rather than treating an absent duration as
+  zero — which is exactly why it is absent rather than zero.
+- **A bridge can produce two events with opposite verdicts, in that order.** A
+  bridged send reports `completed` when the note commits, because as far as the
+  send pipeline is concerned it is done; if the allocator then rejects the intent,
+  the row is demoted and reports `errored` with `step: submitting`. Both are true
+  of the moment they were sent. When counting bridge failures, the later event
+  wins.
 
 ### What a completed swap looks like
 

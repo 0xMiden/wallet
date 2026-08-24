@@ -52,6 +52,16 @@ const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
  * `submitting`. `proving` stays on its own because a prover failure is the whole
  * reason this reporting exists.
  *
+ * `sending` keeps its own name and must not join `submitting`. Only guardian
+ * transactions whose leaf ran inline stamp an explicit `proving`; a non-guardian
+ * row is stamped `sending` once at pickup and runs the whole execute → prove →
+ * submit SDK pipeline under it, and so does a guardian row whose leaf ran in the
+ * offscreen document, which reports no stages back. `PROVING_STAGES` in
+ * `transaction/constants.ts` already treats `sending` as prover-suspect for
+ * exactly this reason. Mapping it to `submitting` would have filed every prover
+ * outage on the commonest transaction type as a node problem — the one
+ * conclusion this reporting exists to make impossible.
+ *
  * `complete` maps to `undefined`: a row that reached it did not fail anywhere,
  * so there is no failure location to name.
  */
@@ -59,7 +69,7 @@ const STEP_BY_STAGE: Record<ITransactionStage, TelemetryStep | undefined> = {
   syncing: 'syncing',
   executing: 'executing',
   proving: 'proving',
-  sending: 'submitting',
+  sending: 'sending',
   submitting: 'submitting',
   delivering: 'submitting',
   confirming: 'confirming',
@@ -83,4 +93,23 @@ export function operationOfType(type: ITransactionType): TelemetryOperation {
 export function stepOfStage(stage: ITransactionStage | undefined): TelemetryStep | undefined {
   if (stage === undefined) return undefined;
   return STEP_BY_STAGE[stage];
+}
+
+/**
+ * Milliseconds from a row's `initiatedAt` until now, or `undefined` if the row
+ * never recorded a start.
+ *
+ * Rows store seconds and every telemetry duration is in milliseconds, so the
+ * conversion has to happen somewhere; it happens here so no reader has to know
+ * which events measure in which unit.
+ *
+ * Shared rather than repeated at each reporting site, because the open-coded
+ * version is `Date.now() - tx.initiatedAt * 1000` and on a row with no
+ * `initiatedAt` that is `NaN`. `reportOperation` drops a non-finite duration, so
+ * the difference is invisible today — which is exactly how a copy of the
+ * arithmetic without the guard survives review and then starts mattering.
+ */
+export function elapsedMsSince(initiatedAtSeconds: number | undefined): number | undefined {
+  if (initiatedAtSeconds === undefined) return undefined;
+  return Date.now() - initiatedAtSeconds * 1000;
 }

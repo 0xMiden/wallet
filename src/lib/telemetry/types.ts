@@ -113,6 +113,15 @@ export type TelemetryStep =
   | 'proving'
   | 'confirming'
   | 'signing'
+  // The opaque middle, and the reason it needs a name of its own. A non-guardian
+  // transaction is stamped `sending` once at pickup and runs execute, prove and
+  // submit under it, as does a guardian transaction whose leaf ran in the
+  // offscreen document — so a prover failure and a node rejection are genuinely
+  // indistinguishable from the stage there. Folding it into `submitting` was the
+  // tempting reading and the wrong one: it would file every prover outage on the
+  // wallet's commonest transaction as a node problem, which is the single fact
+  // this reporting exists to establish. Cross it with `errorKind` to narrow it.
+  | 'sending'
   // Which prover produced the proof, for a `prove` operation. `prove_fallback`
   // is the case worth watching: the delegated prover failed, the local one
   // picked it up, the transaction succeeded, and the user waited twice.
@@ -200,8 +209,17 @@ export interface OperationSettledEvent {
   /** `completed` or `errored`. An operation is never `cancelled` by the user. */
   result: Exclude<TelemetryResult, 'cancelled'>;
   errorKind?: TelemetryErrorKind;
-  /** How long the wallet spent on it, end to end. */
-  durationMs: number;
+  /**
+   * How long the wallet spent on it, end to end.
+   *
+   * Optional, because for some outcomes there is no such interval and a made-up
+   * one is worse than none. A row reconciled when the user finally taps Retry
+   * has been sitting there for however long the user was away, and reporting
+   * that as the operation's duration would put "time until someone came back" in
+   * the same distribution as "time the send took" — where a handful of them
+   * would own the tail. Absent is readable; zero is not, since zero averages.
+   */
+  durationMs?: number;
   /** Where it got to: the pipeline stage, or which prover ran. */
   step?: TelemetryStep;
 }

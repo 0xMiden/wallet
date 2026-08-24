@@ -126,16 +126,47 @@ export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName'
 export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
 
 /**
- * The event name, from whichever of the two subjects this payload carries.
+ * Every shape the event name may take. Three lower-case words at most, then the
+ * phase.
  *
- * `serializeEvent` sets exactly one of `flow` and `operation`, and the phase
- * says which. Falling back to `tx_other_settled` rather than throwing keeps a
- * malformed payload from failing the operation it was reporting on — telemetry
- * losing its own name is a smaller problem than telemetry breaking a send.
+ * Checked rather than trusted, because this is the one field in the envelope
+ * built by *concatenation* rather than by copying an allowlisted value, and so
+ * the one place a string can reach the wire without having passed a closed
+ * union. Every legitimate caller is typed, but the offscreen document forwards
+ * over `chrome.runtime.sendMessage`, which is `unknown` at the wire and which
+ * any other installed extension may post to — so "typed at every call site" is
+ * not the same as "closed at the boundary".
+ *
+ * A pattern rather than the enumerated union: the union is already written down
+ * three times, and a fourth copy that has to be kept in step by hand is a worse
+ * guarantee than a rule that cannot drift. What matters here is that nothing
+ * arbitrary lands in a dashboard's event list, and a name is either of this
+ * shape or it is not.
  */
-function eventNameOf(payload: TelemetryWirePayload): AptabaseEventName {
-  if (payload.phase === 'settled') return `${payload.operation ?? 'tx_other'}_settled`;
-  return `${payload.flow ?? 'open'}_${payload.phase}`;
+const EVENT_NAME_PATTERN = /^[a-z]+(_[a-z]+){0,2}_(started|ended|settled)$/;
+
+/** The event name this payload would be posted under. */
+function eventNameOf(payload: TelemetryWirePayload): string {
+  return payload.phase === 'settled' ? `${payload.operation}_settled` : `${payload.flow}_${payload.phase}`;
+}
+
+/**
+ * Whether this payload can be named at all.
+ *
+ * The gate the sink applies before anything is queued or posted, so a payload
+ * that cannot produce a well-formed name never reaches the wire and never
+ * reaches the retry queue either. Refusing it outright is the right outcome: an
+ * event whose subject cannot be named carries no information, so there is
+ * nothing to salvage by guessing a substitute — and a guessed name is worse than
+ * no event, because it lands in a dashboard looking like a real one.
+ */
+export function isNameableEvent(payload: TelemetryWirePayload): boolean {
+  // The subject is checked for presence separately, because a missing one
+  // stringifies to `undefined` — which is lower-case letters and would sail
+  // through the pattern as a perfectly well-formed `undefined_settled`.
+  const subject = payload.phase === 'settled' ? payload.operation : payload.flow;
+  if (typeof subject !== 'string' || subject.length === 0) return false;
+  return EVENT_NAME_PATTERN.test(eventNameOf(payload));
 }
 
 /**
@@ -163,7 +194,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   return {
     timestamp: now.toISOString(),
     sessionId: payload.runId,
-    eventName: eventNameOf(payload),
+    eventName: eventNameOf(payload) as AptabaseEventName,
     systemProps: {
       isDebug: process.env.NODE_ENV !== 'production',
       osName: payload.platform,

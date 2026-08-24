@@ -36,7 +36,7 @@ belong to the two flow phases, `operation` to `settled`:
 | `result` | `completed`, `cancelled`, `errored` (`ended` and `settled` only; an operation is never `cancelled`) |
 | `errorKind` | `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout`, `unknown` (only when it failed). Derived by inspecting an error message and returning one of these eight — the message itself never leaves the device |
 | `durationMs` | Rounded integer milliseconds |
-| `step` | Where it got to, from a closed list of 22 names. For a flow, the furthest screen reached, such as `select_amount` or `review` — never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `submitting`) or which prover ran (`prove_fallback`) |
+| `step` | Where it got to, from a closed list of 23 names. For a flow, the furthest screen reached, such as `select_amount` or `review` — never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `sending`, `submitting`) or which prover ran (`prove_fallback`) |
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
 

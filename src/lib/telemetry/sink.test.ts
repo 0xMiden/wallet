@@ -44,6 +44,42 @@ describe('telemetry sink', () => {
     expect(sent).toEqual([]);
   });
 
+  describe('an event whose name would not be a name', () => {
+    // The one field in the envelope built by joining two others rather than by
+    // copying an allowlisted value, and so the only way a string can reach a
+    // dashboard's event list without having passed a closed union. Every typed
+    // caller is safe; the offscreen document's forward is not, arriving over
+    // `chrome.runtime.sendMessage` as `unknown` on a channel any installed
+    // extension may post to.
+    beforeEach(() => {
+      jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
+    });
+
+    it.each([
+      ['an injected flow name', { ...started, flow: 'evil"; DROP--' }],
+      ['an injected operation name', { phase: 'settled', operation: 'https://exfil.example', runId: 'r1' }],
+      ['a missing subject', { phase: 'settled', runId: 'r1' }],
+      ['a missing phase', { flow: 'send', flowId: 'f1', runId: 'r1' }]
+    ])('refuses %s', async (_why, event) => {
+      await sendEvent(event as unknown as TelemetryEvent, context);
+      expect(sent).toEqual([]);
+    });
+
+    it('refuses it before the queue, not just before the request', async () => {
+      // Otherwise a malformed event sits in the retry buffer and is posted by
+      // whatever drains it next, having passed the only check there was.
+      await sendEvent({ ...started, flow: 'evil name' } as unknown as TelemetryEvent, context);
+      expect(__getQueueLengthForTest()).toBe(0);
+    });
+
+    it('still sends a well-formed one, so the gate is not simply refusing everything', async () => {
+      await sendEvent({ phase: 'settled', operation: 'tx_send', runId: 'r1', result: 'errored' } as TelemetryEvent, {
+        ...context
+      });
+      expect(sent).toHaveLength(1);
+    });
+  });
+
   it('sends the serialized payload when consent is on', async () => {
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
     await sendEvent(started, context);

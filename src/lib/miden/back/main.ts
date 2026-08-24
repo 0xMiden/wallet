@@ -102,12 +102,19 @@ function registerOffscreenSignHandler(): void {
   if (offscreenSignHandlerRegistered) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
-  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse: (r?: unknown) => void) => {
     // A SW-targeted message is either an OFFSCREEN_SIGN_REQUEST or an
     // OFFSCREEN_OP_STARTED (distinct `type` literals), so type `m` loosely and
     // discriminate on `type` below.
     const m = msg as { target?: string; type?: string; op_id?: string; sign_id?: string } | undefined;
     if (m?.target !== SW_TARGET) return false;
+    // Only this extension's own pages. `chrome.runtime.onMessage` is not private
+    // to the extension: with no `externally_connectable` declared, Chrome's
+    // default is that other EXTENSIONS may send here even though web pages may
+    // not. Everything below this line trusts its message — the op-started signal
+    // arms a write deadline, the sign request reaches the vault — so the check
+    // belongs above all three rather than on the one that happens to be newest.
+    if (sender.id !== undefined && sender.id !== chrome.runtime.id) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.

@@ -43,9 +43,21 @@ describe('naming where a transaction died', () => {
     expect(stepOfStage('proving')).toBe('proving');
   });
 
-  it('folds every stage that hands bytes to the network onto one name', () => {
-    const submitting: ITransactionStage[] = ['sending', 'submitting', 'delivering'];
-    expect(submitting.map(stepOfStage)).toEqual(['submitting', 'submitting', 'submitting']);
+  it('folds the stages that genuinely hand bytes to the network onto one name', () => {
+    const submitting: ITransactionStage[] = ['submitting', 'delivering'];
+    expect(submitting.map(stepOfStage)).toEqual(['submitting', 'submitting']);
+  });
+
+  it('keeps `sending` out of the submitting bucket, because it is not one', () => {
+    // The assertion that stops the headline signal being reported backwards.
+    // Only a guardian transaction whose leaf ran inline ever stamps an explicit
+    // `proving`; a non-guardian row is stamped `sending` once at pickup and runs
+    // execute, prove AND submit under it, as does a guardian row whose leaf ran
+    // offscreen — which is the default build. Folding it into `submitting` reads
+    // as "the node refused it", so every prover outage on the wallet's commonest
+    // transaction type would have been filed as a node problem.
+    expect(stepOfStage('sending')).toBe('sending');
+    expect(stepOfStage('sending')).not.toBe('submitting');
   });
 
   it('folds every stage that talks to the guardian onto one name', () => {

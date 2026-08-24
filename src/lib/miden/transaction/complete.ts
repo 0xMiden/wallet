@@ -3,6 +3,9 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -787,6 +790,7 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
     id,
     error
   });
+  let demoted: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
@@ -797,5 +801,26 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
       epochStatus: 'failed',
       ...(reclaimHeight != null ? { reclaimHeight } : {})
     };
+    demoted = tx;
   });
+
+  // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
+  // reason. This row already reported `completed` on its way through
+  // `updateTransactionStatus`, because as far as the send pipeline was concerned
+  // it succeeded. Without this the only settled event a rejected bridge ever
+  // produces says it worked — which is worse than reporting nothing, since it
+  // moves a failure into the denominator and makes the bridge look healthier the
+  // more often it fails this way.
+  //
+  // `step: 'submitting'` rather than a mapped stage: the row is stamped
+  // `complete` by now, and what failed is the intent the note was submitted for.
+  if (demoted !== undefined) {
+    reportOperation({
+      operation: operationOfType(demoted.type),
+      result: 'errored',
+      durationMs: elapsedMsSince(demoted.initiatedAt),
+      errorKind: classifyError(error),
+      step: 'submitting'
+    });
+  }
 };

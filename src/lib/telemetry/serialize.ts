@@ -41,7 +41,11 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
   if (event.phase === 'settled') {
     payload.operation = event.operation;
     payload.result = event.result;
-    payload.durationMs = Math.round(event.durationMs);
+    // Optional here and only here: some outcomes have no honest interval to
+    // report, and an absent field reads as absent where a zero would average.
+    if (event.durationMs !== undefined) {
+      payload.durationMs = Math.round(event.durationMs);
+    }
     if (event.errorKind !== undefined) {
       payload.errorKind = event.errorKind;
     }

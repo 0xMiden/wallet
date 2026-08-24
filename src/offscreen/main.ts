@@ -27,6 +27,8 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_OP_STARTED,
@@ -505,8 +507,20 @@ const DISPATCH: Record<string, DispatchFn> = {
       try {
         provenTx = await executedTx.prove({});
         reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+        clearConnectivityIssue('prover');
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+        // Marked HERE, in the realm that watched the prove fail, and not left to
+        // the worker's catch. That catch gates its own `markConnectivityIssue`
+        // on the row's stage being `proving`, which only the inline leaf ever
+        // stamps: this one reports no stages back at all, so the row is still
+        // frozen at `sending` and the gate cannot fire. On the default build
+        // that gate covers nothing, and a prover that failed only on guardian
+        // operations would produce no `service_prover` event from anywhere.
+        //
+        // Same realm marks and clears, so the outage gets a duration rather
+        // than a start with no end.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         try {
           provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
           reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
