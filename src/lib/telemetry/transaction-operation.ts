@@ -52,6 +52,14 @@ const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
  * `submitting`. `proving` stays on its own because a prover failure is the whole
  * reason this reporting exists.
  *
+ * WHEN matters as much as which system, and getting it wrong is the failure mode
+ * this map has had twice. A stage that runs after the transaction is on chain
+ * must not fold onto a name that reads as pre-submit, no matter which system it
+ * talks to — otherwise a transaction that succeeded and then failed to tidy up
+ * is indistinguishable from one that never got built. So the three post-commit
+ * guardian stages fold onto `confirming` rather than `signing`, and `sending`
+ * keeps its own name rather than joining `submitting`.
+ *
  * `sending` keeps its own name and must not join `submitting`. Only guardian
  * transactions whose leaf ran inline stamp an explicit `proving`; a non-guardian
  * row is stamped `sending` once at pickup and runs the whole execute → prove →
@@ -71,13 +79,23 @@ const STEP_BY_STAGE: Record<ITransactionStage, TelemetryStep | undefined> = {
   proving: 'proving',
   sending: 'sending',
   submitting: 'submitting',
-  delivering: 'submitting',
+  // Also post-commit: the private-note transport relay, which runs after the
+  // transaction is on chain. Same rule as the guardian stages below.
+  delivering: 'confirming',
   confirming: 'confirming',
   'creating-proposal': 'signing',
   'signing-proposal': 'signing',
-  'registering-guardian': 'signing',
-  'guardian-syncing': 'signing',
-  'guardian-synced': 'signing',
+  // Post-submit, all three, and so NOT `signing`. `registering-guardian` is the
+  // guardian re-registration that runs after the transaction committed, and the
+  // two `guardian-sync` stages sit in a block whose own comment says the
+  // transaction is already Completed and the submit already succeeded. Filing
+  // them as `signing` — which the docs define as talking to the guardian while
+  // BUILDING the transaction — would report a transaction that reached the chain
+  // as one that was never built, the same misdirection as folding `sending` into
+  // `submitting` and wrong in the same direction.
+  'registering-guardian': 'confirming',
+  'guardian-syncing': 'confirming',
+  'guardian-synced': 'confirming',
   complete: undefined
 };
 

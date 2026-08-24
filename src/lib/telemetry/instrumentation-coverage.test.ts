@@ -71,6 +71,30 @@ const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
 const filesMatching = (pattern: RegExp): string[] => CALL_SITES.filter(f => pattern.test(f.text)).map(f => f.path);
 
 /**
+ * Does this file so much as know telemetry exists?
+ *
+ * The precondition on every match below, and the one that closes the whole
+ * family of false passes rather than the latest instance of it. Each pattern
+ * here is a heuristic over source text, so each one can be satisfied by
+ * coincidence — a `setStep('review')` React state setter matched the call shape,
+ * a Zustand `status: 'signing'` matched the table shape — and chasing those one
+ * at a time by tightening the regex is a losing game, because the next
+ * coincidence is written by somebody who has never read this file.
+ *
+ * A file that reports telemetry imports telemetry. That is not a heuristic, it
+ * is a consequence, and it holds for the two known coincidences: neither
+ * `VerifySeedPhraseFlow.tsx` nor `lib/epoch/store.ts` imports anything from
+ * here. The mapping tables in `STEP_TABLES` satisfy it too — one is inside the
+ * telemetry module, and `Welcome.tsx` imports the reporter it feeds.
+ */
+const REPORTS_TELEMETRY = /from '(lib\/telemetry|\.\/types)/;
+
+const instrumentedFilesMatching = (pattern: RegExp, alsoAllow?: (path: string) => boolean): string[] =>
+  CALL_SITES.filter(
+    file => REPORTS_TELEMETRY.test(file.text) && (pattern.test(file.text) || (alsoAllow?.(file.path) ?? false))
+  ).map(file => file.path);
+
+/**
  * Written as `Record`s over the unions so widening either one fails `yarn ts`
  * here until the new member is listed, and then fails this test until it is
  * actually wired to something.
@@ -209,24 +233,24 @@ describe('every declared operation is actually reported somewhere', () => {
 
 describe('every declared step is actually reported somewhere', () => {
   it.each(Object.keys(EVERY_STEP) as TelemetryStep[])('%s has a call site that reports it', step => {
-    // Three shapes: a `.step(...)` / `report*Step(...)` call, a `step:` key in a
-    // reporter's own argument, or an entry in a table that maps something else
-    // onto a step.
+    // Three shapes, all of them inside a file that imports telemetry: a
+    // `.step(...)` / `report*Step(...)` call, a `step:` key in a reporter's own
+    // argument, or an entry in a table that maps something else onto a step.
     //
-    // Only the third is a bare `key: 'value'`, and it is confined to the files
-    // holding those tables. That confinement is load-bearing rather than
-    // tidiness. Unmatched by key name and unconfined by file, most of these
-    // names are ordinary English words that turn up as unrelated status values:
-    // `signing` was satisfied by a Zustand store's `set({ status: 'signing' })`
-    // in `lib/epoch/store.ts`, so deleting all four `signing` entries from
-    // `STEP_BY_STAGE` left this test green, and `submitting` had the same
-    // exposure twice over. A test that passes on the strength of an unrelated
-    // string is worse than no test, because it reads as coverage.
+    // Every one of these shapes has been satisfied by coincidence at some point.
+    // `signing` passed on a Zustand `set({ status: 'signing' })` in
+    // `lib/epoch/store.ts`, which is what `STEP_TABLES` is for; `review` passed
+    // on a `setStep('review')` React state setter in `VerifySeedPhraseFlow.tsx`,
+    // which matches `Step\(` and no amount of regex tightening would reliably
+    // predict the next one of those. `REPORTS_TELEMETRY` is the precondition that
+    // does not depend on predicting them. A test that passes on the strength of
+    // an unrelated string is worse than no test, because it reads as coverage.
     const named = new RegExp(String.raw`(\.step\(|Step\()[^)]*'${step}'|step:\s*'${step}'`);
     const inTable = new RegExp(String.raw`:\s*'${step}'`);
-    const reported = CALL_SITES.filter(
-      file => named.test(file.text) || (STEP_TABLES.includes(file.path) && inTable.test(file.text))
-    ).map(file => file.path);
+    const reported = instrumentedFilesMatching(
+      named,
+      path => STEP_TABLES.includes(path) && inTable.test(CALL_SITES.find(file => file.path === path)?.text ?? '')
+    );
 
     expect(reported.length).toBeGreaterThan(0);
   });

@@ -142,8 +142,14 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * guarantee than a rule that cannot drift. What matters here is that nothing
  * arbitrary lands in a dashboard's event list, and a name is either of this
  * shape or it is not.
+ *
+ * Each word is length-bounded, which an unbounded `[a-z]+` was not. A megabyte
+ * of `a` is still lower-case letters, so it composed a name this pattern would
+ * have accepted and POSTed — leaving the sender check as the only thing in front
+ * of it, which is one control too few for a path that ends in an HTTP request.
+ * The longest real word is `receive` at seven, so 24 is generous.
  */
-const EVENT_NAME_PATTERN = /^[a-z]+(_[a-z]+){0,2}_(started|ended|settled)$/;
+const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled)$/;
 
 /** The event name this payload would be posted under. */
 function eventNameOf(payload: TelemetryWirePayload): string {

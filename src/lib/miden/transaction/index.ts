@@ -1362,14 +1362,19 @@ const generateGuardianTransaction = async (
     throw error;
   }
 
-  // The pipeline proved and submitted, so whatever prover outage the requeue
-  // above marked is over. Cleared HERE rather than where the prove succeeded,
-  // because those are different realms: the mark happens in the worker, and on
-  // the extension's default build the prove itself happens in the offscreen
-  // document, whose module state the worker does not share. Clearing from the
-  // offscreen side would leave the worker's flag set forever — the banner
-  // stuck on, and, since `markConnectivityIssue` no-ops on an already-active
-  // category, every later prover outage deduped away and never reported.
+  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+  // realm holds its own `connectivity-state` module state, so this cannot reach
+  // the offscreen document's — which is why the offscreen leaf marks and clears
+  // its own, right where the prove happens.
+  //
+  // What this clears is the worker-realm mark from the inline leaf's delegated
+  // prove, on a build with the offscreen route off. The requeue path above
+  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+  // one that only the inline leaf can reach at all, since the offscreen leaf
+  // reports no stages and leaves the row at `sending`. Unconditional here rather
+  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+  // and the alternative is a condition that has to be kept in step with the
+  // routing predicate.
   clearConnectivityIssue('prover');
 
   // The tx id, re-derived from the (possibly offscreen-round-tripped) result

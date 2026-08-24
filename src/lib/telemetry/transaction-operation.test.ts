@@ -43,9 +43,13 @@ describe('naming where a transaction died', () => {
     expect(stepOfStage('proving')).toBe('proving');
   });
 
-  it('folds the stages that genuinely hand bytes to the network onto one name', () => {
-    const submitting: ITransactionStage[] = ['submitting', 'delivering'];
-    expect(submitting.map(stepOfStage)).toEqual(['submitting', 'submitting']);
+  it('reserves `submitting` for the node hand-off itself, and nothing after it', () => {
+    // `submitting` is the only stage that IS the hand-off. `delivering` runs
+    // after the transaction is on chain — it is the private-note transport relay
+    // — so calling it `submitting` would report a transaction that committed as
+    // one the node might have refused.
+    expect(stepOfStage('submitting')).toBe('submitting');
+    expect(stepOfStage('delivering')).toBe('confirming');
   });
 
   it('keeps `sending` out of the submitting bucket, because it is not one', () => {
@@ -60,15 +64,23 @@ describe('naming where a transaction died', () => {
     expect(stepOfStage('sending')).not.toBe('submitting');
   });
 
-  it('folds every stage that talks to the guardian onto one name', () => {
-    const signing: ITransactionStage[] = [
-      'creating-proposal',
-      'signing-proposal',
-      'registering-guardian',
-      'guardian-syncing',
-      'guardian-synced'
-    ];
-    expect(new Set(signing.map(stepOfStage))).toEqual(new Set(['signing']));
+  it('folds the guardian stages that run while BUILDING the transaction onto `signing`', () => {
+    const building: ITransactionStage[] = ['creating-proposal', 'signing-proposal'];
+    expect(new Set(building.map(stepOfStage))).toEqual(new Set(['signing']));
+  });
+
+  it('keeps the post-commit guardian stages out of `signing`, because the transaction already landed', () => {
+    // The same defect as `sending` folding into `submitting`, pointing the other
+    // way. `registering-guardian` is the re-registration that runs after the
+    // transaction committed, and both `guardian-sync` stages sit in a block whose
+    // own comment says the row is already Completed and the submit already
+    // succeeded. Reported as `signing` — which the docs define as talking to the
+    // guardian while BUILDING — a transaction that reached the chain and then
+    // failed to tidy up would be indistinguishable from one never built at all.
+    const afterCommit: ITransactionStage[] = ['registering-guardian', 'guardian-syncing', 'guardian-synced'];
+
+    expect(new Set(afterCommit.map(stepOfStage))).toEqual(new Set(['confirming']));
+    expect(afterCommit.map(stepOfStage)).not.toContain('signing');
   });
 
   it('names no failure location for a row that finished', () => {

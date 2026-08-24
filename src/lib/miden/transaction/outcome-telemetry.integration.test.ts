@@ -21,7 +21,7 @@ import * as Repo from 'lib/miden/repo';
 import { SettledOperation } from 'lib/telemetry/report-operation';
 
 import { cancelTransaction } from './cancel';
-import { markBridgedSendFailed } from './complete';
+import { markBridgedSendFailed, updateBridgedReceivePhase, updateEarnWithdrawPhase } from './complete';
 import {
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_INTERRUPTED_ON_STARTUP,
@@ -300,6 +300,97 @@ describe('a transaction that succeeded', () => {
         step: 'submitting'
       }
     ]);
+  });
+});
+
+describe('the rows that are Completed from birth', () => {
+  // Two row types carry their real outcome in `extraInputs.phase` and are
+  // `Completed` in the database from the moment they are created, so neither ever
+  // makes a terminal write through `updateTransactionStatus` and neither was
+  // reporting anything at all — not a failure, and not a success either. So
+  // `tx_bridge_settled` counted only outbound bridges and `tx_earn_settled` only
+  // deposits, while the docs said these events mean "one transaction reached a
+  // terminal state". Same structural blind spot the whole feature exists to
+  // close, left open for the two row types where the money is least visible.
+  const phased = (id: string, type: string, phase: string): ITransaction =>
+    row(id, {
+      type: type as ITransactionType,
+      status: ITransactionStatus.Completed,
+      extraInputs: { phase }
+    } as Partial<ITransaction>) as ITransaction;
+
+  it('reports a failed earn withdrawal, which the user cannot even retry', async () => {
+    // `earn-withdraw` is excluded from `REQUEUEABLE_TYPES`, so a failure here is
+    // terminal from the user's side: the funds simply appear stuck. Reporting
+    // nothing made that invisible.
+    const tx = phased('withdraw-failed', 'earn-withdraw', 'delivering');
+    await Repo.transactions.add(tx);
+
+    await updateEarnWithdrawPhase(tx.id, 'failed', { error: 'bridge relay timed out' });
+
+    expect(onlyReported()).toEqual({
+      operation: 'tx_earn',
+      result: 'errored',
+      durationMs: expect.any(Number),
+      errorKind: 'timeout',
+      step: 'submitting'
+    });
+  });
+
+  it('reports a successful earn withdrawal, so the failure has a denominator', async () => {
+    const tx = phased('withdraw-landed', 'earn-withdraw', 'delivering');
+    await Repo.transactions.add(tx);
+
+    await updateEarnWithdrawPhase(tx.id, 'received');
+
+    expect(onlyReported()).toEqual({
+      operation: 'tx_earn',
+      result: 'completed',
+      durationMs: expect.any(Number)
+    });
+  });
+
+  it('reports an inbound bridge once, on the phase where the bridge finished its job', async () => {
+    // `ready` and `received` are both terminal — the note is on Miden and
+    // claimable, then it is claimed. The bridge is done at `ready`; whether the
+    // user then claims it is a question about the user. And unlike the
+    // earn-withdraw writer there is no monotonic guard here, so passing through
+    // both phases must still produce exactly one event.
+    const tx = phased('bridge-in', 'bridged-receive', 'delivering');
+    await Repo.transactions.add(tx);
+
+    await updateBridgedReceivePhase(tx.id, 'ready');
+    await updateBridgedReceivePhase(tx.id, 'received');
+
+    expect(onlyReported()).toEqual({
+      operation: 'tx_bridge',
+      result: 'completed',
+      durationMs: expect.any(Number)
+    });
+  });
+
+  it('reports a failed inbound bridge, which is money the user cannot see', async () => {
+    const tx = phased('bridge-in-failed', 'bridged-receive', 'submitting');
+    await Repo.transactions.add(tx);
+
+    await updateBridgedReceivePhase(tx.id, 'failed', { error: 'intent rejected by the allocator' });
+
+    expect(onlyReported()).toEqual({
+      operation: 'tx_bridge',
+      result: 'errored',
+      durationMs: expect.any(Number),
+      errorKind: 'unknown',
+      step: 'submitting'
+    });
+  });
+
+  it('reports nothing for a phase that is not the end of anything', async () => {
+    const tx = phased('bridge-in-progress', 'bridged-receive', 'submitting');
+    await Repo.transactions.add(tx);
+
+    await updateBridgedReceivePhase(tx.id, 'delivering');
+
+    expect(reported).toEqual([]);
   });
 
   it('reports nothing for a status on the way there', async () => {

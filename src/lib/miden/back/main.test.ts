@@ -536,8 +536,19 @@ describe('processRequest', () => {
 // `chrome.runtime.onMessage.addListener` from the sign handler (intercom.onRequest
 // is a separate, mocked channel), so index 0 is the sign listener.
 const capturedRuntimeListeners: Array<(m: any, s: any, r: (x?: any) => void) => any> = [];
+
+/**
+ * The listener refuses any sender that is not this extension, so every fixture
+ * has to name one. Shared rather than inlined so the identity check has one
+ * place to be wrong in, and so a test about routing is not silently also a test
+ * about identity.
+ */
+const OWN_EXTENSION_ID = 'this-extension';
+const ownSender = { id: OWN_EXTENSION_ID };
+
 beforeAll(() => {
   const chromeAny = (globalThis as any).chrome;
+  if (chromeAny?.runtime) chromeAny.runtime.id = OWN_EXTENSION_ID;
   if (chromeAny?.runtime?.onMessage) {
     chromeAny.runtime.onMessage.addListener = (l: any) => capturedRuntimeListeners.push(l);
   }
@@ -552,9 +563,9 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const listener = signListener();
     expect(typeof listener).toBe('function');
     // Wrong target / wrong type → not ours, let other listeners handle it.
-    expect(listener({ target: 'offscreen', type: 'OFFSCREEN_CALL' }, {}, jest.fn())).toBe(false);
-    expect(listener({ type: 'OFFSCREEN_READY' }, {}, jest.fn())).toBe(false);
-    expect(listener(undefined, {}, jest.fn())).toBe(false);
+    expect(listener({ target: 'offscreen', type: 'OFFSCREEN_CALL' }, ownSender, jest.fn())).toBe(false);
+    expect(listener({ type: 'OFFSCREEN_READY' }, ownSender, jest.fn())).toBe(false);
+    expect(listener(undefined, ownSender, jest.fn())).toBe(false);
   });
 
   it('answers an OFFSCREEN_SIGN_REQUEST via handleOffscreenSignRequest → swSignCallback (bytes only)', async () => {
@@ -569,7 +580,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
         publicKeyB64: Buffer.from([0x01, 0x02]).toString('base64'),
         signingInputsB64: Buffer.from([0x03, 0x04]).toString('base64')
       },
-      {},
+      ownSender,
       sendResponse
     );
     // Returning true keeps the message port open for the async sendResponse.
@@ -591,7 +602,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const sendResponse = jest.fn();
     const ret = signListener()(
       { target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'op-started-42' },
-      {},
+      ownSender,
       sendResponse
     );
     // Fire-and-forget: no async response, so the port is NOT held open.
@@ -612,7 +623,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const sendResponse = jest.fn();
     const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed', durationMs: 12 };
 
-    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, {}, sendResponse);
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, ownSender, sendResponse);
 
     // Fire-and-forget, like OFFSCREEN_OP_STARTED: nothing answers, so holding
     // the port open would leave the sender's promise pending until Chrome
@@ -624,6 +635,60 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
   });
 
+  describe('the sender check, which nothing else in this listener stands behind', () => {
+    // `chrome.runtime.onMessage` is not private to the extension. With no
+    // `externally_connectable` declared, Chrome's default is that other
+    // EXTENSIONS may send here even though web pages may not — and every branch
+    // below the check trusts its message: the op-started signal arms a write
+    // deadline, the sign request reaches the vault, the telemetry event reaches
+    // the wire. So the check sits above all three rather than on the newest one,
+    // and these assertions cover all three.
+    const foreign = { id: 'some-other-extension-id' };
+
+    it('refuses a telemetry event from another extension', () => {
+      Actions.handleReportTelemetryEvent.mockResolvedValue({ type: 'x' });
+      const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed' };
+
+      const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, foreign, jest.fn());
+
+      expect(ret).toBe(false);
+      expect(Actions.handleReportTelemetryEvent).not.toHaveBeenCalled();
+    });
+
+    it('refuses an op-started signal from another extension, so a write deadline cannot be armed remotely', () => {
+      const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED', op_id: 'not-ours' }, foreign, jest.fn());
+
+      expect(ret).toBe(false);
+      expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
+    });
+
+    it('refuses a sign request from another extension, which is the one that reaches the vault', () => {
+      const sendResponse = jest.fn();
+
+      const ret = signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SIGN_REQUEST', op_id: 'op-x', sign_id: 'sign-x', messageB64: 'AA==' },
+        foreign,
+        sendResponse
+      );
+
+      expect(ret).toBe(false);
+      expect(sendResponse).not.toHaveBeenCalled();
+      expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+    });
+
+    it('still accepts our own offscreen document, which is the only legitimate sender', () => {
+      // The other half of the check. Without this, a guard that refused
+      // everything would pass all three assertions above and silently break the
+      // channel that carries every prove event on the default build.
+      Actions.handleReportTelemetryEvent.mockResolvedValue({ type: 'x' });
+      const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed' };
+
+      signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, ownSender, jest.fn());
+
+      expect(Actions.handleReportTelemetryEvent).toHaveBeenCalledWith({ event });
+    });
+  });
+
   it('swallows a rejecting telemetry handler, so a signing listener cannot fail because of telemetry', async () => {
     // This listener is shared with signing. An unhandled rejection here is an
     // unhandled rejection in the worker, which in some runtimes is fatal — and
@@ -632,13 +697,17 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     Actions.handleReportTelemetryEvent.mockRejectedValue(new Error('sink is gone'));
 
     expect(() =>
-      signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event: { phase: 'settled' } }, {}, jest.fn())
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event: { phase: 'settled' } },
+        ownSender,
+        jest.fn()
+      )
     ).not.toThrow();
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   it('ignores an OFFSCREEN_OP_STARTED with a non-string op_id (no markOpStarted, no crash)', () => {
-    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, {}, jest.fn());
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_OP_STARTED' }, ownSender, jest.fn());
     expect(ret).toBe(false);
     expect(proxyMock.markOpStarted).not.toHaveBeenCalled();
   });
@@ -658,7 +727,7 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
         publicKeyB64: Buffer.from([0x01]).toString('base64'),
         signingInputsB64: Buffer.from([0x02]).toString('base64')
       },
-      {},
+      ownSender,
       sendResponse
     );
     await flushMicro();

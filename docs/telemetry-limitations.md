@@ -132,9 +132,11 @@ rather than per session.
 the local WASM client then failed to record it. The pipeline marks the row
 `Completed` on purpose — the funds moved, the next sync reconciles the note
 states, and retrying would hit the node's nullifier check and produce a
-misleading "already consumed" error. There are three such branches:
-`src/lib/miden/transaction/index.ts:1556` for non-guardian rows, and the
-value-moving and canonicalization-race branches of the guardian catch.
+misleading "already consumed" error. There are four such branches:
+`src/lib/miden/transaction/index.ts:1556` for non-guardian rows, the value-moving
+and canonicalization-race branches of the guardian catch, and
+`reconcileStructuralApplyFailure`, which completes a replace-hot-key or
+switch-guardian after the same failure.
 
 Because the row is `Completed`, the settled event says `result: completed`, which
 in "did the user's money move" terms is true and in "did the client work" terms
@@ -358,6 +360,7 @@ These arrive as a single `<operation>_settled` event, with `result` and usually 
 | Event | What it means |
 |---|---|
 | `tx_send_settled`, `tx_swap_settled`, `tx_receive_settled`, `tx_earn_settled`, `tx_bridge_settled`, `tx_guardian_settled`, `tx_dapp_settled` | One transaction reached a terminal state. On `result: errored`, read `step` as below. |
+| `tx_earn_settled`, `tx_bridge_settled` (again) | These two each cover two lifecycles. An earn deposit and a bridged send are ordinary rows that settle through `updateTransactionStatus`; an earn *withdrawal* and an inbound *bridge* are `Completed` in the database from birth and carry their real outcome in `extraInputs.phase`, so they report from their own phase writers instead. Both halves land under the same event name and are not distinguishable from the props. |
 | `tx_other_settled` | A row whose type this build has never heard of, written by a newer version. Should be zero; a non-zero count means a downgrade happened. |
 | `prove_settled` | One prove attempt. `step: prove_delegate` or `prove_local` for a normal one; `step: prove_fallback` means the delegated prover failed and the local one finished the job — the transaction succeeded and the user waited twice. |
 | `service_prover_settled`, `service_node_settled`, `service_network_settled` | A dependency went down (`result: errored`) or came back (`result: completed`, with `durationMs` as the outage length). |
@@ -376,15 +379,15 @@ execute, prove *and* submit under it.
 | `executing` | Local execution, before proving. Usually a wallet bug or a bad request. |
 | `proving` | The prover, unambiguously — but only guardian-inline transactions can say this. |
 | `sending` | **Somewhere in execute → prove → submit, indistinguishable from the stage alone.** The commonest step on a failure by a wide margin. Cross it with `errorKind`: `proving` or `timeout` points at the prover, `rpc` or `network` at the node or the connection. |
-| `submitting` | Genuinely at or after the hand-off to the network. |
-| `confirming` | Submitted, waiting for inclusion. The node. |
+| `submitting` | The hand-off to the network itself, and nothing after it. |
+| `confirming` | Anything after the transaction is on chain: waiting for inclusion, the private-note transport relay, and the guardian's post-commit re-registration and sync. A failure here did not cost the user the transaction. |
 
 Do not read `sending` as a submission failure. Folding it into `submitting` was
 the first thing this reporting did and it was wrong: it filed every prover outage
 on the wallet's commonest transaction type as a node problem, which is precisely
 the conclusion the whole feature exists to make impossible.
 
-Four things to know before reading them:
+Some things to know before reading them:
 
 - **They carry no `flowId`,** so an operation cannot be joined to the flow that
   started it. Doing so would mean writing a telemetry identifier onto the
@@ -413,6 +416,18 @@ Four things to know before reading them:
   is how long they were away, and a row that never recorded a start time. Filter
   them out of a latency percentile rather than treating an absent duration as
   zero — which is exactly why it is absent rather than zero.
+- **A `service_*` outage's `durationMs` is a bound, not a measurement, and on the
+  extension it is loose.** Three reasons, none of them fixable without giving the
+  connectivity tracker durable cross-realm state. Each realm — worker, offscreen
+  document, page — holds its own in-memory copy, so an outage marked in one is
+  cleared by that one or not at all. The offscreen document is torn down
+  routinely rather than rarely (a stale send-form speculation closes it), which
+  loses an open outage's `completed` and lets a single sustained outage re-report
+  `errored` once per document lifetime. And `service_prover`'s clear fires on any
+  successful prove including a purely local one, so its duration is closer to
+  "time until the next prove of any kind worked" than "time the delegated prover
+  was down". Read a rising count of `errored` as the outage signal and treat the
+  duration as an upper bound on a single stretch, not a total.
 - **A bridge can produce two events with opposite verdicts, in that order.** A
   bridged send reports `completed` when the note commits, because as far as the
   send pipeline is concerned it is done; if the allocator then rejects the intent,
@@ -438,6 +453,10 @@ which may arrive under a different session:
 The `open` pair is there because the app shell mounted; the swap pair is there
 because the user went to `/swap` and submitted. Both share one `sessionId`,
 which is what makes this readable as a visit rather than as four loose rows.
+It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
+at first, and the events that showed up during a swap came from unrelated screens
+the user happened to pass through — a genuinely misleading result, since an
+unmatched `send_started` reads as an abandoned payment.
 
 ### Handled failures do not become crash reports, and the worker has none
 
@@ -464,10 +483,6 @@ guarded by a test precisely to keep it small, which a Sentry client is not. Unti
 that is done, read a healthy crash dashboard as "the UI is not throwing", which
 is a much narrower claim than it appears.
 
-It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
-at first, and the events that showed up during a swap came from unrelated screens
-the user happened to pass through — a genuinely misleading result, since an
-unmatched `send_started` reads as an abandoned payment.
 
 ## Instrumenting a new flow: mount is not intent
 

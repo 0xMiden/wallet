@@ -114,7 +114,13 @@ function registerOffscreenSignHandler(): void {
     // not. Everything below this line trusts its message — the op-started signal
     // arms a write deadline, the sign request reaches the vault — so the check
     // belongs above all three rather than on the one that happens to be newest.
-    if (sender.id !== undefined && sender.id !== chrome.runtime.id) return false;
+    //
+    // Fails CLOSED, including on a sender with no id at all. Chrome populates
+    // `sender.id` on every message from an extension page, so an absent one is
+    // not a legitimate caller this would be excluding — and a security check
+    // whose default is to allow is one that stops working the moment something
+    // upstream changes shape.
+    if (sender.id !== chrome.runtime.id) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.

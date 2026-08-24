@@ -335,10 +335,14 @@ test.describe('Telemetry egress', () => {
 
       for (const envelope of settled) {
         const props = envelope.props as Record<string, unknown>;
-        // An operation always knows how it turned out and how long it took —
-        // absent either, the event says nothing a count could not.
+        // An operation always knows how it turned out. It does not always know
+        // how long it took, and that is by design rather than an omission: a row
+        // reconciled when the user finally taps Retry has no honest interval, so
+        // it sends none rather than a zero that would be averaged. Asserting a
+        // number here would encode the opposite of the design and go red the
+        // first time this spec reached a reconciliation.
         expect(['completed', 'errored']).toContain(props.result);
-        expect(typeof props.durationMs).toBe('number');
+        expect(['number', 'undefined']).toContain(typeof props.durationMs);
         expect(props.flowId).toBeUndefined();
       }
     });

@@ -59,7 +59,10 @@ describe('telemetry sink', () => {
       ['an injected flow name', { ...started, flow: 'evil"; DROP--' }],
       ['an injected operation name', { phase: 'settled', operation: 'https://exfil.example', runId: 'r1' }],
       ['a missing subject', { phase: 'settled', runId: 'r1' }],
-      ['a missing phase', { flow: 'send', flowId: 'f1', runId: 'r1' }]
+      ['a missing phase', { flow: 'send', flowId: 'f1', runId: 'r1' }],
+      // Lower-case letters all the way down, so a pattern that only checked the
+      // SHAPE of each word accepted it and POSTed a megabyte.
+      ['a name that is only technically a name', { phase: 'settled', operation: 'a'.repeat(1e6), runId: 'r1' }]
     ])('refuses %s', async (_why, event) => {
       await sendEvent(event as unknown as TelemetryEvent, context);
       expect(sent).toEqual([]);
