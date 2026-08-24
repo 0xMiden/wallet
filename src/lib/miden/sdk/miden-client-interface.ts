@@ -523,6 +523,41 @@ export class MidenClientInterface {
   }
 
   /**
+   * Relay a private output note identified only by its id.
+   *
+   * Same call as {@link sendPrivateNote}, minus the live `Note`. The re-push sweep
+   * runs long after the sending session ended and has nothing but the persisted
+   * transaction row, so requiring a `Note` would mean re-hydrating one purely to
+   * read back the id that `sendPrivateOutput` wants anyway.
+   *
+   * Safe to call repeatedly: the hint is re-derived from the note's stored
+   * `expected_height` on every call, so a re-push is as correct as the first push
+   * however late it runs.
+   */
+  async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
+    await this.client.notes.sendPrivateOutput({ noteId, to });
+  }
+
+  /**
+   * Whether one of this client's own output notes has been consumed on chain.
+   *
+   * This is the wallet's only positive proof that a PRIVATE note was delivered.
+   * The chain shows a commitment, never the note body, so the recipient cannot
+   * consume a private note without having received that body through the
+   * transport — which makes the nullifier a delivery receipt. Everything else
+   * available to the sender (a transport ACK, a landed transaction) is consistent
+   * with the recipient never seeing the note at all.
+   *
+   * Unknown ids answer `false` rather than throwing: the sweep treats "not proven
+   * delivered" as the safe reading, and a row whose note this client no longer
+   * tracks should not wedge it.
+   */
+  async isOutputNoteConsumed(noteId: string): Promise<boolean> {
+    const [record] = await this.client.notes.listSent({ ids: [noteId] });
+    return record !== undefined && record.isConsumed();
+  }
+
+  /**
    * Consumable notes reduced to plain, JSON-safe {@link ConsumableNoteDto}s
    * (issue #260, slice 4).
    *

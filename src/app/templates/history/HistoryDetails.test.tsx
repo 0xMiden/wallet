@@ -360,6 +360,40 @@ describe('HistoryDetails', () => {
 
       expect(screen.queryByTestId('history-note-delivery-warning')).not.toBeInTheDocument();
     });
+
+    it('confirms delivery once the note has been consumed on chain', async () => {
+      // The positive counterpart to the warnings: consumption is the only proof a
+      // sender can have that a private note arrived, since the recipient cannot
+      // spend a body they never received.
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        status: STATUS_COMPLETED,
+        noteDelivery: 'confirmed'
+      });
+
+      await renderAndLoad();
+
+      expect(screen.getByTestId('history-note-delivery-confirmed').textContent).toBe('noteDeliveryConfirmedBody');
+      expect(screen.queryByTestId('history-note-delivery-warning')).not.toBeInTheDocument();
+    });
+
+    it('stays silent on a relayed-but-unconfirmed note rather than warning', async () => {
+      // 'relayed' means accepted by the transport with nothing yet proving arrival,
+      // and an unclaimed note is the ordinary case — a recipient who simply hasn't
+      // claimed looks identical to one who never received it. Warning here would
+      // fire on most healthy private sends.
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        status: STATUS_COMPLETED,
+        noteDelivery: 'relayed',
+        relayAttempts: 4
+      });
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-note-delivery-warning')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('history-note-delivery-confirmed')).not.toBeInTheDocument();
+    });
   });
 
   describe('Guardian switch details', () => {

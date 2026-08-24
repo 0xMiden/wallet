@@ -292,14 +292,25 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport accepted the note.
+ *   - `relayed`     — the transport ACCEPTED the note. Deliberately not terminal:
+ *                     an accepted note is not a received one. The transport hands
+ *                     back an opaque pagination cursor that the recipient persists
+ *                     verbatim, so a cursor that advances past a stored note makes
+ *                     it unreachable for that recipient forever, with the send
+ *                     reporting success (note-transport-service#77). `relayed`
+ *                     therefore means "believed to be in flight" and keeps the row
+ *                     eligible for the re-push sweep.
+ *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
+ *                     proof of delivery available: the recipient cannot consume a
+ *                     private note without having received its body, so the
+ *                     nullifier is the receipt. Terminal.
  *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
  *                     permanent (the SDK's own outbox may still retry it, and that
  *                     retry replays the ORIGINAL block hint, so it stays correct
  *                     however late it runs) — but it may equally mean nothing was
  *                     ever queued, so it is surfaced rather than assumed benign.
  */
-export type INoteDeliveryState = 'pending' | 'relayed' | 'undelivered';
+export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
   id: string;
@@ -369,6 +380,24 @@ export interface ITransaction {
    * found for the given id` if it is not there as an applied output note.
    */
   noteDelivery?: INoteDeliveryState;
+  /**
+   * How many times this row's private note has been handed to the transport,
+   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
+   * consumes cannot be re-pushed forever.
+   */
+  relayAttempts?: number;
+  /**
+   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   *
+   * A re-push is worth doing because the transport stores notes with an
+   * append-only insert — no upsert, no dedupe by note id — so every push lands a
+   * row with a FRESH cursor position, which is by construction above whatever
+   * cursor the recipient has already persisted. That makes a re-push the direct
+   * antidote to a note the recipient's cursor skipped, and it costs the
+   * recipient nothing: imports dedupe on the details commitment, so a note they
+   * already hold is a no-op.
+   */
+  nextRelayAt?: number;
 }
 
 export interface ISuccessTransactionOutput {

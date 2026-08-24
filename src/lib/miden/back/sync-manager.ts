@@ -24,6 +24,7 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { initiateConsumeTransaction } from '../transaction/initiate';
+import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -188,6 +189,23 @@ async function runSync(): Promise<void> {
       }
       // Continue to the downstream read path: the client may still have
       // cached state from a prior successful sync worth surfacing.
+    }
+
+    // Private-note delivery sweep. Hosted here rather than in the transaction
+    // loop because that loop only runs while there is a transaction to process,
+    // and the whole point of the sweep is to act minutes to hours after a send
+    // has finished — when, for an otherwise idle wallet, nothing else would ever
+    // run it. Placed after the sync attempt so the on-chain consumption receipt
+    // it reads is as fresh as this cycle allows, and OUTSIDE the sync's WASM lock
+    // because its own proxy calls take that lock themselves.
+    //
+    // Never allowed to affect the sync: delivery is maintenance behind
+    // transactions that have already landed, so a transport problem here must not
+    // fail a sync or trip its circuit breaker.
+    try {
+      await sweepNoteDeliveries();
+    } catch (err) {
+      console.warn('[SyncManager] private-note delivery sweep failed', err);
     }
 
     const intercom = getIntercom()!;

@@ -952,6 +952,50 @@ export const midenClientProxy = {
   },
 
   /**
+   * Re-push of an already-relayed private note, by id.
+   *
+   * Same realm requirement and same critical-op treatment as
+   * {@link sendPrivateNote} — it is the identical transport call and the identical
+   * store lookup, differing only in that the sweep has no live `Note` to hand over
+   * (see `MidenClientInterface.relayPrivateNoteById`).
+   */
+  async relayPrivateNoteById(noteId: string, recipientAccountId: string): Promise<void> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        await midenClient.relayPrivateNoteById(noteId, recipientAccountId);
+      });
+      return;
+    }
+    const op_id = newOpId();
+    incrementCriticalOp();
+    try {
+      await dispatchOp(op_id, 'relayPrivateNoteById', [noteId, recipientAccountId], RELAY_DEADLINE_MS, true);
+    } finally {
+      decrementCriticalOp();
+    }
+  },
+
+  /**
+   * Whether one of this client's own output notes is consumed on chain — the
+   * sweep's delivery receipt (see `MidenClientInterface.isOutputNoteConsumed`).
+   *
+   * A plain read: short deadline, not a `criticalOp`. Losing it costs one sweep
+   * cycle, and the sweep's default answer ("not proven delivered") is the safe one.
+   */
+  async isOutputNoteConsumed(noteId: string): Promise<boolean> {
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      return await withWasmClientLock(async () => {
+        const midenClient = await getMidenClient();
+        return await midenClient.isOutputNoteConsumed(noteId);
+      });
+    }
+    const resultB64 = await this.call('isOutputNoteConsumed', [noteId], { deadlineMs: READ_DEADLINE_MS });
+    if (resultB64 == null) return false;
+    return new TextDecoder().decode(b64ToBytes(resultB64)) === 'true';
+  },
+
+  /**
    * Export a note to serialized bytes.
    *
    * Flag off: inline (caller owns the lock). Flag on: forward — the SDK's

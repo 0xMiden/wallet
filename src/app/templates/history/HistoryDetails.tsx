@@ -1079,6 +1079,35 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
+            {/*
+              The positive counterpart: the note was consumed on chain, which is the
+              only proof the sender can have that a PRIVATE note was received (the
+              recipient cannot consume a body they never got).
+
+              Deliberately no equivalent for 'relayed'. That state means the
+              transport accepted the note but nothing has proven it arrived, and an
+              unclaimed note is the ordinary case — a recipient who simply has not
+              got round to claiming looks identical to one who never received it. A
+              warning there would fire on most healthy private sends, so silence is
+              the honest reading and only the two states that indicate a real
+              problem warn above.
+            */}
+            {entry.noteDelivery === 'confirmed' && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('noteDeliveryConfirmedTitle')}>
+                    <p
+                      data-testid="history-note-delivery-confirmed"
+                      className="px-4 py-3 text-sm font-medium text-status-positive wrap-break-word select-text"
+                    >
+                      {t('noteDeliveryConfirmedBody')}
+                    </p>
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
             {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
               entry.errorMessage && (

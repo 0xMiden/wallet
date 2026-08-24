@@ -475,6 +475,22 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
+  // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
+  // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
+  // THIS realm's store, so the id lookup and the `expected_height` hint derivation
+  // only resolve here. No note bytes to carry — the sweep has only the row.
+  relayPrivateNoteById: async (client, noteId: string, to: string) => {
+    await client.relayPrivateNoteById(noteId, to);
+    return null;
+  },
+
+  // Delivery receipt read for the sweep. Same store-ownership argument; returns the
+  // boolean as UTF-8 bytes because the op channel carries bytes, not values.
+  isOutputNoteConsumed: async (client, noteId: string) => {
+    const consumed = await client.isOutputNoteConsumed(noteId);
+    return new TextEncoder().encode(consumed ? 'true' : 'false');
+  },
+
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE
   // execute→prove→submit→apply chain runs here in-realm as one op, so a wedge
   // anywhere in it is killable via `closeDocument()`. `client.consumeNoteId`

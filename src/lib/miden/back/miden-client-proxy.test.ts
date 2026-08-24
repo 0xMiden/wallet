@@ -112,6 +112,8 @@ function resetControl() {
     inlineWaitForTransactionCommit: jest.fn(async () => {}),
     // Slice 7b: the flag-off pass-through of the private-note relay.
     inlineSendPrivateNote: jest.fn(async () => {}),
+    inlineRelayPrivateNoteById: jest.fn(async () => {}),
+    inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
@@ -144,6 +146,8 @@ function resetControl() {
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
       waitForTransactionCommit: (...a: any[]) => G.__px.inlineWaitForTransactionCommit(...a),
       sendPrivateNote: (...a: any[]) => G.__px.inlineSendPrivateNote(...a),
+      relayPrivateNoteById: (...a: any[]) => G.__px.inlineRelayPrivateNoteById(...a),
+      isOutputNoteConsumed: (...a: any[]) => G.__px.inlineIsOutputNoteConsumed(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
@@ -481,6 +485,83 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
     // ...and the recipient id crossed as a JSON string.
     expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+  });
+
+  it('flag ON → relayPrivateNoteById is dispatched as CRITICAL on the relay deadline, carrying only ids', async () => {
+    // The sweep's re-push. Same realm requirement and same stakes as the original
+    // relay — the note lives in the offscreen store and the transaction has already
+    // landed — so it must not be a cheap read that a coincident deadline can tear
+    // down. It differs only in having no live Note: the row is all the sweep has.
+    const { midenClientProxy } = await loadProxy(true);
+    const { isCriticalOpInFlight } = await import('./offscreen-prover');
+    let criticalDuringRelay: boolean | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuringRelay = isCriticalOpInFlight();
+      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 3 };
+    });
+
+    const p = midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+    await flush();
+    fireReady();
+    await p;
+
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('relayPrivateNoteById');
+    expect(env.deadline_ms).toBe(45_000);
+    expect(criticalDuringRelay).toBe(true);
+    expect(env.argsB64[0]).toBe('s:"0xnote"');
+    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+  });
+
+  it('flag ON → isOutputNoteConsumed is a plain read and decodes the boolean', async () => {
+    // The delivery receipt. A read, not a critical op: losing it costs one sweep
+    // cycle, and the sweep's fallback ("not proven delivered") is the safe answer.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from('true').toString('base64'),
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
+    await flush();
+    fireReady();
+
+    expect(await p).toBe(true);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('isOutputNoteConsumed');
+    expect(env.deadline_ms).toBe(15_000);
+  });
+
+  it('flag ON → an empty receipt result reads as not-consumed rather than throwing', async () => {
+    // A missing result must not wedge the sweep: it re-pushes, which is harmless.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
+    await flush();
+    fireReady();
+
+    expect(await p).toBe(false);
+  });
+
+  it('flag OFF → both sweep calls run inline on the SW client under the WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineIsOutputNoteConsumed.mockResolvedValueOnce(true);
+
+    expect(await midenClientProxy.isOutputNoteConsumed('0xnote')).toBe(true);
+    await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+
+    expect(G.__px.inlineIsOutputNoteConsumed).toHaveBeenCalledWith('0xnote');
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON → a deadline kill rejects with OperationAbortedError (caught by the completion relay → Completed, degraded)', async () => {
