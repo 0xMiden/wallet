@@ -327,11 +327,21 @@ test.describe('Telemetry egress', () => {
       // will produce one — to the same contract as the flows.
       //
       // What is left worth asserting on a live wire is the shape, if any turned
-      // up. Guarded rather than required, so this neither flakes on a run where
-      // the node stayed up nor passes vacuously without saying so.
+      // up. Guarded rather than required, so this does not flake on a run where
+      // the node stayed up — and annotated when nothing arrived, because a `for`
+      // over an empty array is a green step that checked nothing, which is the
+      // one thing worse than a red one.
       const settled = received()
         .map(request => JSON.parse(request.body) as Record<string, unknown>)
         .filter(envelope => String(envelope.eventName).endsWith('_settled'));
+
+      test.info().annotations.push({
+        type: 'settled-operations',
+        description:
+          settled.length === 0
+            ? 'none arrived; this step asserted nothing (expected on a healthy run)'
+            : `${settled.length} checked: ${[...new Set(settled.map(e => String(e.eventName)))].join(', ')}`
+      });
 
       for (const envelope of settled) {
         const props = envelope.props as Record<string, unknown>;

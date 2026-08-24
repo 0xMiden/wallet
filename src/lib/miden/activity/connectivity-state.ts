@@ -138,7 +138,11 @@ export function markConnectivityIssue(category: ConnectivityCategory): void {
   const existing = current[category];
   if (existing.active) return;
   current = { ...current, [category]: { active: true, since: Date.now() } };
-  reportOutage(category, 'errored', 0);
+  // No duration: an outage that has just begun has not lasted for any length of
+  // time yet, and `0` is not that fact — it is a number that averages, on the one
+  // event where the reader most wants a duration to mean something. The `completed`
+  // event carries the length.
+  reportOutage(category, 'errored');
   notify();
 }
 
@@ -165,10 +169,10 @@ function outageMs(state: CategoryState): number {
  * outage that never recovers reports only the first, which reads correctly as an
  * unresolved outage rather than vanishing.
  */
-function reportOutage(category: ConnectivityCategory, result: 'completed' | 'errored', durationMs: number): void {
+function reportOutage(category: ConnectivityCategory, result: 'completed' | 'errored', durationMs?: number): void {
   const operation = OUTAGE_OPERATION[category];
   if (operation === undefined) return;
-  reportOperation({ operation, result, durationMs });
+  reportOperation({ operation, result, ...(durationMs !== undefined ? { durationMs } : {}) });
 }
 
 /**

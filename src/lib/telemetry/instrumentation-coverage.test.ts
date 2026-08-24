@@ -68,8 +68,6 @@ const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
   .map(path => ({ path: relative(SRC, path).split(sep).join('/'), text: readFileSync(path, 'utf8') }))
   .filter(file => !file.path.startsWith('lib/telemetry/') || file.path === WIRING_INSIDE_TELEMETRY);
 
-const filesMatching = (pattern: RegExp): string[] => CALL_SITES.filter(f => pattern.test(f.text)).map(f => f.path);
-
 /**
  * Does this file so much as know telemetry exists?
  *
@@ -84,14 +82,26 @@ const filesMatching = (pattern: RegExp): string[] => CALL_SITES.filter(f => patt
  * A file that reports telemetry imports telemetry. That is not a heuristic, it
  * is a consequence, and it holds for the two known coincidences: neither
  * `VerifySeedPhraseFlow.tsx` nor `lib/epoch/store.ts` imports anything from
- * here. The mapping tables in `STEP_TABLES` satisfy it too — one is inside the
- * telemetry module, and `Welcome.tsx` imports the reporter it feeds.
+ * here.
+ *
+ * The absolute prefix, and not also a relative one. An earlier version allowed
+ * `from './types'` so that `transaction-operation.ts` would qualify — and 43
+ * files in the tree import a local `./types` of their own, which reopened the
+ * hole one door down: a `setStep('review')` added to `send-flow/SelectRecipient`
+ * would have satisfied `review` again. That file is allowed by path instead,
+ * which is exact.
  */
-const REPORTS_TELEMETRY = /from '(lib\/telemetry|\.\/types)/;
+const REPORTS_TELEMETRY = /from 'lib\/telemetry/;
+
+/** Files that report telemetry without importing it, because they ARE it. */
+const INSIDE_TELEMETRY: readonly string[] = [WIRING_INSIDE_TELEMETRY];
+
+const reportsTelemetry = (file: { path: string; text: string }): boolean =>
+  INSIDE_TELEMETRY.includes(file.path) || REPORTS_TELEMETRY.test(file.text);
 
 const instrumentedFilesMatching = (pattern: RegExp, alsoAllow?: (path: string) => boolean): string[] =>
   CALL_SITES.filter(
-    file => REPORTS_TELEMETRY.test(file.text) && (pattern.test(file.text) || (alsoAllow?.(file.path) ?? false))
+    file => reportsTelemetry(file) && (pattern.test(file.text) || (alsoAllow?.(file.path) ?? false))
   ).map(file => file.path);
 
 /**
@@ -166,8 +176,15 @@ describe('every declared flow is actually begun somewhere', () => {
     // passes it as a `'create' | 'import'` parameter and the dApp store picks it
     // with a ternary, both of which are perfectly good instrumentation and
     // neither of which a `beginFlow\('x'\)` regex can see.
+    // The same `REPORTS_TELEMETRY` precondition as the other two axes. Less
+    // exposed than they were, since `beginFlow` and `enterRouteFlow` are names
+    // nothing else in the tree uses — but "no other file happens to use this
+    // name" is a fact about today, and the precondition costs nothing.
     const started = CALL_SITES.filter(
-      f => /\b(beginFlow|enterRouteFlow)\(/.test(f.text) && new RegExp(String.raw`'${flow}'`).test(f.text)
+      f =>
+        reportsTelemetry(f) &&
+        /\b(beginFlow|enterRouteFlow)\(/.test(f.text) &&
+        new RegExp(String.raw`'${flow}'`).test(f.text)
     ).map(f => f.path);
 
     expect(started.length).toBeGreaterThan(0);
@@ -197,6 +214,37 @@ const UNREACHABLE_BY_DESIGN: readonly TelemetryOperation[] = ['tx_other'];
  */
 const DEDICATED_REPORTER: Partial<Record<TelemetryOperation, string>> = { prove: 'reportProve' };
 
+/**
+ * Tables that map something else onto an operation, and the accessor each one is
+ * read through.
+ *
+ * The accessor is the load-bearing half. A table entry proves only that somebody
+ * once wrote the name down; what makes it evidence of instrumentation is a
+ * reporter reading it, and the accessor is how that read is visible in source
+ * text. `operationOfType` turns a row's type into an operation for the four
+ * terminal writers; `OUTAGE_OPERATION` turns a connectivity category into one
+ * for `reportOutage`.
+ */
+const OPERATION_TABLES: readonly { path: string; accessor: string }[] = [
+  { path: WIRING_INSIDE_TELEMETRY, accessor: 'operationOfType' },
+  { path: 'lib/miden/activity/connectivity-state.ts', accessor: 'OUTAGE_OPERATION' }
+];
+
+const textOf = (path: string): string => CALL_SITES.find(file => file.path === path)?.text ?? '';
+
+/**
+ * Is this table's accessor read anywhere that actually reports?
+ *
+ * "In the same file as a `reportOperation` call" rather than "inside the call
+ * text", because neither real accessor is written inline. `OUTAGE_OPERATION` is
+ * read into a local one line above the call, and `operationOfType` is read in
+ * four files other than the one declaring it. Both are covered by asking whether
+ * the accessor and a reporter ever appear together, and both stop being covered
+ * the moment the reporter goes away — which is the property worth having.
+ */
+const isConsumedByAReporter = (accessor: string): boolean =>
+  CALL_SITES.some(file => file.text.includes(accessor) && /\breportOperation\(/.test(file.text));
+
 describe('every declared operation is actually reported somewhere', () => {
   const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
     operation => !UNREACHABLE_BY_DESIGN.includes(operation)
@@ -208,15 +256,32 @@ describe('every declared operation is actually reported somewhere', () => {
     // mapping entry, which is how the transaction operations are reached; or
     // named by a dedicated helper that hard-codes the operation, so the literal
     // lives in the helper and the call sites carry only its name.
-    const reported = filesMatching(
-      new RegExp(
-        String.raw`reportOperation\(\{[^}]*'${operation}'|:\s*'${operation}'` +
-          (DEDICATED_REPORTER[operation] !== undefined ? String.raw`|${DEDICATED_REPORTER[operation]}\(` : ''),
-        's'
-      )
+    //
+    // A mapping entry alone is not enough, and this is where that bit. The three
+    // `service_*` operations are reached only through `OUTAGE_OPERATION` in
+    // `connectivity-state.ts`, so gutting `reportOutage` to a bare `return` —
+    // deleting the only thing that reports any of them — left this green on the
+    // strength of a table nobody read any more. So a mapping entry counts only in
+    // a file that also calls a reporter, which for a table means the table and
+    // its reporter live together, and they do.
+    const named = new RegExp(
+      String.raw`reportOperation\(\{[^}]*'${operation}'` +
+        (DEDICATED_REPORTER[operation] !== undefined ? String.raw`|${DEDICATED_REPORTER[operation]}\(` : ''),
+      's'
     );
+    const reported = CALL_SITES.filter(file => reportsTelemetry(file) && named.test(file.text)).map(file => file.path);
 
-    expect(reported.length).toBeGreaterThan(0);
+    // A table entry counts only when the table is CONSUMED by a reporter. The
+    // entry itself is inert — `OUTAGE_OPERATION` kept all three `service_*` names
+    // green after `reportOutage` was gutted to a bare `return`, because a table
+    // does not stop existing when the only thing that reads it goes away. So the
+    // evidence is the accessor appearing inside a live `reportOperation` call.
+    const viaTable = OPERATION_TABLES.filter(
+      table =>
+        new RegExp(String.raw`:\s*'${operation}'`).test(textOf(table.path)) && isConsumedByAReporter(table.accessor)
+    ).map(table => table.path);
+
+    expect([...reported, ...viaTable].length).toBeGreaterThan(0);
   });
 
   it('reports an outcome for every kind of transaction the pipeline can produce', () => {

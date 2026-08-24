@@ -165,7 +165,10 @@ describe('reporting an outage', () => {
     markConnectivityIssue('prover');
     markConnectivityIssue('prover');
 
-    expect(reported()).toEqual([{ operation: 'service_prover', result: 'errored', durationMs: 0 }]);
+    // And with no duration at all. An outage that has just started has not
+    // lasted for any length of time, and a `0` there is a zero in an average
+    // rather than an absence.
+    expect(reported()).toEqual([{ operation: 'service_prover', result: 'errored' }]);
   });
 
   it('reports how long it lasted when it lifts', () => {
@@ -185,7 +188,7 @@ describe('reporting an outage', () => {
     }
 
     expect(reported()).toEqual([
-      { operation: 'service_prover', result: 'errored', durationMs: 0 },
+      { operation: 'service_prover', result: 'errored' },
       { operation: 'service_prover', result: 'completed', durationMs: 90_000 }
     ]);
   });

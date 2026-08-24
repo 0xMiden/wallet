@@ -17,7 +17,7 @@ import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryResult } from './types';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryOperation, TelemetryResult } from './types';
 
 /**
  * The adversarial anti-leak guard, asserted at the two egress boundaries rather
@@ -371,9 +371,35 @@ const EVERY_ERROR_KIND: Record<TelemetryErrorKind, TelemetryErrorKind> = {
   unknown: 'unknown'
 };
 
+/**
+ * The second axis, and the one this file used to have no opinion about at all.
+ *
+ * The sweep below was named for "the entire event type space" while enumerating
+ * only flows, so every `*_settled` envelope crossed the allowlist boundary
+ * unobserved. A mutation that put a raw mainnet address on `props` failed four
+ * tests when unconditional and none at all when wrapped in
+ * `if (payload.phase === 'settled')`. That was the whole settled axis outside the
+ * privacy guarantee, at exactly the moment two more operations were added to it.
+ */
+const EVERY_OPERATION: Record<TelemetryOperation, TelemetryOperation> = {
+  tx_send: 'tx_send',
+  tx_receive: 'tx_receive',
+  tx_swap: 'tx_swap',
+  tx_earn: 'tx_earn',
+  tx_bridge: 'tx_bridge',
+  tx_guardian: 'tx_guardian',
+  tx_dapp: 'tx_dapp',
+  tx_other: 'tx_other',
+  prove: 'prove',
+  service_prover: 'service_prover',
+  service_node: 'service_node',
+  service_network: 'service_network'
+};
+
 const FLOWS: readonly TelemetryFlow[] = Object.values(EVERY_FLOW);
 const RESULTS: readonly TelemetryResult[] = Object.values(EVERY_RESULT);
 const ERROR_KINDS: readonly TelemetryErrorKind[] = Object.values(EVERY_ERROR_KIND);
+const OPERATIONS: readonly TelemetryOperation[] = Object.values(EVERY_OPERATION);
 
 const LOADING = { locked: false, ready: false, hydrated: false };
 const UNLOCK = { locked: true, ready: true, hydrated: true };
@@ -779,6 +805,28 @@ describe('product-event egress', () => {
         })
       )
     ]);
+
+    // The settled axis, swept the same way and for the same reason. Both shapes
+    // of it: with a duration and without, since an operation with no honest
+    // interval omits the field and the two take different branches through the
+    // serializer.
+    events.push(
+      ...OPERATIONS.flatMap((operation): TelemetryEvent[] => [
+        { phase: 'settled', operation, runId: 'sweep-run', result: 'completed', durationMs: 41.9 },
+        { phase: 'settled', operation, runId: 'sweep-run', result: 'completed' },
+        ...ERROR_KINDS.map(
+          (errorKind): TelemetryEvent => ({
+            phase: 'settled',
+            operation,
+            runId: 'sweep-run',
+            result: 'errored',
+            errorKind,
+            durationMs: 8.4,
+            step: 'sending'
+          })
+        )
+      ])
+    );
 
     for (const event of events) await sendEvent(event, context);
     await flushEgress();

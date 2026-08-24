@@ -147,7 +147,8 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * of `a` is still lower-case letters, so it composed a name this pattern would
  * have accepted and POSTed — leaving the sender check as the only thing in front
  * of it, which is one control too few for a path that ends in an HTTP request.
- * The longest real word is `receive` at seven, so 24 is generous.
+ * The longest real words are `guardian` and `activity` at eight, so 24 is
+ * generous.
  */
 const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled)$/;
 

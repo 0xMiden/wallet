@@ -350,6 +350,22 @@ describe('the rows that are Completed from birth', () => {
     });
   });
 
+  it('reports an earn withdrawal once even when a later writer patches the terminal row again', async () => {
+    // `canAdvanceEarnWithdrawPhase` permits SAME-phase writes on purpose, so
+    // callers can idempotently patch a note id or an output amount onto a row
+    // that has already settled — and `completeConsumeTransaction` writes
+    // `received` on a row `resolveBridgeInNoteId` may have already moved there.
+    // So the double report is reachable, and the only thing standing in front of
+    // it is the check that the row was not already terminal.
+    const tx = phased('withdraw-patched', 'earn-withdraw', 'delivering');
+    await Repo.transactions.add(tx);
+
+    await updateEarnWithdrawPhase(tx.id, 'received');
+    await updateEarnWithdrawPhase(tx.id, 'received', { midenNoteId: '0xnote' });
+
+    expect(reported).toHaveLength(1);
+  });
+
   it('reports an inbound bridge once, on the phase where the bridge finished its job', async () => {
     // `ready` and `received` are both terminal — the note is on Miden and
     // claimable, then it is claimed. The bridge is done at `ready`; whether the

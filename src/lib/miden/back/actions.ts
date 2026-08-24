@@ -598,13 +598,13 @@ export async function processDApp(
 export async function handleReportTelemetryEvent(
   req: ReportTelemetryEventRequest
 ): Promise<ReportTelemetryEventResponse> {
-  // Every sender is extension-internal and typed, so a bad `phase` cannot arrive
-  // from a caller that typechecks. It can arrive from one that does not: the
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
   // offscreen document forwards over `chrome.runtime.sendMessage`, which is
-  // `unknown` at the wire. The serializer's allowlist keeps a stray field off the
-  // wire regardless, but not a stray event NAME — `buildEnvelope` would compose
-  // one from a missing phase and POST something outside the closed union. Cheaper
-  // to refuse it here than to make every reader wonder what `open_undefined` is.
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
   if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
     await sendEvent(req.event, resolveTelemetryContext());
   }

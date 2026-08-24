@@ -428,6 +428,17 @@ Some things to know before reading them:
   "time until the next prove of any kind worked" than "time the delegated prover
   was down". Read a rising count of `errored` as the outage signal and treat the
   duration as an upper bound on a single stretch, not a total.
+- **`tx_earn_settled` and `tx_bridge_settled` each cover two different
+  lifecycles, and a reader cannot tell them apart.** An earn deposit and a
+  bridged send settle through the normal status write; an earn *withdrawal* and
+  an *inbound* bridge are `Completed` from birth and settle through their own
+  phase writers. Both halves land under the same event name with the same props,
+  so a rise in either is a rise in "something about Earn" rather than in a
+  specific direction of it.
+- **A settled event that arrives before the page installs its transport is
+  dropped.** A narrow window between the app shell mounting and `App.tsx`'s
+  effect running, on the page realm only. Nothing in the transaction pipeline
+  settles that early in practice, but the window is real and the loss is silent.
 - **A bridge can produce two events with opposite verdicts, in that order.** A
   bridged send reports `completed` when the note commits, because as far as the
   send pipeline is concerned it is done; if the allocator then rejects the intent,
