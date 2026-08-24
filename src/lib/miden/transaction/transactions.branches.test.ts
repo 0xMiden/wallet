@@ -395,12 +395,73 @@ describe('getCompletedTransactions', () => {
     expect(txs[0]!.faucetId).toBe('f1');
   });
 
+  // A batch claim is filed under its FIRST note's faucet while sweeping up every
+  // other faucet, so filtering on `faucetId` alone hides the arrival of every
+  // secondary asset from that token's own history — the funds appear in no row.
+  it('files a batch claim under every faucet it swept up, not just its own', async () => {
+    txStore.push(
+      {
+        id: 'claim',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        assetTotals: [
+          { faucetId: 'f1', amount: 20n },
+          { faucetId: 'f2', amount: 10n }
+        ]
+      },
+      {
+        id: 'unrelated',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f3',
+        initiatedAt: 200
+      }
+    );
+
+    // The secondary faucet's page must show the claim...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f2')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...the primary's still does...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...and a faucet the claim never touched must not.
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f3')).map(t => t.id)).toEqual([
+      'unrelated'
+    ]);
+  });
+
   it('applies offset and limit correctly', async () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
     }
+    // `limit` is a page size, so this is "skip 2, take 5" — not "rows 2 to 5".
     const txs = await getCompletedTransactions('acc-1', 2, 5);
-    expect(txs).toHaveLength(3);
+    expect(txs.map(tx => tx.id)).toEqual(['tx-2', 'tx-3', 'tx-4', 'tx-5', 'tx-6']);
+  });
+
+  // The infinite-scroll caller asks for page N as `offset = pageSize * N`, which
+  // under the old end-index reading made every page after the first empty and
+  // silently capped history at one page.
+  it('returns a full page for offsets past the first page', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    const page1 = await getCompletedTransactions('acc-1', 4, 4);
+    expect(page1.map(tx => tx.id)).toEqual(['tx-4', 'tx-5', 'tx-6', 'tx-7']);
+  });
+
+  it('returns every row when no limit is given', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
+    expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
   });
 });
 

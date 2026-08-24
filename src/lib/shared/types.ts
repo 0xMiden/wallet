@@ -184,6 +184,8 @@ export interface SerializedVaultAsset {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 
@@ -228,6 +230,8 @@ export interface SerializedConsumableNote {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 

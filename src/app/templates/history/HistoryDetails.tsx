@@ -40,9 +40,14 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+<<<<<<< HEAD
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
+=======
+import { hapticLight } from 'lib/mobile/haptics';
+>>>>>>> bcd59663e (fix(ui): guardian/onboarding/history layout fixes + note type and multi-asset claim display (#755))
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -71,6 +76,7 @@ import {
   EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawAmountFields,
   earnWithdrawToneOf,
+  formatBridgeOutputAmount,
   formatDate,
   isBridgeInEntry,
   swapSettlementOf
@@ -115,6 +121,13 @@ interface RequestedTokenInfo {
   decimals?: number;
   symbol?: string;
   faucetId?: string;
+  /**
+   * Whether `decimals` is a fact rather than the unknown-token placeholder's
+   * guess. Kept beside the amount instead of blanking it, because the receipt's
+   * fill maths (`deriveSwapReceipt`) needs the real base-unit value even when
+   * there is no honest way to display it.
+   */
+  scaleIsKnown: boolean;
 }
 
 /**
@@ -144,14 +157,18 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const inAmount = (bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
+  // raw quote/source string never renders with its full precision. `break-all`
+  // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
-    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-      <span className="text-heading-gray">{inAmount}</span>
-      <span className="text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
-      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
-      <span className="text-text-muted">{outSymbol}</span>
+    <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
+      <span className="min-w-0 text-heading-gray">{inAmount}</span>
+      <span className="min-w-0 text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+      <span className="min-w-0 text-heading-gray">{displayedOutAmount}</span>
+      <span className="min-w-0 text-text-muted">{outSymbol}</span>
     </div>
   );
 };
@@ -277,6 +294,43 @@ const shouldWatchSettlement = ({
   // gap before the first lineage answer arrives.
   if (lineageState === null) return !settlementFound && !lineageAbandoned;
   return !settlementFound && autoConsume;
+};
+
+// A "Claim All" consumes every claimable note at once, so this list is bounded
+// only by how many notes the user had waiting -- unbounded in practice. Render a
+// screenful and put the rest behind a tap.
+const NOTE_ID_PREVIEW_COUNT = 5;
+
+/** Right-aligned stack of trimmed, copyable note ids, collapsed past a preview. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const overflowCount = noteIds.length - NOTE_ID_PREVIEW_COUNT;
+  const isCollapsed = !expanded && overflowCount > 0;
+  const visibleNoteIds = isCollapsed ? noteIds.slice(0, NOTE_ID_PREVIEW_COUNT) : noteIds;
+
+  const handleExpand = useCallback(() => {
+    hapticLight();
+    setExpanded(true);
+  }, []);
+
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+      {visibleNoteIds.map(noteId => (
+        <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+      ))}
+      {isCollapsed && (
+        <button
+          type="button"
+          onClick={handleExpand}
+          data-testid={`${testId}-show-all`}
+          className="text-sm font-medium text-heading-gray underline transition-opacity active:opacity-60"
+        >
+          {t('showAllNotes', { count: overflowCount })}
+        </button>
+      )}
+    </div>
+  );
 };
 
 const AccountDisplay: FC<{
@@ -406,7 +460,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           transactionIcon: tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : tx.amount
+            : // The swap registry carries its own decimals, so a registry hit is
+              // always scalable. Otherwise the faucet must have resolved to real
+              // metadata — the unknown-token placeholder's 6 decimals are a guess,
+              // and converting by them renders an 18-decimal token a trillion times
+              // too large. The asset is still named by `token` below.
+              tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
               ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
               : undefined,
           token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
@@ -419,6 +478,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txId: tx.id,
           noteType: tx.noteType,
           noteId: tx.outputNoteIds?.[0],
+          // Only a COMPLETED claim has consumed anything. `noteIds` is stamped at
+          // queue time, so without the status gate a queued, in-flight or failed
+          // claim renders a "Consumed" list of notes that are still sitting
+          // claimable — the same reason the note type alone does not open the
+          // card (see `hasNoteData`).
+          consumedNoteIds:
+            tx.type === 'consume' && tx.status === ITransactionStatus.Completed
+              ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
+              : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -439,6 +507,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          // Without this the "Reclaim funds" button never renders for ANY user:
+          // it is gated on a non-null reclaim height, and this is the only entry
+          // that reaches `BridgeClaimSection`.
+          bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount,
@@ -468,7 +540,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             amount: extra.requestedAmount,
             decimals: swapToken?.decimals ?? requestedMeta?.decimals,
             symbol: swapToken?.symbol ?? requestedMeta?.symbol,
-            faucetId: extra.requestedFaucetId
+            faucetId: extra.requestedFaucetId,
+            scaleIsKnown: swapToken !== undefined || hasKnownScale(requestedMeta)
           });
           setSwapAutoConsume(extra.autoConsume ?? true);
           setSwapExpiresAt(extra.expiresAt ?? null);
@@ -988,10 +1061,23 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.address;
   const settledTransactions = settlementNotes?.settledTransactions ?? [];
   const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
-  const hasNoteData = entry?.noteId || (entry?.outputNoteIds && entry.outputNoteIds.length > 0);
+  const consumedNoteIds = entry?.consumedNoteIds ?? [];
+  // Private/Public storage mode of the note(s) sent or consumed (#732). Only
+  // the two known modes are labelled; anything else is left off the card.
+  const noteTypeLabel =
+    entry?.noteType === 'private' ? t('private') : entry?.noteType === 'public' ? t('public') : undefined;
+  // The note type alone does not open the card: a send carries one from the
+  // moment it is queued, and it has no note ids until it completes, so keying on
+  // it would put a "Created: 0" card on every pending and failed send.
+  const hasNoteData = Boolean(entry?.noteId) || (entry?.outputNoteIds?.length ?? 0) > 0 || consumedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
+  // Priced from the primary faucet alone, so it is only shown when that IS the
+  // whole transaction. A batch claim's hero lists every asset it swept up, and a
+  // single-faucet estimate under it reads as the total while understating it —
+  // no figure is better than a confidently wrong one.
+  const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token
+    entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
   // The shared badge resolves its own amounts from the raw tx; for the types
@@ -1059,6 +1145,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             entry={entry}
             requestedAmount={requestedToken.amount}
             requestedDecimals={requestedToken.decimals}
+            requestedScaleIsKnown={requestedToken.scaleIsKnown}
             requestedSymbol={requestedToken.symbol}
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}
@@ -1073,7 +1160,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             onDismiss={goBack}
           />
         ) : (
-          <div className="flex-1 flex flex-col overflow-y-auto">
+          <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
             {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
@@ -1407,9 +1494,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailCard title={t('notesSection')}>
-                    <DetailRow label={t('created')} isLast>
-                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                    </DetailRow>
+                    {noteTypeLabel && (
+                      <DetailRow label={t('noteTypeLabel')} testId="history-note-type">
+                        <span className="text-sm text-heading-gray font-medium">{noteTypeLabel}</span>
+                      </DetailRow>
+                    )}
+
+                    {/* Claims list the input notes they consumed; every other type counts its outputs. */}
+                    {consumedNoteIds.length > 0 ? (
+                      <DetailRow label={t('consumed')} isLast>
+                        <NoteIdList noteIds={consumedNoteIds} testId="history-consumed-notes" />
+                      </DetailRow>
+                    ) : (
+                      <DetailRow label={t('created')} isLast>
+                        <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
+                      </DetailRow>
+                    )}
                   </DetailCard>
                 </div>
               </div>

@@ -135,6 +135,8 @@
   "justValidPreGeneratedMnemonic": "Solo mnemónicos pregenerados válidos",
   "seedPasteFailedTooManyWords": "No se ha podido pegar el texto porque contenía más de 24 palabras.",
   "seedPhraseTip": "Puedes pegar tu «Seed phrase» completo en cualquier campo.",
+  "importSeedPhraseError": "Una o más palabras no están en la lista de palabras de la frase de recuperación. Revisa las palabras resaltadas.",
+  "unknownTokenScale": "No se pudieron verificar los decimales de este token, por lo que no se pueden mostrar ni enviar importes.",
   "oops": "¡Ups!",
   "smthWentWrongWhile": "Se ha producido un error al $action$",
   "mayHappenBecauseYouAreOffline": "Esto puede deberse a que ahora mismo no estás conectado",

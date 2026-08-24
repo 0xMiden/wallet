@@ -717,6 +717,14 @@
     "message": "You can paste your entire secret Seed phrase into any field",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "One or more words aren't in the recovery phrase word list. Check the highlighted words.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "This token's decimals could not be verified, so amounts can't be shown or sent.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Oops!",
     "englishSource": "Oops!"
@@ -2540,6 +2548,30 @@
     "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Creating your wallet file…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Export Failed",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Your wallet file could not be created, so nothing was saved. Please try exporting again.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Not Saved Yet",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Choose Where to Save",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Encrypted Wallet File",
     "englishSource": "Encrypted Wallet File"
@@ -3303,6 +3335,24 @@
   "showAllDapps": {
     "message": "+$count$ more parked dApps",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ more",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ more",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4121,6 +4171,10 @@
   "consumed": {
     "message": "Consumed",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Type",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Transaction ID",

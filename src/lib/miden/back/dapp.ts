@@ -66,6 +66,7 @@ import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
 import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
@@ -2250,7 +2251,12 @@ function isAllowedNetwork() {
  */
 async function formatSendTransactionPreview(transaction: SendTransaction): Promise<string[]> {
   const tokenMetadata = await getTokenMetadata(transaction.faucetId);
-  const amount = formatAmountSafe(BigInt(transaction.amount), 'send', tokenMetadata?.decimals);
+  const amount = formatAmountSafe(
+    BigInt(transaction.amount),
+    'send',
+    tokenMetadata?.decimals,
+    hasKnownScale(tokenMetadata)
+  );
   // `noteType` was normalized to the persisted 'public'/'private' string by the
   // caller, which also rejected a missing or unrecognized one — so the label
   // below states what will actually be built rather than echoing whatever the
@@ -2369,7 +2375,7 @@ async function formatConsumeTransactionPreview(transaction: MidenConsumeTransact
   ];
   for (const asset of assets) {
     const tokenMetadata = await getTokenMetadata(asset.faucetId);
-    messages.push(`Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals)}`);
+    messages.push(`Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))}`);
   }
   messages.push(`Note Type, ${capitalizeFirstLetter(noteType)}`);
   return messages;
@@ -2397,13 +2403,13 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
   for (const asset of view.outgoing) {
     const tokenMetadata = await getTokenMetadata(asset.faucetId);
     rows.push(
-      `Sending, ${formatAmountSafe(asset.amount, 'send', tokenMetadata?.decimals)} ${getAssetSymbol(tokenMetadata)}`
+      `Sending, ${formatAmountSafe(asset.amount, 'send', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
     );
   }
   for (const asset of view.incoming) {
     const tokenMetadata = await getTokenMetadata(asset.faucetId);
     rows.push(
-      `Receiving, ${formatAmountSafe(asset.amount, 'consume', tokenMetadata?.decimals)} ${getAssetSymbol(tokenMetadata)}`
+      `Receiving, ${formatAmountSafe(asset.amount, 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))} ${getAssetSymbol(tokenMetadata)}`
     );
   }
   if (rows.length === 0) {
@@ -2538,7 +2544,7 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
     const view = summaryBytesToView(summaryBytes);
     const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
       const metadata = await getTokenMetadata(asset.faucetId);
-      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals);
+      const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
       return `${direction === 'send' ? 'Leaves this account' : 'Enters this account'}, ${amount} ${
         metadata?.symbol ?? ''
       }`.trimEnd();
@@ -2567,8 +2573,22 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)
-function formatAmountSafe(amount: bigint, transactionType: 'send' | 'consume', tokenDecimals: number | undefined) {
-  const normalizedAmount = formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals);
+/**
+ * `scaleIsKnown === false` renders the amount as `?` rather than a number.
+ *
+ * This text is what a dApp's transaction confirmation shows the user before they
+ * approve it. A faucet the wallet could not read has no trustworthy decimals,
+ * and printing the placeholder's guess here states a quantity the user is about
+ * to authorise on the strength of that guess. A question mark is unhelpful; a
+ * confident wrong number is worse.
+ */
+function formatAmountSafe(
+  amount: bigint,
+  transactionType: 'send' | 'consume',
+  tokenDecimals: number | undefined,
+  scaleIsKnown: boolean
+) {
+  const normalizedAmount = scaleIsKnown ? formatBigInt(amount, tokenDecimals ?? MIDEN_METADATA.decimals) : '?';
   if (transactionType === 'consume') {
     return `+${normalizedAmount}`;
   }

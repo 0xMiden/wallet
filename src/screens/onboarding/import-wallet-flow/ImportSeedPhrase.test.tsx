@@ -11,6 +11,12 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// `t` is mocked to echo the key, so this is what the screen renders. Named
+// rather than inlined so the locale check below asserts the same string the
+// component asks for — the key shipped without an `en.json` entry once, and
+// users saw the raw key in place of the message.
+const SEED_WORD_ERROR_KEY = 'importSeedPhraseError';
+
 // The child `Input` is replaced with a capturing stub. This keeps the coverage
 // surface on `ImportSeedPhraseScreen` itself and — following the sibling
 // SeedPhraseInput test — lets us invoke the exact `onChange` / `onPaste`
@@ -124,7 +130,7 @@ describe('ImportSeedPhraseScreen', () => {
       expect(mockButtonProps.disabled).toBe(true);
 
       // No error message for an entirely empty phrase and no isError prop.
-      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+      expect(screen.queryByText(SEED_WORD_ERROR_KEY)).not.toBeInTheDocument();
       expect(container).toBeTruthy();
     });
 
@@ -144,7 +150,7 @@ describe('ImportSeedPhraseScreen', () => {
       // The typed value is stored and pushed back to the child.
       expect(mockInputProps[0].value).toBe('not-a-real-word');
       // Unknown word -> errorsMap[0] true -> isError true -> error <p> rendered.
-      expect(screen.getByText('importSeedPhraseError')).toBeInTheDocument();
+      expect(screen.getByText(SEED_WORD_ERROR_KEY)).toBeInTheDocument();
       // Phrase still invalid -> submit disabled.
       expect(mockButtonProps.disabled).toBe(true);
     });
@@ -156,7 +162,7 @@ describe('ImportSeedPhraseScreen', () => {
 
       expect(mockInputProps[0].value).toBe('abandon');
       // Known word -> no per-word error. Phrase incomplete -> still no error banner.
-      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+      expect(screen.queryByText(SEED_WORD_ERROR_KEY)).not.toBeInTheDocument();
       expect(mockButtonProps.disabled).toBe(true);
     });
 
@@ -168,14 +174,14 @@ describe('ImportSeedPhraseScreen', () => {
       fillPhrase(WORDS);
 
       expect(screen.getByText('justValidPreGeneratedMnemonic')).toBeInTheDocument();
-      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+      expect(screen.queryByText(SEED_WORD_ERROR_KEY)).not.toBeInTheDocument();
     });
 
     it('shows the error banner from the isError prop even when every word is empty/valid', () => {
       setup({ isError: true });
 
       // No word-level errors, but the isError prop forces the banner (|| branch).
-      expect(screen.getByText('importSeedPhraseError')).toBeInTheDocument();
+      expect(screen.getByText(SEED_WORD_ERROR_KEY)).toBeInTheDocument();
     });
   });
 
@@ -190,7 +196,7 @@ describe('ImportSeedPhraseScreen', () => {
       // enabled, no error.
       expect(mockButtonProps.disabled).toBe(false);
       expect(screen.getByTestId('submit-button')).toBeEnabled();
-      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+      expect(screen.queryByText(SEED_WORD_ERROR_KEY)).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('submit-button'));
 
@@ -294,7 +300,21 @@ describe('ImportSeedPhraseScreen', () => {
       changeWord(0, ' Abandon ');
 
       expect(mockInputProps[0].value).toBe('abandon');
-      expect(screen.queryByText('importSeedPhraseError')).not.toBeInTheDocument();
+      expect(screen.queryByText(SEED_WORD_ERROR_KEY)).not.toBeInTheDocument();
+    });
+  });
+  describe('localization', () => {
+    it('defines the seed-word error message in the English locale', () => {
+      // Regression: the component shipped calling `t('importSeedPhraseError')`
+      // with no matching entry, so anyone pasting a non-wordlist word was shown
+      // the literal key. Asserting through the same constant the render path
+      // uses keeps the two from drifting apart again.
+      const locale: Record<string, string | undefined> = require('../../../../public/_locales/en/en.json');
+      const message = locale[SEED_WORD_ERROR_KEY];
+
+      expect(typeof message).toBe('string');
+      expect(message).not.toBe('');
+      expect(message).not.toBe(SEED_WORD_ERROR_KEY);
     });
   });
 });

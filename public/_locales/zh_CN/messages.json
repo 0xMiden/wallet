@@ -717,6 +717,14 @@
     "message": "您可以将完整的密钥 Seed phrase 粘贴到任何输入框中",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "恢复短语中的单词列表中缺少一个或多个单词。请检查已高亮显示的单词。",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "该代币的小数位数无法验证，因此无法显示或发送金额。",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "哎呀！",
     "englishSource": "Oops!"
@@ -2540,6 +2548,30 @@
     "message": "会自动将收到的 MIDEN notes 计入您的余额——这与点击“Claim”的效果相同。该操作不会消耗您的资金，也不会产生任何费用。",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "正在创建您的钱包文件……",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "导出失败",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "无法创建您的钱包文件，因此未保存任何内容。请尝试再次导出。",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "尚未保存",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "您的钱包文件已准备就绪，但您在选择保存位置之前就关闭了共享表单。",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "选择保存位置",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密钱包文件",
     "englishSource": "Encrypted Wallet File"
@@ -3303,6 +3335,24 @@
   "showAllDapps": {
     "message": "+$count$ 更多已上架的去中心化应用（dApp）",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ 更多",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ 更多",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4121,6 +4171,10 @@
   "consumed": {
     "message": "消耗",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note 类型",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "交易 ID",

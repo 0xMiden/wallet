@@ -289,14 +289,42 @@ describe('dApp send approval: the amount is scaled by the faucet decimals', () =
     expect(amountRow(capturedConfirmation())).toBe('Amount, -9007199254.740993');
   });
 
-  it('falls back to the native decimals when the faucet has no metadata', async () => {
+  // The previous fallback was the NATIVE decimals, which is a statement about
+  // MIDEN and not about this faucet. On the screen where a user approves a
+  // dApp's transfer, that renders an authoritative quantity derived from a
+  // token the request is not denominated in.
+  it('withholds the amount when the faucet has no metadata at all', async () => {
     mockGetTokenMetadata.mockResolvedValue(undefined);
 
     await expect(
       requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-unknown', '1500000'), 'session-1')
     ).rejects.toThrow(DECLINED);
 
-    expect(amountRow(capturedConfirmation())).toBe('Amount, -1.5');
+    expect(amountRow(capturedConfirmation())).toBe('Amount, -?');
+  });
+
+  it('withholds the amount when the faucet resolved only to the unknown-token placeholder', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true });
+
+    await expect(
+      requestSendTransaction(DAPP_ORIGIN, sendRequest('faucet-unresolved', '1500000'), 'session-1')
+    ).rejects.toThrow(DECLINED);
+
+    expect(amountRow(capturedConfirmation())).toBe('Amount, -?');
+  });
+
+  it('withholds a consume amount on the same terms', async () => {
+    mockGetTokenMetadata.mockResolvedValue(undefined);
+
+    const consumeReq = {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: 'note-1', faucetId: 'faucet-unknown', amount: '1500000', noteType: 'Public' }
+    } as unknown as Parameters<typeof requestConsumeTransaction>[1];
+
+    await expect(requestConsumeTransaction(DAPP_ORIGIN, consumeReq, 'session-1')).rejects.toThrow(DECLINED);
+
+    expect(amountRow(capturedConfirmation())).toBe('Amount, +?');
   });
 });
 

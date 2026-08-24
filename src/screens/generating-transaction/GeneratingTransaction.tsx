@@ -126,22 +126,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // #483 — a failed tx can retry from the failure footer. Only FIFO-loop txs
   // reach this screen (send/consume/swap/…); isRequeueableTransaction already
   // requires status===Failed and excludes the non-requeueable cases (structural
-  // guardian ops, earn-deposit, and Epoch bridged sends — hence the provider).
-  // earn-withdraw never routes here — it's born Completed with its failure in
-  // extraInputs.phase and has its own withdraw-status screen — so there is no
-  // earn branch to handle.
-  const canRetry =
-    !!active &&
-    isRequeueableTransaction({
-      status: active.status,
-      type: active.type,
-      bridgeProvider: bridgedSendExtras(active)?.provider,
-      // Feed the double-send guard: a send/swap that left the queue but has no
-      // captured transaction id to ask the node about is not safely replayable —
-      // its submit may already have landed.
-      transactionId: active.transactionId,
-      processingStartedAt: active.processingStartedAt
-    });
+  // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
+  // Completed with its failure in extraInputs.phase and has its own
+  // withdraw-status screen — so there is no earn branch to handle.
+  const canRetry = !!active && isRequeueableTransaction(active);
 
   const handleRetry = useCallback(
     async (acknowledgeUnverifiedSend = false) => {
@@ -372,11 +360,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg px-4 text-heading-gray">
+      <ScreenHeader className="shrink-0" title={processingTitle} closeLabel={t('close')} onClose={onDoneClick} />
 
-      <main className="flex flex-1 flex-col ">
-        <section className="flex w-full flex-1 flex-col items-center pt-5">
+      {/* Scroll region: only the steps body scrolls on a short sidepanel/popup;
+          the footer CTAs below stay pinned and reachable (same shape as
+          TransactionSuccessLayout, #463). */}
+      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <section className="flex w-full flex-col items-center pt-5">
           <TransactionHeroIcon state={heroState} />
 
           <h2 className="mt-6 w-full px-1 text-center font-heading text-[2rem] font-bold leading-none text-heading-gray">
@@ -412,71 +403,69 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             {!transactionComplete && <p>{dismissalDescription}</p>}
           </div>
         </section>
+      </main>
 
-        <div className="w-full shrink-0 flex flex-col gap-5 items-center pt-16">
-          {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
+      <div className="w-full shrink-0 flex flex-col gap-5 items-center pb-4 pt-6">
+        {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
               resubmit) as the primary action; Done demotes to secondary so the
               recovery path is the obvious one. */}
-          {transactionComplete && hasErrors && canRetry && onRetry && (
-            <Button
-              type="button"
-              variant={ButtonVariant.Primary}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={onRetry}
-              className="w-full"
-            >
-              <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
-            </Button>
-          )}
+        {transactionComplete && hasErrors && canRetry && onRetry && (
           <Button
             type="button"
-            variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
-            onClick={onDoneClick}
+            variant={ButtonVariant.Primary}
+            isLoading={isRetrying}
+            disabled={isRetrying}
+            onClick={onRetry}
             className="w-full"
           >
-            <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
+            <span className="text-lg font-semibold text-pure-white">{t('retry')}</span>
           </Button>
-          {/* #483 — a failed tx needs a direct route to its Activity detail, like
+        )}
+        <Button
+          type="button"
+          variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
+          onClick={onDoneClick}
+          className="w-full"
+        >
+          <span className="text-lg font-semibold text-pure-white">{actionTitle}</span>
+        </Button>
+        {/* #483 — a failed tx needs a direct route to its Activity detail, like
               SwapSuccess / GuardianRotationSuccess (which link to the per-tx
               detail; the other success views only open the history list). Only on
               failure — success routes through TransactionSuccess, which renders
               its own link. */}
-          {transactionComplete && hasErrors && (
-            <Button
-              type="button"
-              variant={ButtonVariant.Secondary}
-              onClick={() =>
-                navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
-              }
-              className="w-full"
-            >
-              <span className="text-lg font-semibold">{t('viewInActivities')}</span>
-            </Button>
-          )}
-          {retryError && (
-            <p role="alert" className="text-center text-sm text-status-negative">
-              {retryError}
-            </p>
-          )}
-          {/* The wallet cannot confirm whether this send landed; the user's own
-              balance can. Deliberately a separate, secondary tap AFTER the warning
-              rather than a smarter first Retry. */}
-          {onRetryAnyway && (
-            <Button
-              type="button"
-              data-testid="retry-anyway-button"
-              variant={ButtonVariant.Secondary}
-              isLoading={isRetrying}
-              disabled={isRetrying}
-              onClick={onRetryAnyway}
-              className="w-full"
-            >
-              <span className="text-lg font-semibold">{t('retryAnyway')}</span>
-            </Button>
-          )}
-        </div>
-      </main>
+        {transactionComplete && hasErrors && (
+          <Button
+            type="button"
+            variant={ButtonVariant.Secondary}
+            onClick={() => navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')}
+            className="w-full"
+          >
+            <span className="text-lg font-semibold">{t('viewInActivities')}</span>
+          </Button>
+        )}
+        {retryError && (
+          <p role="alert" className="text-center text-sm text-status-negative">
+            {retryError}
+          </p>
+        )}
+        {/* The wallet cannot confirm whether this send landed; the user's own
+            balance can. Deliberately a separate, secondary tap AFTER the warning
+            rather than a smarter first Retry. */}
+        {onRetryAnyway && (
+          <Button
+            type="button"
+            data-testid="retry-anyway-button"
+            variant={ButtonVariant.Secondary}
+            isLoading={isRetrying}
+            disabled={isRetrying}
+            onClick={onRetryAnyway}
+            className="w-full"
+          >
+            <span className="text-lg font-semibold">{t('retryAnyway')}</span>
+          </Button>
+        )}
+      </div>
     </div>
   );
 };

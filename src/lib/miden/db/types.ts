@@ -34,6 +34,12 @@ export type IBridgeProvider = 'epoch' | 'agglayer';
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
 
+/** One faucet's summed amount inside a batch consume. */
+export interface IConsumedAssetTotal {
+  faucetId: string;
+  amount: bigint;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
@@ -284,6 +290,8 @@ export interface ITransaction {
   /** All note ids for batch consume transactions (noteId is the first) */
   noteIds?: string[];
   noteType?: NoteType;
+  /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
@@ -500,6 +508,21 @@ export class ConsumeTransaction implements ITransaction {
   noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
+  /** Storage mode of the consumed note(s); unset when unknown or when a batch mixes modes. */
+  noteType?: NoteType;
+  /**
+   * Per-faucet totals for a batch claim, in first-seen order. `amount`/`faucetId`
+   * above only cover the first note's faucet, so a mixed batch (10 A, 10 A, 10 B)
+   * needs this to display "+20 A, +10 B". Absent on legacy rows.
+   *
+   * At queue time this is an estimate: a `ConsumableNote` carries only the first
+   * fungible asset of its note, so a note holding two assets contributes one.
+   * `completeConsumeTransaction` recomputes it from the executed transaction,
+   * where every asset of every note is visible. The estimate does survive on a
+   * row completed by `tryCompleteKilledConsume`, which has no transaction result
+   * to recompute from.
+   */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -527,12 +550,27 @@ export class ConsumeTransaction implements ITransaction {
     this.noteIds = list.map(n => n.id);
     this.faucetId = first.faucetId;
     this.secondaryAccountId = first.senderAddress;
-    // Display amount: sum of the notes sharing the first note's faucet. Notes
-    // of other faucets in a mixed batch aren't reflected here (display only).
-    this.amount =
-      first.amount !== ''
-        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
-        : undefined;
+    // Surface the note type in history only when it is known and uniform
+    // across the batch — a mixed private/public claim has no single answer.
+    this.noteType = first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
+    // Keyed rather than scanned: a Claim All is uncapped, and anyone can send the
+    // account notes, so the batch length is not ours to bound.
+    const totals = new Map<string, bigint>();
+    for (const note of list) {
+      if (note.amount === '') continue;
+      totals.set(note.faucetId, (totals.get(note.faucetId) ?? 0n) + BigInt(note.amount));
+    }
+    // Display amount: sum of the notes sharing the first note's faucet. Notes of
+    // other faucets in a mixed batch aren't reflected here (display only). Read
+    // off the same map rather than re-scanning, so the headline amount can never
+    // disagree with its own entry in `assetTotals`.
+    this.amount = first.amount !== '' ? totals.get(first.faucetId) : undefined;
+    // A note with no faucet has no identifiable asset, so it can carry a headline
+    // amount but never its own per-faucet total.
+    const identifiedTotals = Array.from(totals, ([faucetId, amount]) => ({ faucetId, amount })).filter(
+      total => total.faucetId !== ''
+    );
+    this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';

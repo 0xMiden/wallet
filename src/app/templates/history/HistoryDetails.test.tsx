@@ -550,6 +550,17 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-order-card')).not.toBeInTheDocument();
     });
 
+    // The placeholder's 6 decimals are a guess. Converting an 18-decimal token by
+    // them yields a number a trillion times too large, and the fiat estimate turns
+    // that invented quantity into an invented dollar value.
+    it('withholds the fiat estimate when the faucet has no known scale', async () => {
+      mockGetTokenMetadata.mockResolvedValue({ symbol: 'MID', decimals: 6, scaleIsUnknown: true });
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx });
+      await renderAndLoad();
+
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+    });
+
     it('shows the address itself when the account is unknown (no display name)', async () => {
       mockGetTransactionById.mockResolvedValue({ ...baseSendTx, secondaryAccountId: 'stranger' });
       await renderAndLoad();
@@ -637,6 +648,133 @@ describe('HistoryDetails', () => {
       );
       // 'acct-A' now matches no account → shown raw.
       expect(rowByLabel('from')!.querySelector('[data-testid="address-chip"]')).toHaveAttribute('data-displayname', '');
+    });
+  });
+
+  // A batch claim consumes INPUT notes, so its Notes card lists what it claimed
+  // rather than counting outputs it never created (#732).
+  describe('batch-claim notes card', () => {
+    const consumeTx = (overrides: Tx = {}): Tx => ({
+      ...baseSendTx,
+      type: 'consume',
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      outputNoteIds: undefined,
+      noteType: 'private',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2', 'note-3'],
+      ...overrides
+    });
+
+    it('lists the consumed input notes instead of an output count on a completed claim', async () => {
+      mockGetTransactionById.mockResolvedValue(consumeTx());
+      await renderAndLoad();
+
+      expect(rowByLabel('created')).toBeUndefined();
+      const consumed = rowByLabel('consumed')!;
+      expect(consumed.querySelector('[data-testid="history-consumed-notes"]')).not.toBeNull();
+      expect(Array.from(consumed.querySelectorAll('[data-testid="hash-chip"]')).map(chip => chip.textContent)).toEqual([
+        'note-1',
+        'note-2',
+        'note-3'
+      ]);
+      // Storage mode of the claimed notes, shown only for the two known modes.
+      expect(rowByLabel('noteTypeLabel')?.textContent).toBe('private');
+    });
+
+    it.each([
+      ['queued', 0],
+      ['generating', 1],
+      ['failed', 3]
+    ])('claims nothing yet on a %s row, so the whole card stays closed', async (_label, status) => {
+      // `noteIds` is stamped at QUEUE time. Without the status gate the card
+      // reports notes as "Consumed" while they are still sitting claimable.
+      mockGetTransactionById.mockResolvedValue(consumeTx({ status }));
+      await renderAndLoad();
+
+      expect(rowByLabel('consumed')).toBeUndefined();
+      // And it must not degrade into "Created: 0" either — the note type alone
+      // does not open the card.
+      expect(rowByLabel('created')).toBeUndefined();
+      expect(rowByLabel('noteTypeLabel')).toBeUndefined();
+    });
+
+    it('falls back to the scalar noteId on a legacy claim with no noteIds array', async () => {
+      mockGetTransactionById.mockResolvedValue(consumeTx({ noteIds: undefined }));
+      await renderAndLoad();
+
+      expect(
+        Array.from(rowByLabel('consumed')!.querySelectorAll('[data-testid="hash-chip"]')).map(c => c.textContent)
+      ).toEqual(['note-1']);
+    });
+
+    it('omits the note-type row for a storage mode that is neither private nor public', async () => {
+      mockGetTransactionById.mockResolvedValue(consumeTx({ noteType: 'P2ID' }));
+      await renderAndLoad();
+      expect(rowByLabel('noteTypeLabel')).toBeUndefined();
+      expect(rowByLabel('consumed')).toBeDefined();
+    });
+
+    // A "Claim All" is bounded only by how many notes the user had waiting, so
+    // an uncapped list can be hundreds of rows long.
+    it('previews five notes behind a "+N more" tap and reveals the rest on click', async () => {
+      const noteIds = Array.from({ length: 8 }, (_, i) => `note-${i}`);
+      mockGetTransactionById.mockResolvedValue(consumeTx({ noteId: noteIds[0], noteIds }));
+      await renderAndLoad();
+
+      // Scoped to the notes list: the external-tx-id row renders a chip too.
+      const chips = () =>
+        Array.from(screen.getByTestId('history-consumed-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          chip => chip.textContent
+        );
+      expect(chips()).toEqual(['note-0', 'note-1', 'note-2', 'note-3', 'note-4']);
+
+      const showAll = screen.getByTestId('history-consumed-notes-show-all');
+      expect(showAll.textContent).toBe('showAllNotes_3');
+
+      fireEvent.click(showAll);
+
+      expect(chips()).toEqual(noteIds);
+      expect(screen.queryByTestId('history-consumed-notes-show-all')).toBeNull();
+    });
+
+    it('shows no expand affordance at exactly the preview count', async () => {
+      const noteIds = Array.from({ length: 5 }, (_, i) => `note-${i}`);
+      mockGetTransactionById.mockResolvedValue(consumeTx({ noteId: noteIds[0], noteIds }));
+      await renderAndLoad();
+
+      expect(
+        Array.from(screen.getByTestId('history-consumed-notes').querySelectorAll('[data-testid="hash-chip"]')).map(
+          c => c.textContent
+        )
+      ).toEqual(noteIds);
+      expect(screen.queryByTestId('history-consumed-notes-show-all')).toBeNull();
+    });
+
+    // The estimate is priced off the primary faucet alone, so under a hero that
+    // lists several assets it reads as the total while understating it.
+    it('suppresses the fiat estimate when the claim spans several faucets', async () => {
+      mockGetTransactionById.mockResolvedValue(
+        consumeTx({
+          amount: 20n,
+          assetTotals: [
+            { faucetId: 'faucet-1', amount: 20n },
+            { faucetId: 'faucet-2', amount: 10n }
+          ]
+        })
+      );
+      await renderAndLoad();
+
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the fiat estimate when the claim is a single faucet', async () => {
+      mockGetTransactionById.mockResolvedValue(
+        consumeTx({ amount: 20n, assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] })
+      );
+      await renderAndLoad();
+
+      expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();
     });
   });
 
