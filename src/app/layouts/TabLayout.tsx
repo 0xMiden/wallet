@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import { PageGuideBanner } from 'components/tutorial/PageGuideBanner';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -199,6 +200,9 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
             onChange={handleActionChange}
             layoutId="tab-layout-action-fill"
           />
+          {/* Per-page guided-tour offer; renders only on non-Overview panes
+              and self-hides while the onboarding tour runs. */}
+          <PageGuideBanner />
         </div>
       )}
 

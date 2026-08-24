@@ -62,7 +62,10 @@ jest.mock('lib/mobile/useKeyboardVisible', () => ({
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
 jest.mock('lib/animation', () => ({
-  springs: { standard: { type: 'spring' } }
+  springs: { standard: { type: 'spring' } },
+  durations: { fast: 0.18 },
+  easings: { easeOutCubic: [0.16, 1, 0.3, 1] },
+  useMotion: (transition: unknown) => transition
 }));
 
 // Icons are SVG re-exports; render nothing but expose the enum keys the layout
@@ -91,6 +94,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
 // framer-motion's `motion.div` — forward props onto a plain div and surface the
 // `initial` prop (false = slide-in skipped, object = slide-in) for assertions.
 jest.mock('framer-motion', () => ({
+  AnimatePresence: ({ children }: any) => <>{children}</>,
   motion: {
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
       <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
