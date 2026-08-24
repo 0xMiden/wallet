@@ -152,6 +152,14 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
 - **`durationMs` has no bounds check.** `Math.round` passes a negative, `NaN`,
   or `Infinity` straight through. Durations come from `performance.now()`, which
   is monotonic, so this is not expected to bite — but nothing stops it.
+- **A run's span can exceed the 30-minute idle bound, by one flow.** The bound
+  governs which flows *join* a run: after 30 minutes of silence the next flow to
+  start gets a new id. A flow already open when that silence elapses still ends
+  under the id it started with, because the alternative is a `started` and an
+  `ended` that no longer pair, and pairing has to win. So a send opened at 09:00
+  and dismissed at 09:41 puts all of its events under one id across a 35-minute
+  gap. It cannot chain — no new flow joins that run — but the span of a single
+  run is bounded by the lifetime of one straddling flow, not by the clock.
 - **Cross-run analysis is impossible by construction**, not by omission. The
   only identifiers are the per-flow id and the per-run id, both minted in memory
   and both gone when the app closes, so nothing joins one launch to the next.
@@ -207,7 +215,12 @@ Two things it deliberately does not prove:
 `sessionId` carries our `runId` — minted in memory when the app starts, thrown
 away when it stops, rotated after 30 minutes of inactivity, and written nowhere.
 So a session is a visit: it has a real duration, it holds the flows the person
-performed in order, and reading one tells you what somebody did.
+performed in order, and reading one tells you what somebody did. Two edges keep
+"a session is one run" from being exact — a flow left open across the idle
+window carries its own pair past the rotation, and a backwards clock step
+rotates deliberately — so a long-tail session may hold one trailing event, and
+one run may occasionally appear as two. Both are noted under the boundaries
+above.
 
 `props.flowId` is what pairs a `started` with its `ended` inside that session.
 Group by it when you want flows; group by `sessionId` when you want visits.

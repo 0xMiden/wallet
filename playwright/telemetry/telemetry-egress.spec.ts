@@ -207,17 +207,25 @@ test.describe('Telemetry egress', () => {
       // Driven inside the page rather than with two `goto` calls: the window
       // has to be shorter than the dwell, and a round trip to the driver on a
       // loaded CI machine can spend the whole budget on its own. This keeps
-      // what is being measured to the time the hash actually reads `#/send`.
-      await page.evaluate(ms => {
-        location.hash = '#/send';
-        return new Promise(resolve =>
-          setTimeout(() => {
-            location.hash = '#/';
-            resolve(undefined);
-          }, ms)
-        );
+      // what is being measured to the time the route actually reads `/send`.
+      //
+      // Through `pushState`, which is what the app's own `navigate` calls, and
+      // which Woozie patches to announce itself. It has no `hashchange`
+      // listener at all, so assigning `location.hash` only works via the
+      // fragment change also firing `popstate` — which lands as a BACK
+      // navigation and leans on a subtlety a reader would have to go and check.
+      //
+      // The pane is read back rather than assumed: "nothing was sent" would
+      // pass just as well if the route never committed, which is the one way
+      // this step could go quiet for the wrong reason.
+      const visited = await page.evaluate(ms => {
+        const go = (hash: string) => history.pushState(null, '', `${location.pathname}${hash}`);
+        go('#/send');
+        const reached = location.hash;
+        return new Promise<string>(resolve => setTimeout(() => (go('#/'), resolve(reached)), ms));
       }, Math.floor(ROUTE_DWELL_MS / 3));
 
+      expect(visited).toBe('#/send');
       await sink.settle(SILENCE_WINDOW_MS);
       expect(describeRequests(sink.requests.slice(beforeTransit))).toEqual([]);
     });

@@ -791,7 +791,7 @@ describe('product-event egress', () => {
       ...Object.keys(objectAt(envelope, 'systemProps')).filter(
         key => !['isDebug', 'osName', 'appVersion', 'sdkVersion'].includes(key)
       ),
-      // The eight-field allowlist has to survive the crossing into an object
+      // The ten-field allowlist has to survive the crossing into an object
       // Aptabase leaves open, where the type system can no longer hold it.
       ...Object.keys(objectAt(envelope, 'props')).filter(key => !WIRE_KEYS.includes(key))
     ]);

@@ -13,7 +13,7 @@ import {
  *
  * The policy at `docs/privacy/index.md` names Aptabase as the processor for
  * usage data, so this module is what makes that sentence true. It maps the
- * eight-field allowlisted payload onto Aptabase's envelope and does nothing
+ * ten-field allowlisted payload onto Aptabase's envelope and does nothing
  * else — no queueing, no batching, and no network call. The single egress
  * point stays `sink.ts`.
  *

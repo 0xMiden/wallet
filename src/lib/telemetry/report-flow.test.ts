@@ -17,6 +17,12 @@ jest.mock('nanoid', () => {
 
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 
+// The run is module state, so it outlives a `describe`. File-level rather than
+// scoped to the block that asserts on it: a test elsewhere that mocks the clock
+// leaves `lastEventAt` behind, and the next test to care about run ids would
+// inherit it.
+beforeEach(() => __resetRunForTest());
+
 /**
  * Only telemetry requests, narrowed off the `WalletRequest` union rather than
  * cast, so a change to the message shape fails `yarn ts` here too.
@@ -113,7 +119,6 @@ describe('beginFlow', () => {
 describe('runId', () => {
   beforeEach(() => {
     jest.mocked(request).mockResolvedValue({ type: WalletMessageType.ReportTelemetryEventResponse });
-    __resetRunForTest();
   });
 
   afterEach(() => jest.resetAllMocks());
@@ -203,6 +208,35 @@ describe('runId', () => {
       // front. It is the morning's flow that has to land somewhere new.
       expect(eventAt(1).runId).toBe(eventAt(0).runId);
       expect(eventAt(2).runId).not.toBe(eventAt(0).runId);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('keeps a long flow in its run when other activity kept that run alive', () => {
+    const now = jest.spyOn(Date, 'now');
+    try {
+      // The counterweight to the test above, and the reason the idle check is
+      // measured from the last event of ANY flow rather than from this flow's
+      // own start. Someone deliberating on a review screen for half an hour
+      // while using the rest of the wallet is one visit; keying the rotation on
+      // the open flow's age would shatter it, and every other test here would
+      // still pass.
+      now.mockReturnValue(1_000_000);
+      const deliberating = beginFlow('send');
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS - 60_000);
+      beginFlow('open').complete();
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS + 60_000);
+      deliberating.complete();
+
+      // The flow that follows is what makes this load-bearing. Settling the
+      // long one emits under the id it captured either way, so the mistake is
+      // invisible until something new asks the run which id it is on.
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS + 61_000);
+      beginFlow('swap').complete();
+
+      const runs = new Set(sentEvents().map(event => event.runId));
+      expect(runs.size).toBe(1);
     } finally {
       now.mockRestore();
     }
