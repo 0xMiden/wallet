@@ -717,6 +717,14 @@
     "message": "You can paste your entire secret Seed phrase into any field",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "One or more words aren't in the recovery phrase word list. Check the highlighted words.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "This token's decimals could not be verified, so amounts can't be shown or sent.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Oops!",
     "englishSource": "Oops!"
@@ -749,6 +757,10 @@
   "retry": {
     "message": "Retry",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "Retry anyway",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1698,6 +1710,34 @@
     "message": "We couldn't fund your wallet. Please try again.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Account recovery detected",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Scanning private notes: draining the note transport…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Scanning private notes: importing notes from pending proposals…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Syncing public notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Syncing public notes: block $current$ of $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "You have Pending Notes",
     "englishSource": "You have Pending Notes"
@@ -2285,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "That's already your current guardian.",
-    "englishSource": "That's already your current guardian."
+    "message": "That's already your current Guardian.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "A Guardian switch is already in progress. Wait for it to finish before starting another.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Rotate Guardian",
@@ -2328,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Updated!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2340,9 +2380,37 @@
     "message": "Review rotation",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "New",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Current Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "New Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "You've successfully rotated your Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "What changes now",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "New transactions need your new Guardian to be reachable before they can complete.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authenticate to approve this Guardian switch.",
@@ -2508,6 +2576,30 @@
     "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Creating your wallet file…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Export Failed",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Your wallet file could not be created, so nothing was saved. Please try exporting again.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Not Saved Yet",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Choose Where to Save",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Encrypted Wallet File",
     "englishSource": "Encrypted Wallet File"
@@ -2635,10 +2727,6 @@
   "viewInActivities": {
     "message": "View in Activities",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "View activity",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "View Details",
@@ -3277,6 +3365,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ more",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ more",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Can't load this dApp",
     "englishSource": "Can't load this dApp"
@@ -3591,6 +3697,14 @@
     "message": "Reclaimed",
     "englishSource": "Reclaimed"
   },
+  "orderStatusPartiallyFilled": {
+    "message": "Partially filled",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Partially filled, remainder reclaimed",
+    "englishSource": "Partially filled, remainder reclaimed"
+  },
   "fillRounds": {
     "message": "Fill rounds",
     "englishSource": "Fill rounds"
@@ -3599,9 +3713,96 @@
     "message": "Filled",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ of $total$$symbol$ filled",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes bundled into this swap",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Fill note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Consumed · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Open fill",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Matching on DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "No fill notes have been bundled yet.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Go to Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Not available",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "Consume TX ID",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "Consume TX ID $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Created",
@@ -3994,6 +4195,10 @@
   "consumed": {
     "message": "Consumed",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Type",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Transaction ID",

@@ -10,43 +10,42 @@ import { Link } from 'lib/woozie';
 type MenuItemProps = {
   slug?: string;
   titleI18nKey: string;
-  Icon?: ImportedSVGComponent;
-  iconStyle?: React.CSSProperties;
   onClick?: () => void;
-  testID: string;
+  // Optional, and deliberately not defaulted to '': `Link` tracks a ButtonPress
+  // for any testID that is merely `!== undefined`, so an empty string bought a
+  // `data-testid=""` and an analytics event with no name.
+  testID?: string;
   linksOutsideOfWallet: boolean;
   rightText?: string;
 };
 
-const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, Icon, iconStyle, rightText }) => {
+const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, rightText }) => {
   const { t } = useTranslation();
 
   return (
     <div className={clsx('w-full cursor-pointer')}>
-      <div className="flex items-center justify-between">
+      {/* `py-2.5` to bring the row to a 44px target: the height here is just the
+          text's 24px line box, which sat exactly on the WCAG 2.5.8 floor with no
+          margin and well under the platform minimums — and dropping the leading
+          icons pulled adjacent rows 8px closer together at the same time. */}
+      <div className="flex items-center justify-between py-2.5">
         <div className="flex items-center gap-2">
-          {Icon && <Icon className="w-5 h-5 shrink-0" style={iconStyle} />}
-          <div className="text-base font-medium text-black">{t(titleI18nKey || '')}</div>
+          <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-2">
-          {rightText && <span className="text-xs text-black font-normal ">{rightText}</span>}
-          <ChevronRightIcon className="h-4 w-4" style={{ stroke: '#737373' }} aria-hidden="true" />
+          {/* Not `text-text-muted`: that token is #ababab in light mode, which is
+              2.3:1 on the app background — this is the row's value ("English"),
+              not decoration. `text-heading-gray` reads 9.2:1 light and flips to
+              white in dark. */}
+          {rightText && <span className="font-heading text-sm text-heading-gray font-normal">{rightText}</span>}
+          <ChevronRightIcon className="h-4 w-4 stroke-black" aria-hidden="true" />
         </div>
       </div>
     </div>
   );
 };
 
-const MenuItem: FC<MenuItemProps> = ({
-  slug,
-  titleI18nKey,
-  Icon,
-  iconStyle,
-  onClick,
-  testID,
-  linksOutsideOfWallet,
-  rightText
-}) => {
+const MenuItem: FC<MenuItemProps> = ({ slug, titleI18nKey, onClick, testID, linksOutsideOfWallet, rightText }) => {
   const handleExternalClick = () => {
     hapticLight();
   };
@@ -55,13 +54,7 @@ const MenuItem: FC<MenuItemProps> = ({
     <div>
       {linksOutsideOfWallet ? (
         <a href={slug} target="_blank" rel="noreferrer" onClick={handleExternalClick}>
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </a>
       ) : onClick && !slug ? (
         <button
@@ -73,23 +66,13 @@ const MenuItem: FC<MenuItemProps> = ({
           data-testid={testID}
           className="w-full text-left"
         >
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </button>
       ) : (
-        <Link to={slug || '#'} onClick={onClick} testID={testID}>
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+        // `testID` only feeds analytics inside Link — the anchor itself needs the
+        // spread `data-testid` for the settings e2e helpers to find routed rows.
+        <Link to={slug || '#'} onClick={onClick} testID={testID} data-testid={testID}>
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </Link>
       )}
     </div>

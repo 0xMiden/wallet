@@ -1,0 +1,143 @@
+name: Pages (docs + E2E gallery)
+
+# Publishes the GitHub Pages site via GitHub Actions (not the legacy
+# branch-build). It does TWO things in one deploy so the docs site is
+# preserved:
+#   /      → the existing Jekyll docs (built from ./docs, same as legacy Pages)
+#   /e2e/  → a browsable gallery of the E2E screenshot filmstrips, aggregated
+#            from the latest main-branch run of every E2E workflow.
+#
+# ONE-TIME ADMIN STEP TO ACTIVATE: Settings → Pages → Build and deployment →
+# Source → "GitHub Actions". Until that switch is flipped, Pages keeps serving
+# the legacy branch build and this workflow's deploy step is a no-op/failure.
+# (Flipping the source needs repo admin; `maintain` can't.)
+#
+# After activation, docs update whenever ./docs changes on main (this workflow
+# rebuilds them), instead of GitHub's automatic legacy Jekyll build.
+
+on:
+  # Refresh the gallery whenever an E2E suite finishes on main.
+  workflow_run:
+    workflows:
+      - 'E2E Blockchain'
+      - 'E2E Android'
+      - 'E2E Bridge'
+      - 'E2E Bridge-IN'
+      - 'E2E dApp Browser'
+      - 'Infra Resilience E2E (Chrome)'
+      - 'Swap E2E (Chrome)'
+      - 'Earn E2E (Chrome)'
+      - 'Guardian Lifecycle E2E (Chrome)'
+      - 'Guardian Bridge-Out E2E (Chrome)'
+    types: [completed]
+  # Rebuild docs (and the gallery) when docs or the gallery tooling changes.
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/build-e2e-gallery.mjs'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    # For workflow_run triggers, only act on main-branch runs.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build docs (Jekyll, reproduces the legacy Pages build)
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./_site
+
+      # jekyll-build-pages runs in a container as root, so ./_site comes out
+      # root-owned and the later Node step (runner user) can't write ./_site/e2e.
+      - name: Make _site writable
+        run: sudo chown -R "$(id -u):$(id -g)" _site
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Gather E2E screenshot artifacts (latest COMPLETED main run per workflow)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          mkdir -p _e2e_stage
+          WORKFLOWS="e2e-blockchain.yml e2e-android.yml e2e-bridge.yml e2e-bridge-in.yml e2e-dapp-browser.yml e2e-resilience.yml pr-e2e-swap.yml pr-e2e-earn.yml pr-e2e-guardian-lifecycle.yml pr-e2e-bridge-guardian.yml"
+          for wf in $WORKFLOWS; do
+            # Pick the latest run that RAN TO COMPLETION — success OR failure — but
+            # not "cancelled" (a rapid series of main pushes makes concurrency cancel
+            # earlier in-progress runs, and a cancelled run has only partial artifacts
+            # that shrank the gallery) and not in-progress (no artifacts yet).
+            #
+            # Deliberately NOT "success only": these workflows bundle many jobs (e.g.
+            # e2e-blockchain runs Chrome + iOS mobile + guardian), and one flaky job
+            # turns the whole run's conclusion to "failure" — which would otherwise
+            # freeze the gallery on a stale run even though the jobs that mattered
+            # passed and uploaded complete artifacts (upload-artifact runs on
+            # `if: always()`). Each job's artifact is self-contained: a job that
+            # passed contributes a full filmstrip; a job that failed contributes
+            # however far it got (which is the useful, current state anyway).
+            rid=$(gh run list --workflow "$wf" --branch main --limit 20 --json databaseId,conclusion \
+              --jq 'map(select(.conclusion=="success" or .conclusion=="failure"))[0].databaseId // empty' 2>/dev/null || true)
+            if [ -z "$rid" ]; then echo "no completed main run for $wf"; continue; fi
+            echo "::group::$wf (run $rid)"
+            tmp="_e2e_stage/_tmp"
+            rm -rf "$tmp"; mkdir -p "$tmp"
+            # Download all artifacts of the run; keep only those that contain screens/.
+            gh run download "$rid" -D "$tmp" 2>/dev/null || echo "  (no artifacts / download failed)"
+            for art in "$tmp"/*/; do
+              [ -d "$art" ] || continue
+              if find "$art" -path '*/screens/*.png' -print -quit 2>/dev/null | grep -q .; then
+                name=$(basename "$art")
+                rm -rf "_e2e_stage/$name"
+                mv "$art" "_e2e_stage/$name"
+                echo "  kept: $name"
+              fi
+            done
+            rm -rf "$tmp"
+            echo "::endgroup::"
+          done
+          echo "staged jobs:"; ls -1 _e2e_stage 2>/dev/null || echo "  (none)"
+
+      - name: Build E2E gallery into /e2e
+        run: |
+          node scripts/build-e2e-gallery.mjs \
+            --input _e2e_stage \
+            --output ./_site/e2e \
+            --branch main \
+            --sha "${{ github.sha }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

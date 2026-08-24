@@ -104,6 +104,14 @@ describe('metadata/utils', () => {
       });
     });
 
+    it('carries the unknown-scale marker, which must not be laundered off a copy', () => {
+      expect(toBaseMetadata(DEFAULT_TOKEN_METADATA).scaleIsUnknown).toBe(true);
+    });
+
+    it('leaves the marker off metadata that reported its own decimals', () => {
+      expect(toBaseMetadata({ symbol: 'WETH', name: 'Wrapped Ether', decimals: 18 }).scaleIsUnknown).toBeUndefined();
+    });
+
     it('handles metadata without optional URI fields', () => {
       const metadata: AssetMetadata = {
         symbol: 'TEST',

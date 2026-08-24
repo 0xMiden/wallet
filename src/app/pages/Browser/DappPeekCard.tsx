@@ -319,6 +319,9 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
         type="button"
         onClick={handleTap}
         aria-label={t('restoreDappCard', { name: displayName })}
+        data-testid="dapp-peek-card"
+        data-dapp-id={session.id}
+        data-dapp-url={session.url}
         className="group relative block h-full w-full overflow-hidden rounded-2xl bg-white"
         style={{
           // Layered shadow: tight contact + wide soft halo with a subtle
@@ -380,6 +383,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           type="button"
           onClick={handleClose}
           aria-label={t('closeDappCard', { name: displayName })}
+          data-testid="dapp-peek-card-close"
           className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition-transform active:scale-90"
         >
           <Icon name={IconName.Close} size="xs" className="text-pure-white" fill="currentColor" />
@@ -393,6 +397,7 @@ export const DappPeekCard: FC<DappPeekCardProps> = ({
           type="button"
           onClick={handleShowAll}
           aria-label={t('showAllDapps', { count: overflowCount })}
+          data-testid="dapp-peek-show-all"
           className="absolute left-1.5 top-1.5 flex h-6 items-center rounded-full bg-black/60 px-2 backdrop-blur-sm transition-transform active:scale-95"
         >
           <span className="text-[10px] font-bold text-pure-white">

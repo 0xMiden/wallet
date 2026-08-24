@@ -717,6 +717,14 @@
     "message": "Seed phrase の秘密鍵全体を、任意の入力欄に貼り付けることができます",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "1つ以上の単語がリカバリーフレーズの単語リストに含まれていません。ハイライトされた単語を確認してください。",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "このトークンの小数点以下の桁数は確認できなかったため、金額を表示したり送金したりすることはできません。",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "おっと！",
     "englishSource": "Oops!"
@@ -749,6 +757,10 @@
   "retry": {
     "message": "再試行",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "それでも再試行",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal：$amount$",
@@ -1698,6 +1710,34 @@
     "message": "お持ちのウォレットへの入金に失敗しました。もう一度お試しください。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "アカウントの回復が検出されました",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "プライベートnotesのスキャン中：noteトランスポートのデータを読み込み中…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "プライベートnotesのスキャン中：保留中の提案からnotesをインポート中…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "パブリックnotesの同期中…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "パブリックnotesの同期：$latest$のブロック$current$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "未決済のNotesがあります",
     "englishSource": "You have Pending Notes"
@@ -2285,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "これらはすでに、現在のguardianに反映されています。",
-    "englishSource": "That's already your current guardian."
+    "message": "それはすでに現在のGuardianです。",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardianの切り替えがすでに進行中です。完了するまでお待ちください。",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Guardian をローテーションする",
@@ -2328,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian 更新されました！",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "オンライン",
     "englishSource": "Online"
@@ -2340,9 +2380,37 @@
     "message": "ローテーションの見直し",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "新着",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "現在のGuardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "新しいGuardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardianのローテーションが正常に完了しました！",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "現在の変更点",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "新しいGuardianは今後、すべての取引に共同署名を行います。以前のGuardianはもはや何の役割も果たしません。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "ウォレットアドレス、資金、取引履歴に変更はありません。ローテーション中に移動されたものは一切ありません。",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "新しい取引を完了させるには、新しいGuardianがアクセス可能になっている必要があります。",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Guardianはいつでも再ローテーションできます。その際はリカバリーフレーズが必要となるため、安全に保管してください。",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "このGuardianの切り替えを承認するには、認証を行ってください。",
@@ -2508,6 +2576,30 @@
     "message": "受信したMIDEN（notes）を自動的に残高に反映します。これは「Claim」をタップするのと同じ動作です。資金が消費されたり、手数料が加算されたりすることはありません。",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "ウォレットファイルの作成中…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "エクスポートに失敗しました",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "ウォレットファイルを作成できなかったため、何も保存されませんでした。再度エクスポートをお試しください。",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "まだ保存されていません",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "ウォレットファイルの準備は完了していますが、保存先を選択する前に共有シートを閉じてしまいました。",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "保存先を選択してください",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "暗号化されたウォレットファイル",
     "englishSource": "Encrypted Wallet File"
@@ -2635,10 +2727,6 @@
   "viewInActivities": {
     "message": "「アクティビティ」で表示",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "アクティビティを表示",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",
@@ -3277,6 +3365,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ 続き",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ 続き",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "このdAppを読み込めません",
     "englishSource": "Can't load this dApp"
@@ -3580,16 +3686,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "開く",
+    "message": "未約定",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "埋まった",
+    "message": "約定済み",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "再生された",
+    "message": "回収済み",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "一部約定",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "一部約定、残りを回収しました",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "ラウンドを埋める",
@@ -3599,9 +3713,96 @@
     "message": "埋まった",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$total$$symbol$ のうち $filled$ 約定",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "このスワップにバンドルされた Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "約定 Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "消費済み · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "未約定分",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "DEX でマッチング中…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "バンドルされた Notes はまだありません。",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Pending Notes へ",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "利用不可",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "消費トランザクション ID",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "消費トランザクション ID $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "作成日",
@@ -3994,6 +4195,10 @@
   "consumed": {
     "message": "消費された",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note タイプ",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "トランザクションID",

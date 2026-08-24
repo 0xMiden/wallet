@@ -44,12 +44,17 @@ export default defineConfig({
   maxFailures: isLocalnet ? 3 : 1,
   workers: 1,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
-  // ONE `use` block. It used to be two (timeouts here, browser options at the
-  // bottom); a duplicate key is legal JS — the later literal simply wins — so
-  // the timeouts were silently discarded and Playwright fell back to its
-  // unbounded defaults. Neither gate that would have caught it runs on this
-  // file: `yarn lint` only lints `src`, and `tsconfig.json` now includes the
-  // root playwright configs so TS1117 fires if the split ever comes back.
+  // ONE `use` block. There used to be two — a second, later one further down
+  // the object literal — which silently won, so the bounded timeouts below
+  // (added by #675 for exactly the failure they describe) never applied to a
+  // single CI run. `guardian-recovery-stress` then failed on main with
+  // "Object with guid handle@… was not bound in the connection" followed by
+  // "browserContext.close: Target page, context or browser has been closed"
+  // (run 32175200493) — the unbounded-action signature #675 set out to remove.
+  // Root-level `playwright.*.config.ts` files sit outside `yarn lint`'s `src`
+  // scope AND outside tsconfig's `include`, so neither `no-dupe-keys` nor
+  // TS1117 was ever evaluated against this file; see the tsconfig entry that
+  // now closes that gap.
   use: {
     headless: false, // Extensions require headed mode
     trace: 'on', // Always record traces for debugging

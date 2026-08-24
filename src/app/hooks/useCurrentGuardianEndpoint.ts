@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { fetchFromStorage, onStorageChanged } from 'lib/miden/front';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import type { GuardianOption } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -52,7 +53,15 @@ export function useCurrentGuardianEndpoint(): { endpoint: string; refresh: () =>
     []
   );
 
-  return { endpoint: accountEndpoint || storedEndpoint, refresh };
+  // Third branch, same as the backend resolver's: a Guardian account created
+  // before per-account endpoints has neither field set, and the backend answers
+  // "the effective default" for it — that is the Guardian the account really
+  // uses, and it is what `initiate` stamps as `previousGuardianEndpoint`. Ending
+  // at '' here instead made the UI disagree with the record it was about to
+  // write: the current provider read "Unknown", the picker badged nothing as
+  // current, and both same-endpoint guards compared against '' and so never
+  // fired, letting the user queue a switch onto the Guardian they already had.
+  return { endpoint: accountEndpoint || storedEndpoint || getEffectiveDefaultGuardianEndpoint(), refresh };
 }
 
 // A provider now maps each supported network to its endpoint there, so match

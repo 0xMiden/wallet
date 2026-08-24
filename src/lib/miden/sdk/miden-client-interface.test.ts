@@ -85,10 +85,15 @@ describe('MidenClientInterface', () => {
         ...overrides.transactions
       },
       // The non-offscreen send builds its request through the inner raw client.
+      // `getAccount` is the sender-vault read that supplies the outgoing asset's
+      // callback flag, so it has to exist here or the send path throws.
       _withInnerWebClient: jest.fn(async (fn: (inner: any) => Promise<any>) =>
-        fn({
-          newSendTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([7]) }))
-        })
+        fn(
+          overrides.__inner ?? {
+            newSendTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([7]) })),
+            getAccount: jest.fn(async () => ({ vault: jest.fn() }))
+          }
+        )
       ),
       sync: jest.fn(async () => ({ blockNum: () => 5 })),
       getSyncHeight: jest.fn(async () => 5),
@@ -108,6 +113,7 @@ describe('MidenClientInterface', () => {
       NoteFile: { deserialize: jest.fn(() => ({})) },
       AccountFile: { deserialize: jest.fn(() => ({})) },
       NoteExportFormat: { Id: 'Id', Full: 'Full', Details: 'Details' },
+      NoteType: { Private: 'Private', Public: 'Public' },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       TransactionProver: {
         newRemoteProver: jest.fn(() => 'remote'),
@@ -137,9 +143,15 @@ describe('MidenClientInterface', () => {
     }));
     jest.doMock('./constants', () => ({ NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('../helpers', () => ({
+      // Real `isPrivateNoteType`: it is the note-type validation under test on
+      // the send paths below, so stubbing it would make those assertions vacuous.
+      ...jest.requireActual('../helpers'),
       getNoteRecallableAtMs: jest.fn(() => undefined),
       toNoteType: jest.fn()
     }));
@@ -210,7 +222,10 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -288,7 +303,10 @@ describe('MidenClientInterface', () => {
     );
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -307,10 +325,14 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       AccountFile: { deserialize: jest.fn(() => ({})) }
     }));
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -349,13 +371,17 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }
     }));
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -417,9 +443,13 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       },
@@ -457,9 +487,13 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       getWasmOrThrow: async () => ({
@@ -511,9 +545,13 @@ describe('MidenClientInterface', () => {
     });
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       getWasmOrThrow: async () => ({
@@ -590,9 +628,13 @@ describe('MidenClientInterface', () => {
       });
 
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
         TransactionRequest: { deserialize: jest.fn(() => ({})) },
         getWasmOrThrow: async () => ({
@@ -632,9 +674,13 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient({ _withInnerWebClient: undefined });
 
     jest.doMock('./helpers', () => ({
-      getBech32AddressFromAccountId: (id: any) => String(id)
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
       TransactionRequest: { deserialize: jest.fn(() => ({})) },
       getWasmOrThrow: async () => ({
@@ -676,6 +722,7 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient({ transactions: { consume } });
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') }
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -701,12 +748,25 @@ describe('MidenClientInterface', () => {
   // Swap is the other opaque whole-op write, but unlike consume a retry would mint
   // a SECOND PSWAP note (a fresh note serial) and lock the offered asset twice — so
   // it marks the point of no return before the call and gives up the prove fallback.
-  it('does not retry a delegated swap: pswapCreate has no seam to stop at', async () => {
+  it('does not retry a delegated swap: the PSWAP submit has no seam to stop at', async () => {
     const pswapErr = new Error('remote prover deadline exceeded');
-    const pswapCreate = jest.fn(async () => Promise.reject(pswapErr));
-    const fakeMidenClient = buildFakeMidenClient({ transactions: { pswapCreate } });
+    const submit = jest.fn(async () => Promise.reject(pswapErr));
+    const fakeMidenClient = buildFakeMidenClient({
+      transactions: { submit },
+      // The reference request the vault-key re-emit is measured against.
+      __inner: {
+        newPswapCreateTransactionRequest: jest.fn(() => ({ serialize: () => new Uint8Array([3]) }))
+      }
+    });
 
+    jest.doMock('./helpers', () => ({
+      getBech32AddressFromAccountId: (id: any) => String(id),
+      walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
+    }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') }
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -728,7 +788,7 @@ describe('MidenClientInterface', () => {
       } as any)
     ).rejects.toBe(pswapErr);
 
-    expect(pswapCreate).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(1);
   });
 
   // `newTransaction` (dApp custom transactions + the Agglayer bridged-send) is
@@ -744,6 +804,7 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient({ transactions: { executeRequest } });
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       TransactionProver: { newLocalProver: jest.fn(() => 'local') },
       TransactionRequest: { deserialize: jest.fn(() => ({})) }
     }));
@@ -764,6 +825,7 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }
@@ -790,6 +852,7 @@ describe('MidenClientInterface', () => {
     const fakeMidenClient = buildFakeMidenClient();
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
       TransactionProver: {
         newLocalProver: jest.fn(() => 'local')
       }
@@ -822,6 +885,7 @@ describe('MidenClientInterface', () => {
       const createMock = jest.fn(async () => fakeMockClient);
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: jest.fn(), createMock },
         NoteFile: { deserialize: jest.fn(() => ({})) },
         AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -840,7 +904,12 @@ describe('MidenClientInterface', () => {
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined
       }));
-      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
       const prev = process.env.MIDEN_USE_MOCK_CLIENT;
@@ -860,6 +929,7 @@ describe('MidenClientInterface', () => {
       const createReal = jest.fn(async () => fakeMidenClient);
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: createReal, createMock: jest.fn() },
         NoteFile: { deserialize: jest.fn(() => ({})) },
         AccountFile: { deserialize: jest.fn(() => ({})) },
@@ -878,7 +948,12 @@ describe('MidenClientInterface', () => {
         getEffectiveProverUrl: () => undefined,
         getEffectiveNoteTransportUrl: () => undefined
       }));
-      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
@@ -905,7 +980,10 @@ describe('MidenClientInterface', () => {
       }));
 
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
+        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id)),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('screens/onboarding/types', () => ({
         WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
@@ -959,7 +1037,10 @@ describe('MidenClientInterface', () => {
       });
 
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('screens/onboarding/types', () => ({
         WalletType: { OnChain: 'on-chain', OffChain: 'off-chain', Guardian: 'guardian' }
@@ -1000,6 +1081,7 @@ describe('MidenClientInterface', () => {
 
     try {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         TransactionProver: { newLocalProver: jest.fn(() => 'local') }
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -1043,6 +1125,7 @@ describe('MidenClientInterface', () => {
 
     try {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         TransactionProver: { newLocalProver: jest.fn(() => 'local') }
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -1100,6 +1183,7 @@ describe('MidenClientInterface', () => {
         isDesktop: () => false
       }));
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         TransactionProver: { newCallbackProver, newLocalProver }
       }));
       jest.doMock('@miden/native-prover', () => ({ MidenNativeProver: nativeProverPlugin }));
@@ -1145,6 +1229,7 @@ describe('MidenClientInterface', () => {
 
     try {
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         TransactionProver: { newLocalProver: jest.fn(() => 'local') }
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -1429,7 +1514,10 @@ describe('MidenClientInterface', () => {
         TransactionRequest: { deserialize: jest.fn(() => ({})) }
       }));
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -1444,6 +1532,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
         newSendTransactionRequest: jest.fn(async () => ({}))
       };
       const cacheHit = {
@@ -1489,6 +1578,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
         newSendTransactionRequest: jest.fn(async () => ({}))
       };
       // The first consumeCacheHit returns null (initial miss). After
@@ -1547,6 +1637,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
         newSendTransactionRequest: jest.fn(async () => ({}))
       };
       const stubs = buildOffscreenStubs({ cacheHit: null, hasInFlightMatching: false });
@@ -1586,6 +1677,7 @@ describe('MidenClientInterface', () => {
         executeTransaction: jest.fn(async () => fakeTransactionResult),
         submitProvenTransaction: jest.fn(async () => 100),
         applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
         newSendTransactionRequest: jest.fn(async () => ({}))
       };
       const stubs = buildOffscreenStubs({});
@@ -1724,6 +1816,7 @@ describe('MidenClientInterface', () => {
         }),
         submitProvenTransaction: jest.fn(),
         applyTransaction: jest.fn(),
+        getAccount: jest.fn(async () => undefined),
         newSendTransactionRequest: jest.fn(async () => ({}))
       };
       buildOffscreenStubs({});
@@ -1776,7 +1869,10 @@ describe('MidenClientInterface', () => {
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -1816,7 +1912,10 @@ describe('MidenClientInterface', () => {
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -1858,10 +1957,21 @@ describe('MidenClientInterface', () => {
       const txResult = {
         serialize: () => new Uint8Array([0xa, 0xb])
       };
+      // A marker account, NOT undefined: this is the offscreen/speculation path,
+      // which is the shipping default, and it is where the sender's vault key
+      // (callback flag included) has to reach the builder. With `undefined` here
+      // the builder falls through to `new FungibleAsset(...)` — the default
+      // Disabled flag, i.e. the exact bug this PR fixes — and nothing notices.
+      const senderAccount = { tag: 'sender-account' };
       const inner = {
         executeTransaction: jest.fn(async () => txResult),
+        getAccount: jest.fn(async () => senderAccount),
         newSendTransactionRequest: jest.fn(async () => ({ kind: 'request' }))
       };
+      const buildSendTransactionRequest = jest.fn(() => ({
+        kind: 'request',
+        serialize: () => new Uint8Array([1])
+      }));
       const proveViaOffscreen = jest.fn(async () => ({
         provenBytes: new Uint8Array([0xc, 0xd]).buffer,
         durationMs: 5
@@ -1877,7 +1987,10 @@ describe('MidenClientInterface', () => {
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id)
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
         markConnectivityIssue: jest.fn(),
@@ -1895,23 +2008,43 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
+      // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+      // suffix before parsing, or the bech32 parser sees a string it can reject.
       const entry = await client.executeAndProveForSpeculation({
-        accountId: 'mtst1sender',
-        recipientAccountId: '0xrecipient',
+        accountId: 'mtst1sender_qr7qqq9wr6w',
+        // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+        // that is otherwise valid would fail to resolve here.
+        recipientAccountId: '0XRecipient',
         faucetId: 'mtst1faucet',
         noteType: 'private',
         amount: 250n
       });
 
-      expect(entry.paramsHash).toBe('mtst1sender|0xrecipient|mtst1faucet|private|250');
+      expect(entry.paramsHash).toBe('mtst1sender_qr7qqq9wr6w|0XRecipient|mtst1faucet|private|250');
       expect(entry.txResultBytes).toEqual(new Uint8Array([0xa, 0xb]));
       expect(new Uint8Array(entry.provenBytes)).toEqual(new Uint8Array([0xc, 0xd]));
 
-      // Account ID resolution: accounts beginning with 0x → fromHex,
-      // otherwise → fromBech32.
+      // Account ID resolution: accounts beginning with 0x → fromHex (with the
+      // prefix lowercased, and only the prefix), otherwise → fromBech32, and
+      // the composite suffix is stripped first.
       expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
-      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xrecipient');
+      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
       expect(proveViaOffscreen).toHaveBeenCalledWith(expect.any(Uint8Array), null, { speculative: true });
+
+      // The whole point of the PR on the DEFAULT send path: the sender's account
+      // — and therefore its vault key, callback flag included — reaches the
+      // builder. Passing `undefined` here falls back to `new FungibleAsset(...)`
+      // and its default Disabled flag, which is the bug being fixed.
+      expect(inner.getAccount).toHaveBeenCalled();
+      expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+        senderAccount,
+        expect.anything(),
+        expect.anything(),
+        'mtst1faucet',
+        250n,
+        'Private',
+        undefined
+      );
     });
   });
 
@@ -1944,6 +2077,7 @@ describe('MidenClientInterface', () => {
       });
 
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        NoteType: { Private: 0, Public: 1 },
         MidenClient: { create: jest.fn(async () => fakeMidenClient) },
         NoteFile: { deserialize: sdk.noteFileDeserialize, fromExpectedNote },
         Note: { deserialize: sdk.noteDeserialize },
@@ -1962,8 +2096,14 @@ describe('MidenClientInterface', () => {
         getEffectiveNoteTransportUrl: () => undefined
       }));
       jest.doMock('./constants', () => ({ NoteExportType: {} }));
-      jest.doMock('./helpers', () => ({ getBech32AddressFromAccountId: (id: any) => String(id) }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => String(id),
+        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
+      }));
       jest.doMock('../helpers', () => ({
+        ...jest.requireActual('../helpers'),
         getNoteRecallableAtMs: jest.fn(() => undefined),
         toNoteType: jest.fn()
       }));
@@ -2113,6 +2253,7 @@ describe('MidenClientInterface', () => {
     const fromBech32 = jest.fn((accountId: string) => ({ accountId }));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
       getWasmOrThrow: jest.fn(async () => ({
         AccountId: { fromBech32, fromHex: jest.fn() }
@@ -2184,6 +2325,7 @@ describe('MidenClientInterface', () => {
     const fromBech32 = jest.fn((accountId: string) => ({ accountId }));
 
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
       ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
       getWasmOrThrow: jest.fn(async () => ({ AccountId: { fromBech32, fromHex: jest.fn() } })),
       WasmWebClient: { createClient }

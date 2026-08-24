@@ -1,0 +1,523 @@
+/**
+ * The Guardian pending-note recovery SDK surface. All of the decision logic
+ * that decides whether a recovery makes progress, gives up, or silently
+ * under-reports lives in these three methods, and none of it was covered:
+ *
+ *   - when a block range is handed back as `saturated` for the caller to split,
+ *     and when it must be imported as-is instead (the anti-infinite-split rule)
+ *   - which node errors mean "span too wide" and which must NOT (a 429 answered
+ *     by splitting doubles the request rate against a rate-limiting node)
+ *   - failure accounting, which is what decides whether the ONE-SHOT
+ *     `guardianNoteRecoveryPending` flag clears — an undercount clears it over
+ *     notes that were never imported, losing them permanently
+ *   - the creation-block search's bounds
+ */
+
+type RecoveryClientInterface = import('./miden-client-interface').MidenClientInterface;
+
+const NOTE_TAG = { tag: 'note-tag' };
+
+interface FakeRpc {
+  syncNotes: jest.Mock;
+  getNotesById: jest.Mock;
+  getBlockHeaderByNumber: jest.Mock;
+}
+
+let fakeRpc: FakeRpc;
+let noteImport: jest.Mock;
+/** Ids each `getNotesById` call asked for, as strings read before the call moved them. */
+let requestedIdBatches: string[][];
+
+const NOTE_TYPE_PRIVATE = 0;
+const NOTE_TYPE_PUBLIC = 1;
+
+/**
+ * A `FetchedNote`-shaped entry: `noteId`/`noteType`/`inclusionProof` are
+ * properties, `asInputNote()` a method. A body-less note defaults to PRIVATE,
+ * which is what the SDK documents a missing body to mean.
+ */
+function fetchedNote(
+  id: string,
+  { withBody = true, proof = true, noteType }: { withBody?: boolean; proof?: boolean; noteType?: number } = {}
+) {
+  return {
+    noteId: id,
+    noteType: noteType ?? (withBody ? NOTE_TYPE_PUBLIC : NOTE_TYPE_PRIVATE),
+    inclusionProof: proof ? { proofFor: id } : undefined,
+    asInputNote: () => (withBody ? { note: id } : undefined)
+  };
+}
+
+/**
+ * A `NoteId` handle with the SDK's ownership semantics. Passing one into an RPC
+ * call MOVES it: wasm-bindgen unwraps every element of the array and zeroes the
+ * JS wrapper's pointer, so reading the handle afterwards traps. Modelling that
+ * here is what makes this suite able to see it — against plain strings, code
+ * that reads a requested id after the call passes the test and traps against
+ * the real SDK.
+ */
+function noteIdHandle(id: string) {
+  let moved = false;
+  return {
+    move: () => {
+      moved = true;
+    },
+    toString: () => {
+      if (moved) throw new Error('null pointer passed to rust');
+      return id;
+    }
+  };
+}
+
+function committedNote(id: string) {
+  return { noteId: () => noteIdHandle(id) };
+}
+
+function blockHeader(blockNum: number, timestamp: number) {
+  return { blockNum: () => blockNum, timestamp: () => timestamp };
+}
+
+async function loadClient(): Promise<RecoveryClientInterface> {
+  jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+    ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+    RpcClient: jest.fn(() => ({
+      ...fakeRpc,
+      // Delegates to the mock (so call assertions still work), then consumes
+      // the ids exactly as the real call does.
+      getNotesById: async (ids: Array<{ move?: () => void }>) => {
+        requestedIdBatches.push(ids.map(String));
+        try {
+          return await fakeRpc.getNotesById(ids);
+        } finally {
+          for (const id of ids) id.move?.();
+        }
+      }
+    })),
+    Endpoint: jest.fn(url => ({ url })),
+    // The shared wasm mock stands NoteType up as strings; the real enum is
+    // numeric and the accounting compares against it.
+    NoteType: { Private: NOTE_TYPE_PRIVATE, Public: NOTE_TYPE_PUBLIC },
+    Address: { fromAccountId: jest.fn(() => ({ toNoteTag: () => NOTE_TAG })) },
+    Note: { deserialize: jest.fn((bytes: Uint8Array) => ({ id: () => noteIdHandle(`note-${bytes[0]}`) })) },
+    InputNote: {
+      // Consumes the proof, as the real one does.
+      authenticated: jest.fn((note, proof: { moved?: boolean }) => {
+        if (proof.moved) throw new Error('null pointer passed to rust');
+        proof.moved = true;
+        return { note, proof, authenticated: true };
+      }),
+      unauthenticated: jest.fn(note => ({ note, authenticated: false }))
+    },
+    NoteFile: { fromInputNote: jest.fn(inputNote => ({ file: inputNote })) }
+  }));
+  jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+    getEffectiveNetworkName: () => 'testnet',
+    getEffectiveRpcUrl: () => 'https://rpc.example',
+    getEffectiveProverUrl: () => undefined,
+    getEffectiveNoteTransportUrl: () => undefined
+  }));
+  jest.doMock('./helpers', () => ({
+    ...jest.requireActual('./helpers'),
+    walletAccountIdToSdk: (id: string) => id
+  }));
+  jest.doMock('lib/miden/activity/connectivity-state', () => ({
+    markConnectivityIssue: jest.fn(),
+    clearConnectivityIssue: jest.fn()
+  }));
+
+  const { MidenClientInterface } = await import('./miden-client-interface');
+  return Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+    { notes: { import: noteImport, fetchPrivate: jest.fn(async () => undefined) } },
+    'testnet'
+  ]);
+}
+
+describe('Guardian pending-note recovery (SDK surface)', () => {
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    noteImport = jest.fn(async () => 'imported');
+    requestedIdBatches = [];
+    fakeRpc = {
+      syncNotes: jest.fn(async () => ({ notes: () => [] })),
+      getNotesById: jest.fn(async () => []),
+      getBlockHeaderByNumber: jest.fn(async () => blockHeader(0, 0))
+    };
+  });
+
+  afterEach(() => {
+    jest.resetModules();
+    jest.restoreAllMocks();
+  });
+
+  describe('recoverPublicNotesRange', () => {
+    it('imports every tag match that carries a body and reports no saturation', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('b')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 2,
+        failures: 0,
+        saturated: false
+      });
+      expect(noteImport).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not count a body-less tag match as a failure', async () => {
+      // A tag match with no body is a PRIVATE note: unreachable here by design,
+      // and the transport drain owns it. Counting it would keep the recovery
+      // pending forever for any account that ever received a private note.
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a', { withBody: false })]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 0,
+        saturated: false
+      });
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('counts a public note the node returned without a body', async () => {
+      // The SDK documents a missing body as the PRIVATE case; a public note with
+      // no body is the node failing to serve what it said it had.
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a', { withBody: false, noteType: NOTE_TYPE_PUBLIC })]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 1,
+        saturated: false
+      });
+    });
+
+    // A right-length response can still be the wrong notes. Counting length
+    // alone reads that as a clean chunk, and a clean chunk is what lets the
+    // orchestrator clear the one-shot flag.
+    it('counts a duplicated id as one answer, not two', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('a')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 1,
+        failures: 1,
+        saturated: false
+      });
+    });
+
+    it('counts an id it never asked for as no answer at all', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('substituted')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 1,
+        saturated: false
+      });
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    it('counts ids the node omitted from its response as failures', async () => {
+      // Silently treating a short response as success would clear the one-shot
+      // pending flag over notes that were never imported.
+      fakeRpc.syncNotes.mockResolvedValue({
+        notes: () => [committedNote('a'), committedNote('b'), committedNote('c')]
+      });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a')]);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 1,
+        failures: 2,
+        saturated: false
+      });
+    });
+
+    it('counts a note whose import throws', async () => {
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => [committedNote('a'), committedNote('b')] });
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('a'), fetchedNote('b')]);
+      noteImport.mockRejectedValueOnce(new Error('store write failed'));
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 1,
+        failures: 1,
+        saturated: false
+      });
+    });
+
+    it('reports saturation without importing when a wide range holds too many matches', async () => {
+      // Importing a prefix would hold the WASM mutex for the prefix and then be
+      // redone by the halves anyway.
+      const many = Array.from({ length: 201 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 0,
+        saturated: true
+      });
+      expect(fakeRpc.getNotesById).not.toHaveBeenCalled();
+      expect(noteImport).not.toHaveBeenCalled();
+    });
+
+    // A range too narrow to split still has to be imported, but not all in one
+    // op: anyone can aim volume at a note tag, and one unbounded op either
+    // outlives its deadline (extension, then retried forever) or holds the only
+    // WASM mutex for its whole duration (mobile/desktop). So it pages by note.
+    it('pages a dense unsplittable range instead of importing it all at once', async () => {
+      const many = Array.from({ length: 450 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      fakeRpc.getNotesById.mockImplementation(async (ids: unknown[]) => ids.map(id => fetchedNote(String(id))));
+      const client = await loadClient();
+
+      const first = await client.recoverPublicNotesRange('acct', 0, 999);
+      expect(first).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 200 });
+
+      const second = await client.recoverPublicNotesRange('acct', 0, 999, first.nextNoteOffset);
+      expect(second).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 });
+
+      // The last page finishes the range: no cursor back.
+      const third = await client.recoverPublicNotesRange('acct', 0, 999, second.nextNoteOffset);
+      expect(third).toEqual({ imported: 50, failures: 0, saturated: false, nextNoteOffset: undefined });
+      expect(noteImport).toHaveBeenCalledTimes(450);
+    });
+
+    it('imports the notes of the requested page, not the first ones again', async () => {
+      const many = Array.from({ length: 250 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      fakeRpc.getNotesById.mockImplementation(async (ids: unknown[]) => ids.map(id => fetchedNote(String(id))));
+      const client = await loadClient();
+
+      await client.recoverPublicNotesRange('acct', 0, 999, 200);
+
+      expect(requestedIdBatches).toEqual([Array.from({ length: 50 }, (_, i) => `n${200 + i}`)]);
+    });
+
+    it('does not page a range it can still narrow', async () => {
+      const many = Array.from({ length: 450 }, (_, i) => committedNote(`n${i}`));
+      fakeRpc.syncNotes.mockResolvedValue({ notes: () => many });
+      const client = await loadClient();
+
+      const result = await client.recoverPublicNotesRange('acct', 0, 200_000);
+      expect(result).toEqual({ imported: 0, failures: 0, saturated: true });
+    });
+
+    // One case per phrase the classifier accepts: these strings ARE the
+    // contract with the node, and dropping one silently turns a splittable
+    // range into a permanently failing source.
+    it.each([
+      'BlockPagination: requested block range is too large',
+      'PaginationError: page too large',
+      'query exceeded the safety cap',
+      'query spans too many blocks',
+      'block range exceeds the maximum number of blocks'
+    ])('reports "%s" as saturation instead of throwing', async message => {
+      fakeRpc.syncNotes.mockRejectedValue(new Error(message));
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).resolves.toEqual({
+        imported: 0,
+        failures: 0,
+        saturated: true
+      });
+    });
+
+    it('propagates a too-wide span that cannot be narrowed any further', async () => {
+      fakeRpc.syncNotes.mockRejectedValue(new Error('BlockPagination: requested block range is too large'));
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 999)).rejects.toThrow('BlockPagination');
+    });
+
+    // Each message below ALSO looks like a span complaint ("block" plus "too
+    // many"/"maximum number"), which is the only case where the rate-limit
+    // guard changes the outcome: without it, splitting would answer a node that
+    // is already rate-limiting by doubling the request rate against it.
+    it.each([
+      ['429', new Error('429 Too Many Requests: too many block range queries')],
+      ['rate limit', new Error('rate limit exceeded: maximum number of block queries per minute')],
+      ['ResourceExhausted', new Error('ResourceExhausted: too many block requests')]
+    ])('treats a %s error as a real error even though it also mentions blocks', async (_label, error) => {
+      fakeRpc.syncNotes.mockRejectedValue(error);
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).rejects.toThrow(error.message);
+    });
+
+    it('does not split for an unrelated node error', async () => {
+      fakeRpc.syncNotes.mockRejectedValue(new Error('internal server error'));
+      const client = await loadClient();
+
+      await expect(client.recoverPublicNotesRange('acct', 0, 200_000)).rejects.toThrow('internal server error');
+    });
+  });
+
+  describe('importRecoveryNoteBytes', () => {
+    it('fetches proofs for the whole batch in ONE call and matches them by note id', async () => {
+      // Per-note lookups cost up to 30s each inside one mutex hold; and the
+      // response may come back reordered, so position cannot be trusted.
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-2'), fetchedNote('note-1')]);
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
+        imported: 2,
+        failures: 0
+      });
+      expect(fakeRpc.getNotesById).toHaveBeenCalledTimes(1);
+      expect(requestedIdBatches).toEqual([['note-1', 'note-2']]);
+      // Both got their own proof, so both import authenticated.
+      const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+      expect(wasm.InputNote.authenticated).toHaveBeenCalledTimes(2);
+      expect(wasm.InputNote.unauthenticated).not.toHaveBeenCalled();
+    });
+
+    it('imports a repeated note once instead of reusing its already-moved proof', async () => {
+      // The Guardian chooses what is in the batch. Handing the same proof to
+      // `authenticated` twice fails the second import, which keeps the one-shot
+      // pending flag set and makes every later pass fail the same way.
+      fakeRpc.getNotesById.mockResolvedValue([fetchedNote('note-1')]);
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([1])])).resolves.toEqual({
+        imported: 1,
+        failures: 0
+      });
+      const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+      expect(wasm.InputNote.authenticated).toHaveBeenCalledTimes(1);
+    });
+
+    it('imports a note with no proof as unauthenticated rather than dropping it', async () => {
+      fakeRpc.getNotesById.mockResolvedValue([]);
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])])).resolves.toEqual({
+        imported: 1,
+        failures: 0
+      });
+      const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+      expect(wasm.InputNote.unauthenticated).toHaveBeenCalledTimes(1);
+    });
+
+    it('still imports the batch when the proof lookup fails outright', async () => {
+      fakeRpc.getNotesById.mockRejectedValue(new Error('node unreachable'));
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1])])).resolves.toEqual({
+        imported: 1,
+        failures: 0
+      });
+    });
+
+    it('counts an undeserializable note without losing the rest of the batch', async () => {
+      const wasm = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+      const client = await loadClient();
+      jest.requireMock('@miden-sdk/miden-sdk/lazy').Note.deserialize.mockImplementationOnce(() => {
+        throw new Error('corrupt note bytes');
+      });
+
+      await expect(client.importRecoveryNoteBytes([new Uint8Array([1]), new Uint8Array([2])])).resolves.toEqual({
+        imported: 1,
+        failures: 1
+      });
+      expect(wasm.Note.deserialize).toHaveBeenCalledTimes(2);
+    });
+
+    it('makes no proof call at all for an empty batch', async () => {
+      const client = await loadClient();
+
+      await expect(client.importRecoveryNoteBytes([])).resolves.toEqual({ imported: 0, failures: 0 });
+      expect(fakeRpc.getNotesById).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveRecoveryScanRange', () => {
+    it('returns the tip after a single header read when the creation time is unknown', async () => {
+      // The resume path relies on this: passing 0 must not pay for a search.
+      fakeRpc.getBlockHeaderByNumber.mockResolvedValue(blockHeader(500, 1_000_000));
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(0)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+      expect(fakeRpc.getBlockHeaderByNumber).toHaveBeenCalledTimes(1);
+    });
+
+    it('binary-searches for the block just before the account existed', async () => {
+      // Timestamp = block number, so the answer is checkable by hand: target is
+      // 10_000 - 600 clock-skew margin = 9_400, so lo must land on 9_399.
+      fakeRpc.getBlockHeaderByNumber.mockImplementation(async (blockNum?: number) =>
+        blockNum === undefined ? blockHeader(20_000, 20_000) : blockHeader(blockNum, blockNum)
+      );
+      const client = await loadClient();
+
+      const { startBlock, latestBlock } = await client.resolveRecoveryScanRange(10_000);
+      expect(latestBlock).toBe(20_000);
+      expect(startBlock).toBe(9_399);
+    });
+
+    // The scan runs once and a clean pass clears the one-shot flag, so every
+    // disagreement between the Guardian's clock and the node's has to widen the
+    // scan. Starting at the tip would scan one block, find nothing and report
+    // success.
+    it('scans from genesis when the account claims to be newer than the chain tip', async () => {
+      fakeRpc.getBlockHeaderByNumber.mockResolvedValue(blockHeader(500, 1_000));
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+    });
+
+    it('scans from genesis when the node reports no tip timestamp', async () => {
+      fakeRpc.getBlockHeaderByNumber.mockResolvedValue(blockHeader(500, 0));
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+      expect(fakeRpc.getBlockHeaderByNumber).toHaveBeenCalledTimes(1);
+    });
+
+    it('abandons the search when a block reports no timestamp', async () => {
+      // The bisection is only sound over increasing timestamps; a zero would
+      // push the start block past the account's real creation block.
+      fakeRpc.getBlockHeaderByNumber.mockImplementation(async (blockNum?: number) => {
+        if (blockNum === undefined) return blockHeader(20_000, 20_000);
+        if (blockNum === 0) return blockHeader(0, 1);
+        return blockHeader(blockNum, 0);
+      });
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(10_000)).resolves.toEqual({ startBlock: 0, latestBlock: 20_000 });
+    });
+
+    it('scans from genesis when the chain is younger than the account timestamp', async () => {
+      fakeRpc.getBlockHeaderByNumber.mockImplementation(async (blockNum?: number) =>
+        blockNum === undefined ? blockHeader(500, 9_999) : blockHeader(0, 9_000)
+      );
+      const client = await loadClient();
+
+      await expect(client.resolveRecoveryScanRange(5_000)).resolves.toEqual({ startBlock: 0, latestBlock: 500 });
+    });
+
+    it('abandons the search on its overall budget rather than holding the client', async () => {
+      // Each read is bounded, but ~log2(tip) of them in one mutex-held op is
+      // not. Giving up only widens the scan, which is safe.
+      const realNow = Date.now;
+      let clock = realNow();
+      jest.spyOn(Date, 'now').mockImplementation(() => clock);
+      fakeRpc.getBlockHeaderByNumber.mockImplementation(async (blockNum?: number) => {
+        clock += 9_000;
+        return blockNum === undefined ? blockHeader(10_000_000, 10_000_000) : blockHeader(blockNum, blockNum);
+      });
+      const client = await loadClient();
+
+      const { startBlock } = await client.resolveRecoveryScanRange(5_000_000);
+      // Bailed out early, so the start block is older (smaller) than the true
+      // creation block — a wider scan, never a narrower one.
+      expect(startBlock).toBeLessThan(4_999_400);
+      expect(fakeRpc.getBlockHeaderByNumber.mock.calls.length).toBeLessThan(10);
+    });
+  });
+});

@@ -17,6 +17,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
+  IConsumedAssetTotal,
   IConsumeSwapSettleExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -29,7 +30,7 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -38,6 +39,19 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const executedTx = result.executedTransaction();
   const outputNotes = executedTx.outputNotes().notes();
 
+  // A private note is only reachable by its recipient if the bytes are handed to
+  // them out of band — the chain carries a commitment, not the note. So a private
+  // output note we never pass to the transport is stranded: the recipient cannot
+  // see or consume it, and a custom note need not carry any reclaim window for the
+  // sender either. That is a silent loss of whatever it holds, and it used to be
+  // reported as a clean success. Counted here and surfaced on the row below.
+  //
+  // Only the cases where the transport never received the note count. A throw from
+  // `sendPrivateNote` does not: by then the note is in the client's store and the
+  // SDK outbox retries it on the next sync, which is the same reasoning
+  // `completeSendTransaction` applies to its own relay failures.
+  let strandedPrivateNotes = 0;
+
   for (const note of outputNotes) {
     // Only care about private notes
     if (toNoteTypeString(note.metadata().noteType()) !== NoteTypeEnum.Private) {
@@ -45,7 +59,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     }
 
     if (!transaction.secondaryAccountId) {
+      // The recipient is supplied by the requesting site and is optional, so a
+      // custom request that emits a private note without naming one lands here.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
+      strandedPrivateNotes++;
       continue;
     }
 
@@ -56,11 +73,13 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note');
+        strandedPrivateNotes++;
         continue;
       }
       fullNote = maybeFullNote;
     } catch (error) {
       console.error('Failed to convert output note into full note', { error });
+      strandedPrivateNotes++;
       continue;
     }
 
@@ -99,6 +118,18 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
 
+  if (strandedPrivateNotes > 0) {
+    // Completed, not Failed: the transaction is on chain and the assets have left
+    // the account, so failing the row would be untrue and would offer a Retry that
+    // spends again. What is wrong is the DELIVERY, and the row is the only place
+    // the user would ever learn about it — `error` is rendered for failed rows
+    // only, so the label is what carries it.
+    updatedTransaction.displayMessage =
+      strandedPrivateNotes === 1
+        ? 'Completed — a private note could not be delivered'
+        : `Completed — ${strandedPrivateNotes} private notes could not be delivered`;
+  }
+
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
 
@@ -121,14 +152,29 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  let amount = 0n;
+  // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
+  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
+  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // completed row recomputes it here against the executed transaction and stays
+  // consistent with `amount` below (which is this list's `faucetId` entry).
+  const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
-      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
-        amount += noteAsset.amount();
-      }
+      const assetFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+      totalsByFaucet.set(assetFaucetId, (totalsByFaucet.get(assetFaucetId) ?? 0n) + noteAsset.amount());
     }
   }
+  const assetTotals: IConsumedAssetTotal[] = Array.from(totalsByFaucet, ([id, total]) => ({
+    faucetId: id,
+    amount: total
+  }));
+  const amount = totalsByFaucet.get(faucetId) ?? 0n;
+
+  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // otherwise the details card would label a mixed claim by its first note alone.
+  const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
+  const firstNoteType = noteTypes[0];
+  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -136,7 +182,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     secondaryAccountId,
     faucetId,
     amount,
-    noteType: toNoteTypeString(note.metadata().noteType()),
+    assetTotals,
+    noteType: uniformNoteType,
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
@@ -485,7 +532,34 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
-  if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
+  // Via `isPrivateNoteType`, not a bare `=== NoteTypeEnum.Private` string
+  // compare: a row can carry the SDK's NUMERIC note type (the enum is accepted
+  // wherever a note type is taken, and `Private` is `0`), and a string compare
+  // answers "public" for it. That would build a private note and then skip the
+  // relay below — the recipient never learns the note exists, and the "missing
+  // full note" guard is skipped too, so it fails silently rather than loudly.
+  // The dApp boundary normalizes before persisting; this is the backstop for
+  // any other producer.
+  //
+  // Swallowing the throw is deliberate here and only here. This runs AFTER the
+  // transaction is on chain, so letting it propagate would fail a LANDED send
+  // before its id is captured — and Retry, seeing no id, would rebuild and pay a
+  // second time. An unrecognized value at this point can only come from a row
+  // some older build wrote, which is a delivery problem; escalating it into a
+  // double spend is strictly worse than logging and skipping the relay.
+  let isPrivateSend: boolean;
+  try {
+    isPrivateSend = isPrivateNoteType(tx.noteType);
+  } catch (error) {
+    console.error('[completeSendTransaction] unrecognized noteType; skipping the private-note relay', {
+      id: tx.id,
+      noteType: tx.noteType,
+      error
+    });
+    isPrivateSend = false;
+  }
+
+  if (isPrivateSend && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access.
     // The SDK persists the relay payload to its durable outbox before invoking
     // transport (miden-client#2127); if the transport call fails, the SDK
@@ -524,7 +598,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // is the source of truth — subsequent sync_state will reconcile.
       console.warn('Pre-transport step failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
-  } else if (tx.noteType === NoteTypeEnum.Private && (!note || !noteId)) {
+  } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',

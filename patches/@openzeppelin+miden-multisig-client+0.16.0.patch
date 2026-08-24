@@ -1,0 +1,55 @@
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/dist/transaction/p2id.js b/node_modules/@openzeppelin/miden-multisig-client/dist/transaction/p2id.js
+index fb4cf88..63217d4 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/dist/transaction/p2id.js
++++ b/node_modules/@openzeppelin/miden-multisig-client/dist/transaction/p2id.js
+@@ -42,10 +42,18 @@ export function deriveP2idSerialNumber(salt) {
+  */
+ function resolveFungibleAssetFromVault(account, faucet, amount) {
+     const faucetHex = faucet.toString();
+-    const assetFromVault = account
++    const heldForFaucet = account
+         .vault()
+         .fungibleAssets()
+-        .find(asset => asset.faucetId().toString() === faucetHex);
++        .filter(asset => asset.faucetId().toString() === faucetHex);
++    // The callback flag is part of the vault key, so ONE faucet can occupy two
++    // slots. `find` took whichever came first, which decides the flag by vault
++    // order: if that slot cannot fund the amount the note is built against it
++    // anyway and the kernel rejects the transfer, even though the other slot
++    // could have covered it. Prefer a slot that funds the amount; fall back to
++    // the largest so the resulting error names the real shortfall.
++    const assetFromVault = heldForFaucet.find(asset => asset.amount() >= amount)
++        ?? heldForFaucet.reduce((largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset), undefined);
+     if (!assetFromVault) {
+         return new FungibleAsset(faucet, amount);
+     }
+diff --git a/node_modules/@openzeppelin/miden-multisig-client/src/transaction/p2id.ts b/node_modules/@openzeppelin/miden-multisig-client/src/transaction/p2id.ts
+index 00dcd12..e0bf988 100644
+--- a/node_modules/@openzeppelin/miden-multisig-client/src/transaction/p2id.ts
++++ b/node_modules/@openzeppelin/miden-multisig-client/src/transaction/p2id.ts
+@@ -74,10 +74,23 @@ function resolveFungibleAssetFromVault(
+   amount: bigint,
+ ): FungibleAsset {
+   const faucetHex = faucet.toString();
+-  const assetFromVault = account
++  const heldForFaucet = account
+     .vault()
+     .fungibleAssets()
+-    .find(asset => asset.faucetId().toString() === faucetHex);
++    .filter(asset => asset.faucetId().toString() === faucetHex);
++
++  // The callback flag is part of the vault key, so ONE faucet can occupy two
++  // slots. `find` took whichever came first, which decides the flag by vault
++  // order: if that slot cannot fund the amount the note is built against it
++  // anyway and the kernel rejects the transfer, even though the other slot could
++  // have covered it. Prefer a slot that funds the amount; fall back to the
++  // largest so the resulting error names the real shortfall.
++  const assetFromVault =
++    heldForFaucet.find(asset => asset.amount() >= amount)
++    ?? heldForFaucet.reduce<FungibleAsset | undefined>(
++      (largest, asset) => (largest && largest.amount() >= asset.amount() ? largest : asset),
++      undefined,
++    );
+ 
+   if (!assetFromVault) {
+     return new FungibleAsset(faucet, amount);

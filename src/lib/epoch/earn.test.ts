@@ -22,7 +22,7 @@ jest.mock('./chain', () => ({
   MIDEN_MIN_RECLAIM_BLOCKS: 100,
   MIDEN_RECLAIM_BUFFER_BLOCKS: 10
 }));
-jest.mock('./earn-note', () => ({ createEarnP2IDNote: jest.fn() }));
+jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));

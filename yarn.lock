@@ -1499,14 +1499,14 @@
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@^1.0.35":
-  version "1.0.37"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.37.tgz#7684b23f2a1a18321f8b1f8d1978901c89a98712"
-  integrity sha512-F58mMLeLneeq+27HCgfeAQOLpLFhGYJ3WULHp0qqX69VF690YOD6SAbxOpz1gXdyoKNMzOZ0W2t8pLZdgVhsXQ==
+"@epoch-protocol/epoch-intents-sdk@1.0.38":
+  version "1.0.38"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.38.tgz#c2a8e902253a77d61b5b96545502fc6ac7acf56d"
+  integrity sha512-DS/JltAxR1cb5relGrssrj6EenIaVfWw/y4n4BkmiAODG/jhEf4qHFacn+ydZnJaQCxKjNdAvdNmbUYqevNW4g==
   dependencies:
     "@epoch-protocol/epoch-commons-sdk" "^0.1.19"
-    "@metamask/delegation-toolkit" "^0.13.0"
-    viem "^2.29.2"
+    "@metamask/smart-accounts-kit" "^1.6.0"
+    viem "^2.31.4"
 
 "@esbuild/aix-ppc64@0.25.12":
   version "0.25.12"
@@ -2502,10 +2502,13 @@
   dependencies:
     "@types/mdx" "^2.0.0"
 
-"@metamask/7715-permission-types@^0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@metamask/7715-permission-types/-/7715-permission-types-0.3.0.tgz#ed11d8117809c6b042f86d06702b3c4ef9c826e9"
-  integrity sha512-+bqFNe6/YCe2LZapiVJO3/hn7BSJLExYT+cDJS1spJocPeVsTyURv3IjblZxRqTOv+igTwrYbh45LvdkgzxkZQ==
+"@metamask/7715-permission-types@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@metamask/7715-permission-types/-/7715-permission-types-1.0.0.tgz#aa5f6f881c77c8aca6788ac22eadc210ff82e838"
+  integrity sha512-KhdKsT35pmBNTNpYcp+14gECPxmP4bX2eLA56riDr6pCjf6U7kEqPBoN6gz1CULNywEMp+p9UIMpdiTzFCyelg==
+  dependencies:
+    "@metamask/delegation-core" "^2.2.1"
+    "@metamask/utils" "^11.4.0"
 
 "@metamask/abi-utils@^3.0.0":
   version "3.0.0"
@@ -2515,36 +2518,37 @@
     "@metamask/superstruct" "^3.1.0"
     "@metamask/utils" "^11.0.1"
 
-"@metamask/delegation-abis@^0.11.0":
-  version "0.11.0"
-  resolved "https://registry.yarnpkg.com/@metamask/delegation-abis/-/delegation-abis-0.11.0.tgz#a87741512f954aad0aa134a3c7a52f093014687b"
-  integrity sha512-tnNGFDLQ5jfgPhHJaT5JwvF759nja1iGAG00REbk1Ufir+TxjxTmF8L9MbJifZmUh4fnyqV4Ik6NAOYVNBPVBg==
+"@metamask/delegation-abis@^1.1.0":
+  version "1.1.0"
+  resolved "https://registry.yarnpkg.com/@metamask/delegation-abis/-/delegation-abis-1.1.0.tgz#b34dd3d796c08e3262b23b46458977dc3d68f235"
+  integrity sha512-n7XgRAM+pKUqmw4X+nAxM9a9HTBGe049WCAbpnHV6WoT6JnHhurMSUiqpAwMh69RhEykBtJPYSVPTVlJu6pEPg==
 
-"@metamask/delegation-core@^0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@metamask/delegation-core/-/delegation-core-0.2.0.tgz#94db8748983742e2db79a6d649e80d76c3c7d471"
-  integrity sha512-leP40qoxhTmexfeY/neZ9XkhmUiq8fHh3ax4wmmTB5CG6VuXStn2LzLz875RiBtjwU3c4IqaZljxvwC1dUuWVw==
+"@metamask/delegation-core@^2.2.1":
+  version "2.2.1"
+  resolved "https://registry.yarnpkg.com/@metamask/delegation-core/-/delegation-core-2.2.1.tgz#1691ec33114274cc57de9ee56a903495231671df"
+  integrity sha512-fpB25AgmBxTJYhHj92tFS4dJe63x6wz71c8dPTwUin12dAvFMWM3PH+rm4C34iPb5ZrQzkAPi4e9z2njmwEZUA==
   dependencies:
     "@metamask/abi-utils" "^3.0.0"
     "@metamask/utils" "^11.4.0"
     "@noble/hashes" "^1.8.0"
 
-"@metamask/delegation-deployments@^0.12.0":
-  version "0.12.0"
-  resolved "https://registry.yarnpkg.com/@metamask/delegation-deployments/-/delegation-deployments-0.12.0.tgz#d2c33ca7901326df71382b340cc4017b38db7c73"
-  integrity sha512-9SB5DhLAnbpIWbFxP3UKPXLhCt8iiRjBBjZ7hqF5dMXy9buBEDpCRg+FJYRxYRecwporrTVrv+NfKUyCbL2ncw==
+"@metamask/delegation-deployments@^1.4.0":
+  version "1.4.0"
+  resolved "https://registry.yarnpkg.com/@metamask/delegation-deployments/-/delegation-deployments-1.4.0.tgz#e83d01239fbfcf6c7423419204bbdd575c2de111"
+  integrity sha512-QuO4Fiz3GsP7nwcUpXFEVTxmRGBTkriYeZ7DBLxUAqbUQx7Kg630eR1SgvTn/eBMkmXB2tZJW9am/iGuAcySlw==
 
-"@metamask/delegation-toolkit@^0.13.0":
-  version "0.13.0"
-  resolved "https://registry.yarnpkg.com/@metamask/delegation-toolkit/-/delegation-toolkit-0.13.0.tgz#fd73bb9e1ae996a9ec204e1520354018227f1076"
-  integrity sha512-SVc2gcnKQ8KQodugfuXMs49pHO1x9AYw3Wmdg4yBEsgm5TF5zPpWFmAj+bOL8q+Fn+mHJAibFIrJBtS970G9Dw==
+"@metamask/smart-accounts-kit@^1.6.0":
+  version "1.7.0"
+  resolved "https://registry.yarnpkg.com/@metamask/smart-accounts-kit/-/smart-accounts-kit-1.7.0.tgz#d22ac321376a0db4fea79fad4e38e2a95d5fe256"
+  integrity sha512-zypiFPDkJ12fpXENmPIqFQr4H35b3LttwIhB+PfQpP9sGHWKUIz0CnhSurkl6vZ6GyKC+RNcl0Kq0QyPqSExXQ==
   dependencies:
-    "@metamask/7715-permission-types" "^0.3.0"
-    "@metamask/delegation-abis" "^0.11.0"
-    "@metamask/delegation-core" "^0.2.0"
-    "@metamask/delegation-deployments" "^0.12.0"
-    buffer "^6.0.3"
-    webauthn-p256 "^0.0.10"
+    "@metamask/7715-permission-types" "^1.0.0"
+    "@metamask/delegation-abis" "^1.1.0"
+    "@metamask/delegation-core" "^2.2.1"
+    "@metamask/delegation-deployments" "^1.4.0"
+    "@metamask/utils" "^11.4.0"
+    openapi-fetch "^0.13.5"
+    ox "0.8.1"
 
 "@metamask/superstruct@^3.1.0":
   version "3.4.1"
@@ -2668,7 +2672,7 @@
   dependencies:
     "@noble/hashes" "1.8.0"
 
-"@noble/curves@1.9.7", "@noble/curves@^1.4.0", "@noble/curves@^1.6.0", "@noble/curves@^1.9.7", "@noble/curves@~1.9.0":
+"@noble/curves@1.9.7", "@noble/curves@^1.6.0", "@noble/curves@^1.9.1", "@noble/curves@^1.9.7", "@noble/curves@~1.9.0":
   version "1.9.7"
   resolved "https://registry.yarnpkg.com/@noble/curves/-/curves-1.9.7.tgz#79d04b4758a43e4bca2cbdc62e7771352fa6b951"
   integrity sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==
@@ -2727,9 +2731,9 @@
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
 "@openzeppelin/guardian-client@^0.16.0":
-  version "0.16.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.16.0.tgz#72f5d058d519d301f368b223064909aaf0fc2c76"
-  integrity sha512-/ixcnXpLA4bPXvHMiANMS6+GaFPSiJkJohPSHYyk+t/bc1GGykUq4ZMhZyDY/pqSEnz5/70LWBBGplQklMFFoQ==
+  version "0.16.2"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.16.2.tgz#684003d8263a9e2944fa76eb1aa45e1398af0b3d"
+  integrity sha512-RT/A1GIsUiX+Ss1idmc3ayv6eRCJJFRrOdE/jjbf5mLc6FpxBIhda9nHKBbEPstx4gTtgNJnwvsxLFbubVeayg==
 
 "@openzeppelin/miden-multisig-client@^0.16.0":
   version "0.16.0"
@@ -5904,7 +5908,7 @@ abitype@1.2.3:
   resolved "https://registry.yarnpkg.com/abitype/-/abitype-1.2.3.tgz#bec3e09dea97d99ef6c719140bee663a329ad1f4"
   integrity sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg==
 
-abitype@^1.0.6, abitype@^1.0.9, abitype@^1.2.3:
+abitype@^1.0.6, abitype@^1.0.8, abitype@^1.0.9, abitype@^1.2.3:
   version "1.3.0"
   resolved "https://registry.yarnpkg.com/abitype/-/abitype-1.3.0.tgz#39de89010dd7390ece44d5242a3aa80901cc193d"
   integrity sha512-fk6Te+bojIFrMvMZrnOO+SxCB+RUksTGOzq/60ZRvs1L+BVzvi2bqt9L3W/17ZLdZsyM1FuYf65P5nlmoiH1Bg==
@@ -12392,6 +12396,18 @@ open@^8.0.4, open@^8.4.0:
     is-docker "^2.1.1"
     is-wsl "^2.2.0"
 
+openapi-fetch@^0.13.5:
+  version "0.13.8"
+  resolved "https://registry.yarnpkg.com/openapi-fetch/-/openapi-fetch-0.13.8.tgz#1769da06e30d19f7568cd0e60db8ca61ea83a2fa"
+  integrity sha512-yJ4QKRyNxE44baQ9mY5+r/kAzZ8yXMemtNAOFwOzRXJscdjSxxzWSNlyBAr+o5JjkUw9Lc3W7OIoca0cY3PYnQ==
+  dependencies:
+    openapi-typescript-helpers "^0.0.15"
+
+openapi-typescript-helpers@^0.0.15:
+  version "0.0.15"
+  resolved "https://registry.yarnpkg.com/openapi-typescript-helpers/-/openapi-typescript-helpers-0.0.15.tgz#96ffa762a5e01ef66a661b163d5f1109ed1967ed"
+  integrity sha512-opyTPaunsklCBpTK8JGef6mfPhLSnyy5a0IN9vKtx3+4aExf+KxEqYwIy3hqkedXIB97u357uLMJsOnm3GVjsw==
+
 optionator@^0.9.3:
   version "0.9.4"
   resolved "https://registry.yarnpkg.com/optionator/-/optionator-0.9.4.tgz#7ea1c1a5d91d764fb282139c88fe11e182a3a734"
@@ -12447,6 +12463,20 @@ ox@0.14.30:
     abitype "^1.2.3"
     eventemitter3 "5.0.1"
 
+ox@0.14.33:
+  version "0.14.33"
+  resolved "https://registry.yarnpkg.com/ox/-/ox-0.14.33.tgz#977ab8c0692fa9240444d7db88ca026f19f81e28"
+  integrity sha512-rooA/4o7bBof4Ge2VH/eovfNPb/AEEYyrNj03wggc55g5HZD8Pjs/OeWhttgjic3dDcqn0r29bDuvQEdTiUemQ==
+  dependencies:
+    "@adraffy/ens-normalize" "^1.11.0"
+    "@noble/ciphers" "^1.3.0"
+    "@noble/curves" "1.9.1"
+    "@noble/hashes" "^1.8.0"
+    "@scure/bip32" "^1.7.0"
+    "@scure/bip39" "^1.6.0"
+    abitype "^1.2.3"
+    eventemitter3 "5.0.1"
+
 ox@0.6.9:
   version "0.6.9"
   resolved "https://registry.yarnpkg.com/ox/-/ox-0.6.9.tgz#da1ee04fa10de30c8d04c15bfb80fe58b1f554bd"
@@ -12458,6 +12488,20 @@ ox@0.6.9:
     "@scure/bip32" "^1.5.0"
     "@scure/bip39" "^1.4.0"
     abitype "^1.0.6"
+    eventemitter3 "5.0.1"
+
+ox@0.8.1:
+  version "0.8.1"
+  resolved "https://registry.yarnpkg.com/ox/-/ox-0.8.1.tgz#c1328e4c890583b9c19d338126aef4b796d53543"
+  integrity sha512-e+z5epnzV+Zuz91YYujecW8cF01mzmrUtWotJ0oEPym/G82uccs7q0WDHTYL3eiONbTUEvcZrptAKLgTBD3u2A==
+  dependencies:
+    "@adraffy/ens-normalize" "^1.11.0"
+    "@noble/ciphers" "^1.3.0"
+    "@noble/curves" "^1.9.1"
+    "@noble/hashes" "^1.8.0"
+    "@scure/bip32" "^1.7.0"
+    "@scure/bip39" "^1.6.0"
+    abitype "^1.0.8"
     eventemitter3 "5.0.1"
 
 ox@0.9.3:
@@ -15942,7 +15986,7 @@ viem@2.42.0:
     ox "0.9.6"
     ws "8.18.3"
 
-viem@>=2.45.0, viem@^2.1.1, viem@^2.27.2, viem@^2.29.2, viem@^2.31.7, viem@^2.47.0, viem@^2.51.3:
+viem@>=2.45.0, viem@^2.1.1, viem@^2.27.2, viem@^2.31.7, viem@^2.47.0, viem@^2.51.3:
   version "2.55.4"
   resolved "https://registry.yarnpkg.com/viem/-/viem-2.55.4.tgz#a3f83c9e075d30d73fb2ac9cecc0b72a71e108fc"
   integrity sha512-iSVcFADHPS0GRcY+YMGubuOH0QXcLN87HVlPNaFLPzJv6OzNOql2cim+QxtTe/QxXUqbXLnzTmpFms4PLGyJ6A==
@@ -15954,6 +15998,20 @@ viem@>=2.45.0, viem@^2.1.1, viem@^2.27.2, viem@^2.29.2, viem@^2.31.7, viem@^2.47
     abitype "1.2.3"
     isows "1.0.7"
     ox "0.14.30"
+    ws "8.21.0"
+
+viem@^2.31.4:
+  version "2.55.18"
+  resolved "https://registry.yarnpkg.com/viem/-/viem-2.55.18.tgz#42b4e5185ae8a3847695ba2840ab291a0c39d046"
+  integrity sha512-7XJtcMueFo4dQz+VK5mhY3GV9lvQkyrMbM/P/IghE0d8oZ/xbhgMXdTpc+ra4ZtDOGsLKu+0/EOD7BetVmVBsw==
+  dependencies:
+    "@noble/curves" "1.9.1"
+    "@noble/hashes" "1.8.0"
+    "@scure/bip32" "1.7.0"
+    "@scure/bip39" "1.6.0"
+    abitype "1.2.3"
+    isows "1.0.7"
+    ox "0.14.33"
     ws "8.21.0"
 
 vite-plugin-node-polyfills@^0.26.0:
@@ -16056,14 +16114,6 @@ wcwidth@^1.0.1:
   integrity sha512-XHPEwS0q6TaxcvG85+8EYkbiCux2XtWG2mkc47Ng2A77BQu9+DqIOJldST4HgPkuea7dvKSj5VgX3P1d4rW8Tg==
   dependencies:
     defaults "^1.0.3"
-
-webauthn-p256@^0.0.10:
-  version "0.0.10"
-  resolved "https://registry.yarnpkg.com/webauthn-p256/-/webauthn-p256-0.0.10.tgz#877e75abe8348d3e14485932968edf3325fd2fdd"
-  integrity sha512-EeYD+gmIT80YkSIDb2iWq0lq2zbHo1CxHlQTeJ+KkCILWpVy3zASH3ByD4bopzfk0uCwXxLqKGLqp2W4O28VFA==
-  dependencies:
-    "@noble/curves" "^1.4.0"
-    "@noble/hashes" "^1.4.0"
 
 webcrypto-core@^1.2.0:
   version "1.9.2"

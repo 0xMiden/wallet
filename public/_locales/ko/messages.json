@@ -717,6 +717,14 @@
     "message": "비밀번호Seed phrase 전체를 어떤 입력란에든 붙여넣을 수 있습니다.",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "복구 문구의 단어 목록에 하나 이상의 단어가 포함되어 있지 않습니다. 강조 표시된 단어를 확인해 주십시오.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "이 토큰의 소수점 자릿수를 확인할 수 없어, 금액을 표시하거나 전송할 수 없습니다.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "이런!",
     "englishSource": "Oops!"
@@ -749,6 +757,10 @@
   "retry": {
     "message": "다시 시도",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "그래도 다시 시도",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1698,6 +1710,34 @@
     "message": "지갑에 자금을 충전할 수 없습니다. 다시 시도해 주세요.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "계정 복구 감지됨",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "notes의 비공개 블록 스캔 중: note 전송을 처리 중…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "비공개 notes 스캔 중: 보류 중인 제안서(notes)에서 데이터를 가져오고 있습니다…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "공개 notes 동기화 중…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "공개 notes 동기화: $latest$의 블록 $current$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "귀하의 미결제 노트는 다음과 같습니다Notes",
     "englishSource": "You have Pending Notes"
@@ -2285,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "이것이 바로 현재 guardian의 정의입니다.",
-    "englishSource": "That's already your current guardian."
+    "message": "이미 현재 Guardian입니다.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardian 전환이 이미 진행 중입니다. 완료된 후에 다시 시도하십시오.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Guardian 순서 변경",
@@ -2328,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian 업데이트됨!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "온라인",
     "englishSource": "Online"
@@ -2340,9 +2380,37 @@
     "message": "검토 순환",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "새로움",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "현재 Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "새로운 Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardian의 로테이션을 성공적으로 완료하셨습니다!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "현재 변경 사항",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 어떠한 역할도 수행하지 않습니다.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "사용자의 지갑 주소, 자금 및 내역은 변함이 없습니다. 로테이션 과정에서 이동된 항목은 없습니다.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "새로운 거래가 완료되려면 귀하의 새로운 Guardian이 접근 가능해야 합니다.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "원하는 시점에 언제든지 Guardian을 다시 교체할 수 있습니다. 이를 위해서는 복구 문구가 필요하므로 안전하게 보관하십시오.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "이 Guardian 전환을 승인하려면 인증을 진행하십시오.",
@@ -2365,7 +2433,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian 주소에는 단지 알림만 전송됩니다.",
+    "message": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian에는 알림만 전송됩니다.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2508,6 +2576,30 @@
     "message": "수신된 MIDENnotes을 잔액에 자동으로 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 이 과정에서 자금이 지출되거나 수수료가 추가되지 않습니다.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "지갑 파일 생성 중…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "내보내기 실패",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "지갑 파일을 생성할 수 없었으므로 아무것도 저장되지 않았습니다. 다시 내보내기를 시도해 주십시오.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "아직 저장되지 않음",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "지갑 파일이 준비되었지만, 저장 위치를 선택하기 전에 공유 시트를 닫았습니다.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "저장 위치 선택",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "암호화된 지갑 파일",
     "englishSource": "Encrypted Wallet File"
@@ -2635,10 +2727,6 @@
   "viewInActivities": {
     "message": "'활동'에서 보기",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "활동 보기",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "상세 정보 보기",
@@ -3277,6 +3365,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ 더 보기",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ 더 보기",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "이 dApp을 불러올 수 없습니다",
     "englishSource": "Can't load this dApp"
@@ -3580,16 +3686,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "열기",
+    "message": "미체결",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "채워짐",
+    "message": "체결 완료",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "회수된",
+    "message": "회수 완료",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "부분 체결",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "부분 체결, 잔량 회수됨",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "라운드 채우기",
@@ -3599,9 +3713,96 @@
     "message": "채워짐",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$total$$symbol$ 중 $filled$ 체결",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "이 스왑에 번들된 Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "체결 Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "소비 완료 · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "미체결 물량",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "DEX에서 매칭 중…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "아직 번들된 Note가 없습니다.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Pending Notes로 이동",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "이용 불가",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "소비 트랜잭션 ID",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "소비 트랜잭션 ID $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "생성됨",
@@ -3994,6 +4195,10 @@
   "consumed": {
     "message": "소모됨",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note 유형",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "거래 ID",

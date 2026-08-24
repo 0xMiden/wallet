@@ -396,6 +396,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // Node-authoritative commit state of one tx id, backing the send/swap
+  // idempotent-retry guard. A plain string union, so JSON like the DTO reads
+  // above. Its absence here was not neutral: the SW-side stub returned
+  // 'not-found', which `verifySendLanded` maps to 'unknown' — "cannot prove it
+  // landed" — and the retry proceeds on that. So on the flag-on path, which is
+  // the default in the service worker, the guard could never fire and a Failed
+  // row whose submit had actually landed was resubmitted.
+  getTransactionCommitState: async (client, txId: string) => {
+    const state = await client.getTransactionCommitState(txId);
+    return new TextEncoder().encode(JSON.stringify(state));
+  },
+
   // Consumable notes (issue #260, slice 4). The RECLAIM GATE
   // (`consumableAfterBlock() <= getSyncHeight()`) lives inside
   // `getConsumableNoteDtos` → so running it HERE, in the offscreen realm that
@@ -456,6 +468,34 @@ const DISPATCH: Record<string, DispatchFn> = {
   importNoteBytes: async (client, noteBytes: Uint8Array) => {
     const id = await client.importNoteBytes(noteBytes);
     return new TextEncoder().encode(id);
+  },
+
+  // Pending-note recovery chunks (guardian seed recovery). Each is a short op
+  // so the SW can interleave syncs/reads between chunks and report progress.
+  drainPrivateNoteTransport: async client => {
+    await client.drainPrivateNoteTransport();
+    return null;
+  },
+
+  importRecoveryNoteBytes: async (client, encodedProposalNotes: string[]) => {
+    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  resolveRecoveryScanRange: async (client, createdAtSeconds: number) => {
+    const result = await client.resolveRecoveryScanRange(createdAtSeconds);
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  recoverPublicNotesRange: async (
+    client,
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset?: number
+  ) => {
+    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
+    return new TextEncoder().encode(JSON.stringify(result));
   },
 
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).

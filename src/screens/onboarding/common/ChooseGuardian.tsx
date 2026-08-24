@@ -34,6 +34,9 @@ export interface ChooseGuardianScreenProps {
   // Dev-gated (onboarding only): show a selectable "No guardian" card that
   // creates a private single-key account with no guardian co-signer.
   showNoGuardianOption?: boolean;
+  // Submission error from the caller, rendered above the Continue button so it
+  // stays inside this screen's scroll container.
+  error?: string | null;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -44,7 +47,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   submitLabel,
   hideHeader = false,
   allowCustomEndpoint = false,
-  showNoGuardianOption = false
+  showNoGuardianOption = false,
+  error = null
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -128,7 +132,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-[repeat(2,177px)] justify-center gap-x-4 gap-y-3 mt-7">
+        <div className="grid grid-cols-[repeat(2,minmax(0,177px))] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
@@ -150,7 +154,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   onClick={() => handleSelect(option.id)}
                   data-guardian-endpoint={option.endpoint}
                   className={cn(
-                    'relative flex h-30.5 w-44.25 flex-col overflow-hidden rounded-[20px] transition-all duration-150',
+                    'relative flex h-30.5 w-full flex-col overflow-hidden rounded-[20px] transition-all duration-150',
                     'border-2',
                     isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
@@ -245,6 +249,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         )}
 
         <div className="w-full flex flex-col items-center gap-4 pt-6 mt-auto shrink-0">
+          {error && (
+            <p className="text-red-500 text-xs text-center select-text break-words" role="alert">
+              {error}
+            </p>
+          )}
           <Button
             data-testid="choose-guardian-continue"
             title={submitLabel ?? t('continue')}
