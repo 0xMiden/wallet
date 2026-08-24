@@ -93,10 +93,16 @@ const GuardianSettings: FC = () => {
             use, rather than `text-text-muted`: muted is #ababab, and on the
             gray-25 chip this sits on (#f9f9f9) that is 2.18:1 — a 14px semibold
             heading, so it needs 4.5:1, not the large-text 3:1. heading-gray is
-            8.69:1 there and pure white on the dark chip. */}
-        <h2 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
+            8.69:1 there and pure white on the dark chip.
+
+            `h3`, subordinate to the guardian name's h2 above: these are sections
+            within the page, not siblings of its subject. The "settings group
+            headings skipped h2" fix belonged to the Settings root list, where
+            there was genuinely no h2 to be subordinate to; promoting these gave
+            the page three sibling h2s and flattened a correct outline. */}
+        <h3 className="inline-block rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('about')}
-        </h2>
+        </h3>
         <p className="mt-2 text-sm leading-5 text-heading-gray">
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
         </p>
@@ -115,9 +121,9 @@ const GuardianSettings: FC = () => {
       <hr className="my-3 border-border-faint" />
 
       <section className="pb-4">
-        <h2 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
+        <h3 className="inline-block rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('details')}
-        </h2>
+        </h3>
         <div className="mt-1">
           <GuardianDetailRow label={t('guardianProvider')} value={provider} />
           <GuardianDetailRow label={t('guardianEndpointLabel')} value={endpoint} />

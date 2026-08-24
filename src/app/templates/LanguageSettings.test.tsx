@@ -228,14 +228,29 @@ describe('LanguageSettings', () => {
     expect(document.activeElement).toBe(current);
   });
 
-  it('resolves a region-truncated locale to the region it ships', () => {
-    // `getNativeLocale()` truncates to the base on mobile/desktop, so a Chinese
-    // device arrives as a bare `zh`. Chinese is the only language the wallet
-    // ships per-region, so nothing matched and the picker badged English.
-    mockGetCurrentLocale.mockReturnValue('zh');
+  it.each(['zh', 'zh-Hans', 'zh-Hant', 'zh-Hant-TW', 'zh-HK'])(
+    'badges English for %s, which is the language that actually renders',
+    locale => {
+      // i18next's resources are keyed `zh-CN`/`zh-TW` with no bare `zh` bundle, so
+      // every one of these resolves to `en` and the UI is in English. Claiming
+      // 简体中文 would contradict the screen and hide the repair — the row that
+      // would switch them to Chinese would be the one already checkmarked. For
+      // `zh-Hant`/`zh-Hant-TW` it would also name the wrong script, since list
+      // order reaches `zh_CN` first.
+      mockGetCurrentLocale.mockReturnValue(locale);
+      render(<LanguageSettings />);
+
+      expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('English');
+    }
+  );
+
+  it('resolves a regional tag with no regional bundle to its base language', () => {
+    // `en_GB` ships as a messages catalogue but not as a picker row, and i18next
+    // resolves it to `en`. This is the tier the removed one was confused with.
+    mockGetCurrentLocale.mockReturnValue('en-GB');
     render(<LanguageSettings />);
 
-    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('简体中文');
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('English');
   });
 
   it('resolves a hyphenated regional tag, which the extension resolver returns', () => {

@@ -68,15 +68,21 @@ const RotateGuardianReview: FC = () => {
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
 
-  // Inert while a switch is in flight, matching the hardware/swipe handler below.
-  // Only that one was gated, so on the hardware-protector path — where the user
-  // stays on this screen through `unlock` and `initiate` — the chevron could
-  // navigate away mid-flight while the in-flight promise went on to redirect to
-  // the progress page, or the user could re-enter and queue a second switch.
+  // Set when the user leaves, so an in-flight switch that lands afterwards does
+  // not yank them onto the progress page from wherever they went. That stray
+  // redirect is the reason back was briefly gated on `submitting` instead — but
+  // gating it removed the only exit this screen has (`hideToolbar`, so there is no
+  // toolbar affordance behind the chevron), and `unlock` can hang forever rather
+  // than reject: `request()` in lib/intercom/client.ts has no timeout, and its
+  // `onDisconnect` reconnects the port without settling anything in flight, so an
+  // MV3 worker recycle mid-unlock strands the promise and `submitting` never
+  // clears. Suppress the redirect, keep the exit.
+  const left = useRef(false);
+
   const handleBack = useCallback(() => {
-    if (submitting) return;
+    left.current = true;
     popBack();
-  }, [submitting, popBack]);
+  }, [popBack]);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,7 +144,10 @@ const RotateGuardianReview: FC = () => {
           zustandProvider
         );
         if (isExtension()) requestSWTransactionProcessing();
-        navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        // Not if they have already backed out: the switch is queued either way and
+        // shows up in Activity, so pulling them onto the progress page from
+        // wherever they navigated to would be the app taking the wheel back.
+        if (!left.current) navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -203,15 +212,17 @@ const RotateGuardianReview: FC = () => {
   // a back handler, so MobileBackBridge's catch-all took over and threw the user
   // out to the wallet home from the credential step and from a cold-opened
   // review alike.
+  // No `submitting` gate, for the same reason the chevron lost it: returning true
+  // without navigating swallows the press, and a hung `unlock` made that permanent
+  // on a screen with no other way out. Both exits now behave the same.
   useMobileBackHandler(() => {
-    if (submitting) return true;
     if (authStep) {
       handleAuthBack();
       return true;
     }
     handleBack();
     return true;
-  }, [authStep, handleAuthBack, handleBack, submitting]);
+  }, [authStep, handleAuthBack, handleBack]);
 
   if (authStep) {
     return (

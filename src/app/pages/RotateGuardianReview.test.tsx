@@ -519,8 +519,14 @@ it('keeps Continue out of the scroll region so it cannot land below the fold', a
   expect(scroller!.contains(confirm)).toBe(false);
 });
 
-it('ignores the chevron while a switch is in flight, as the hardware handler does', async () => {
+it('still lets the user leave when a switch hangs and never settles', async () => {
   mockHasHardwareProtector.mockResolvedValue(true);
+  // A promise that never settles, which is reachable: `request()` in
+  // lib/intercom/client.ts has no timeout and its `onDisconnect` reconnects the
+  // port without settling anything in flight, so an MV3 worker recycle mid-unlock
+  // strands `unlock` and `submitting` never clears. Gating back on `submitting`
+  // therefore trapped the user permanently — `hideToolbar` means the chevron is
+  // the only exit this screen has.
   mockUnlock.mockImplementation(() => new Promise<void>(() => {}));
   render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
@@ -529,9 +535,34 @@ it('ignores the chevron while a switch is in flight, as the hardware handler doe
   fireEvent.click(confirm);
   fireEvent.click(screen.getByRole('button', { name: 'back' }));
 
-  // Leaving mid-flight would strand an in-flight promise that still redirects to
-  // the progress page, and let the user re-enter and queue a second switch.
-  expect(mockGoBack).not.toHaveBeenCalled();
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
+});
+
+it('does not drag the user back after they leave mid-flight', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  let releaseUnlock: () => void = () => {};
+  mockUnlock.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        releaseUnlock = resolve;
+      })
+  );
+  mockInitiateSwitch.mockResolvedValue('tx-hung');
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  // The switch lands after they have gone. It is queued and appears in Activity
+  // either way, so redirecting would be the app yanking them off whatever screen
+  // they navigated to. This is the reason back was gated in the first place —
+  // suppressing the redirect is what makes keeping the exit safe.
+  await act(async () => {
+    releaseUnlock();
+  });
+
+  expect(mockGoBack).toHaveBeenCalledTimes(1);
   expect(mockNavigate).not.toHaveBeenCalled();
 });
 

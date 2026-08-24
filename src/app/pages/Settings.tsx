@@ -86,8 +86,15 @@ type Tab = {
    * faucet-id field, via `useLayoutEffect`. The host's title focus runs in a
    * plain `useEffect`, which fires AFTER layout effects, so it would take focus
    * straight back off the field the page just put the caret in.
+   *
+   * A predicate rather than a boolean because two of the three pages only claim
+   * focus on desktop: `RevealSecret` wraps its `focusPasswordField()` in
+   * `if (!isMobile())`. Declared unconditionally, the flag suppressed the title
+   * focus on mobile too and nothing replaced it, so those routes went back to
+   * leaving focus on `<body>` with the page never announced — the exact defect
+   * `focusTitleOnMount` was added for.
    */
-  ownsInitialFocus?: boolean;
+  ownsInitialFocus?: () => boolean;
   // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
@@ -216,14 +223,15 @@ const TAB_GROUPS: TabGroup[] = [
 const HIDDEN_TABS: Tab[] = [
   {
     slug: 'reveal-private-key',
-    ownsInitialFocus: true,
+    // Desktop only — RevealSecret gates its own field focus on `!isMobile()`.
+    ownsInitialFocus: () => !isMobile(),
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
-    ownsInitialFocus: true,
+    ownsInitialFocus: () => !isMobile(),
     titleI18nKey: 'revealHotKey',
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
@@ -238,7 +246,8 @@ const HIDDEN_TABS: Tab[] = [
   },
   {
     slug: 'edit-miden-faucet-id',
-    ownsInitialFocus: true,
+    // Unconditional: EditMidenFaucetId focuses its field on every platform.
+    ownsInitialFocus: () => true,
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
@@ -387,7 +396,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             // opened them unmounts with the list, dropping focus to <body>.
             // Skipped for the pages that focus a field themselves — see
             // `ownsInitialFocus`.
-            focusTitleOnMount={!activeTab.ownsInitialFocus}
+            focusTitleOnMount={!activeTab.ownsInitialFocus?.()}
             // Prefixed: the scroll container below is a sibling in this same
             // fragment and keys on the slug too, and two siblings sharing a key
             // makes React render both of them.

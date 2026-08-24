@@ -44,6 +44,12 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
     error?: string | null;
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
+      {/* The picker's own h1 (ChooseGuardian.tsx, rendered whenever `hideHeader`
+          is false — and this page does not set it). Without it in the mock, the
+          "no duplicate heading" test below asserted the absence of a heading
+          against markup that had none either way, and would have stayed green if
+          the real h1 ever disappeared and left the route with no heading at all. */}
+      <h1>Choose your Guardian</h1>
       {error ? <span role="alert">{error}</span> : null}
       <button
         data-testid="pick-new"
@@ -101,9 +107,12 @@ it('hands the picker the endpoint the account is actually on, and allows a custo
 it('leaves the page heading to the picker rather than titling the header too', () => {
   render(<RotateGuardian />);
 
-  // ChooseGuardianScreen renders its own h1 plus a description and an info
-  // link, so a title here made two level-1 headings and two stacked titles.
-  expect(screen.queryByRole('heading')).toBeNull();
+  // Exactly one, and it is the picker's. A title on the header too gave the page
+  // two level-1 headings and two stacked titles; asserting "no headings" instead
+  // would pass just as well if the picker's h1 vanished and left none.
+  const headings = screen.getAllByRole('heading', { level: 1 });
+  expect(headings).toHaveLength(1);
+  expect(headings[0]).toHaveTextContent('Choose your Guardian');
   expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument();
 });
 

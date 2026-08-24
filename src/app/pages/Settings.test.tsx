@@ -439,6 +439,24 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
   });
 
+  it('takes the title focus back on mobile, where that sub-page focuses nothing', () => {
+    // RevealSecret's field focus is wrapped in `if (!isMobile())`, so on mobile
+    // there is no competing focus to yield to. Declared as a flat boolean, this
+    // suppressed the title focus anyway and left focus on `<body>` with the page
+    // unannounced — reintroducing the defect focusTitleOnMount exists to fix.
+    mockIsMobile = true;
+    render(<Settings tabSlug="reveal-private-key" />);
+
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+  });
+
+  it('still yields on the faucet-id page, which focuses its field on every platform', () => {
+    mockIsMobile = true;
+    render(<Settings tabSlug="edit-miden-faucet-id" />);
+
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+  });
+
   it('leaves focus alone on the settings list itself', () => {
     render(<Settings tabSlug={null} />);
 

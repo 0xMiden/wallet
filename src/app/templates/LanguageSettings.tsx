@@ -50,15 +50,22 @@ const LanguageSettings: FC = () => {
     const exact = LANGUAGES.find(({ code }) => code === normalized);
     if (exact) return exact.code;
 
+    // Then the base, which is what makes a regional tag with no regional bundle
+    // (`en_GB`) badge the language it actually renders in.
     const base = normalized.split('_')[0];
     const baseMatch = LANGUAGES.find(({ code }) => code === base);
     if (baseMatch) return baseMatch.code;
 
-    // A base with no unregionalized entry — the only language the wallet ships
-    // per-region. On mobile/desktop `getNativeLocale()` truncates to the base, so
-    // a Chinese device arrived here as a bare `zh`, matched nothing, and the
-    // picker badged English as the current language.
-    return LANGUAGES.find(({ code }) => code.startsWith(`${base}_`))?.code || 'en';
+    // And then English — deliberately, with no "find a region for this base" tier.
+    // Such a tier looks like it helps a `zh` device find Chinese, but i18next's
+    // resources are keyed `zh-CN`/`zh-TW` with no bare `zh` bundle (src/i18n.ts),
+    // so `zh`, `zh-Hans`, `zh-Hant`, `zh-HK` all resolve to `en` and the UI really
+    // is in English. Badging 简体中文 there would state the opposite of what is on
+    // screen, and would hide the repair: the row that would switch them to Chinese
+    // is the one that would be wearing the checkmark. Worse, list order means
+    // `startsWith('zh_')` hits `zh_CN` first, so a Traditional-script user would be
+    // told they were reading Simplified.
+    return 'en';
   }, [selectedLocale]);
 
   // `goBack()` is `history.go(-1)`, which lands on a later task, so the rows stay

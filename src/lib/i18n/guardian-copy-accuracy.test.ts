@@ -153,8 +153,13 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // "the Guardian app/site" rather than the person/service that co-signs. The
   // noun list cannot see that, because the noun is right and only the article is
   // wrong. `der`/`einem` are the correct masculine forms and are not matched.
-  de: wrongThing([String.raw`Adress\S*`], {
-    extra: [String.raw`\bdie\s*[„“"«»]?\s*Guardian`, String.raw`\beiner\s+anderen\s*[„“"«»]?\s*Guardian`]
+  // `(?!-)` on the gender extras, because a `Guardian-<noun>` compound takes the
+  // COMPOUND's gender, so "die Guardian-Signatur" and "die Guardian-Betreiber"
+  // are correct German. Without it the sweep flagged both, and the `de`
+  // KNOWN_GOOD entry has no compound in it, so nothing here would have noticed.
+  // The wrong-noun half of such a compound is still caught by the noun list.
+  de: wrongThing([String.raw`Adress\S*`, String.raw`Seite\S*`, 'App', String.raw`Anwendung\S*`, 'Website'], {
+    extra: [String.raw`\bdie\s*[„“"«»]?\s*Guardian(?!-)`, String.raw`\beiner\s+anderen\s*[„“"«»]?\s*Guardian(?!-)`]
   }),
   es: wrongThing([String.raw`direcci[oó]n`, String.raw`p[aá]gina`, 'sitio', String.raw`aplicaci[oó]n`]),
   fr: wrongThing(['adresse', 'page', 'site'], { extra: ['faire tourner', 'Guardiane'] }),
@@ -162,7 +167,7 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
     extra: [String.raw`最新情報`],
     spaced: false
   }),
-  ko: wrongThing([String.raw`주소`], { spaced: false }),
+  ko: wrongThing([String.raw`주소`, String.raw`페이지`, String.raw`사이트`, String.raw`앱`], { spaced: false }),
   pl: wrongThing([String.raw`adres\S*`, String.raw`stron\S*`, String.raw`witryn\S*`]),
   pt: wrongThing([String.raw`endere[cç]o`, String.raw`p[aá]gina`, String.raw`vers[aã]o`]),
   ru: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`]),
@@ -177,11 +182,11 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // "old-VERSION Guardian", which describes a software release rather than the
   // Guardian being switched away from — the same class of error as "Guardian
   // address" in the European locales.
-  zh_CN: wrongThing([String.raw`地址`], {
+  zh_CN: wrongThing([String.raw`地址`, String.raw`页面`, String.raw`网站`, String.raw`应用`], {
     extra: [String.raw`[旧新最]版\s?Guardian`],
     spaced: false
   }),
-  zh_TW: wrongThing([String.raw`地址`, String.raw`帳戶`], {
+  zh_TW: wrongThing([String.raw`地址`, String.raw`帳戶`, String.raw`頁面`, String.raw`網站`, String.raw`應用`], {
     extra: [String.raw`最新\s?Guardian`, String.raw`[舊新]版\s?Guardian`],
     spaced: false
   })
@@ -195,24 +200,50 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
  * would flag the very sentence that states the accurate mechanism, so these
  * patterns apply to the receipt keys only.
  */
+/**
+ * An approval verb with the Guardian in front of it, rather than the bare verb.
+ *
+ * Bare stems flagged accurate copy: `approv` matched "Your two device keys
+ * approve the switch, not the Guardian" — the sentence that states the correct
+ * mechanism, and now a receipt key — while `polic` matched "privacy policy" and
+ * `authoris` matched "unauthorised device". The verb is only wrong when the
+ * GUARDIAN is the one doing it, so require the Guardian to be its subject.
+ *
+ * Directional on purpose. A passive misdescription ("every transaction is
+ * approved by your Guardian") puts the verb first and is NOT caught — matching
+ * both directions is what produced the false positives above, since the accurate
+ * sentence also has the Guardian trailing the verb, and telling those apart needs
+ * per-locale negation handling. Every misdescription machine translation has
+ * actually emitted here is Guardian-first; see KNOWN_BAD_POWER.
+ */
+const wrongPower = (verbs: string[], { spaced = true }: { spaced?: boolean } = {}): RegExp =>
+  new RegExp(
+    // For CJK a bounded run of any non-sentence-ending character, since the
+    // subject is not whitespace-delimited from the verb: `Guardian会批准`,
+    // `Guardianがすべての取引を承認`. Capped, and stopping at sentence enders, so
+    // it cannot reach a verb belonging to the next sentence.
+    `Guardian(?:['’]s)?${spaced ? `${PUNCT}${WORDS}${PUNCT}` : String.raw`[^。．！？!?\n]{0,12}`}(?:${verbs.join('|')})`,
+    'iu'
+  );
+
 const WRONG_POWER_TERMS: Record<string, RegExp> = {
   // Stems, like every other locale here. `approves` alone missed "will approve",
   // "must approve", "approval" and the near-synonyms the doc comment above
   // already names — five of the six phrasings MT actually produces.
-  en: /approv|polic|endors|confirms every|authoris|authoriz/i,
-  en_GB: /approv|polic|endors|confirms every|authoris|authoriz/i,
-  de: /genehmig|billigt/i,
-  es: /aprob|aprueb|avala/i,
-  fr: /approuv|avalise/i,
-  ja: /承認/,
-  ko: /승인/,
-  pl: /zatwierdza|akceptuje ka/i,
-  pt: /endoss|aprov/i,
-  ru: /подтвержда|одобря/i,
-  tr: /onayl/i,
-  uk: /підтверджу|схвалю/i,
-  zh_CN: /批准|核准/,
-  zh_TW: /批准|核准/
+  en: wrongPower(['approv', 'polic', 'endors', 'confirms every', 'authoris', 'authoriz']),
+  en_GB: wrongPower(['approv', 'polic', 'endors', 'confirms every', 'authoris', 'authoriz']),
+  de: wrongPower(['genehmig', 'billigt']),
+  es: wrongPower(['aprob', 'aprueb', 'avala']),
+  fr: wrongPower(['approuv', 'avalise']),
+  ja: wrongPower([String.raw`承認`], { spaced: false }),
+  ko: wrongPower([String.raw`승인`], { spaced: false }),
+  pl: wrongPower(['zatwierdza', 'akceptuje ka']),
+  pt: wrongPower(['endoss', 'aprov']),
+  ru: wrongPower([String.raw`подтвержда`, String.raw`одобря`]),
+  tr: wrongPower(['onayl']),
+  uk: wrongPower([String.raw`підтверджу`, String.raw`схвалю`]),
+  zh_CN: wrongPower([String.raw`批准`, String.raw`核准`], { spaced: false }),
+  zh_TW: wrongPower([String.raw`批准`, String.raw`核准`], { spaced: false })
 };
 
 /**
@@ -263,6 +294,15 @@ const KNOWN_BAD: Array<[string, string]> = [
   ['uk', 'ваша нова адреса Guardian підписує'],
   ['zh_CN', '您的新地址 Guardian 将对每笔交易进行联署'],
   ['zh_CN', '新Guardian地址'],
+  // "Guardian page", the defect class round 8 widened the sweep for. It was
+  // pinned in en/pl/ru and invisible in de, ko and both Chinese locales, which
+  // had no pattern for page, app or site at all.
+  ['de', 'Ihre neue Guardian-Seite ist erreichbar'],
+  ['de', 'Die Guardian-App wurde aktualisiert'],
+  ['ko', 'Guardian 페이지가 변경되었습니다'],
+  ['ko', 'Guardian 앱을 여세요'],
+  ['zh_CN', 'Guardian 页面已更改'],
+  ['zh_TW', 'Guardian 頁面已更改'],
   ['zh_TW', '最新Guardian'],
   // Regenerated by the translation bot after the English source was corrected —
   // the bot has no notion of what a Guardian is, so the guard has to be the
@@ -355,6 +395,15 @@ const KNOWN_BAD_CJK_PARTICLE: Array<[string, string]> = [
 const KNOWN_GOOD: Array<[string, string]> = [
   ['en', 'Your wallet address did not change. Your Guardian co-signs every transaction.'],
   ['en', 'This is already your current Guardian.'],
+  // The accurate statement of the mechanism, which the bare `approv` stem flagged
+  // — and it lives in a receipt key, so it was swept.
+  ['en', 'Your two device keys approve the switch, not the Guardian.'],
+  ['en', 'Read our privacy policy for details.'],
+  ['en', 'Sign in again from an unauthorised device.'],
+  // `Guardian-<noun>` compounds: correct German, since the compound carries its
+  // own gender, but "die Guardian…" read as a gender error to the sweep.
+  ['de', 'Die Guardian-Signatur bleibt erforderlich.'],
+  ['de', 'Wir benachrichtigen die Guardian-Betreiber.'],
   ['en_GB', 'Your wallet address has not changed. Your Guardian co-signs every transaction.'],
   ['pt', 'O endereço da sua carteira não muda. O Guardian co-assina cada transação.'],
   ['de', 'Ihre Wallet-Adresse bleibt gleich. Ihr Guardian signiert weiterhin mit.'],
@@ -497,8 +546,10 @@ describe('Guardian explainer copy accuracy (#479)', () => {
       expect(bad).toMatch(power!);
     }
     // Every locale that ships must appear above; otherwise its approval pattern
-    // is unexercised and could be a typo that never fires.
-    expect([...KNOWN_BAD_POWER.map(([locale]) => locale)].sort()).toEqual([...EXPECTED_LOCALES].sort());
+    // is unexercised and could be a typo that never fires. Compared as a set, so
+    // that adding a SECOND phrasing for a locale — the obvious response to finding
+    // a new machine-translation failure — is allowed. As sorted arrays it was not.
+    expect([...new Set(KNOWN_BAD_POWER.map(([locale]) => locale))].sort()).toEqual([...EXPECTED_LOCALES].sort());
 
     for (const [locale, bad] of KNOWN_BAD_CJK_PARTICLE) {
       const thing = WRONG_THING_TERMS[locale];
