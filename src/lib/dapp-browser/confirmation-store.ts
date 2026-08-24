@@ -84,10 +84,12 @@ interface PendingEntry {
   /**
    * The telemetry flow for this approval, when the UI has installed a reporter.
    *
-   * Instrumented here because this store is the ONE place every dApp approval
-   * passes through — the in-app browser's modal, the extension's confirm page
-   * and the desktop sheet all arrive here — so it covers every surface and
-   * every request type instead of three components that can each be missed.
+   * Instrumented here because this store is where every approval that goes
+   * through a confirmation *modal* arrives — the in-app browser's sheet and the
+   * desktop dialog, for all four request types — rather than in each component.
+   * The extension is NOT one of them: `lib/miden/back/dapp.ts` guards these
+   * calls with `!isExtension()` and takes an intercom + popup-window path, which
+   * reports for itself from `ConfirmPage` via `useApprovalPrompt`.
    *
    * Injected rather than imported because this module is reachable from the
    * background service worker's graph, and `lib/telemetry` reaches

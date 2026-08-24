@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
 import ErrorBoundary from 'app/ErrorBoundary';
+import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
@@ -537,6 +538,10 @@ const ConfirmDAppForm: FC = () => {
   const [confirming, setConfirming] = useSafeState(false);
   const [declining, setDeclining] = useSafeState(false);
 
+  // The extension's approval telemetry. The confirmation store the other
+  // platforms report from is unreachable here — see `useApprovalPrompt`.
+  const settleApproval = useApprovalPrompt(payload.type);
+
   const confirm = useCallback(
     async (confirmed: boolean) => {
       setError(null);
@@ -545,6 +550,10 @@ const ConfirmDAppForm: FC = () => {
           throw new Error(t('confirmError'));
         }
         await onConfirm(confirmed);
+        // Settled only once the decision has actually been delivered: the
+        // private-data check above throws before that and the user is still
+        // being asked, so the flow stays open for their next attempt.
+        settleApproval(confirmed);
       } catch (err: any) {
         console.error(err);
 
@@ -553,7 +562,7 @@ const ConfirmDAppForm: FC = () => {
         setError(err);
       }
     },
-    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, t]
+    [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
   );
 
   const handleConfirmClick = useCallback(async () => {

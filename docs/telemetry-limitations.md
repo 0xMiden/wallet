@@ -227,6 +227,39 @@ event with `step: review` is someone who got all the way to the last screen and
 chose not to sign. Those need completely different fixes, and before `step`
 existed both arrived as an identical bare `send_started`.
 
+### Filter the funnel by duration before reading it
+
+Route-gating the home-carousel screens (see below) means every visit to a home
+pane opens and closes a flow — including a pane the user only passed through.
+Swiping from Send to Earn transits `/receive`, and each swipe release navigates,
+so that transit emits a matched `receive_share` pair. Tapping through the tab bar
+out of curiosity emits a cancelled `send` at `select_recipient`, a cancelled
+`receive_share`, and a cancelled `swap` at `swap_amounts`.
+
+These are honest, balanced pairs, not leaks — but they are shallow, and left
+unfiltered they dominate the first bucket of exactly the funnel `step` exists to
+produce. They are also trivially separable, because every `ended` event carries
+`durationMs`: a transit is a few hundred milliseconds, a real visit is seconds.
+**So exclude cancelled flows under about a second before reading drop-off.**
+
+This is deliberately left to the reader rather than enforced by a dwell timer in
+the client. A timer would have to drop the `started` event too, which throws the
+information away irrecoverably and bakes one guess at the threshold into shipped
+builds; a duration filter is tunable afterwards, and keeps the shallow visits
+available for anyone who wants to count them.
+
+### Two known biases in the `submitting` bucket
+
+- **Leaving while a transaction is being proved reports it cancelled.** Proving
+  takes seconds. If the user swipes away or backs out of review during it, the
+  route gate settles the flow as cancelled at `step: submitting`, and the later
+  success no-ops against an already-settled handle. The transaction still goes
+  through. So completions are undercounted in this bucket specifically.
+- **Backing out of review and returning counts as two flows.** The review screen
+  settles on exit and the amount screen begins a fresh flow on the way back, so
+  one journey that hesitated arrives as a cancelled flow at `step: review`
+  followed by a second flow. True for send and for earn.
+
 ### What a completed swap looks like
 
 Four events, in two flows, if the user opened the app to do it:
@@ -237,6 +270,9 @@ Four events, in two flows, if the user opened the app to do it:
 | `open_ended` | `result: completed`, `durationMs` |
 | `swap_started` | — |
 | `swap_ended` | `result: completed`, `durationMs`, `step: submitting` |
+
+The `open` pair is there because the app shell mounted; the swap pair is there
+because the user went to `/swap` and submitted.
 
 It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
 at first, and the events that showed up during a swap came from unrelated screens

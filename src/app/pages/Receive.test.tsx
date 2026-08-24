@@ -198,6 +198,13 @@ describe('Receive - receive_share telemetry', () => {
     });
   };
 
+  /** Re-render in place, as a route change does — no unmount. */
+  const rerenderReceive = async () => {
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+  };
+
   const unmountReceive = async () => {
     await act(async () => {
       testRoot!.unmount();
@@ -238,6 +245,24 @@ describe('Receive - receive_share telemetry', () => {
     await renderReceive();
 
     expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('completes the share when the user arrives from another home page, not just on a direct mount', async () => {
+    // The production sequence, and the one the route gate broke: this page is
+    // mounted by the carousel while the app is at `/`, so the flow starts on the
+    // LATER navigation to `/receive`. An effect keyed only on the address would
+    // have run once at mount, found no flow, and never fired again — reporting
+    // every share as abandoned.
+    mockPathname = '/';
+    await renderReceive();
+    expect(beginFlowMock).not.toHaveBeenCalled();
+
+    mockPathname = '/receive';
+    await rerenderReceive();
+
+    expect(beginFlowMock).toHaveBeenCalledWith('receive_share');
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
   });
 
   it('begins one receive_share flow on entry', async () => {

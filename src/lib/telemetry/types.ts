@@ -57,12 +57,9 @@ export type TelemetryStep =
   // onboarding — named exhaustively, because first-run drop-off is the single
   // most actionable funnel the wallet has and a partial map would leave the
   // gaps invisible rather than merely unnamed
-  | 'select_wallet_type'
   | 'choose_protection'
   | 'setup_passcode'
   | 'setup_biometric'
-  | 'backup_phrase'
-  | 'verify_phrase'
   | 'set_password'
   | 'recovery_method'
   | 'choose_guardian'

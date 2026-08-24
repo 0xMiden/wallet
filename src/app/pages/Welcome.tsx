@@ -107,20 +107,24 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
 }
 
 /**
- * Onboarding screen -> reported step. A `Partial` so screens with nothing worth
- * distinguishing (the welcome splash, the transient confirmation hop) simply
- * have no entry and leave the previous step standing as the furthest reached.
+ * Onboarding screen -> reported step.
+ *
+ * A `Partial` so a screen with nothing worth distinguishing — the welcome
+ * splash — simply has no entry and leaves the previous step standing as the
+ * furthest reached.
+ *
+ * Only screens this component can actually reach appear here. The wallet-type
+ * screen is deliberately absent: the flow BEGINS from it (see
+ * `beginOnboardingFlow`), so by the time there is a flow to report against, the
+ * user has already left. `Welcome.test.tsx` fails on an entry for a screen no
+ * `setStep` call can produce, which is how the three original dead entries were
+ * found.
  */
 const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>> = {
-  [OnboardingStep.SelectWalletType]: 'select_wallet_type',
   [OnboardingStep.ChooseProtection]: 'choose_protection',
   [OnboardingStep.SetupPasscode]: 'setup_passcode',
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
-  [OnboardingStep.BiometricSetup]: 'setup_biometric',
-  [OnboardingStep.BackupSeedPhrase]: 'backup_phrase',
-  [OnboardingStep.VerifySeedPhrase]: 'verify_phrase',
   [OnboardingStep.CreatePassword]: 'set_password',
-  [OnboardingStep.SelectRecoveryMethod]: 'recovery_method',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
   [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',

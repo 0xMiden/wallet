@@ -105,7 +105,10 @@ const SwapManager: React.FC = () => {
   const onSwapRoute = pathname === '/swap' || pathname.startsWith('/swap/');
   useEffect(() => {
     if (!onSwapRoute) return;
-    flowRef.current = beginFlow('swap');
+    // Adopt rather than assign, matching `enterSendFlow` and `enterRouteFlow`: an
+    // overwrite here would abandon an open handle without settling it, leaving a
+    // permanently unmatched `swap_started`.
+    flowRef.current ??= beginFlow('swap');
     // Leaving the route with the flow still open is the user abandoning it. The
     // submit path settles and clears the ref before navigating, so a completed
     // swap is never re-reported as cancelled here.

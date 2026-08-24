@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { render, act } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
@@ -1503,5 +1505,33 @@ describe('Welcome — telemetry', () => {
     const handle = handleFor('create');
     expect(handle.fail).toHaveBeenCalledWith('unknown');
     expect(handle.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe('the onboarding step table has no dead entries', () => {
+  // A step table is a map from screens to reported steps, and nothing stops an
+  // entry naming a screen this component can never show. Three did: the two
+  // seed-phrase screens live in a different flow entirely, and the wallet-type
+  // screen is where the flow is BEGUN, so there is no flow to report against
+  // while the user is on it. All three typechecked, passed every test, and could
+  // never have produced an event. Source-scanned because reachability here is a
+  // property of the `setStep` calls, not of anything a render can observe.
+  const source = readFileSync(join(__dirname, 'Welcome.tsx'), 'utf8');
+
+  const tableKeys = (): string[] => {
+    const table = /ONBOARDING_TELEMETRY_STEPS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(source)?.[1];
+    if (!table) throw new Error('could not find the onboarding step table');
+    return [...table.matchAll(/\[OnboardingStep\.(\w+)\]/g)].map(match => match[1]!);
+  };
+
+  /** Screens some `setStep` call can actually produce. */
+  const reachable = new Set([...source.matchAll(/setStep\(OnboardingStep\.(\w+)\)/g)].map(match => match[1]!));
+
+  it('maps at least one screen, so the assertion below cannot pass vacuously', () => {
+    expect(tableKeys().length).toBeGreaterThan(0);
+  });
+
+  it.each(tableKeys())('%s is a screen this component can reach', screen => {
+    expect([...reachable]).toContain(screen);
   });
 });

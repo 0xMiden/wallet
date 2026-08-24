@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react';
 
 import { setApprovalFlowReporter } from 'lib/dapp-browser/confirmation-store';
 
-import { useDappApprovalTelemetry } from './useDappApprovalTelemetry';
+import { useApprovalPrompt, useDappApprovalTelemetry } from './useDappApprovalTelemetry';
 
 const beginFlow = jest.fn();
 jest.mock('lib/telemetry', () => ({ beginFlow: (flow: string) => beginFlow(flow) }));
@@ -58,5 +58,60 @@ describe('useDappApprovalTelemetry', () => {
     unmount();
 
     expect(setApprovalFlowReporter).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('useApprovalPrompt', () => {
+  // The extension's half. `lib/miden/back/dapp.ts` guards the confirmation-store
+  // calls with `!isExtension()`, so on the extension nothing above ever fires
+  // and dApp approvals would have gone entirely unreported on the platform most
+  // users are on.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    beginFlow.mockImplementation(() => ({ step: jest.fn(), complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() }));
+  });
+
+  const handle = () => jest.mocked(beginFlow).mock.results[0]?.value as { [k: string]: jest.Mock };
+
+  it('begins the flow on mount, because this page is only rendered to ask', () => {
+    renderHook(() => useApprovalPrompt('connect'));
+
+    expect(beginFlow).toHaveBeenCalledWith('dapp_connect');
+    expect(handle().step).toHaveBeenCalledWith('awaiting_approval');
+  });
+
+  it('maps every non-connect request onto the transaction-approval flow', () => {
+    renderHook(() => useApprovalPrompt('transaction'));
+
+    expect(beginFlow).toHaveBeenCalledWith('dapp_tx');
+  });
+
+  it('completes on approval and cancels on refusal, so consent is not conflated with denial', () => {
+    const approve = renderHook(() => useApprovalPrompt('sign'));
+    approve.result.current(true);
+    expect(handle().complete).toHaveBeenCalledTimes(1);
+
+    jest.clearAllMocks();
+    const deny = renderHook(() => useApprovalPrompt('sign'));
+    deny.result.current(false);
+    expect(handle().cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a window closed without deciding as an abandoned approval', () => {
+    const { unmount } = renderHook(() => useApprovalPrompt('connect'));
+
+    unmount();
+
+    expect(handle().cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-report on the unmount that follows a decision', () => {
+    const { result, unmount } = renderHook(() => useApprovalPrompt('connect'));
+    result.current(true);
+
+    unmount();
+
+    expect(handle().complete).toHaveBeenCalledTimes(1);
+    expect(handle().cancel).not.toHaveBeenCalled();
   });
 });

@@ -71,6 +71,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
     setIsSubmitting(true);
     setSubmitError(null);
+    // A previous attempt that failed settled its flow errored and the user is
+    // still on this screen, so a retry needs a flow of its own — otherwise the
+    // second attempt reports nothing at all and a deposit that failed once and
+    // then succeeded is recorded only as the failure. Same contract as
+    // `enterSendFlow` and the swap retry path.
+    enterRouteFlow('earn');
     reportRouteFlowStep('earn', 'submitting');
     try {
       await openEarnPosition({

@@ -48,13 +48,19 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
 
   // Clearing the ref makes this fire once and keeps the unmount above from
   // re-reporting a surface that already did its job.
+  //
+  // Depends on the route gate as well as the address. The address is resolved
+  // before this page is ever reachable and then never changes, so keyed on
+  // `address` alone this would run once at mount — while the gate was still
+  // false and there was no flow — and never again. Every share would then be
+  // reported cancelled, the previous bug exactly inverted.
   useEffect(() => {
-    if (!address) return;
+    if (!onReceiveRoute || !address) return;
     const flow = flowRef.current;
     if (!flow) return;
     flowRef.current = null;
     flow.complete();
-  }, [address]);
+  }, [address, onReceiveRoute]);
 
   const openBridgeDeposit = useCallback(() => {
     navigate('/bridge/deposit');
