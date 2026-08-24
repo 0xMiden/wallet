@@ -10,7 +10,11 @@ import {
   DEFAULT_HAPTIC_FEEDBACK,
   THEME_STORAGE_KEY,
   DEFAULT_THEME,
-  ThemeSetting
+  ThemeSetting,
+  TUTORIAL_PROMPT_PENDING_STORAGE_KEY,
+  DEFAULT_TUTORIAL_PROMPT_PENDING,
+  TUTORIAL_AUTO_CONSUME_HOLD_KEY,
+  TUTORIAL_AUTO_CONSUME_HOLD_TTL_MS
 } from './constants';
 
 function setSetting(key: string, value: boolean) {
@@ -120,6 +124,86 @@ export function setHapticFeedbackSetting(enabled: boolean) {
 
 export function isHapticFeedbackEnabled() {
   return getSetting(HAPTIC_FEEDBACK_STORAGE_KEY, DEFAULT_HAPTIC_FEEDBACK);
+}
+
+export function setTutorialPromptPending(pending: boolean) {
+  setSetting(TUTORIAL_PROMPT_PENDING_STORAGE_KEY, pending);
+}
+
+export function isTutorialPromptPending() {
+  return getSetting(TUTORIAL_PROMPT_PENDING_STORAGE_KEY, DEFAULT_TUTORIAL_PROMPT_PENDING);
+}
+
+function parseHoldDeadline(raw: unknown): number {
+  switch (typeof raw) {
+    case 'number':
+      return Number.isFinite(raw) ? raw : 0;
+    case 'string': {
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Pause native-note auto-consume for the tutorial's manual-claim walkthrough.
+ * Must be called BEFORE the faucet request goes out — the frontend consumers
+ * react to the very first claimable-notes tick that contains the note. Written
+ * to both localStorage (frontend readers) and the platform KV mirror (the
+ * extension SW's sync-cycle consumer).
+ */
+export function holdAutoConsumeForTutorial() {
+  const until = Date.now() + TUTORIAL_AUTO_CONSUME_HOLD_TTL_MS;
+  try {
+    localStorage.setItem(TUTORIAL_AUTO_CONSUME_HOLD_KEY, String(until));
+  } /* c8 ignore next -- jsdom localStorage.setItem is non-configurable */ catch {}
+  try {
+    void getStorageProvider()
+      .set({ [TUTORIAL_AUTO_CONSUME_HOLD_KEY]: until })
+      .catch(() => {});
+  } catch {
+    /* storage not ready — the localStorage copy still gates the frontend */
+  }
+}
+
+export function releaseTutorialAutoConsumeHold() {
+  try {
+    localStorage.removeItem(TUTORIAL_AUTO_CONSUME_HOLD_KEY);
+  } catch {}
+  try {
+    void getStorageProvider()
+      .set({ [TUTORIAL_AUTO_CONSUME_HOLD_KEY]: 0 })
+      .catch(() => {});
+  } catch {}
+}
+
+export function isTutorialAutoConsumeHoldActive(): boolean {
+  try {
+    return parseHoldDeadline(localStorage.getItem(TUTORIAL_AUTO_CONSUME_HOLD_KEY)) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/** Service-worker-safe read of the tutorial auto-consume hold. */
+export async function isTutorialAutoConsumeHoldActiveAsync(): Promise<boolean> {
+  try {
+    const items = await getStorageProvider().get([TUTORIAL_AUTO_CONSUME_HOLD_KEY]);
+    return parseHoldDeadline(items[TUTORIAL_AUTO_CONSUME_HOLD_KEY]) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The gate auto-consume CONSUMERS should read: the user's setting AND no
+ * tutorial hold. The settings toggle keeps reading `isAutoConsumeEnabled` so a
+ * tour in progress never shows the user's preference as off.
+ */
+export function isAutoConsumeActive() {
+  return isAutoConsumeEnabled() && !isTutorialAutoConsumeHoldActive();
 }
 
 /**

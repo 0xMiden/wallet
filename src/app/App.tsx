@@ -18,6 +18,7 @@ import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
+import { TutorialTour } from 'components/tutorial/TutorialTour';
 import { MidenProvider } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
@@ -74,6 +75,10 @@ const App: FC<AppProps> = ({ env }) => {
                       <PageRouter />
                     </>
                   )}
+                  {/* Guided tour overlay: renders nothing until started from the
+                      home screen; App-level so it survives the route trips the
+                      tour itself causes. */}
+                  {!env.confirmWindow && <TutorialTour />}
                 </div>
               </BootAnimation>
             </AwaitFonts>

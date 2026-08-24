@@ -11,6 +11,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { setTutorialPromptPending } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
@@ -251,6 +252,9 @@ const Welcome: FC = () => {
         onboardingType === OnboardingType.Import,
         guardianEndpoint
       );
+      // Both completion paths (classic in-tab and side-panel handoff) funnel
+      // through this register — the home screen consumes the flag on first mount.
+      setTutorialPromptPending(true);
       if (onboardingType === OnboardingType.Create) {
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }

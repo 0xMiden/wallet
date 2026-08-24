@@ -7,7 +7,8 @@ import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
-  isDelegateProofEnabledAsync
+  isDelegateProofEnabledAsync,
+  isTutorialAutoConsumeHoldActiveAsync
 } from 'lib/settings/helpers';
 import { SerializedConsumableNote, SerializedVaultAsset, SyncData, WalletMessageType } from 'lib/shared/types';
 
@@ -304,7 +305,11 @@ async function runSync(): Promise<void> {
       // remote proving (the frontend still covers the app-open case in the meantime).
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
       try {
-        if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
+        if (
+          (await areBackgroundSettingsMirrored()) &&
+          (await isAutoConsumeEnabledAsync()) &&
+          !(await isTutorialAutoConsumeHoldActiveAsync())
+        ) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
             nativeAutoConsumeNotes = parsedNotes.flatMap(n => {

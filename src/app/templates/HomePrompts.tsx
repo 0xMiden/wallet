@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
+import { notifyTutorialFundStarted } from 'components/tutorial/tour-store';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import type { TokenBalanceData } from 'lib/miden/front';
@@ -96,7 +97,9 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
 // four that nothing reads. Pending notes is driven by
 // playwright/e2e/tests/group-claim.spec.ts.
 const WALLET_PROMPT_TEST_IDS: Partial<Record<WalletPromptType, string>> = {
-  [WalletPromptType.PendingNotes]: 'pending-notes-prompt'
+  [WalletPromptType.PendingNotes]: 'pending-notes-prompt',
+  // Also the in-app tour's spotlight anchor (`faucet-prompt-action`).
+  [WalletPromptType.Faucet]: 'faucet-prompt'
 };
 
 const WALLET_PROMPT_ORDER = [
@@ -300,6 +303,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // owns the success/failure surface now (no auto-idle timer) — it stays up
   // showing the outcome until the user acts (Done / Retry / Close).
   const fundWallet = useCallback(async () => {
+    notifyTutorialFundStarted();
     setFundDrawerOpen(true);
     setFaucetErrorMessage(undefined);
     setFaucetStatusIndicator('loading');

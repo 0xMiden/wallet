@@ -9,6 +9,8 @@ import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
 import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
+import { TutorialPromptDrawer } from 'components/tutorial/TutorialPromptDrawer';
+import { startTutorialTour } from 'components/tutorial/tour-store';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeTransaction,
@@ -24,7 +26,12 @@ import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
-import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
+import {
+  isAutoConsumeActive,
+  isDelegateProofEnabled,
+  isTutorialPromptPending,
+  setTutorialPromptPending
+} from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
@@ -67,7 +74,7 @@ const Explore: FC = () => {
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
-  const shouldAutoConsume = isAutoConsumeEnabled();
+  const shouldAutoConsume = isAutoConsumeActive();
 
   const address = account.publicKey;
 
@@ -76,6 +83,24 @@ const Explore: FC = () => {
   const [isPulling, setIsPulling] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pullGestureRef = useRef<PullGesture | null>(null);
+
+  // Post-onboarding tutorial prompt: opened via effect (not initial state) so
+  // the sheet animates in on arrival. Any dismissal clears the pending flag —
+  // the prompt shows at most once.
+  const [tutorialPromptOpen, setTutorialPromptOpen] = useState(false);
+  useEffect(() => {
+    if (isTutorialPromptPending()) setTutorialPromptOpen(true);
+  }, []);
+  const handleTutorialPromptOpenChange = useCallback((open: boolean) => {
+    if (open) return;
+    setTutorialPromptPending(false);
+    setTutorialPromptOpen(false);
+  }, []);
+  const handleTutorialStart = useCallback(() => {
+    setTutorialPromptPending(false);
+    setTutorialPromptOpen(false);
+    startTutorialTour();
+  }, []);
 
   const midenNotes = useMemo(() => {
     if (!shouldAutoConsume || !claimableNotes) {
@@ -297,6 +322,12 @@ const Explore: FC = () => {
           />
         </div>
       </div>
+
+      <TutorialPromptDrawer
+        open={tutorialPromptOpen}
+        onOpenChange={handleTutorialPromptOpenChange}
+        onStart={handleTutorialStart}
+      />
     </div>
   );
 };

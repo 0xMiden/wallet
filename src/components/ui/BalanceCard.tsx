@@ -136,7 +136,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   };
 
   return (
-    <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
+    <div
+      data-tutorial="balance"
+      className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}
+    >
       <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
           {t('balanceCardTotalBalance')}

@@ -24,7 +24,7 @@ jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 let mockAutoConsume = true;
 let mockDelegate = true;
 jest.mock('lib/settings/helpers', () => ({
-  isAutoConsumeEnabled: () => mockAutoConsume,
+  isAutoConsumeActive: () => mockAutoConsume,
   isDelegateProofEnabled: () => mockDelegate
 }));
 

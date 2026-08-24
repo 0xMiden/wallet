@@ -186,8 +186,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/settings/helpers', () => ({
-  isAutoConsumeEnabled: () => mockAutoConsume,
-  isDelegateProofEnabled: () => mockDelegateProof
+  isAutoConsumeActive: () => mockAutoConsume,
+  isDelegateProofEnabled: () => mockDelegateProof,
+  isTutorialPromptPending: () => false,
+  setTutorialPromptPending: () => {}
 }));
 
 jest.mock('lib/store', () => ({

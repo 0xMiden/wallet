@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
-import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
+import { isAutoConsumeActive, isDelegateProofEnabled } from 'lib/settings/helpers';
 
 import { useClaimableNotes } from './claimable-notes';
 import { useMidenContext } from './client';
@@ -42,7 +42,7 @@ export function NativeNoteAutoConsumeManager(): null {
     let disposed = false;
 
     const tick = async () => {
-      if (disposed || running.current || !isAutoConsumeEnabled()) return;
+      if (disposed || running.current || !isAutoConsumeActive()) return;
       const notes = notesRef.current;
       if (!notes || notes.length === 0) return;
       running.current = true;

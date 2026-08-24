@@ -14,6 +14,19 @@ export const BG_SETTINGS_MIRRORED_KEY = 'bg_settings_mirrored';
 export const HAPTIC_FEEDBACK_STORAGE_KEY = 'haptic_feedback_setting';
 export const DEFAULT_HAPTIC_FEEDBACK = true;
 
+// Set when onboarding completes; the home screen shows the "take a tour?"
+// drawer once and clears it (any dismissal counts — the prompt never nags).
+export const TUTORIAL_PROMPT_PENDING_STORAGE_KEY = 'tutorial_prompt_pending';
+export const DEFAULT_TUTORIAL_PROMPT_PENDING = false;
+
+// Tutorial-scoped auto-consume hold: an epoch-ms deadline. While Date.now() is
+// before it, native (MIDEN) note auto-consume pauses so the tour can walk the
+// user through a manual claim. A timestamp + TTL rather than a boolean so a
+// tour that dies mid-way (crash, closed popup) can never leave auto-consume
+// off permanently. Mirrored to the platform KV store for the extension SW.
+export const TUTORIAL_AUTO_CONSUME_HOLD_KEY = 'tutorial_auto_consume_hold_until';
+export const TUTORIAL_AUTO_CONSUME_HOLD_TTL_MS = 10 * 60 * 1000;
+
 export const CARD_COLOR_STORAGE_KEY = 'balance_card_color';
 export type CardColor = 'slate' | 'orange' | 'blue' | 'green' | 'purple';
 export const CARD_COLORS: CardColor[] = ['slate', 'orange', 'blue', 'green', 'purple'];
