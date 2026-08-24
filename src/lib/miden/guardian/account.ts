@@ -217,7 +217,10 @@ export async function createGuardianAccount(
         signerCommitments: [hot.commitmentHex, coldCommitmentHex],
         guardianCommitment,
         guardianPublicKey: guardianPubkey,
-        guardianEnabled: true,
+        // No `guardianEnabled` since multisig-client 0.17: the builder now
+        // rejects a config without a guardian commitment outright, so every
+        // account it creates is guarded and the flag had nothing left to
+        // select. We only ever passed `true`, so behavior is unchanged.
         storageMode: 'private',
         signatureScheme: 'ecdsa',
         seed: coldSeed,

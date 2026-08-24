@@ -80,8 +80,10 @@ const mockBuildUpdateSignersTransactionRequest = jest.fn(async (..._args: unknow
   salt: { toHex: () => 'salt-hex' }
 }));
 const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
-  serialize: () => new Uint8Array([0xab])
+  summary: { serialize: () => new Uint8Array([0xab]) },
+  anchor: { kind: 'anchor' }
 }));
+const mockChainAnchorToBase64 = jest.fn((_anchor: unknown) => 'anchor-b64');
 
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   GuardianHttpClient: jest.fn().mockImplementation(() => ({
@@ -94,6 +96,7 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   })),
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
   executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a),
+  chainAnchorToBase64: (a: unknown) => mockChainAnchorToBase64(a),
   AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
@@ -223,7 +226,9 @@ describe('MultisigService', () => {
 
       const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
 
-      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
+      // Options are the 4th argument since multisig-client 0.17 — they used to
+      // sit behind a `nonce` slot that no longer exists.
+      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, {
         noteType: 'Private'
       });
       expect(proposal).toEqual({ kind: 'p2id' });
@@ -774,6 +779,10 @@ describe('MultisigService', () => {
         { kind: 'request' },
         expect.any(String)
       );
+      // The anchor from execution has to be serialized onto the proposal: the
+      // multisig client refuses to execute a proposal whose metadata carries no
+      // chainAnchor, so dropping it strands the proposal permanently.
+      expect(mockChainAnchorToBase64).toHaveBeenCalledWith({ kind: 'anchor' });
       // Proposal label is cosmetic; on-chain effect is dictated by targetSignerCommitments.
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
@@ -782,7 +791,8 @@ describe('MultisigService', () => {
           proposalType: 'add_signer',
           targetThreshold: 1,
           targetSignerCommitments: ['0xnewhotcommit', '0xcoldcommitnoprefix'],
-          saltHex: 'salt-hex'
+          saltHex: 'salt-hex',
+          chainAnchor: 'anchor-b64'
         })
       );
       expect(result.newHot).toEqual({

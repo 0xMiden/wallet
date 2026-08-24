@@ -353,7 +353,6 @@ describe('createGuardianAccount', () => {
         signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
         guardianCommitment: 'g-commit',
         guardianPublicKey: 'g-pubkey',
-        guardianEnabled: true,
         storageMode: 'private',
         signatureScheme: 'ecdsa',
         seed
