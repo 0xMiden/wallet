@@ -2317,8 +2317,8 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Bu zaten mevcut Guardian’ınız.",
-    "englishSource": "That's already your current guardian."
+    "message": "Bu, halihazırda kullandığınız Guardian adresidir.",
+    "englishSource": "That's already your current Guardian."
   },
   "rotateGuardian": {
     "message": "Guardian'i Dönüştür",

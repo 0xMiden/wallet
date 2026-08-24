@@ -2317,8 +2317,8 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "それはすでに現在のGuardianです。",
-    "englishSource": "That's already your current guardian."
+    "message": "これらはすでに、現在のGuardianに反映されています。",
+    "englishSource": "That's already your current Guardian."
   },
   "rotateGuardian": {
     "message": "Guardian をローテーションする",
