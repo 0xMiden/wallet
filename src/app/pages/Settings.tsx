@@ -145,7 +145,12 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
-        pageTitleI18nKey: 'rotateGuardian',
+        // No `pageTitleI18nKey` override: 'rotateGuardian' came over from the old
+        // `drawerTitleI18nKey`, where it named a task sheet. A routed page's <h1>
+        // is the page's identity, and this one is the Guardian overview —
+        // provider, endpoint, region, last sync — with Rotate as its CTA. Since
+        // `focusTitleOnMount` is on here, tapping the row labelled "Guardian
+        // Settings" announced "Rotate Guardian, heading level 1".
         Component: GuardianSettings,
         // Needed now the row is a routed Link: MenuItem forwards testID to both
         // the anchor and Link's analytics call, and an absent one became an
@@ -430,7 +435,14 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             // No `onClose`: the sub-pages that still call it do so immediately
             // before navigating on, and popping first would race the push. The
             // one screen whose action means "done here" pops itself.
-            <div className="px-4 flex-1 flex flex-col min-h-0 font-heading">
+            //
+            // No `font-heading` on the wrapper either. As a blanket on the sub-page
+            // body it reached all twelve routed screens, and Preflight sets
+            // `font: inherit` on form controls — so RevealSecret's recovery-phrase
+            // and private-key textareas, which set no font of their own, rendered
+            // the app's highest-stakes text in a rounded display face. The drawers
+            // this replaced never did. Screens that want Nunito ask for it.
+            <div className="px-4 flex-1 flex flex-col min-h-0">
               <activeTab.Component />
             </div>
           )
@@ -457,7 +469,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                         level. */}
                     <h2 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h2>
                   </div>
-                  <div className="overflow-hidden flex flex-col gap-4">
+                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows
+                      each grew 20px to reach a 44px target, so keeping gap-4 on top
+                      would have spread a group taller than the drawers it replaced.
+                      Total pitch per row is unchanged. */}
+                  <div className="overflow-hidden flex flex-col gap-1">
                     {group.tabs.map(tab => {
                       const isExternal = tab.linksOutsideOfWallet;
                       const isSeedPhrase = tab.slug === 'reveal-seed-phrase';

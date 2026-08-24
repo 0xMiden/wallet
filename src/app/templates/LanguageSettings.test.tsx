@@ -5,7 +5,6 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
-import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import LanguageSettings, { LANGUAGES } from './LanguageSettings';
 
@@ -108,7 +107,10 @@ describe('LanguageSettings', () => {
     const icons = screen.getAllByTestId('icon');
     expect(icons).toHaveLength(1);
     expect(icons[0]).toHaveAttribute('data-name', 'Checkmark');
-    expect(icons[0]).toHaveAttribute('data-fill', PRIMARY_HEX);
+    // The literal, not the imported binding: the module is mocked just below, so
+    // asserting against `PRIMARY_HEX` compared the mock to itself and held for any
+    // colour the component might have used instead.
+    expect(icons[0]).toHaveAttribute('data-fill', '#E77537');
     expect(icons[0]).toHaveAttribute('data-size', 'xs');
 
     // The Español label carries the selected styling…
@@ -173,6 +175,57 @@ describe('LanguageSettings', () => {
     expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('Español');
     // Exactly one row claims the state.
     expect(screen.getAllByRole('radio', { checked: true })).toHaveLength(1);
+  });
+
+  it('gives the group one tab stop, on the current language', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    // Roving tabindex. Thirteen rows at the default tabIndex=0 made the group
+    // thirteen tab stops, which is both the opposite of the radiogroup contract
+    // and thirteen presses to get past the list.
+    const stops = screen.getAllByRole('radio').filter(row => row.getAttribute('tabindex') === '0');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toHaveTextContent('Español');
+  });
+
+  it.each([
+    ['ArrowDown', 'Français'],
+    ['ArrowRight', 'Français'],
+    ['ArrowUp', 'English'],
+    ['ArrowLeft', 'English']
+  ])('moves focus with %s, as the radio pattern promises', (key, expected) => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    const current = screen.getByRole('radio', { checked: true });
+    current.focus();
+    fireEvent.keyDown(current, { key });
+
+    expect(document.activeElement).toHaveTextContent(expected);
+  });
+
+  it('wraps at the ends of the list', () => {
+    mockGetCurrentLocale.mockReturnValue('en');
+    render(<LanguageSettings />);
+
+    const rows = screen.getAllByRole('radio');
+    rows[0]!.focus();
+    fireEvent.keyDown(rows[0]!, { key: 'ArrowUp' });
+
+    expect(document.activeElement).toBe(rows[rows.length - 1]);
+  });
+
+  it('leaves other keys to the browser', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    const current = screen.getByRole('radio', { checked: true });
+    current.focus();
+    fireEvent.keyDown(current, { key: 'Tab' });
+
+    // Swallowing Tab would trap focus in the list.
+    expect(document.activeElement).toBe(current);
   });
 
   it('resolves a region-truncated locale to the region it ships', () => {

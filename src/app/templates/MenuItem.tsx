@@ -24,7 +24,11 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, rightText 
 
   return (
     <div className={clsx('w-full cursor-pointer')}>
-      <div className="flex items-center justify-between">
+      {/* `py-2.5` to bring the row to a 44px target: the height here is just the
+          text's 24px line box, which sat exactly on the WCAG 2.5.8 floor with no
+          margin and well under the platform minimums — and dropping the leading
+          icons pulled adjacent rows 8px closer together at the same time. */}
+      <div className="flex items-center justify-between py-2.5">
         <div className="flex items-center gap-2">
           <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>

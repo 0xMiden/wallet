@@ -351,9 +351,15 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 100n, extraInputs })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).not.toContain('Arriving on Ethereum');
-    expect(container.textContent).not.toContain('FAST');
-    expect(container.textContent).not.toContain('SLOW');
+    // The same strings the positive cases above assert. The previous three —
+    // 'Arriving on Ethereum', 'FAST', 'SLOW' — appear in no receipt at all (the
+    // first only in a comment, and the speed copy is 'Fast'/'Slow'), so this case
+    // held even when the guard was reduced to `typeof value === 'object'` and
+    // every input below rendered as a bridged send.
+    expect(container.textContent).not.toContain('Route');
+    expect(container.textContent).not.toContain('Via Epoch');
+    expect(container.textContent).not.toContain('Fast');
+    expect(container.textContent).not.toContain('Slow');
     act(() => root.unmount());
   });
 

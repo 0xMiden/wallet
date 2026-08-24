@@ -6,7 +6,7 @@ import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
-import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+import { PRIVACY_POLICY_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
 import Settings from './Settings';
 
@@ -318,14 +318,18 @@ describe('Settings page — root menu (non-guardian)', () => {
     const tos = screen.getByTestId('menuitem-termsOfService');
 
     expect(privacy).toHaveAttribute('data-external', 'true');
-    expect(privacy).toHaveAttribute('data-slug', PRIVACY_POLICY_URL);
+    // Literals, not the imported constants: comparing production against the same
+    // binding it reads holds for any value either of them takes, so an accidental
+    // edit to `app/constants` would sail through. The "Send feedback" row in the
+    // next test already pins its URL this way.
+    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
     // Passed through as undefined rather than coerced to '': Link tracks a
     // ButtonPress for any testID that is merely `!== undefined`, so the empty
     // string bought an analytics event with no name.
     expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
-    expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
+    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
   });
 
   it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
@@ -498,11 +502,15 @@ describe('Settings page — guardian account', () => {
     expect(screen.getByTestId('menuitem-guardianSettings')).toBeInTheDocument();
   });
 
-  it('renders the guardian settings page with the rotation title for guardian accounts', () => {
+  it('titles the guardian settings page the same as the row that opens it', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug="guardian-settings" />);
 
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('rotateGuardian');
+    // Not 'rotateGuardian'. That came over from the drawer title, where it named a
+    // task sheet; as a routed page the <h1> is the page's identity, and this page
+    // is the Guardian overview with Rotate as its CTA. `focusTitleOnMount` reads it
+    // aloud, so tapping "Guardian Settings" announced "Rotate Guardian".
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('guardianSettings');
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
 

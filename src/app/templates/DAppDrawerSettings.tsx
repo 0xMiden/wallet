@@ -55,7 +55,9 @@ const DAppDrawerSettings: FC = () => {
             testID={GeneralSettingsSelectors.DAppToggle}
           />
         </div>
-        <span className="text-xs text-text-muted">{t('dAppsToggleDescription')}</span>
+        {/* `text-heading-gray`: `text-text-muted` is #ababab, 2.30:1 on the light
+            page, and this 12px line is the only explanation of what the toggle does. */}
+        <span className="text-xs text-heading-gray">{t('dAppsToggleDescription')}</span>
       </div>
 
       {hasConnectedDApps && (

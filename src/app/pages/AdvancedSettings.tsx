@@ -54,7 +54,9 @@ const AdvancedSettings: FC = () => {
       <div className="flex items-center justify-between text-heading-gray">
         <div className="flex flex-col">
           <span className="font-medium text-base">{t('accountPublicKey')}</span>
-          <span className="text-xs font-mono text-text-muted select-text">{truncatedPublicKey}</span>
+          {/* `text-heading-gray`, not `text-text-muted` (#ababab, 2.30:1 in light):
+              this is a public key the user is meant to read and copy, at 12px. */}
+          <span className="text-xs font-mono text-heading-gray select-text">{truncatedPublicKey}</span>
         </div>
         <button
           type="button"

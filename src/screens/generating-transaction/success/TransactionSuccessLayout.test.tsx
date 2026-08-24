@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { SuccessDivider, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -65,6 +65,16 @@ it('keeps the body title one level below a titled header', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="Success!" />);
 
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
+});
+
+it('draws the receipt divider in a shade that survives both themes', () => {
+  const { container } = render(<SuccessDivider />);
+
+  // Nothing mounted the real divider — GuardianSwitchSuccess stubs it and this
+  // suite never imported it — so it shipped as a literal #F2F2F4 with no dark
+  // counterpart, a bright bar across the dark receipt. `gray-50` is that same
+  // near-white in light and composites to ~#333 in dark.
+  expect(container.firstElementChild).toHaveClass('bg-gray-50');
 });
 
 it('takes focus on mount so the outcome is announced', () => {

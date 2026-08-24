@@ -10,7 +10,13 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 export const DetailCard: FC<{ title?: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="font-heading">
     {title && (
-      <div className="inline-flex rounded-full bg-[#F1F1F1] px-2.5 py-1 text-sm font-bold leading-4 text-gray dark:bg-surface-interactive">
+      <div
+        // `gray-50` + `heading-gray` rather than a literal #F1F1F1 with `text-gray`:
+        // gray-50 is that same near-white in light and flips on its own, so the
+        // `dark:` override is no longer needed, and #808080 ink was 3.51:1 on the
+        // light chip. Same treatment as the StatusPill below.
+        className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-sm font-bold leading-4 text-heading-gray"
+      >
         {title}
       </div>
     )}
@@ -48,7 +54,14 @@ export const DetailRow: FC<{
     {children ? (
       <div className="flex min-w-0 items-center justify-end text-right">{children}</div>
     ) : badge ? (
-      <span className="rounded-full bg-[#FFF3EB] px-3 py-1 text-sm font-medium text-[#CC5200]">{badge}</span>
+      <span
+        // Alert's Warning pair, which flips, instead of a literal cream fill with
+        // #CC5200 ink: that was 4.03:1 at 14px and neither half had a dark
+        // counterpart, so the chip stayed cream on the dark receipt.
+        className="rounded-full bg-yellow-50 dark:bg-yellow-600/20 px-3 py-1 text-sm font-medium text-heading-gray"
+      >
+        {badge}
+      </span>
     ) : (
       <span className="min-w-0 text-right text-sm font-medium text-heading-gray">{value}</span>
     )}

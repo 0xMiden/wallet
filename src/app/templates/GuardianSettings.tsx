@@ -53,8 +53,10 @@ const GuardianSettings: FC = () => {
     ? formatLastSync(lastSyncedAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
     : t('never');
 
+  // No haptic here: this is handed to `Button`, whose onClick wrapper already
+  // fires a hapticLight on every click, so the tap buzzed twice. Same double-fire
+  // that was removed from Settings' recovery-phrase and seed-warning handlers.
   const handleRotate = () => {
-    hapticLight();
     navigate('/rotate-guardian');
   };
 
@@ -72,14 +74,14 @@ const GuardianSettings: FC = () => {
           )}
         </div>
         <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
-        {/* `dark:text-green-300`, not `green-400`: `theme.colors` in
-            tailwind.config.ts replaces Tailwind's palette rather than extending
-            it, and the custom green scale is 50/100/300/500/600/700 — so
-            `dark:text-green-400` compiled to nothing and the pill kept
-            `green-700` (#38824A) in dark mode at 3.4:1. green-300 is 7.4:1
-            there; light mode is untouched. */}
+        {/* Both halves of this pill needed their own shade. `dark:text-green-400`
+            compiled to nothing — `theme.colors` in tailwind.config.ts replaces
+            Tailwind's palette rather than extending it — so dark mode kept
+            green-700 (#38824A) at 3.4:1; green-300 is 6.6:1 there. Light mode was
+            green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
+            text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
         {currentEndpoint && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-300">
+          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-800 dark:bg-green-500/15 dark:text-green-300">
             <span className="h-2 w-2 rounded-full bg-green-500" />
             <span>{t('online')}</span>
           </div>

@@ -70,11 +70,15 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
             // theme. The default variant was left out of the original fix, which is
             // why the chevron vanished in dark mode on token detail and the seed
             // phrase screens.
+            // 44px (`w-11`), not 40: this is the sole back affordance on every
+            // screen the routed-page conversion touched — those pass `hideToolbar`
+            // to PageLayout, so there is no toolbar handler behind it — and 40
+            // misses both the 44pt iOS and 48dp Android minimums.
             <CircleButton
               aria-label={t('back')}
               icon={prominent ? IconName.ArrowLeft : IconName.ChevronLeft}
               onClick={onBack}
-              className={classNames('shrink-0', prominent && 'w-10 h-10 bg-gray-25 text-black')}
+              className={classNames('shrink-0', prominent && 'w-11 h-11 bg-gray-25 text-black')}
               size="sm"
               color="currentColor"
             />
@@ -92,7 +96,13 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
               // order, the standard shape for a route-change focus target.
               tabIndex={focusTitleOnMount ? -1 : undefined}
               className={classNames(
-                'font-heading flex-1',
+                // `min-w-0 break-words` because a flex item's automatic minimum
+                // size is its min-content width, so an unbreakable word pushes
+                // out of the row instead of wrapping — and PageLayout's content
+                // is `overflow-hidden`, so the tail is cut with no ellipsis and
+                // no way to scroll to it. At 28px bold there are only ~272px in
+                // a 360px popup, which the longer German titles already crowd.
+                'font-heading flex-1 min-w-0 break-words',
                 centered ? 'text-center' : 'text-left',
                 prominent ? 'text-[28px] font-bold text-heading-gray' : 'font-medium',
                 onBack && centered ? 'pr-10' : ''
@@ -112,7 +122,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
             aria-label={t('close')}
             icon={IconName.Close}
             onClick={onClose}
-            className={classNames('shrink-0 text-black', prominent && 'w-10 h-10 bg-gray-25')}
+            className={classNames('shrink-0 text-black', prominent && 'w-11 h-11 bg-gray-25')}
             size={prominent ? 'sm' : undefined}
             color="currentColor"
           />

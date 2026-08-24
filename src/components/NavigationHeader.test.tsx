@@ -193,8 +193,10 @@ describe('NavigationHeader', () => {
       const button = screen.getByTestId('circle-button');
       expect(button).toHaveAttribute('data-icon', IconName.ArrowLeft);
       // The circle is a fixed light chip, so the arrow can't inherit the page's
-      // flipping ink — it takes text-black through currentColor instead.
-      expect(button).toHaveClass('w-10', 'h-10', 'bg-gray-25', 'text-black');
+      // flipping ink — it takes text-black through currentColor instead. 44px
+      // (`w-11`), because on every screen this variant serves it is the only way
+      // back: those pass `hideToolbar`, so no toolbar handler sits behind it.
+      expect(button).toHaveClass('w-11', 'h-11', 'bg-gray-25', 'text-black');
       expect(button).toHaveAttribute('data-color', 'currentColor');
     });
 
@@ -241,7 +243,7 @@ describe('NavigationHeader', () => {
 
       const button = screen.getByTestId('circle-button');
       expect(button).toHaveAttribute('data-icon', IconName.Close);
-      expect(button).toHaveClass('w-10', 'h-10', 'bg-gray-25', 'text-black');
+      expect(button).toHaveClass('w-11', 'h-11', 'bg-gray-25', 'text-black');
       expect(button).toHaveAttribute('data-size', 'sm');
     });
   });

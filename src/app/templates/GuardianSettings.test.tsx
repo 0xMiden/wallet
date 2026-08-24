@@ -22,7 +22,19 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>
+  // Fires the haptic the real Button fires on every click (Button.tsx). Without it
+  // a handler adding its own looked like the only one, which is how the rotate CTA
+  // came to buzz twice — the mock counted one call either way.
+  Button: ({ title, onClick }: { title: string; onClick: () => void }) => (
+    <button
+      onClick={() => {
+        mockHapticLight();
+        onClick();
+      }}
+    >
+      {title}
+    </button>
+  )
 }));
 
 const mockHapticLight = jest.fn();
@@ -90,10 +102,12 @@ it('opens the Guardian explainer drawer from the About section', () => {
   expect(screen.getByTestId('guardian-info-drawer')).toHaveAttribute('data-open', 'true');
 });
 
-it('fires haptics and navigates to guardian rotation', () => {
+it('navigates to guardian rotation, buzzing once', () => {
   render(<GuardianSettings />);
   fireEvent.click(screen.getByRole('button', { name: 'rotateGuardian' }));
 
+  // Once, from Button's own wrapper — the handler must not add a second. The
+  // "Learn more" button above is a plain <button>, so its haptic is its own.
   expect(mockHapticLight).toHaveBeenCalledTimes(1);
   expect(mockNavigate).toHaveBeenCalledWith('/rotate-guardian');
 });

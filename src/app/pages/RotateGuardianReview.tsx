@@ -222,7 +222,11 @@ const RotateGuardianReview: FC = () => {
         setStep={handleAuthBack}
       >
         <div className="w-full max-w-sm mx-auto px-4 pb-8 flex flex-col flex-1 min-h-0">
-          <p className="pt-6 text-sm text-text-muted">{t('guardianSwitchAuthenticationDescription')}</p>
+          {/* `text-heading-gray` like the rest of this screen: `text-text-muted` is
+              #ababab, 2.30:1 on the page in light mode. The sweep replaced this token
+              across the flow and missed the one paragraph on the step where the user
+              is being asked to type their password. */}
+          <p className="pt-6 text-sm text-heading-gray">{t('guardianSwitchAuthenticationDescription')}</p>
           {isMobile() ? (
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}
@@ -294,7 +298,11 @@ const RotateGuardianReview: FC = () => {
             </div>
           </div>
 
-          <div className="mt-2 flex items-start gap-3 rounded-2xl bg-gray-100 p-4">
+          {/* Alert's Warning fill, not `bg-gray-100`: that token is `--color-hover-bg`,
+              the interaction tint every surface in the app uses, so a future change to
+              hover silently restyled this panel — and it read as plain grey rather
+              than cautionary while already borrowing the Alert's yellow glyph. */}
+          <div className="mt-2 flex items-start gap-3 rounded-2xl bg-yellow-50 dark:bg-yellow-600/20 p-4">
             {/* The wallet's warning ink (`Alert`'s Warning variant uses the same
                 token) rather than a one-off hex, which was a shade nothing else
                 ships and was invisible to a theme switch. Decorative: the
@@ -324,9 +332,18 @@ const RotateGuardianReview: FC = () => {
             stays on Continue, the button just stops spinning, and the reason
             appears above it silently. `max-h` + scroll so a long backend error
             cannot grow this fixed footer and push Continue back off-screen —
-            the thing moving it out of the scroller was meant to prevent. */}
+            the thing moving it out of the scroller was meant to prevent.
+
+            `red-600` in light and `red-500` in dark: red-500 (#EF4444) is a fixed
+            hex in both themes and only reaches 3.76:1 on the light page, short of
+            4.5:1 for 12px, while red-600 is 4.83:1 light but 3.63:1 dark — neither
+            works alone. A `dark:` variant is right here precisely because these are
+            fixed-palette shades rather than auto-flipping vars. */}
         {error && (
-          <div role="alert" className="mb-3 max-h-24 overflow-y-auto text-red-500 text-xs select-text wrap-break-word">
+          <div
+            role="alert"
+            className="mb-3 max-h-24 overflow-y-auto text-red-600 dark:text-red-500 text-xs select-text wrap-break-word"
+          >
             {error}
           </div>
         )}

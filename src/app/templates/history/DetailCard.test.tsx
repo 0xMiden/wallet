@@ -40,6 +40,18 @@ jest.mock('lib/miden/db/types', () => ({
   }
 }));
 
+// The mock above hand-copies the ordinals, so on its own this whole suite would
+// keep passing if the real enum were renumbered — every status assertion below is
+// really an assertion about the copy. Pin the copy to the original.
+it('mocks ITransactionStatus with the real ordinals', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/db/types')>('lib/miden/db/types');
+
+  expect(actual.ITransactionStatus.Queued).toBe(0);
+  expect(actual.ITransactionStatus.GeneratingTransaction).toBe(1);
+  expect(actual.ITransactionStatus.Completed).toBe(2);
+  expect(actual.ITransactionStatus.Failed).toBe(3);
+});
+
 describe('DetailCard and DetailRow', () => {
   it('renders a compact pill title without a bordered card shell', () => {
     const { container } = render(
@@ -51,7 +63,7 @@ describe('DetailCard and DetailRow', () => {
     const section = container.querySelector('section')!;
     expect(section).toHaveClass('font-heading');
     expect(section).not.toHaveClass('border', 'rounded-10', 'bg-white');
-    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-[#F1F1F1]');
+    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-gray-50');
     expect(screen.getByText('content').parentElement).toHaveClass('mt-2');
   });
 
@@ -77,7 +89,7 @@ describe('DetailCard and DetailRow', () => {
     render(<DetailRow label="Status" icon={<span data-testid="row-icon" />} badge="Active" isLast />);
 
     expect(screen.getByTestId('row-icon')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-[#FFF3EB]');
+    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-yellow-50');
   });
 });
 

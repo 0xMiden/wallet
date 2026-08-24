@@ -85,6 +85,28 @@ const LanguageSettings: FC = () => {
     [trackEvent, goBackToSettings]
   );
 
+  // Claiming `role="radiogroup"` promises arrow-key navigation, and thirteen rows
+  // each keeping the default tabIndex delivered the opposite: a user who knows the
+  // pattern presses Down, nothing happens, and Tab now costs thirteen stops to
+  // cross. Arrows move focus and select in one step, which is the radio contract —
+  // and here selecting also leaves the screen, so it reads as "arrow to the
+  // language you want" with no separate confirm.
+  const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const step =
+      event.key === 'ArrowDown' || event.key === 'ArrowRight'
+        ? 1
+        : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+          ? -1
+          : 0;
+    if (step === 0) return;
+    event.preventDefault();
+    // Wraps, per the pattern: from the last row Down lands on the first.
+    const next = (index + step + LANGUAGES.length) % LANGUAGES.length;
+    rowsRef.current[next]?.focus();
+  }, []);
+
   return (
     // A radiogroup, not thirteen loose buttons: the choice is single-select, and
     // that is the only thing that conveys "one of 13" and mutual exclusivity.
@@ -92,17 +114,24 @@ const LanguageSettings: FC = () => {
     // control the user could un-press, when in fact activating the current row
     // just leaves the screen.
     <div className="flex flex-col" role="radiogroup" aria-label={t('language')}>
-      {LANGUAGES.map(({ code, label, bcp47 }) => {
+      {LANGUAGES.map(({ code, label, bcp47 }, index) => {
         const isSelected = code === currentCode;
         return (
           <button
             key={code}
+            ref={node => {
+              rowsRef.current[index] = node;
+            }}
             type="button"
             role="radio"
             // Selection is otherwise conveyed only by colour, weight and an
             // unlabelled checkmark, so a screen reader heard thirteen identical
             // "English, button" rows with no way to tell which one is active.
             aria-checked={isSelected}
+            // Roving: one tab stop for the group, arrows to move within it. The
+            // stop sits on the current language, so Tab lands where the user is.
+            tabIndex={isSelected ? 0 : -1}
+            onKeyDown={event => handleKeyDown(event, index)}
             className="flex items-center justify-between py-3 w-full text-left"
             onClick={() => handleSelect(code)}
           >

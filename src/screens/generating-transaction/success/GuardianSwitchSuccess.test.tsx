@@ -117,6 +117,12 @@ describe('GuardianSwitchSuccess', () => {
     expect(body()).toHaveTextContent('OpenZeppelin');
     expect(body()).toHaveTextContent('Koda');
     expect(screen.getByTestId('transition-icon')).toHaveTextContent('ArrowRight');
+    // The arrow is aria-hidden and carries the only visible direction, so these
+    // sr-only labels are the whole of what a screen reader gets — without them the
+    // pair reads as "OpenZeppelin Koda". The superseded receipt showed From/To
+    // visibly; this is where that coverage went.
+    expect(body()).toHaveTextContent('currentGuardianLabel');
+    expect(body()).toHaveTextContent('newGuardianLabel');
   });
 
   it("routes the secondary CTA to this transaction's Activity detail", () => {
@@ -135,6 +141,21 @@ describe('GuardianSwitchSuccess', () => {
     fireEvent.click(screen.getByTestId('secondary'));
 
     expect(navigateMock).toHaveBeenCalledWith('/history');
+    // And names nobody. The receipt reads the persisted audit trail ONLY — with no
+    // row there is nothing to describe, and reaching for the live account endpoint
+    // would print the new provider as though it were the old one.
+    expect(body()).not.toHaveTextContent('Koda');
+    expect(body()).not.toHaveTextContent('OpenZeppelin');
+    expect(body()).not.toHaveTextContent('newGuardianLabel');
+    expect(screen.queryByTestId('transition-icon')).not.toBeInTheDocument();
+  });
+
+  it('labels the dismiss CTA', () => {
+    render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
+
+    // The layout mock renders `children`, not button titles, so clicking
+    // `getByTestId('primary')` passed for any label at all.
+    expect(mockLayoutProps?.primaryAction.label).toBe('Done');
   });
 
   it('shows only the new provider on a row persisted before the audit trail', () => {
@@ -151,6 +172,10 @@ describe('GuardianSwitchSuccess', () => {
     expect(body()).toHaveTextContent('Koda');
     expect(body()).not.toHaveTextContent('OpenZeppelin');
     expect(screen.queryByTestId('transition-icon')).not.toBeInTheDocument();
+    // Still labelled: the label used to be nested inside the previous-name branch,
+    // so this row announced a bare hostname with nothing naming it.
+    expect(body()).toHaveTextContent('newGuardianLabel');
+    expect(body()).not.toHaveTextContent('currentGuardianLabel');
   });
 
   // The guard rejects anything without a string newGuardianEndpoint, so a legacy
@@ -173,6 +198,11 @@ describe('GuardianSwitchSuccess', () => {
     expect(body()).not.toHaveTextContent('OpenZeppelin');
     expect(body()).not.toHaveTextContent('Unknown');
     expect(screen.queryByTestId('transition-icon')).not.toBeInTheDocument();
+    // The line's own labels, not just the provider names it would have resolved:
+    // dropping the `typeof … === 'string'` check let `{ newGuardianEndpoint: 42 }`
+    // through, and "42" matches none of the three strings above.
+    expect(body()).not.toHaveTextContent('newGuardianLabel');
+    expect(body()).not.toHaveTextContent('currentGuardianLabel');
     // The receipt itself still stands up.
     expect(screen.getByTestId('title')).toHaveTextContent("You've successfully rotated your Guardian!");
     expect(screen.getByTestId('hero-art')).toBeInTheDocument();

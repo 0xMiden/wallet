@@ -42,7 +42,13 @@ export const CircleButton: React.FC<ButtonProps> = ({
         // PR made load-bearing: the converted settings pages are no longer
         // focus-trapping dialogs dismissable with Escape, so this chevron is the
         // only way back. `focus-visible` so a mouse click still shows nothing.
-        'focus-visible:ring-2 focus-visible:ring-primary-500/60',
+        //
+        // primary-600 at full opacity, not primary-500/60: WCAG 1.4.11 wants 3:1
+        // against the adjacent background and the translucent brand orange
+        // composites to 1.92:1 on white and 2.89:1 on the dark page — a ring that
+        // technically exists and still cannot be seen. primary-600 (#C95A21) is
+        // 4.42:1 light and 4.02:1 dark.
+        'focus-visible:ring-2 focus-visible:ring-primary-600',
         'hover:bg-gray-100 focus:bg-gray-100 disabled:bg-gray-50',
         disabled ? 'cursor-default' : 'cursor-pointer',
         className
