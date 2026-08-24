@@ -10,22 +10,19 @@ import { Link } from 'lib/woozie';
 type MenuItemProps = {
   slug?: string;
   titleI18nKey: string;
-  Icon?: ImportedSVGComponent;
-  iconStyle?: React.CSSProperties;
   onClick?: () => void;
   testID: string;
   linksOutsideOfWallet: boolean;
   rightText?: string;
 };
 
-const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, Icon, iconStyle, rightText }) => {
+const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, rightText }) => {
   const { t } = useTranslation();
 
   return (
     <div className={clsx('w-full cursor-pointer')}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {Icon && <Icon className="w-5 h-5 shrink-0" style={iconStyle} />}
           <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-2">
@@ -37,16 +34,7 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, Icon, icon
   );
 };
 
-const MenuItem: FC<MenuItemProps> = ({
-  slug,
-  titleI18nKey,
-  Icon,
-  iconStyle,
-  onClick,
-  testID,
-  linksOutsideOfWallet,
-  rightText
-}) => {
+const MenuItem: FC<MenuItemProps> = ({ slug, titleI18nKey, onClick, testID, linksOutsideOfWallet, rightText }) => {
   const handleExternalClick = () => {
     hapticLight();
   };
@@ -57,8 +45,6 @@ const MenuItem: FC<MenuItemProps> = ({
         <a href={slug} target="_blank" rel="noreferrer" onClick={handleExternalClick}>
           <ClickableContent
             titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
             linksOutsideOfWallet={linksOutsideOfWallet}
             rightText={rightText}
           />
@@ -75,8 +61,6 @@ const MenuItem: FC<MenuItemProps> = ({
         >
           <ClickableContent
             titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
             linksOutsideOfWallet={linksOutsideOfWallet}
             rightText={rightText}
           />
@@ -87,8 +71,6 @@ const MenuItem: FC<MenuItemProps> = ({
         <Link to={slug || '#'} onClick={onClick} testID={testID} data-testid={testID}>
           <ClickableContent
             titleI18nKey={titleI18nKey}
-            Icon={Icon}
-            iconStyle={iconStyle}
             linksOutsideOfWallet={linksOutsideOfWallet}
             rightText={rightText}
           />

@@ -126,17 +126,19 @@ describe('StatusPill', () => {
   const label = (container: HTMLElement) =>
     pill(container).querySelector('span:not([data-testid="v2-icon"])') as HTMLElement;
 
-  it('renders the completed variant as a solid green pill with a white checkmark', () => {
+  it('renders the completed variant as a solid green pill with dark ink and a matching checkmark', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
 
-    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-[#99AC94]');
+    // Dark ink, not white: these fills are mid-tone, so white 12px text on them
+    // sits near 2.4:1 — under AA. The icon inherits the same ink.
+    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-tx-received', 'text-pure-black');
 
     const icon = pill(container).querySelector('[data-testid="v2-icon"]');
     expect(icon).toHaveAttribute('data-name', 'checkmark');
-    expect(icon).toHaveAttribute('data-fill', 'white');
+    expect(icon).toHaveAttribute('data-fill', 'currentColor');
 
     const text = label(container);
-    expect(text).toHaveClass('text-pure-white', 'font-semibold');
+    expect(text).toHaveClass('font-semibold');
     expect(text).toHaveTextContent('t:confirmed');
   });
 
@@ -168,29 +170,29 @@ describe('StatusPill', () => {
     expect(pill(container)).toHaveClass('bg-status-negative');
   });
 
-  it('renders the failed variant as a solid negative pill with a white close icon', () => {
+  it('renders the failed variant as a solid negative pill whose ink flips with the theme', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    expect(pill(container)).toHaveClass('bg-status-negative');
+    // The failure red is the one fill that flips with the theme, so its ink has
+    // to flip too — `text-black` rather than the fixed `text-pure-black`.
+    expect(pill(container)).toHaveClass('bg-status-negative', 'text-black');
+    expect(pill(container)).not.toHaveClass('text-pure-black');
 
     const icon = pill(container).querySelector('[data-testid="v2-icon"]');
     expect(icon).toHaveAttribute('data-name', 'close');
-    expect(icon).toHaveAttribute('data-fill', 'white');
+    expect(icon).toHaveAttribute('data-fill', 'currentColor');
 
-    const text = label(container);
-    expect(text).toHaveClass('text-pure-white');
-    expect(text).toHaveTextContent('t:failed');
+    expect(label(container)).toHaveTextContent('t:failed');
   });
 
   it('renders the in-progress (blue) fallback when status is undefined', () => {
     const { container } = render(<StatusPill />);
 
-    expect(pill(container)).toHaveClass('bg-[#91ACC1]');
-    expect(dot(container)).toHaveClass('bg-pure-white');
+    expect(pill(container)).toHaveClass('bg-tx-sent', 'text-pure-black');
+    // The dot inherits the pill's ink instead of hardcoding white.
+    expect(dot(container)).toHaveClass('bg-current');
 
-    const text = label(container);
-    expect(text).toHaveClass('text-pure-white');
-    expect(text).toHaveTextContent('t:inProgress');
+    expect(label(container)).toHaveTextContent('t:inProgress');
   });
 
   it('treats non-terminal statuses (Queued / GeneratingTransaction) as in-progress', () => {

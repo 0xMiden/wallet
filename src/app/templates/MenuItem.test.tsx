@@ -42,10 +42,6 @@ jest.mock('lib/woozie', () => ({
 
 const mockHapticLight = hapticLight as jest.Mock;
 
-// A stand-in for an imported SVG (`ImportedSVGComponent`) so we can assert the
-// icon slot renders and that `iconStyle` is forwarded.
-const Icon: ImportedSVGComponent = props => <svg data-testid="menu-icon" {...props} />;
-
 const baseProps = {
   titleI18nKey: 'menuTitle',
   testID: 'menu-item-test-id',
@@ -58,16 +54,9 @@ beforeEach(() => {
 
 describe('MenuItem', () => {
   describe('external link branch (linksOutsideOfWallet=true)', () => {
-    it('renders an external anchor with the slug href, target/rel, icon, right text and title', () => {
+    it('renders an external anchor with the slug href, target/rel, right text and title', () => {
       const { container } = render(
-        <MenuItem
-          {...baseProps}
-          linksOutsideOfWallet
-          slug="https://example.com"
-          Icon={Icon}
-          iconStyle={{ color: 'rgb(255, 0, 0)' }}
-          rightText="v1.2.3"
-        />
+        <MenuItem {...baseProps} linksOutsideOfWallet slug="https://example.com" rightText="v1.2.3" />
       );
 
       const anchor = container.querySelector('a')!;
@@ -75,17 +64,12 @@ describe('MenuItem', () => {
       expect(anchor).toHaveAttribute('target', '_blank');
       expect(anchor).toHaveAttribute('rel', 'noreferrer');
 
-      // ClickableContent: Icon present + iconStyle forwarded.
-      const icon = screen.getByTestId('menu-icon');
-      expect(icon).toBeInTheDocument();
-      expect(icon).toHaveStyle({ color: 'rgb(255, 0, 0)' });
-
       // titleI18nKey echoed through `t`, plus the rightText span.
       expect(screen.getByText('menuTitle')).toBeInTheDocument();
       expect(screen.getByText('v1.2.3')).toBeInTheDocument();
 
-      // The chevron svg always renders (icon + chevron → 2 svgs).
-      expect(anchor.querySelectorAll('svg')).toHaveLength(2);
+      // The chevron is the only svg the row renders.
+      expect(anchor.querySelectorAll('svg')).toHaveLength(1);
     });
 
     it('fires hapticLight (handleExternalClick) when the external anchor is clicked', () => {
@@ -98,15 +82,13 @@ describe('MenuItem', () => {
   });
 
   describe('button branch (onClick && !slug)', () => {
-    it('renders a button (no icon, no right text, empty title) exercising the falsy ClickableContent branches', () => {
+    it('renders a button (no right text, empty title) exercising the falsy ClickableContent branches', () => {
       render(<MenuItem {...baseProps} titleI18nKey="" onClick={jest.fn()} />);
 
       const button = screen.getByTestId('menu-item-test-id');
       expect(button.tagName).toBe('BUTTON');
       expect(button).toHaveAttribute('type', 'button');
 
-      // Icon absent → only the always-present chevron svg renders.
-      expect(screen.queryByTestId('menu-icon')).toBeNull();
       expect(button.querySelectorAll('svg')).toHaveLength(1);
 
       // rightText absent → no right-text span; titleI18nKey '' → `t('')` === ''.
@@ -128,7 +110,7 @@ describe('MenuItem', () => {
     it('renders a woozie Link with `to=slug` when a slug is present alongside onClick', () => {
       const onClick = jest.fn();
       // onClick truthy but slug truthy → `onClick && !slug` is false → Link branch.
-      render(<MenuItem {...baseProps} slug="/settings" onClick={onClick} Icon={Icon} />);
+      render(<MenuItem {...baseProps} slug="/settings" onClick={onClick} />);
 
       const link = screen.getByTestId('menu-item-test-id');
       expect(link.tagName).toBe('A');

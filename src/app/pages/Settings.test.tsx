@@ -467,7 +467,7 @@ describe('Settings page — active tab routing', () => {
   it('routes to an external "about" tab (renders its empty Component under a header)', () => {
     render(<Settings tabSlug={PRIVACY_POLICY_URL} />);
 
-    // External tabs are not drawers, so the URL slug resolves to an active tab
+    // Every tab's slug resolves to an active tab now, external ones included
     // whose Component renders nothing under the navigation header.
     expect(screen.getByTestId('nav-title')).toHaveTextContent('privacyPolicy');
     expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
@@ -583,20 +583,23 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('short-circuits the seed-warning cleanup guard when the platform reports non-mobile at teardown', () => {
-    // The seed-warning effect only registers its cleanup while mobile; the
-    // cleanup then re-checks isMobile() defensively. Flip the platform to
-    // non-mobile between mount and unmount to exercise that early-return path.
+  it('parks dApp trays for the whole time a sub-page is open, and releases them on the way out', () => {
+    // A sub-page pins its primary action to the bottom of the viewport, which is
+    // exactly where a parked dApp tray floats — so the flag has to be held for
+    // the sub-page, not just for the seed-warning overlay.
     mockIsMobile = true;
-    const { unmount } = render(<Settings tabSlug={null} />);
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(true);
+    const { unmount } = render(<Settings tabSlug="keys" />);
 
-    mockIsMobile = false;
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+
     unmount();
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
 
-    // The edge-to-edge cleanup is unguarded, so the attribute is cleared; the
-    // seed-warning cleanup hits its `!isMobile()` early return without throwing.
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+  it('leaves the tray flag alone on a sub-page when the platform is not mobile', () => {
+    mockIsMobile = false;
+    render(<Settings tabSlug="keys" />);
+
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 });

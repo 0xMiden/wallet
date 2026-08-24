@@ -101,10 +101,15 @@ export const StatusPill: FC<{
   const bgColor = isMuted
     ? 'bg-gray-400'
     : isCompleted
-      ? 'bg-[#99AC94]'
+      ? 'bg-tx-received'
       : isFailed
         ? 'bg-status-negative'
-        : 'bg-[#91ACC1]';
+        : 'bg-tx-sent';
+  // These fills are mid-tone, so white 12px text on them lands around 2.4:1 —
+  // well under AA. Dark ink reads ~8:1 on all three fixed fills. The failure red
+  // is the one fill that flips with the theme (bright in light, deep in dark), so
+  // it takes the flipping ink token to stay legible against both.
+  const fgColor = isFailed ? 'text-black' : 'text-pure-black';
   const label = isCancelled
     ? t('cancelled')
     : swapSettlement === 'reclaimed'
@@ -118,15 +123,18 @@ export const StatusPill: FC<{
             : t('inProgress');
 
   return (
-    <div data-testid={testId} className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor)}>
+    <div
+      data-testid={testId}
+      className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor, fgColor)}
+    >
       {isCompleted ? (
-        <Icon name={IconName.Checkmark} size="xs" fill="white" />
+        <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
       ) : isFailed ? (
-        <Icon name={IconName.Close} size="xs" fill="white" />
+        <Icon name={IconName.Close} size="xs" fill="currentColor" />
       ) : (
-        <div className="w-2 h-2 rounded-full bg-pure-white" />
+        <div className="w-2 h-2 rounded-full bg-current" />
       )}
-      <span className="text-xs font-semibold text-pure-white">{label}</span>
+      <span className="text-xs font-semibold">{label}</span>
     </div>
   );
 });

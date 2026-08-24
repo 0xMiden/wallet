@@ -190,7 +190,7 @@ const RotateGuardianReview: FC = () => {
       <NavigationHeader title={t('reviewRotation')} onBack={handleBack} variant="prominent" titleAlign="left" />
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8 font-heading">
-          <GuardianRotationIllustration className="mx-auto mb-4 mt-1 h-28 w-auto" />
+          <GuardianRotationIllustration className="mx-auto mb-4 mt-1 h-28 w-auto" aria-hidden="true" />
 
           <GuardianTransitionHero
             previousEndpoint={currentEndpoint}

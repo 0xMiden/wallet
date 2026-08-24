@@ -177,25 +177,14 @@ describe('DAppDrawerSettings', () => {
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'chevron-right-lucide');
   });
 
-  it('closes the drawer and navigates to the dapps settings when "see connected" is clicked', () => {
-    setData(CONNECTED);
-    const onClose = jest.fn();
-
-    render(<DAppDrawerSettings onClose={onClose} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'seeConnected' }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/dapps');
-  });
-
-  it('navigates even when no onClose is provided (the optional-chaining branch)', () => {
+  it('navigates to the dapps settings when "see connected" is clicked', () => {
     setData(CONNECTED);
 
     render(<DAppDrawerSettings />);
 
     fireEvent.click(screen.getByRole('button', { name: 'seeConnected' }));
 
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/settings/dapps');
   });
 

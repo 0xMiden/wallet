@@ -4,31 +4,11 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
-import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
-import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
-import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-settings-devnet.svg';
-import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
-import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
-import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
-import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
 import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
 import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
-import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
-import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
-import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
-import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
-import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
-import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
-import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
-import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
-import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
-import { ReactComponent as TosIconOrange } from 'app/icons/settings/tos.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { ReactComponent as FeedbackIcon } from 'app/icons/v2/send.svg';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
@@ -44,7 +24,6 @@ import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -59,17 +38,6 @@ import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
 import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
-
-const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
-const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
-const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
-const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
-const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
-const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
-const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
-const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
-const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
-const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
 
 type SettingsProps = {
   tabSlug?: string | null;
@@ -105,10 +73,8 @@ type Tab = {
   slug: string;
   titleI18nKey: string;
   pageTitleI18nKey?: string;
-  Icon: React.FC<{ style?: React.CSSProperties }>;
   Component: React.FC<{ onClose?: () => void }>;
   testID?: SettingsSelectors;
-  iconStyle?: React.CSSProperties;
   hasOwnLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
@@ -134,21 +100,18 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
-        Icon: SettingsIcon,
         Component: GeneralSettings,
         testID: SettingsSelectors.GeneralButton
       },
       {
         slug: 'address-book',
         titleI18nKey: 'addressBook',
-        Icon: AddressBookIcon,
         Component: AddressBook,
         testID: SettingsSelectors.AddressBookButton
       },
       {
         slug: 'language',
         titleI18nKey: 'language',
-        Icon: LanguageIcon,
         Component: LanguageSettings,
         testID: SettingsSelectors.LanguageButton
       }
@@ -161,7 +124,6 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'reveal-seed-phrase',
         titleI18nKey: 'recoveryPhrase',
-        Icon: SeedPhraseIcon,
         Component: RevealSeedPhraseFlow,
         testID: SettingsSelectors.RevealSeedPhraseButton,
         hasOwnLayout: true
@@ -169,7 +131,6 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'keys',
         titleI18nKey: 'keys',
-        Icon: SecretKeyIcon,
         Component: KeysSettings,
         testID: SettingsSelectors.KeysButton
       },
@@ -177,7 +138,6 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
         pageTitleI18nKey: 'rotateGuardian',
-        Icon: SettingsIcon,
         Component: GuardianSettings,
         // Needed now the row is a routed Link: MenuItem forwards testID to both
         // the anchor and Link's analytics call, and an absent one became an
@@ -194,7 +154,6 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
-        Icon: ToolIcon,
         Component: AdvancedSettings,
         testID: SettingsSelectors.AdvancedSettingsButton
       },
@@ -203,7 +162,6 @@ const TAB_GROUPS: TabGroup[] = [
         // (HIDDEN_TABS below); this entry is the toggle screen linking to it.
         slug: 'dapp-settings',
         titleI18nKey: 'authorizedDApps',
-        Icon: AppsIcon,
         Component: DAppDrawerSettings,
         testID: SettingsSelectors.DAppsButton
       }
@@ -216,14 +174,12 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
-        Icon: PrivacyPolicyIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
       {
         slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
-        Icon: TosIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
@@ -233,7 +189,6 @@ const TAB_GROUPS: TabGroup[] = [
         // openExternalUrl (native in-app webview on mobile, new tab on desktop).
         slug: 'send-feedback',
         titleI18nKey: 'sendFeedback',
-        Icon: FeedbackIcon,
         Component: () => null,
         testID: SettingsSelectors.SendFeedbackButton,
         onClick: () => {
@@ -249,14 +204,12 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
-    Icon: SecretKeyIcon,
     Component: RevealPrivateKey,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
     titleI18nKey: 'revealHotKey',
-    Icon: SecretKeyIcon,
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
@@ -265,28 +218,24 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'verify-seed-phrase',
     titleI18nKey: 'verifySeedPhrase',
-    Icon: SeedPhraseIcon,
     Component: VerifySeedPhraseFlow,
     hasOwnLayout: true
   },
   {
     slug: 'edit-miden-faucet-id',
     titleI18nKey: 'editMidenFaucetId',
-    Icon: SettingsIcon,
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
   },
   {
     slug: 'networks',
     titleI18nKey: 'networks',
-    Icon: ExtensionIcon,
     Component: NetworksSettings,
     testID: SettingsSelectors.NetworksButton
   },
   {
     slug: 'dapps',
     titleI18nKey: 'authorizedDApps',
-    Icon: AppsIcon,
     Component: DAppSettings
   }
 ];
@@ -329,7 +278,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   }, []);
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
-  // the Guardian Settings entry at all (menu, drawer, or routable page).
+  // the Guardian Settings entry at all (menu row or routable page).
   const tabGroups = useMemo(() => {
     const groups = TAB_GROUPS.map(group => ({
       ...group,
@@ -341,7 +290,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     const devEndpointsTab: Tab = {
       slug: 'network-endpoints',
       titleI18nKey: 'devEndpointsRow',
-      Icon: ToolIcon,
       Component: () => null,
       hasOwnLayout: true
     };

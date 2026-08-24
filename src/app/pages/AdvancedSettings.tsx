@@ -11,7 +11,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { navigate } from 'lib/woozie';
 
-const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
+const AdvancedSettings: FC = () => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
@@ -66,14 +66,7 @@ const AdvancedSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          onClose?.();
-          navigate('/settings/edit-miden-faucet-id');
-        }}
-        className="w-full"
-      >
+      <button type="button" onClick={() => navigate('/settings/edit-miden-faucet-id')} className="w-full">
         <div className="flex items-center justify-between text-heading-gray">
           <div className="flex flex-col">
             <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
