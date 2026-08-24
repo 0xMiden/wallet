@@ -126,6 +126,28 @@ the abandonment signal — which is the thing the two-event design exists to
 produce. `unlock` is exempt from all of this, because it is scoped per attempt
 rather than per session.
 
+### A transaction the node took but the client could not apply reports as a success
+
+`ApplyTransactionAfterSubmitFailed` means the node accepted the transaction and
+the local WASM client then failed to record it. The pipeline marks the row
+`Completed` on purpose — the funds moved, the next sync reconciles the note
+states, and retrying would hit the node's nullifier check and produce a
+misleading "already consumed" error. There are three such branches:
+`src/lib/miden/transaction/index.ts:1556` for non-guardian rows, and the
+value-moving and canonicalization-race branches of the guardian catch.
+
+Because the row is `Completed`, the settled event says `result: completed`, which
+in "did the user's money move" terms is true and in "did the client work" terms
+is false. **So the failure rate here is a floor, not a total.** A client-side
+apply defect can grow without bound and will not appear in it, which is the exact
+shape of thing that goes unnoticed for a release or two.
+
+Fixing it properly means a distinct `step` on that success, so the outcome can be
+counted separately without being called a failure. That was left out of the first
+pass deliberately: it needs a telemetry-only hint threaded through
+`updateTransactionStatus`, which is a core write path, and a value that must not
+reach the stored row. Worth doing, worth doing on its own.
+
 ### Other boundaries worth knowing before reading a number
 
 Each of these is a deliberate choice, and each makes a naive reading wrong:
