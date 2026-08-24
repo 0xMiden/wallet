@@ -1,12 +1,12 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
-import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+import { PRIVACY_POLICY_URL } from '../constants';
 // Import the component under test AFTER the mocks are declared.
 import Settings from './Settings';
 
@@ -17,6 +17,7 @@ import Settings from './Settings';
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
 const mockWalletState: { currentAccount: MockAccount } = { currentAccount: { type: 'on-chain' } };
 let mockIsMobile = false;
+let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,11 @@ jest.mock('lib/mobile/external-browser', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
-  goBack: jest.fn()
+  goBack: jest.fn(),
+  HistoryAction: { Push: 'push', Replace: 'replace' },
+  // Read by useBackWithFallback, which decides whether the sub-page header's
+  // back chevron pops history or falls back to the settings root.
+  useLocation: jest.fn(() => ({ historyPosition: mockHistoryPosition }))
 }));
 
 jest.mock('lib/i18n/core', () => ({
@@ -95,38 +100,21 @@ jest.mock('app/icons/v2', () => ({
   IconName: new Proxy({}, { get: (_t, prop) => String(prop) })
 }));
 
-// Drawer stub: renders children always plus two buttons to drive
-// `onOpenChange(false)` (closes) and `onOpenChange(true)` (no-op) so both
-// sides of the `!open && setOpenDrawer(null)` guard are exercised.
-jest.mock('lib/ui/drawer', () => ({
-  Drawer: ({
-    open,
-    onOpenChange,
-    children
-  }: {
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    children: React.ReactNode;
-  }) => (
-    <div data-testid="drawer" data-open={String(!!open)}>
-      <button type="button" data-testid="drawer-openchange-false" onClick={() => onOpenChange && onOpenChange(false)} />
-      <button type="button" data-testid="drawer-openchange-true" onClick={() => onOpenChange && onOpenChange(true)} />
-      {children}
-    </div>
-  ),
-  DrawerContent: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-content">{children}</div>,
-  DrawerHeader: ({ className, children }: { className?: string; children: React.ReactNode }) => (
-    <div data-testid="drawer-header" data-classname={className}>
-      {children}
-    </div>
-  ),
-  DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
-}));
-
 jest.mock('components/Button', () => ({
   __esModule: true,
+  // Fires the haptic the real Button fires on every click (Button.tsx). Without
+  // it the mock made a caller adding its own invisible here — which is exactly
+  // how both seed-warning handlers came to double-buzz.
   Button: ({ title, onClick, variant }: { title: string; onClick?: () => void; variant?: string }) => (
-    <button type="button" data-testid={`btn-${title}`} data-variant={variant} onClick={onClick}>
+    <button
+      type="button"
+      data-testid={`btn-${title}`}
+      data-variant={variant}
+      onClick={() => {
+        hapticLight();
+        onClick?.();
+      }}
+    >
       {title}
     </button>
   ),
@@ -134,8 +122,16 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div data-testid="nav-header">
+  NavigationHeader: ({
+    title,
+    onBack,
+    focusTitleOnMount
+  }: {
+    title: string;
+    onBack?: () => void;
+    focusTitleOnMount?: boolean;
+  }) => (
+    <div data-testid="nav-header" data-focus-title={String(Boolean(focusTitleOnMount))}>
       <span data-testid="nav-title">{title}</span>
       <button type="button" data-testid="nav-back" onClick={onBack}>
         back
@@ -171,23 +167,26 @@ jest.mock('app/templates/MenuItem', () => ({
       data-slug={slug === undefined ? 'undefined' : String(slug)}
       data-external={String(!!linksOutsideOfWallet)}
       data-righttext={rightText === undefined ? 'undefined' : String(rightText)}
-      onClick={() => onClick && onClick()}
+      // The real MenuItem produces exactly one hapticLight per tap on every
+      // branch: the external anchor and the <button> call it directly, and the
+      // routed <Link> gets one from woozie's Link (Link.tsx). MenuItem's own unit
+      // test mocks Link and so sees none on that branch — don't take that as the
+      // product behaviour. The mock has to buzz, or a caller adding its own —
+      // which the recovery-phrase row did, buzzing twice — is invisible here.
+      onClick={() => {
+        hapticLight();
+        onClick?.();
+      }}
     >
       {titleI18nKey}
     </button>
   )
 }));
 
-// GeneralSettings renders an onClose button so the `onClose={() =>
-// setOpenDrawer(null)}` wiring gets executed. Every other template is an
-// inert stub.
+// Every settings template renders as an inert stub.
 jest.mock('app/templates/GeneralSettings', () => ({
   __esModule: true,
-  default: ({ onClose }: { onClose?: () => void }) => (
-    <div data-testid="general-settings">
-      <button type="button" data-testid="general-close" onClick={() => onClose && onClose()} />
-    </div>
-  )
+  default: () => <div data-testid="general-settings" />
 }));
 
 jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
@@ -246,13 +245,10 @@ function setAccount(account: MockAccount) {
   mockWalletState.currentAccount = account;
 }
 
-function openDrawers() {
-  return screen.getAllByTestId('drawer').filter(d => d.getAttribute('data-open') === 'true');
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
+  mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
   setAccount({ type: 'on-chain' });
@@ -297,10 +293,22 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('menuitem-guardianSettings')).not.toBeInTheDocument();
   });
 
-  it('passes the per-item testID through to drawer menu items', () => {
+  it('passes the per-item testID through to menu items', () => {
     render(<Settings tabSlug={null} />);
 
     expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute('data-selector', 'Settings/GeneralButton');
+  });
+
+  it('links each preference menu item to its routed settings page', () => {
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute('data-slug', '/settings/general-settings');
+    expect(screen.getByTestId('menuitem-addressBook')).toHaveAttribute('data-slug', '/settings/address-book');
+    expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-slug', '/settings/language');
+    expect(screen.getByTestId('menuitem-keys')).toHaveAttribute('data-slug', '/settings/keys');
+    expect(screen.getByTestId('menuitem-advancedSettings')).toHaveAttribute('data-slug', '/settings/advanced-settings');
+    // Distinct slug: '/settings/dapps' belongs to the connected-dApps list page.
+    expect(screen.getByTestId('menuitem-authorizedDApps')).toHaveAttribute('data-slug', '/settings/dapp-settings');
   });
 
   it('renders the about group as external links with the canonical URLs and no testID', () => {
@@ -310,12 +318,24 @@ describe('Settings page — root menu (non-guardian)', () => {
     const tos = screen.getByTestId('menuitem-termsOfService');
 
     expect(privacy).toHaveAttribute('data-external', 'true');
-    expect(privacy).toHaveAttribute('data-slug', PRIVACY_POLICY_URL);
-    // testID is undefined for external tabs → the component coerces it to ''.
-    expect(privacy).toHaveAttribute('data-selector', '');
+    // Literals, not the imported constants: comparing production against the same
+    // binding it reads holds for any value either of them takes, so an accidental
+    // edit to `app/constants` would sail through. The "Send feedback" row in the
+    // next test already pins its URL this way.
+    expect(privacy).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
+    // Passed through as undefined rather than coerced to '': Link tracks a
+    // ButtonPress for any testID that is merely `!== undefined`, so the empty
+    // string bought an analytics event with no name.
+    expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
-    expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
+    // Deliberately pinning a KNOWN BUG, so that it is a bug this test describes
+    // rather than one it endorses: `TERMS_OF_USE_URL` in app/constants is set to
+    // the same string as `PRIVACY_POLICY_URL`, so the Terms of Service row links
+    // to the privacy policy. Whoever gives Terms its own URL should change the
+    // expectation on the next line to it and delete this comment — the red build
+    // is a reminder, not a verdict on the fix.
+    expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
   });
 
   it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
@@ -356,6 +376,121 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-righttext', 'xx');
   });
 
+  it('keeps the header out of the scroll region so the only back affordance stays reachable', () => {
+    render(<Settings tabSlug="language" />);
+
+    const header = screen.getByTestId('nav-header');
+    const scroller = document.querySelector('.overflow-y-auto');
+    // Language and Address Book overflow the popup; a header inside the scroller
+    // scrolls away with them, and these pages have no other way back.
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(header)).toBe(false);
+  });
+
+  it('gives each page its own scroll container so offsets do not carry across', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector('.overflow-y-auto');
+
+    rerender(<Settings tabSlug="language" />);
+
+    // Same route, so React would otherwise reconcile one container and keep its
+    // scrollTop: the sub-page opened at the list's offset and vice versa.
+    expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
+  });
+
+  it('restores the list scroll position when the user comes back from a sub-page', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
+    if (!listScroller) throw new Error('List scroller did not render');
+
+    listScroller.scrollTop = 420;
+    fireEvent.scroll(listScroller);
+
+    rerender(<Settings tabSlug="language" />);
+    rerender(<Settings tabSlug={null} />);
+
+    // The key that gives each page its own scroller is also what loses the list's
+    // place: returning built a fresh one at the top, so a user who opened Language
+    // from the bottom of a long list came back to the top. The drawers this
+    // replaced kept the list mounted underneath.
+    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(420);
+  });
+
+  it('does not carry the list offset into the sub-page it opens', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
+    listScroller!.scrollTop = 420;
+    fireEvent.scroll(listScroller!);
+
+    rerender(<Settings tabSlug="language" />);
+
+    // The restore is for the root only — a sub-page still opens at its top.
+    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
+  });
+
+  it('takes focus to the sub-page title, which a route change does not announce', () => {
+    render(<Settings tabSlug="language" />);
+
+    // As drawers these were dialogs and took focus on open; as routes nothing
+    // moves focus and the row that opened them is gone, so it lands on <body>.
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+  });
+
+  it('keeps the display face on the sub-page body', () => {
+    // Removing this class was once used to get Inter into RevealSecret's secret
+    // textareas — Preflight sets `font: inherit` on form controls, so they were
+    // picking up the display face. That fix restyled all twelve routed Settings
+    // screens to fix two fields; the textareas ask for `font-sans` themselves.
+    const { container } = render(<Settings tabSlug="general-settings" />);
+
+    expect(container.querySelector('.font-heading')).not.toBeNull();
+  });
+
+  // Both platforms, because the previous shape of this had to special-case them:
+  // the flag was a predicate purely so it could return false on mobile.
+  // `reveal-hot-key` takes the same code path but is `guardianOnly`, so it is not
+  // routable from this non-guardian fixture.
+  it.each([[false], [true]])('announces reveal-private-key on mobile=%s without guessing', mobile => {
+    // These pages no longer declare `ownsInitialFocus`. RevealSecret focuses its
+    // password box in a passive effect, which runs after the title focus and so
+    // takes the caret on its own — and when there is no box to focus, the title
+    // focus stands. That second case is why the host must not guess: RevealSecret
+    // renders no password input at all when a hardware protector is present, so
+    // suppressing the title focus there left these two recovery-material screens
+    // with focus on <body> and nothing announced.
+    mockIsMobile = mobile;
+    render(<Settings tabSlug="reveal-private-key" />);
+
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+  });
+
+  it('still yields on the faucet-id page, which focuses its field on every platform', () => {
+    mockIsMobile = true;
+    render(<Settings tabSlug="edit-miden-faucet-id" />);
+
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+  });
+
+  it('leaves focus alone on the settings list itself', () => {
+    render(<Settings tabSlug={null} />);
+
+    // Arriving from the wallet home, not from within Settings — stealing focus
+    // here would fight the navigation the user already made.
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+  });
+
+  it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
+    const { rerender } = render(<Settings tabSlug="language" />);
+    const first = screen.getByTestId('nav-header');
+
+    rerender(<Settings tabSlug="general-settings" />);
+
+    // Keyed on the slug so the header remounts and its focus effect re-runs;
+    // reconciling one header would announce the first page's name only.
+    expect(screen.getByTestId('nav-header')).not.toBe(first);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
+  });
+
   it('navigates home when the root header back button is pressed', () => {
     render(<Settings tabSlug={null} />);
 
@@ -364,12 +499,12 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('renders the root menu for a drawer-only slug (never treated as an active tab)', () => {
+  it('renders a preference slug as a full-screen page under a navigation header', () => {
     render(<Settings tabSlug="general-settings" />);
 
-    // A drawer slug does not resolve to an active tab → menu is shown.
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
-    expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
+    expect(screen.getByTestId('general-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
   });
 
   it('renders the root menu for an unknown slug', () => {
@@ -380,6 +515,18 @@ describe('Settings page — root menu (non-guardian)', () => {
 });
 
 describe('Settings page — guardian account', () => {
+  it('links the guardian settings entry to its routed page', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    const row = screen.getByTestId('menuitem-guardianSettings');
+    // Was a drawer opened by an onClick; now a route, so it has to carry a slug
+    // (and a selector, without which the ButtonPress fires unnamed).
+    expect(row).toHaveAttribute('data-slug', '/settings/guardian-settings');
+    expect(row).toHaveAttribute('data-selector', 'Settings/GuardianSettingsButton');
+    expect(row).toHaveAttribute('data-external', 'false');
+  });
+
   it('shows the guardian settings entry for guardian accounts', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);
@@ -387,68 +534,25 @@ describe('Settings page — guardian account', () => {
     expect(screen.getByTestId('menuitem-guardianSettings')).toBeInTheDocument();
   });
 
-  it('renders the guardian settings body inside its drawer', () => {
+  it('titles the guardian settings page the same as the row that opens it', () => {
     setAccount({ type: 'guardian' });
-    render(<Settings tabSlug={null} />);
+    render(<Settings tabSlug="guardian-settings" />);
 
+    // Not 'rotateGuardian'. That came over from the drawer title, where it named a
+    // task sheet; as a routed page the <h1> is the page's identity, and this page
+    // is the Guardian overview with Rotate as its CTA. `focusTitleOnMount` reads it
+    // aloud, so tapping "Guardian Settings" announced "Rotate Guardian".
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('guardianSettings');
     expect(screen.getByTestId('guardian-settings-body')).toBeInTheDocument();
   });
 
-  it('titles the Guardian settings drawer as a rotation action', () => {
-    setAccount({ type: 'guardian' });
-    render(<Settings tabSlug={null} />);
+  it('does not expose the guardian settings page to non-guardian accounts', () => {
+    setAccount({ type: 'on-chain' });
+    render(<Settings tabSlug="guardian-settings" />);
 
-    fireEvent.click(screen.getByTestId('menuitem-guardianSettings'));
-
-    const openDrawer = openDrawers()[0]!;
-    expect(within(openDrawer).getByTestId('drawer-title')).toHaveTextContent('rotateGuardian');
-    expect(within(openDrawer).getByTestId('drawer-header')).toHaveAttribute('data-classname', 'mb-0');
-  });
-});
-
-describe('Settings page — drawer interactions', () => {
-  it('opens the matching drawer when a drawer menu item is clicked', () => {
-    render(<Settings tabSlug={null} />);
-
-    expect(openDrawers()).toHaveLength(0);
-
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
-
-    const open = openDrawers();
-    expect(open).toHaveLength(1);
-    expect(within(open[0]!).getByTestId('drawer-title')).toHaveTextContent('generalSettings');
-    expect(within(open[0]!).getByTestId('drawer-header')).not.toHaveAttribute('data-classname');
-  });
-
-  it('closes the drawer via onOpenChange(false)', () => {
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
-    expect(openDrawers()).toHaveLength(1);
-
-    const openDrawer = openDrawers()[0]!;
-    fireEvent.click(within(openDrawer).getByTestId('drawer-openchange-false'));
-
-    expect(openDrawers()).toHaveLength(0);
-  });
-
-  it('keeps the drawer open when onOpenChange(true) fires (no-op branch)', () => {
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
-
-    const openDrawer = openDrawers()[0]!;
-    fireEvent.click(within(openDrawer).getByTestId('drawer-openchange-true'));
-
-    expect(openDrawers()).toHaveLength(1);
-  });
-
-  it('closes the drawer via the rendered component onClose callback', () => {
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
-    expect(openDrawers()).toHaveLength(1);
-
-    fireEvent.click(screen.getByTestId('general-close'));
-
-    expect(openDrawers()).toHaveLength(0);
+    // Tab is filtered out → falls back to the root menu.
+    expect(screen.queryByTestId('guardian-settings-body')).not.toBeInTheDocument();
+    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
   });
 });
 
@@ -463,24 +567,29 @@ describe('Settings page — seed phrase warning overlay', () => {
     expect(screen.getByText('pleaseWriteDownRecoveryPhrase')).toBeInTheDocument();
   });
 
-  it('closes the overlay via the Close button (haptic light, no navigation)', () => {
+  // Each of these taps must produce exactly ONE buzz, from Button. The handlers
+  // used to add their own on top, so Close buzzed twice and View fired a medium
+  // and a light together.
+  it('closes the overlay via the Close button with a single haptic and no navigation', () => {
     render(<Settings tabSlug={null} />);
     fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-close'));
 
-    expect(mockHapticLight).toHaveBeenCalledTimes(2); // open + close
+    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for Close
+    expect(mockHapticMedium).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
   });
 
-  it('navigates to reveal-seed-phrase via the View button (haptic medium)', () => {
+  it('navigates to reveal-seed-phrase via the View button with a single haptic', () => {
     render(<Settings tabSlug={null} />);
     fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-view'));
 
-    expect(mockHapticMedium).toHaveBeenCalledTimes(1);
+    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for View
+    expect(mockHapticMedium).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-seed-phrase');
     expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
   });
@@ -515,22 +624,42 @@ describe('Settings page — active tab routing', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
+  it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
+    // A deep link or a reload lands on the sub-page at the first history entry,
+    // where goBack() is a no-op — the chevron has to route instead, and replace so
+    // forward does not walk back into the page just left.
+    mockHistoryPosition = 0;
+    render(<Settings tabSlug="networks" />);
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+  });
+
   it('renders the edit-miden-faucet-id tab', () => {
     render(<Settings tabSlug="edit-miden-faucet-id" />);
 
     expect(screen.getByTestId('edit-faucet')).toBeInTheDocument();
   });
 
-  it('resolves the hidden (non-drawer) dapps tab as an active page', () => {
+  it('resolves the hidden dapps slug to the connected-dApps list page', () => {
     render(<Settings tabSlug="dapps" />);
 
     expect(screen.getByTestId('dapp-settings')).toBeInTheDocument();
   });
 
+  it('resolves the dapp-settings slug to the dApps toggle page', () => {
+    render(<Settings tabSlug="dapp-settings" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('authorizedDApps');
+    expect(screen.getByTestId('dapp-drawer-settings')).toBeInTheDocument();
+  });
+
   it('routes to an external "about" tab (renders its empty Component under a header)', () => {
     render(<Settings tabSlug={PRIVACY_POLICY_URL} />);
 
-    // External tabs are not drawers, so the URL slug resolves to an active tab
+    // Every tab's slug resolves to an active tab now, external ones included
     // whose Component renders nothing under the navigation header.
     expect(screen.getByTestId('nav-title')).toHaveTextContent('privacyPolicy');
     expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
@@ -611,16 +740,16 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
   });
 
-  it('sets data-drawer-open while a drawer is open and clears it on unmount', () => {
+  it('clears data-drawer-open when unmounted while the seed warning is open', () => {
     mockIsMobile = true;
     const { unmount } = render(<Settings tabSlug={null} />);
 
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
 
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
+    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
-    // Unmounting while the drawer is still open exercises the cleanup path.
+    // Unmounting while the overlay is still open exercises the cleanup path.
     unmount();
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
@@ -640,26 +769,29 @@ describe('Settings page — mobile body attribute effects', () => {
     mockIsMobile = false;
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-generalSettings'));
+    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
 
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('short-circuits the drawer cleanup guard when the platform reports non-mobile at teardown', () => {
-    // The drawer effect only registers its cleanup while mobile; the cleanup
-    // then re-checks isMobile() defensively. Flip the platform to non-mobile
-    // between mount and unmount to exercise that guard's early-return path.
+  it('parks dApp trays for the whole time a sub-page is open, and releases them on the way out', () => {
+    // A sub-page pins its primary action to the bottom of the viewport, which is
+    // exactly where a parked dApp tray floats — so the flag has to be held for
+    // the sub-page, not just for the seed-warning overlay.
     mockIsMobile = true;
-    const { unmount } = render(<Settings tabSlug={null} />);
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(true);
+    const { unmount } = render(<Settings tabSlug="keys" />);
 
-    mockIsMobile = false;
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+
     unmount();
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
 
-    // The edge-to-edge cleanup is unguarded, so the attribute is cleared; the
-    // drawer cleanup hits its `!isMobile()` early return without throwing.
-    expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
+  it('leaves the tray flag alone on a sub-page when the platform is not mobile', () => {
+    mockIsMobile = false;
+    render(<Settings tabSlug="keys" />);
+
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 });
@@ -671,6 +803,4 @@ describe('Settings page — mobile body attribute effects', () => {
 //   • `Component: () => null` on the Terms-of-Service tab is dead because
 //     TERMS_OF_USE_URL currently equals PRIVACY_POLICY_URL, so the tab lookup
 //     always resolves the Privacy tab first.
-//   • The `/settings/${slug}` link branch is unreachable because every visible
-//     menu tab is a drawer, the seed-phrase sheet, or an external link.
 //   Covering these would require changing the source, which the task forbids.

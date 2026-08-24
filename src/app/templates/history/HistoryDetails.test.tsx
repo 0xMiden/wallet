@@ -2,7 +2,12 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { REMOTE_PROVER_FAILED_ERROR } from 'lib/miden/transaction/constants';
+import {
+  REMOTE_PROVER_FAILED_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON,
+  isUserCancelledTransaction
+} from 'lib/miden/transaction/constants';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -135,12 +140,12 @@ jest.mock('components/GuardianTransitionHero', () => ({
   )
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, backLabel, onBack }: { title: string; backLabel: string; onBack: () => void }) => (
+jest.mock('components/NavigationHeader', () => ({
+  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
       <button data-testid="back-button" onClick={onBack}>
-        {backLabel}
+        back
       </button>
     </div>
   )
@@ -2549,6 +2554,40 @@ describe('HistoryDetails', () => {
       expect(mockRequeueFailedTransaction).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
       expect(mockRequestSWTransactionProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx-1');
+    });
+
+    // The two cancel routes leave an identical row apart from the error string,
+    // and that string alone decides whether Retry exists at all. The
+    // infra-resilience E2E depends on the distinction: it plants a reaped row
+    // precisely so Retry is on screen to click. Stated as a pair because the
+    // negative case is what carries the weight — the positive one restates the
+    // ordinary failed-send path a few tests up, and passes for any string that
+    // is not the hand-cancel text.
+    it('offers Retry for a row the reaper failed', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ error: TRANSACTION_STUCK_ERROR }));
+      await renderAndLoad();
+
+      expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+    });
+
+    it('withholds Retry for a row the user cancelled by hand', async () => {
+      mockGetTransactionById.mockResolvedValue(failedSendTx({ error: USER_CANCELLED_TRANSACTION_REASON }));
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-retry-button')).toBeNull();
+    });
+
+    // Both cases above render against this file's mock of `lib/miden/activity`,
+    // which reimplements the predicate rather than re-exporting it. Widening the
+    // real one to match the reaper's reason too would leave them green and send
+    // the E2E straight back to timing out, so assert the real predicate itself.
+    // It lives here, next to what it protects, rather than in
+    // `constants.test.ts` — which means: do NOT add a `jest.mock` for
+    // `lib/miden/transaction/constants` to this file, or this becomes an
+    // assertion about a mock and stops saying anything.
+    it('treats only the hand-cancel reason as a user cancel', () => {
+      expect(isUserCancelledTransaction(USER_CANCELLED_TRANSACTION_REASON)).toBe(true);
+      expect(isUserCancelledTransaction(TRANSACTION_STUCK_ERROR)).toBe(false);
     });
 
     // Same contract as the progress screen: a send the wallet cannot verify is
