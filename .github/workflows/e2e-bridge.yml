@@ -51,7 +51,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       # cargo is needed to install the miden-client CLI that funds the Miden
       # account (the bridge's Miden-side input token is self-minted per run).

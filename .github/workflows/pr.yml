@@ -224,11 +224,20 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.head_ref }}
 
+      # Deliberately no `cache: yarn` here or in any other workflow. setup-node
+      # writes its yarn cache under the running ref, so a PR's entry lands in
+      # `refs/pull/N/merge` where no other PR can read it — and at ~1.8 GB
+      # (two per PR, Linux + macOS) they exhausted the repo's 10 GB budget and
+      # LRU-evicted each other before the same PR ran again. Every entry we
+      # measured had `last_accessed_at == created_at`: written once, never read.
+      # The cost was not just the waste — they evicted `local-node-build-*`,
+      # which is worth ~36 min per E2E job, so every E2E run rebuilt the node
+      # from source. `yarn install` takes ~90-140s either way; the save step
+      # alone cost 13-130s per job.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr

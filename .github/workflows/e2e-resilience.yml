@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: yarn }
+        with: { node-version: 22 }
       # Pinned exact (NOT @stable): a binary built with a newer rustc can reject
       # the pinned older CLI/transport crates. Bump deliberately (and the cache
       # key). Mirrors pr-e2e-local.yml.
@@ -55,7 +55,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+          # Only the note-transport pins from versions.env: that file also holds
+          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
+          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
+          # Hashing the whole file meant bumping either one threw away ~8 min of
+          # cargo work — the same defect this key was already narrowed once to
+          # fix when it hashed all of package.json.
+          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
+          # Guard: an empty match would hash to a constant, silently pinning the
+          # key and letting a note-transport bump reuse a stale binary.
+          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
+          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v2-rust1.96.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
