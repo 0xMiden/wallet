@@ -222,6 +222,10 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
 }) => {
   const { t } = useTranslation();
   const titleRef = useRef<HTMLHeadingElement>(null);
+  // A tag variable rather than `React.createElement`: the i18n lint runs in
+  // `jsx-only` mode and counts a `createElement` call as JSX, so the tag names and
+  // the class list read as untranslated user-facing copy there.
+  const TitleTag = headerTitle ? 'h2' : 'h1';
 
   // The success view owns the whole screen — keep the bottom tab navbar
   // hidden for as long as it's mounted (no-op on full-screen routes that
@@ -251,15 +255,13 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
             has to be the h1; when a header title is present this stays a level
             below it. `tabIndex={-1}` makes it focusable without joining the tab
             order — the standard shape for a focus target on a view change. */}
-        {React.createElement(
-          headerTitle ? 'h2' : 'h1',
-          {
-            ref: titleRef,
-            tabIndex: -1,
-            className: 'mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray'
-          },
-          title
-        )}
+        <TitleTag
+          ref={titleRef}
+          tabIndex={-1}
+          className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray"
+        >
+          {title}
+        </TitleTag>
 
         {children}
       </main>
