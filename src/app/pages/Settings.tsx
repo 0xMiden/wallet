@@ -82,17 +82,18 @@ type Tab = {
   onClick?: () => void;
   guardianOnly?: boolean;
   /**
-   * Set when the sub-page focuses something itself on mount — a password or
-   * faucet-id field, via `useLayoutEffect`. The host's title focus runs in a
-   * plain `useEffect`, which fires AFTER layout effects, so it would take focus
-   * straight back off the field the page just put the caret in.
+   * Set when the sub-page focuses a field on mount in a `useLayoutEffect`, which
+   * runs BEFORE the host's title focus and would therefore lose the caret to it.
    *
-   * A predicate rather than a boolean because two of the three pages only claim
-   * focus on desktop: `RevealSecret` wraps its `focusPasswordField()` in
-   * `if (!isMobile())`. Declared unconditionally, the flag suppressed the title
-   * focus on mobile too and nothing replaced it, so those routes went back to
-   * leaving focus on `<body>` with the page never announced — the exact defect
-   * `focusTitleOnMount` was added for.
+   * Prefer not to need this. A page whose focus call is a passive `useEffect`
+   * lands after the title focus and wins on its own, which is strictly better:
+   * the title is announced, and the field is only claimed if it actually rendered.
+   * Declaring the flag makes the host guess, and a page whose field is
+   * conditional will guess wrong — `RevealSecret` renders no password input at
+   * all when a hardware protector is present, so the suppression left that route
+   * with nothing focused and no announcement, the exact defect
+   * `focusTitleOnMount` exists to fix. A predicate rather than a boolean for the
+   * same reason: whatever remains here is platform-dependent.
    */
   ownsInitialFocus?: () => boolean;
   // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
@@ -223,15 +224,12 @@ const TAB_GROUPS: TabGroup[] = [
 const HIDDEN_TABS: Tab[] = [
   {
     slug: 'reveal-private-key',
-    // Desktop only — RevealSecret gates its own field focus on `!isMobile()`.
-    ownsInitialFocus: () => !isMobile(),
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
-    ownsInitialFocus: () => !isMobile(),
     titleI18nKey: 'revealHotKey',
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,

@@ -16,7 +16,8 @@ import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
 import {
   getUncompletedTransactions,
   initiateSwitchGuardianTransaction,
-  requestSWTransactionProcessing
+  requestSWTransactionProcessing,
+  startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
@@ -33,7 +34,7 @@ const RotateGuardianReview: FC = () => {
   const { search } = useLocation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
-  const { unlock } = useMidenContext();
+  const { unlock, signTransaction } = useMidenContext();
   // The picker is this screen's only parent, and the screen rebuilds its whole
   // state from the query string, so a cold load belongs back at the picker rather
   // than dumped at the wallet home.
@@ -174,7 +175,22 @@ const RotateGuardianReview: FC = () => {
         // Not if they have already backed out: the switch is queued either way and
         // shows up in Activity, so pulling them onto the progress page from
         // wherever they navigated to would be the app taking the wheel back.
-        if (!abandoned.current) navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        if (!abandoned.current) {
+          navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        } else if (!isExtension()) {
+          // Someone has to drive the queue. On extension the service worker owns
+          // the loop and the kick above is enough, but on mobile and desktop the
+          // only driver from this flow is the progress page's interval — which the
+          // line above just declined to open. The row would sit Queued forever, and
+          // because the reapers that would clear it (`cancelStuckTransactions`,
+          // `cancelStaleQueuedTransactions`) themselves only run inside the loop,
+          // the duplicate guard would then refuse every future switch: a permanent
+          // lockout, behind an error telling the user to wait for something that is
+          // never going to finish. Same re-kick the native auto-consume manager
+          // does, and safe for the same reason — concurrent passes serialize on
+          // navigator.locks and self-terminate.
+          startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -182,7 +198,7 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, endpointUnchanged, endpointInvalid, unlock, t]
+    [currentAccount, newEndpoint, endpointUnchanged, endpointInvalid, unlock, signTransaction, t]
   );
 
   const handleContinue = useCallback(() => {

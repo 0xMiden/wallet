@@ -64,6 +64,7 @@ const EditMidenFaucetId: FC = () => {
           label={t('faucetId')}
           labelDescription={t('setNewFaucetIdDescription')}
           id="set-faucet-id"
+          className="font-sans"
           type="text"
           name="faucetId"
           placeholder={faucetId ?? ''}

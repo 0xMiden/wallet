@@ -446,25 +446,19 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(container.querySelector('.font-heading')).not.toBeNull();
   });
 
-  it('yields to a sub-page that focuses its own field', () => {
-    render(<Settings tabSlug="reveal-private-key" />);
-
-    // RevealSecret puts the caret in the password box in a useLayoutEffect;
-    // the host's title focus is a plain useEffect and so runs after it, which
-    // would pull focus straight back out of the field. Only on desktop — see the
-    // mobile case below — and only because RevealSecret's effect actually fires:
-    // it depends on `hasHardwareProtector`, without which it ran once against the
-    // component's initial `null` render and focused nothing at all, leaving these
-    // two recovery-material screens with no focus and no announcement.
-    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
-  });
-
-  it('takes the title focus back on mobile, where that sub-page focuses nothing', () => {
-    // RevealSecret's field focus is wrapped in `if (!isMobile())`, so on mobile
-    // there is no competing focus to yield to. Declared as a flat boolean, this
-    // suppressed the title focus anyway and left focus on `<body>` with the page
-    // unannounced — reintroducing the defect focusTitleOnMount exists to fix.
-    mockIsMobile = true;
+  // Both platforms, because the previous shape of this had to special-case them:
+  // the flag was a predicate purely so it could return false on mobile.
+  // `reveal-hot-key` takes the same code path but is `guardianOnly`, so it is not
+  // routable from this non-guardian fixture.
+  it.each([[false], [true]])('announces reveal-private-key on mobile=%s without guessing', mobile => {
+    // These pages no longer declare `ownsInitialFocus`. RevealSecret focuses its
+    // password box in a passive effect, which runs after the title focus and so
+    // takes the caret on its own — and when there is no box to focus, the title
+    // focus stands. That second case is why the host must not guess: RevealSecret
+    // renders no password input at all when a hardware protector is present, so
+    // suppressing the title focus there left these two recovery-material screens
+    // with focus on <body> and nothing announced.
+    mockIsMobile = mobile;
     render(<Settings tabSlug="reveal-private-key" />);
 
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');

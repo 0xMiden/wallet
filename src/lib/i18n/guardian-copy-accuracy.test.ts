@@ -175,8 +175,12 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // so the accurate "Authenticate to approve this Guardian switch" read as
   // "app … Guardian". The other three nouns here cannot occur as a prefix of a
   // word this copy uses, so they stay unanchored to keep the plural forms.
-  en: wrongThing(['address', 'page', 'site', String.raw`\bapp\b`], { negators: NEGATORS.en }),
-  en_GB: wrongThing(['address', 'page', 'site', String.raw`\bapp\b`], { negators: NEGATORS.en_GB }),
+  en: wrongThing(['address', 'page', 'site', String.raw`\bapps?\b`, String.raw`\bapplication`], {
+    negators: NEGATORS.en
+  }),
+  en_GB: wrongThing(['address', 'page', 'site', String.raw`\bapps?\b`, String.raw`\bapplication`], {
+    negators: NEGATORS.en_GB
+  }),
   // German needs a gender check as well as a noun check: MT rendered it as *die*
   // Guardian and *einer anderen* Guardian — feminine, which in German reads as
   // "the Guardian app/site" rather than the person/service that co-signs. The
@@ -187,17 +191,18 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // are correct German. Without it the sweep flagged both, and the `de`
   // KNOWN_GOOD entry has no compound in it, so nothing here would have noticed.
   // The wrong-noun half of such a compound is still caught by the noun list.
-  // `\b` on the two ASCII nouns: unanchored, `App` matched inside `appliziert`
-  // and — with `nounNearGuardian` adding no boundaries and the whole pattern
-  // case-insensitive — flagged the accurate negation "Guardian ist keine App".
-  // Same false-positive class that the power family was rewritten to avoid.
+  // `\b` on the ASCII nouns: unanchored, `App` matched inside `appliziert`, and
+  // `nounNearGuardian` adds no boundaries of its own. The plural and `Applikation`
+  // are spelled out because the boundary that fixes the substring match also drops
+  // the inflected forms `Anwendung\S*` was covering for the native word.
   de: wrongThing(
     [
       String.raw`Adress\S*`,
       String.raw`Seite\S*`,
-      String.raw`\bApp\b`,
+      String.raw`\bApps?\b`,
       String.raw`Anwendung\S*`,
-      String.raw`\bWebsite\b`
+      String.raw`\bApplikation`,
+      String.raw`\bWebsites?\b`
     ],
     {
       negators: NEGATORS.de,
@@ -272,13 +277,13 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
 // clauses with `，`/`、` where English would start a new sentence.
 const CJK_BREAK = String.raw`[^。．！？!?、，；：\n]`;
 
-// Wider than the noun family's WORDS: adverbs run long (`unconditionally`) and MT
-// interposes whole policy phrases (`Your Guardian, based on your security policy,
-// approves…` — six words), so allow six words of up to twenty letters. Commas
+// Wider than the noun family's WORDS: adverbs run long (`indiscriminately`, 16)
+// and MT interposes whole policy phrases (`Your Guardian, based on your security
+// policy, approves…` — six words), so allow six words of up to sixteen. Commas
 // separate, periods do not: the span can cross a clause but never a sentence,
 // which is what keeps "approved by your two on-device keys. The old Guardian is
 // only notified" from pairing the verb with the next sentence's Guardian.
-const POWER_WORDS = String.raw`(?:[\p{L}\p{M}]{1,20}[\s,]+){0,6}`;
+const POWER_WORDS = String.raw`(?:[\p{L}\p{M}]{1,16}[\s,]+){0,6}`;
 
 // As PUNCT, plus the comma — every language here can put one straight after the
 // subject (`Guardian, cüzdanınızdaki her işlemi onaylar`).
@@ -286,23 +291,31 @@ const POWER_PUNCT = String.raw`[\s«»„“”"'’(),\-]*`;
 
 const wrongPower = (
   verbs: string[],
-  { spaced = true, agents = [] }: { spaced?: boolean; agents?: string[] } = {}
+  {
+    spaced = true,
+    agents = [],
+    agentOptional = false
+  }: { spaced?: boolean; agents?: string[]; agentOptional?: boolean } = {}
 ): RegExp => {
   const subjectFirst = spaced
     ? `Guardian(?:['’]s)?${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}(?:${verbs.join('|')})`
     : // CJK subjects are not whitespace-delimited from their verb, so bound by
-      // character count instead of words — thirty, because Korean `Guardian이
-      // 귀하의 모든 거래를 승인합니다` alone spans thirteen and the policy phrasing
-      // the English explainer used to carry spans about twenty. One optional
+      // character count instead of words. Twenty, on top of the three the particle
+      // allowance ahead of it already covers, for twenty-three total: exactly the
+      // longest shape in the corpus, the Japanese policy phrasing. Korean
+      // `Guardian이 귀하의 모든 거래를 승인합니다` spans thirteen on its own. Sized to
+      // the corpus so that shrinking it fails a test — slack nothing exercises is
+      // just false-positive surface. One optional
       // clause mark is allowed just after the subject and its particle, which is
       // where Japanese puts it (`Guardianは、…を承認します`); a later one still ends
       // the span, so an approval belonging to a following clause stays out of
       // reach — `Guardianが共同署名します、承認はあなたの鍵です` is not flagged.
-      `Guardian(?:['’]s)?${CJK_BREAK}{0,3}[、，]?${CJK_BREAK}{0,30}(?:${verbs.join('|')})`;
+      `Guardian(?:['’]s)?${CJK_BREAK}{0,3}[、，]?${CJK_BREAK}{0,20}(?:${verbs.join('|')})`;
 
   if (agents.length === 0) return new RegExp(subjectFirst, 'iu');
 
-  const passive = `(?:${verbs.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}(?:${agents.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}Guardian`;
+  const agent = `(?:${agents.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}`;
+  const passive = `(?:${verbs.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}${agentOptional ? `(?:${agent})?` : agent}Guardian`;
   return new RegExp(`${subjectFirst}|${passive}`, 'iu');
 };
 
@@ -348,9 +361,14 @@ const WRONG_POWER_TERMS: Record<string, RegExp> = {
   pt: wrongPower(POWER_VERBS.pt, { agents: ['por', 'pelo', 'pela'] }),
   // Russian and Ukrainian mark the agent with the bare instrumental rather than a
   // preposition, so the possessive pronoun is the marker: `подтверждается вашим
-  // Guardian`.
+  // Guardian`. Optional, because machine translation drops it as often as not
+  // (`подтверждается Guardian`) and there is nothing to distinguish: unlike the
+  // prepositional languages, no accurate shipped string in either locale has an
+  // approval verb followed by the word Guardian within one sentence, so the
+  // marker earns nothing here and costs the commonest phrasing.
   ru: wrongPower(POWER_VERBS.ru, {
-    agents: [String.raw`вашим`, String.raw`вашего`, String.raw`вашей`]
+    agents: [String.raw`вашим`, String.raw`вашего`, String.raw`вашей`],
+    agentOptional: true
   }),
   // No agent marker for Turkish, Japanese, Korean or Chinese: all four are
   // verb-final, so a Guardian doing the approving always precedes its verb and
@@ -358,7 +376,8 @@ const WRONG_POWER_TERMS: Record<string, RegExp> = {
   // follows the Guardian rather than preceding it.
   tr: wrongPower(POWER_VERBS.tr),
   uk: wrongPower(POWER_VERBS.uk, {
-    agents: [String.raw`вашим`, String.raw`вашого`, String.raw`вашою`]
+    agents: [String.raw`вашим`, String.raw`вашого`, String.raw`вашою`],
+    agentOptional: true
   }),
   zh_CN: wrongPower(POWER_VERBS.zh_CN, { spaced: false }),
   zh_TW: wrongPower(POWER_VERBS.zh_TW, { spaced: false })
@@ -507,6 +526,11 @@ const KNOWN_BAD_POWER: Array<[string, string]> = [
   //   letters;
   ['en', 'Your Guardian, based on your security policy, approves transactions'],
   ['en', 'Your Guardian unconditionally approves every transaction'],
+  //   the widest shapes the budgets allow, so that narrowing either one fails
+  //   here rather than silently shrinking coverage: a sixteen-letter adverb, and
+  //   six words of interposed policy language.
+  ['en', 'Your Guardian indiscriminately approves every transaction'],
+  ['en', 'Your Guardian, under the terms of its policy, approves every transaction'],
   //   German future tense, where the participle lands at the end of the clause —
   //   the normal shape for `wird`/`hat`/`muss`, which the shipped German warning
   //   already uses;

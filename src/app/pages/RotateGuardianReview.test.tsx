@@ -10,6 +10,7 @@ const mockInitiateSwitch = jest.fn();
 // switch-guardian row is already pending for this account.
 const mockGetUncompleted = jest.fn().mockResolvedValue([]);
 const mockRequestProcessing = jest.fn();
+const mockStartBackgroundProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
 const mockHasHardwareProtector = jest.fn();
@@ -162,6 +163,7 @@ jest.mock('lib/biometric', () => ({
 jest.mock('lib/miden/activity', () => ({
   initiateSwitchGuardianTransaction: (...args: unknown[]) => mockInitiateSwitch(...args),
   requestSWTransactionProcessing: () => mockRequestProcessing(),
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundProcessing(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompleted(...args)
 }));
 
@@ -664,4 +666,103 @@ it('fails closed when hardware-protector detection fails', async () => {
   expect(screen.getByTestId('rotate-guardian-confirm')).toBeDisabled();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+it('drives the queue itself when the user abandons on mobile, so the switch is not stranded', async () => {
+  // The duplicate guard refuses while a switch-guardian row is pending, and this
+  // screen cannot clear one. On extension that is fine — the service worker owns
+  // the loop. Off extension the only driver from this flow is the progress page,
+  // which abandoning declines to open, so without this kick the row sits Queued
+  // forever and every future switch is refused: a lockout behind an error telling
+  // the user to wait for something that will never finish.
+  mockIsExtension.mockReturnValue(false);
+  mockIsMobile.mockReturnValue(true);
+  mockHasHardwareProtector.mockResolvedValue(true);
+  let releaseUnlock: () => void = () => {};
+  mockUnlock.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  await act(async () => {
+    releaseUnlock();
+  });
+
+  expect(mockNavigate).not.toHaveBeenCalled();
+  expect(mockStartBackgroundProcessing).toHaveBeenCalledTimes(1);
+});
+
+it('leaves the queue to the service worker on extension', async () => {
+  mockIsExtension.mockReturnValue(true);
+  mockHasHardwareProtector.mockResolvedValue(true);
+  let releaseUnlock: () => void = () => {};
+  mockUnlock.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  await act(async () => {
+    releaseUnlock();
+  });
+
+  expect(mockRequestProcessing).toHaveBeenCalledTimes(1);
+  expect(mockStartBackgroundProcessing).not.toHaveBeenCalled();
+});
+
+it('re-arms the redirect for a fresh submission after an abandoned one', async () => {
+  // `handleAuthBack` marks the flow abandoned even though it stays on this screen,
+  // which is only safe because every submission clears the flag again. Without the
+  // reset, one back-press on the credential step would silently suppress the
+  // redirect for the rest of the mount.
+  mockHasHardwareProtector.mockResolvedValue(false);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+  // Hardware back on the credential step, which routes to `handleAuthBack`.
+  await waitFor(() => expect(document.querySelector('#rotate-guardian-password')).not.toBeNull());
+  expect(mobileBackHandler!()).toBe(true);
+
+  fireEvent.click(await screen.findByTestId('rotate-guardian-confirm'));
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/switch-tx'));
+});
+
+it('does not redirect after the user backs out of the credential step mid-flight', async () => {
+  // `handleAuthBack` returns to the review step rather than leaving the screen, so
+  // it is tempting to treat it as not an abandonment. But the submission it backs
+  // out of is still in flight, and when it lands it would pull the user onto the
+  // progress page from the step they deliberately retreated to.
+  mockHasHardwareProtector.mockResolvedValue(false);
+  let releaseUnlock: () => void = () => {};
+  mockUnlock.mockImplementation(() => new Promise<void>(resolve => (releaseUnlock = resolve)));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+
+  expect(mobileBackHandler!()).toBe(true);
+  await act(async () => {
+    releaseUnlock();
+  });
+
+  await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
+  expect(mockNavigate).not.toHaveBeenCalled();
 });

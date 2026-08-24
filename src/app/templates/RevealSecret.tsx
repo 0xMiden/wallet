@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -96,10 +96,18 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   // until it resolves. Without it the effect ran once, against that first empty
   // commit where `formRef.current` was still null, and never again — its only
   // other dependency being a `useCallback` with an empty dep list. So the field
-  // was never actually focused on desktop, and because Settings suppresses its own
-  // title focus for this page on the strength of this effect, the route ended up
-  // announcing nothing and leaving focus on `<body>`.
-  useLayoutEffect(() => {
+  // was never actually focused on desktop.
+  //
+  // A passive effect rather than a layout effect, so that it lands AFTER the host
+  // page's title focus rather than before it. Ordered the other way round, the
+  // title focus clobbered the caret, which is why Settings had to suppress its
+  // own title focus for these routes — and that suppression was wrong whenever
+  // there is no field to focus: on desktop with a hardware protector this form
+  // renders no password input at all, so nothing took focus and the page went
+  // unannounced. Now the title is focused first and the field takes over only if
+  // it exists, so both cases end up somewhere sensible without the host having to
+  // predict which one it is.
+  useEffect(() => {
     if (!isMobile()) {
       focusPasswordField();
     }
@@ -309,6 +317,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             label={t('password')}
             labelDescription={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
             id="reveal-secret-password"
+            className="font-sans"
             type="password"
             name="password"
             placeholder="********"
