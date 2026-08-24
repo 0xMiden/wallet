@@ -648,8 +648,16 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it.",
-    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Delivery confirmed",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "The recipient has received and spent this private note, so its delivery is confirmed on chain.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",

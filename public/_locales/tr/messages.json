@@ -648,8 +648,16 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Bu cüzdanı açık ve bağlı tutun — kuyrukta bekleyen bir teslimat, bir sonraki senkronizasyonda otomatik olarak yeniden denenir ve işlem başarılı olursa bu uyarı kaybolur. Alıcının birkaç dakika sonra hâlâ hiçbir şey almamış olması durumunda, tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve destek ekibiyle iletişime geçin, çünkü note bu kimlikten hâlâ kurtarılabilir.",
-    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Bu cüzdanı açık ve bağlı tutun — gönderimden sonra bir süre boyunca teslimat otomatik olarak yeniden denenir ve işlem başarılı olursa bu uyarı kaybolur. Alıcı bir saat sonra hâlâ bir şey almamışsa, tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve destek ekibiyle iletişime geçin, çünkü note bu kimlikten kurtarılabilir.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Teslimat onaylandı",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Alıcı bu özel note adresini almış ve harcamıştır, bu nedenle teslimatı zincir üzerinde onaylanmıştır.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",

@@ -648,8 +648,16 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "請保持此錢包開啟並連線——排隊中的轉帳會在下次同步時自動重試，若成功完成，此警告便會消失。若幾分鐘後收款人仍未收到款項，請勿再次發送；請記錄下方的交易 ID 並聯絡客服，因為仍可透過該 ID 從 note 取回款項。",
-    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "請保持此錢包開啟並連線——發送後系統會自動重試傳輸一段時間，若傳輸成功，此警告便會消失。若一小時後收件人仍未收到款項，請勿再次發送；請保存下方的交易 ID 並聯繫客服，因為仍可透過該 ID 找回 note。",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "已確認送達",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "收件人已收到並使用這筆私有note，因此其交付已在區塊鏈上確認。",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",

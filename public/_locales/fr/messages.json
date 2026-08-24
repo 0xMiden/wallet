@@ -648,8 +648,16 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Laissez ce portefeuille ouvert et connecté : une livraison en file d’attente est automatiquement réessayée lors de la prochaine synchronisation, et cet avertissement disparaît si elle aboutit. Si le destinataire n’a toujours rien reçu après quelques minutes, ne renvoyez pas l’note ; enregistrez l’identifiant de transaction ci-dessous et contactez le service d’assistance, car l’ peut encore être récupérée à partir de celui-ci.",
-    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "Laissez ce portefeuille ouvert et connecté — la livraison est automatiquement réessayée pendant un certain temps après l’envoi, et cet avertissement disparaît si la transaction aboutit. Si le destinataire n’a toujours rien reçu au bout d’une heure, n’envoyez pas à nouveau ; enregistrez l’identifiant de transaction ci-dessous et contactez le service d’assistance, car l’notee peut encore être récupérée à partir de celui-ci.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Livraison confirmée",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Le destinataire a reçu et dépensé cette «note » privée, sa remise est donc confirmée sur la chaîne.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",

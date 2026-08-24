@@ -648,8 +648,16 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "このウォレットを開いたまま接続状態を維持してください。キューに入れられた送金は、次回の同期時に自動的に再試行され、送金が成功すればこの警告は消えます。数分経っても受取人に何も届かない場合は、再送しないでください。下のトランザクションIDを保存し、サポートに連絡してください。このIDがあれば、noteを復元することができます。",
-    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+    "message": "このウォレットを開いたまま接続状態を維持してください。送信後しばらくの間は自動的に再送信が行われ、正常に送信されればこの警告は消えます。1時間経っても受取人に何も届かない場合は、再送信しないでください。下のトランザクションIDを保存し、サポートに連絡してください。このIDからnoteを復元することができます。",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "受領確認済み",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "受取人はこのプライベートnoteを受け取り、すでに使用しているため、その送達はチェーン上で確認されています。",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
   },
   "faucet": {
     "message": "Faucet",
