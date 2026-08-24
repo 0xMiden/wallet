@@ -717,6 +717,14 @@
     "message": "Вы можете вставить весь свой секретный код Seed phrase в любое поле",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Одно или несколько слов отсутствуют в списке слов восстановительной фразы. Проверьте выделенные слова.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Десятичные знаки этого токена не удалось проверить, поэтому суммы не могут отображаться или отправляться.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Ой!",
     "englishSource": "Oops!"
@@ -2532,6 +2540,30 @@
     "message": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать «Получить». При этом ваши средства не тратятся и комиссия не взимается.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Создание файла кошелька…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Ошибка экспорта",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Файл вашего кошелька не удалось создать, поэтому ничего не было сохранено. Пожалуйста, попробуйте экспортировать ещё раз.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Ещё не сохранено",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Файл вашего кошелька готов, но вы закрыли окно выбора места сохранения, не указав, где его сохранить.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Выберите, где сохранить",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрованный файл кошелька",
     "englishSource": "Encrypted Wallet File"
@@ -3295,6 +3327,24 @@
   "showAllDapps": {
     "message": "+ $count$ и другие припаркованные dApps",
     "englishSource": "+$count$ more parked dApps",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "showAllNotes": {
+    "message": "+$count$ и другие",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ и другие",
+    "englishSource": "+$count$ more",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -4101,6 +4151,10 @@
   "consumed": {
     "message": "Потреблено",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Тип",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Идентификатор транзакции",

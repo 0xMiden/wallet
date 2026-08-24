@@ -49,7 +49,9 @@ jest.mock('lib/miden/metadata', () => ({
 }));
 
 // The wallet store only supplies `assetsMetadata`; empty → the USDC fallbacks.
-let mockAssetsMetadata: Record<string, { symbol: string; decimals: number }> | undefined = {};
+let mockAssetsMetadata:
+  | Record<string, { symbol: string; decimals: number; name?: string; scaleIsUnknown?: boolean }>
+  | undefined = {};
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: { assetsMetadata: unknown }) => unknown) =>
     selector({ assetsMetadata: mockAssetsMetadata })
@@ -115,6 +117,20 @@ describe('EarnSuccess', () => {
     mockLastPill = undefined;
     mockAssetsMetadata = {};
     mockNavigate.mockClear();
+  });
+
+  // A stored record only outranks the USDC constants when it actually resolved.
+  // The unknown-token placeholder is not evidence about this faucet, and its
+  // guessed 6 decimals would be applied to a deposit denominated in the
+  // collateral token the wallet already knows the scale of.
+  it('prefers the USDC constants over an unknown-token placeholder record', () => {
+    mockAssetsMetadata = {
+      mtst1faucet: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+    };
+
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBe('10000000 USDC');
   });
 
   it('renders the earn title and derives the pill from the row (USDC fallback + market name)', () => {

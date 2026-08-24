@@ -11,6 +11,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -518,7 +519,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: match.fiatPrice
+      fiatPrice: match.fiatPrice,
+      scaleIsKnown: hasKnownScale(match.metadata)
     };
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);

@@ -8,14 +8,21 @@ import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
 
 /**
- * Token-scoped history filter. A swap row belongs to BOTH sides' token views:
- * it is filed under the offered `faucetId`, but it also delivers the requested
- * faucet — and the consume that settles that delivery is suppressed in history
- * (the swap row is the order's single trace), so without the requested-side
- * match the received funds would appear in no row of that token's history.
+ * Token-scoped history filter. A row belongs to a token view whenever it moved
+ * that token, which is not always the faucet it is filed under:
+ *
+ * - A swap is filed under the offered `faucetId` but also delivers the requested
+ *   faucet, and the consume that settles that delivery is suppressed in history
+ *   (the swap row is the order's single trace) — so without the requested-side
+ *   match the received funds would appear in no row of that token's history.
+ * - A batch claim is filed under its FIRST note's faucet while sweeping up every
+ *   other faucet in `assetTotals`. Same argument: a claim of 20 A and 10 B is
+ *   filed under A, so B's history would never show the 10 B arriving.
  */
 const matchesTokenId = (tx: ITransaction, tokenId: string): boolean =>
-  tx.faucetId === tokenId || (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId);
+  tx.faucetId === tokenId ||
+  (tx.type === 'swap' && tx.extraInputs?.requestedFaucetId === tokenId) ||
+  tx.assetTotals?.some(total => total.faucetId === tokenId) === true;
 
 export const hasQueuedTransactions = async () => {
   const tx = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
@@ -76,7 +83,12 @@ export const getCompletedTransactions = async (
   if (tokenId) {
     transactions = transactions.filter(tx => matchesTokenId(tx, tokenId));
   }
-  return transactions.slice(offset, limit);
+  // `limit` is a page size, not an end index — `slice(offset, limit)` returned
+  // nothing for every page after the first, since offset >= limit there, which
+  // silently capped history at one page. Both are optional, and `offset + limit`
+  // would be NaN if either were missing, so only window when a limit is given.
+  if (limit === undefined) return offset === undefined ? transactions : transactions.slice(offset);
+  return transactions.slice(offset ?? 0, (offset ?? 0) + limit);
 };
 
 export const getTransactionById = async (id: string) => {

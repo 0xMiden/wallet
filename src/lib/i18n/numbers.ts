@@ -89,21 +89,25 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
   if (amount === BigInt(0)) {
     return '0';
   }
-  const amountString = amount.toString();
+  // Format the magnitude and reattach the sign. Zero-padding a string that
+  // already starts with '-' buries the sign inside the padding, so -5 at 5
+  // decimals came out as "-0.00005" spelled "0.000-5" — not a number at all.
+  const negative = amount < BigInt(0);
+  const amountString = (negative ? -amount : amount).toString();
   // A zero-decimal faucet denominates in whole units, so the amount already IS
   // the display string. The general path below cannot produce that: `-decimals`
   // is `-0`, and `slice(0, -0)` is `slice(0, 0)` — the empty string — so the
   // integer part is dropped and 100 renders as "0.01". That number is shown on
   // the dApp approval sheet next to the amount actually being sent.
   if (decimals <= 0) {
-    return amountString;
+    return negative ? `-${amountString}` : amountString;
   }
   const prefixed = '0'.repeat(decimals) + amountString;
   const withDecimal = prefixed.slice(0, -decimals) + '.' + prefixed.slice(-decimals);
   const trimmed = withDecimal.replace(/^0+|0+$/g, '');
   const withoutTrailingDecimal = trimmed.replace(/\.$/, '');
   const withLeadingZero = withoutTrailingDecimal.replace(/^\./, '0.');
-  return withLeadingZero;
+  return negative ? `-${withLeadingZero}` : withLeadingZero;
 }
 
 /**

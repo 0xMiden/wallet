@@ -45,9 +45,9 @@ import { expect, test } from '../fixtures/extension';
  *    (`test.skip` below), so the whole `!isExtension()` confirmation-store
  *    branch of `dapp.ts` — a different renderer with its own origin field — is
  *    unreachable from here.
- *  - The send amount's DECIMALS. Chainless, every faucet resolves to the
- *    6-decimal default, which is the same number the removed hardcoded
- *    `10 ** 6` used. See {@link EXPECTED_AMOUNT_ROW}.
+ *  - The send amount's DECIMALS. Chainless, no faucet resolves at all, so the
+ *    approval sheet withholds the quantity rather than quoting one. See
+ *    {@link EXPECTED_AMOUNT_ROW}.
  */
 
 /** A syntactically valid Word: four small field elements, little-endian u64s. */
@@ -70,20 +70,26 @@ const REQUESTED = {
 /**
  * What the approval screen must show for {@link REQUESTED}.
  *
- * LIMIT OF THIS CHECK: the wallet resolves the faucet's decimals through
- * `getTokenMetadata`, and no faucet in a chainless run resolves to anything but
- * the 6-decimal default — the same number the removed hardcoded `10 ** 6` used.
- * So this assertion pins the WIRING (the preview string reaches the screen and
- * is rendered verbatim, signed as an outflow) and it fails if the amount is
- * shown raw in base units, which is what mobile and desktop used to show. It
- * canNOT fail on the decimals logic itself: reverting
- * `formatSendTransactionPreview` to a hardcoded 6 leaves this green.
+ * `?`, not a number. The wallet reads a faucet's decimals from the chain, and
+ * this fixture's faucet does not exist — so there is no scale to convert
+ * `amountBaseUnits` by. The approval sheet is where a user decides whether to
+ * authorise a transfer, and quoting a quantity derived from the placeholder's
+ * guessed 6 decimals states as fact something that can be off by a factor of a
+ * trillion. The sheet names the asset and withholds the number instead.
  *
- * The falsifying coverage for the decimals fix therefore lives in a unit test,
+ * This spec ran chainless before that change too, so it was asserting `-1.5` —
+ * the guess — and calling it the expected output.
+ *
+ * LIMIT OF THIS CHECK: it pins the WIRING (the preview string reaches the
+ * screen, rendered verbatim and signed as an outflow) and still fails if the
+ * amount is shown raw in base units, which is what mobile and desktop used to
+ * show. It cannot exercise the decimals arithmetic, since nothing here resolves.
+ *
+ * The falsifying coverage for both the decimals fix and the withholding lives in
  * `src/lib/miden/back/dapp.send-preview.test.ts`, which drives the same
- * formatter with a 9-decimal and an 18-decimal faucet.
+ * formatter with 9-decimal, 18-decimal, placeholder and absent metadata.
  */
-const EXPECTED_AMOUNT_ROW = '-1.5';
+const EXPECTED_AMOUNT_ROW = '-?';
 /** `truncateAddress` on a bech32 with no underscore is `truncateHash(addr, 6, 4)`. */
 const EXPECTED_RECIPIENT_ROW = `${REQUESTED.recipient.slice(0, 6)}…${REQUESTED.recipient.slice(-4)}`;
 

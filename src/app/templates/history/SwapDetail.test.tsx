@@ -105,6 +105,7 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       entry={entry}
       requestedAmount={1000n}
       requestedDecimals={8}
+      requestedScaleIsKnown
       requestedSymbol="ETH"
       requestedFaucetId={REQUESTED_FAUCET}
       filledAmount={400n}
@@ -148,6 +149,17 @@ describe('SwapDetail amounts', () => {
       ]
     });
 
+    expect(screen.queryByText(/^swapReceivedAmount/)).not.toBeInTheDocument();
+  });
+
+  // Every quantity on this screen — the order's requested size, how much of it
+  // filled, and each settlement note's payout — is scaled by the SAME requested
+  // decimals, so an unresolved requested faucet makes them all wrong together.
+  // The token is still named; only the numbers go.
+  it('withholds every quantity when the requested token has no resolved scale', () => {
+    renderDetail({ requestedScaleIsKnown: false, settledTransactions: [consume()] });
+
+    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_ ETH');
     expect(screen.queryByText(/^swapReceivedAmount/)).not.toBeInTheDocument();
   });
 

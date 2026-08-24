@@ -2,7 +2,7 @@ import '../../../../test/jest-mocks';
 
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 
-import { fetchBalances } from './fetchBalances';
+import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
 
 // Mock dependencies
 const mockGetAccount = jest.fn();
@@ -56,6 +56,9 @@ describe('fetchBalances', () => {
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
+    // Process-wide rate limit — without this a faucet that failed in one case
+    // stays in backoff and silently skips the fetch in the next.
+    __resetUnresolvedFaucetsForTest();
   });
 
   beforeAll(() => {
@@ -286,7 +289,6 @@ describe('fetchBalances', () => {
 
   it('falls back to DEFAULT_TOKEN_METADATA when fetchTokenMetadata throws', async () => {
     const mockSetAssetsMetadata = jest.fn();
-    const { DEFAULT_TOKEN_METADATA } = jest.requireMock('lib/miden/metadata');
     const mockAssets = [
       {
         faucetId: () => 'bad-faucet',
@@ -305,12 +307,36 @@ describe('fetchBalances', () => {
 
     const result = (await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata }))!;
 
-    // Should still include the token with default metadata
-    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({
-      'bech32-bad-faucet': DEFAULT_TOKEN_METADATA
-    });
+    // The token still lists, under the placeholder, so a failed lookup does not
+    // make the user's holding vanish from the screen.
     expect(result).toHaveLength(2);
     expect(result[0]!.tokenSlug).toBe('Unknown');
+  });
+
+  // A thrown lookup is transient. Publishing the placeholder would end the
+  // retries — the faucet is skipped once metadata is known — so the guessed
+  // decimals would outlive the outage with no path back to the real ones.
+  it('does not persist the placeholder when the metadata lookup throws', async () => {
+    const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+    getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+    mockGetAccount.mockResolvedValueOnce({
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
+      })
+    });
+    mockFetchTokenMetadata.mockRejectedValueOnce(new Error('RPC error'));
+    const mockSetAssetsMetadata = jest.fn();
+    const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+
+    await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
+
+    // Nothing at all is written for this faucet, so the next refresh sees it as
+    // still-unknown and tries the lookup again.
+    const wroteBadFaucet = (fn: jest.Mock) =>
+      fn.mock.calls.some(([written]: [Record<string, unknown>]) => 'bech32-bad-faucet' in written);
+
+    expect(wroteBadFaucet(mockSetAssetsMetadata)).toBe(false);
+    expect(wroteBadFaucet(setTokensBaseMetadata)).toBe(false);
   });
 
   it('skips MIDEN token when fetching metadata', async () => {
@@ -363,5 +389,69 @@ describe('fetchBalances', () => {
     expect(mockGetAccount).toHaveBeenCalledWith('my-address');
     // Should NOT call syncState - that happens separately via AutoSync
     expect(mockSyncState).not.toHaveBeenCalled();
+  });
+  // Neither storing the guess nor re-asking every few seconds is acceptable: the
+  // first answers the question forever with a wrong number, the second turns an
+  // unreadable faucet into a permanent RPC drip on a list that refreshes every
+  // few seconds. The record stays absent and the retry is spaced out instead.
+  describe('an unresolvable faucet', () => {
+    function accountWithBadFaucet() {
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
+        })
+      });
+    }
+
+    it('is not retried on the very next refresh', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      mockFetchTokenMetadata.mockRejectedValue(new Error('RPC error'));
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    // The placeholder is returned, not thrown, when the faucet was reached but
+    // could not be read — that lands on the success path, which is how it used
+    // to get persisted despite `fetchTokenMetadata` deliberately not caching it.
+    it('is not persisted when the lookup RESOLVES to the placeholder', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      mockFetchTokenMetadata.mockResolvedValue({ base: placeholder, detailed: placeholder });
+
+      accountWithBadFaucet();
+      const result = (await fetchBalances('my-address', {}, {}))!;
+
+      const wrote = setTokensBaseMetadata.mock.calls.some(
+        ([written]: [Record<string, unknown>]) => written && 'bech32-bad-faucet' in written
+      );
+      expect(wrote).toBe(false);
+      // Still listed — an unresolved holding is a real one.
+      expect(result.some(b => b.tokenId === 'bech32-bad-faucet')).toBe(true);
+    });
+
+    it('still lists the token while its lookup is in backoff', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      mockFetchTokenMetadata.mockRejectedValue(new Error('RPC error'));
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+
+      accountWithBadFaucet();
+      const result = (await fetchBalances('my-address', {}, {}))!;
+
+      const row = result.find(b => b.tokenId === 'bech32-bad-faucet');
+      expect(row).toBeDefined();
+      expect(row!.metadata.symbol).toBe('Unknown');
+    });
   });
 });
