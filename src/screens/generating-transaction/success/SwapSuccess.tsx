@@ -2,6 +2,7 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReactComponent as InfoIcon } from 'app/icons/information.svg';
 import { ButtonVariant } from 'components/Button';
 import { formatAmount } from 'lib/shared/format';
@@ -29,12 +30,19 @@ import {
 export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneClick }) => {
   const { t } = useTranslation();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeFaucetId = useMidenFaucetId();
   const badgeContent = useTransactionSummaryBadgeContent(transaction);
 
   // Offered side — this is what returns to the wallet if the order expires.
-  const offered = resolveSwapAsset(transaction?.faucetId, assetsMetadata);
+  const offered = resolveSwapAsset(transaction?.faucetId, assetsMetadata, nativeFaucetId);
+  // `scaleIsKnown` is the whole reason `resolveSwapAsset` reports it: an
+  // off-registry faucet the wallet never resolved has no trustworthy decimals,
+  // and quoting a reserved balance at a guessed scale is worse than quoting
+  // none — the sentence below drops to naming the token.
   const offeredAmount =
-    transaction?.amount !== undefined ? formatAmount(transaction.amount, offered.decimals) : undefined;
+    transaction?.amount !== undefined && offered.scaleIsKnown
+      ? formatAmount(transaction.amount, offered.decimals)
+      : undefined;
   const returnAmountText = offeredAmount ? `${offeredAmount} ${offered.symbol}` : undefined;
 
   return (

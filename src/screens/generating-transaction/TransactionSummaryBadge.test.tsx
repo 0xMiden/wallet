@@ -12,11 +12,33 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/miden/metadata', () => ({
-  MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 }
+  MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 },
+  // Real values. A claim's secondary faucets are exactly the ones the wallet has
+  // no metadata for, so the unresolved fallback is load-bearing here, not filler.
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
 }));
 
+// The native faucet is the ONE unresolved faucet that may read MIDEN; every
+// other must read Unknown. Drive it per-test rather than through the real
+// module's process-lifetime memo cache.
+let mockNativeAssetId: string | null = null;
+
+// The native id now arrives through `useMidenFaucetId`, which re-renders when
+// discovery lands — the point of the change. Mocking the hook rather than the
+// sync accessor is what lets a test distinguish "not known yet" from "not
+// native", which the old accessor collapsed into the same `null`.
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockNativeAssetId
+}));
+
+// A spy, not a bare function: the rendered text alone cannot show WHICH decimals
+// each asset was scaled by, so a helper that formats every asset at the wrong
+// scale is invisible to every assertion on `textContent`.
+const mockFormatAmount = jest.fn((amount: bigint, _decimals?: number) => String(amount));
+
 jest.mock('lib/shared/format', () => ({
-  formatAmount: (amount: bigint) => String(amount)
+  formatAmount: (amount: bigint, decimals?: number) => mockFormatAmount(amount, decimals)
 }));
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
@@ -95,6 +117,7 @@ describe('useTransactionSummaryBadgeContent', () => {
 
   beforeEach(() => {
     mockState.assetsMetadata = {};
+    mockNativeAssetId = null;
   });
 
   const Probe: React.FC<{ tx?: ITransaction }> = ({ tx }) => {
@@ -142,6 +165,111 @@ describe('useTransactionSummaryBadgeContent', () => {
   it('returns undefined for a consume without an amount', async () => {
     const { container, root } = await renderProbe(baseTransaction({ type: 'consume' }));
     expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
+  // A "Claim All" sweeps up every claimable note, so a batch spanning faucets is
+  // the normal case, not an edge one. Listing only `assetTotals[0]` understates
+  // what arrived — the row would say "20 AAA" for a claim that also brought 10 B.
+  it('lists every faucet of a batch claim, not just the row faucet', async () => {
+    // Decimals deliberately NOT 6, so they differ from the Unknown fallback's:
+    // with both at 6 the two assertions below cannot tell the two scales apart.
+    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 2 } };
+    mockFormatAmount.mockClear();
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 20n,
+        faucetId: 'faucet-a',
+        assetTotals: [
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: 'faucet-b', amount: 10n }
+        ]
+      })
+    );
+
+    // Secondary faucet has no metadata (the wallet has never held it) → Unknown,
+    // NOT MIDEN: naming a foreign token after the native one misstates the asset.
+    // And it gets NO number: with no decimals there is no honest scale, and the
+    // unknown-token fallback's 6 would render an 18-decimal token 10^12 too large.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('20 AAA, Unknown');
+    // The resolved asset is still scaled by ITS OWN decimals. The rendered text
+    // cannot show this — formatting at the wrong scale produces the same string
+    // under the mock while being wrong by orders of magnitude.
+    expect(mockFormatAmount).toHaveBeenCalledWith(20n, 2);
+    // The unresolved one is never formatted at all — the guessed scale is the bug.
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(10n, 6);
+    act(() => root.unmount());
+  });
+
+  // The native id is discovered asynchronously and is `null` on a cold render.
+  // Reading it through the synchronous accessor meant a claim of the NATIVE
+  // asset was labelled Unknown and stayed that way for the life of the screen,
+  // while the activity row for the same claim — which awaits the id — said
+  // MIDEN. Sourcing it from the hook re-renders when discovery lands.
+  it('recovers the MIDEN label once the native faucet id is discovered', async () => {
+    mockNativeAssetId = null;
+    const claim = baseTransaction({
+      type: 'consume',
+      amount: 4n,
+      faucetId: 'faucet-native',
+      assetTotals: [{ faucetId: 'faucet-native', amount: 4n }]
+    });
+
+    // Before discovery this faucet is indistinguishable from a token the wallet
+    // has never held, so it is Unknown and — having no decimals — unquantified.
+    const cold = await renderProbe(claim);
+    expect(cold.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
+    act(() => cold.root.unmount());
+
+    mockNativeAssetId = 'faucet-native';
+
+    const warm = await renderProbe(claim);
+    expect(warm.container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN');
+    act(() => warm.root.unmount());
+  });
+
+  it('labels an unresolved faucet MIDEN only when it IS the native faucet', async () => {
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'consume',
+        amount: 4n,
+        faucetId: 'faucet-native',
+        assetTotals: [
+          { faucetId: 'faucet-native', amount: 4n },
+          { faucetId: 'faucet-b', amount: 6n }
+        ]
+      })
+    );
+
+    // MIDEN keeps its amount (its decimals are known); the unresolved faucet
+    // is named but not quantified.
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('4 MIDEN, Unknown');
+    act(() => root.unmount());
+  });
+
+  // Legacy rows predate `assetTotals`; they must still summarise from the scalar
+  // pair rather than silently losing their pill.
+  it('falls back to the scalar amount/faucet for a legacy consume row', async () => {
+    mockState.assetsMetadata = { 'faucet-1': { symbol: 'TST', decimals: 6 } };
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 7n, faucetId: 'faucet-1', assetTotals: [] })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('7 TST');
+    act(() => root.unmount());
+  });
+
+  // `ConsumeTransaction` produces exactly this row for a note with no faucet id:
+  // a headline amount, no `assetTotals` (see `db/types.test.ts`). Summarising it
+  // needs a token name, and the only one available would be the native symbol —
+  // so it renders nothing rather than claiming an unidentified asset is MIDEN.
+  it('renders no summary for a claim whose asset cannot be attributed to a faucet', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'consume', amount: 4n, faucetId: '', assetTotals: undefined })
+    );
+
+    expect(container.querySelector('[data-testid="lhs"]')).toBeNull();
     act(() => root.unmount());
   });
 
@@ -213,10 +341,25 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  // An empty store does not make a foreign faucet native. Naming it MIDEN would
+  // also scale it by MIDEN's 6 decimals, which is the invented number this
+  // whole path exists to avoid — so the asset is named and left unquantified.
   it('tolerates an undefined assetsMetadata store slice', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderProbe(
       baseTransaction({ amount: 8n, faucetId: 'faucet-x', secondaryAccountId: 'mtst1aprecipient_addr1234' })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('Unknown');
+    act(() => root.unmount());
+  });
+
+  // The native faucet is the one case an empty store must NOT withhold: MIDEN's
+  // scale is fixed, so the amount stays.
+  it('still quantifies the native faucet when the store slice is undefined', async () => {
+    mockState.assetsMetadata = undefined;
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderProbe(
+      baseTransaction({ amount: 8n, faucetId: 'faucet-native', secondaryAccountId: 'mtst1aprecipient_addr1234' })
     );
     expect(container.querySelector('[data-testid="lhs"]')?.textContent).toBe('8 MIDEN');
     act(() => root.unmount());

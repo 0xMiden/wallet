@@ -114,7 +114,8 @@ describe('send-flow/types', () => {
           name: 'Token',
           decimals: 6,
           balance: 100,
-          fiatPrice: 1.23
+          fiatPrice: 1.23,
+          scaleIsKnown: true
         }
       };
       const minimal: SendFlowForm = {
@@ -201,7 +202,8 @@ describe('send-flow/types', () => {
         name: 'Aleo Credits',
         decimals: 6,
         balance: 42,
-        fiatPrice: 0.5
+        fiatPrice: 0.5,
+        scaleIsKnown: true
       };
       expect(token).toMatchObject({ id: 'aleo', decimals: 6, fiatPrice: 0.5 });
     });
@@ -231,7 +233,8 @@ describe('send-flow/types', () => {
           name: 'Aleo',
           decimals: 6,
           balance: 1,
-          fiatPrice: 1
+          fiatPrice: 1,
+          scaleIsKnown: true
         },
         feeAmount: '0.01',
         feeType: UIFeeType.Public

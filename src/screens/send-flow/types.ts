@@ -83,6 +83,17 @@ export type UIToken = {
   decimals: number;
   balance: number;
   fiatPrice: number;
+  /**
+   * Whether `decimals` is what the faucet reported, rather than the unknown-token
+   * placeholder's guess of 6.
+   *
+   * Required, not optional, because the amount the user types is converted to
+   * base units with `decimals` — an omitted field would default to "trustworthy"
+   * and send a quantity nobody chose. Every producer has to answer for its own
+   * source: the registry and the fixed EVM tokens state their decimals, a wallet
+   * balance has to be asked via `hasKnownScale`.
+   */
+  scaleIsKnown: boolean;
 };
 
 export type UIContact = {

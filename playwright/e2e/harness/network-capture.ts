@@ -55,30 +55,53 @@ export function attachNetworkCapture(
   timeline: TimelineRecorder
 ): void {
   context.on('requestfinished', async (request: Request) => {
-    if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
-    const url = request.url();
-    if (!isMidenRelated(url)) return;
+    // Whole body guarded, like the SW listeners below. This is an ASYNC
+    // listener, so a rejection here is an unhandled rejection that Playwright
+    // charges to whichever test is running, and capture is diagnostic only —
+    // it must never fail a run.
+    //
+    // This guard does NOT catch "Object with guid handle@… was not bound in the
+    // connection", despite that being the failure the surrounding change chased
+    // (guardian-recovery-stress's browser-crash spec on main at d77bc51d / run
+    // 32478703603). That error is thrown by Playwright's connection dispatcher
+    // while deserializing a channel, not delivered as a rejection: `dispatch`
+    // deletes the pending callback and then evaluates the result validator as
+    // the argument to `callback.resolve`, so a throw there escapes `dispatch`
+    // and the awaited promise simply never settles — no `catch` in this body is
+    // on the stack. Nor can this listener avoid it: the `requestfinished` event
+    // payload itself carries `request` and `response` as channels, resolved
+    // before the listener runs. Removing the `request.response()` call below
+    // would not help. The handle-free rewrite in `two-wallets.ts` works because
+    // it drops a handle the WALLET code asked for; there is no equivalent lever
+    // here.
+    try {
+      if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
+      const url = request.url();
+      if (!isMidenRelated(url)) return;
 
-    const category = classifyUrl(url);
-    const response = await request.response();
-    const status = response?.status() ?? 0;
-    const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
+      const category = classifyUrl(url);
+      const response = await request.response();
+      const status = response?.status() ?? 0;
+      const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
 
-    timeline.emit({
-      category: 'network_request',
-      severity: status >= 400 ? 'error' : 'info',
-      wallet: walletLabel,
-      message: `${request.method()} ${url} -> ${status}`,
-      data: {
-        url,
-        method: request.method(),
-        status,
-        responseBody,
-        networkCategory: category,
-        timing: request.timing(),
-        source: 'page'
-      }
-    });
+      timeline.emit({
+        category: 'network_request',
+        severity: status >= 400 ? 'error' : 'info',
+        wallet: walletLabel,
+        message: `${request.method()} ${url} -> ${status}`,
+        data: {
+          url,
+          method: request.method(),
+          status,
+          responseBody,
+          networkCategory: category,
+          timing: request.timing(),
+          source: 'page'
+        }
+      });
+    } catch {
+      // browser/context gone mid-capture — drop the event
+    }
   });
 
   context.on('requestfailed', (request: Request) => {

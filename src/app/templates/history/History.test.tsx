@@ -22,6 +22,7 @@ const mockResolveSwapHistoryFields = jest.fn();
 const mockIsFaucetRequest = jest.fn();
 const mockFormatTransactionStatus = jest.fn();
 const mockEarnWithdrawAmountFields = jest.fn();
+const mockResolveConsumeExtraAmounts = jest.fn();
 
 // Latest props seen by the mocked HistoryView child, so tests can invoke its
 // `loadMore` callback and read back the filtered/sorted `entries`.
@@ -96,7 +97,8 @@ jest.mock('./transactionUtils', () => ({
   earnWithdrawAmountFields: (...args: unknown[]) => mockEarnWithdrawAmountFields(...args),
   // Pure derivation the swap-chip assertions below depend on, so run the real
   // one rather than restating its rules in a stub.
-  swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf
+  swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
+  resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 
 // Thin HistoryView stub: capture props (for `loadMore`) and surface each entry
@@ -272,6 +274,8 @@ beforeEach(() => {
     if (id === 'fa1') return { symbol: 'TKF', decimals: 6 };
     if (id === 'fa2') return { symbol: 'SWPMETA', decimals: 2 };
     if (id === 'NATIVE') return { symbol: 'MID', decimals: 8 };
+    // The unknown-token placeholder: a symbol, and 6 decimals that are a guess.
+    if (id === 'unresolved') return { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true };
     return undefined;
   });
   mockFormatAmount.mockImplementation((amt: bigint, dec?: number) => `fmt(${amt},${dec})`);
@@ -286,6 +290,7 @@ beforeEach(() => {
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
   mockSuppressingLinkedTxIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
+  mockResolveConsumeExtraAmounts.mockResolvedValue([]);
 });
 
 afterEach(() => cleanup());
@@ -420,6 +425,44 @@ describe('History', () => {
     // getTokenMetadata skipped for entries without faucetId.
     expect(mockGetTokenMetadata).toHaveBeenCalledWith('fa1');
     expect(mockGetTokenMetadata).not.toHaveBeenCalledWith(undefined);
+  });
+
+  // Converting by the placeholder's guessed 6 decimals renders an 18-decimal
+  // token a trillion times too large, so the row names the asset and prints no
+  // number. It must still be NAMED — dropping the symbol too would leave a row
+  // that says nothing about what moved.
+  it.each([
+    ['completed', 'mockGetCompletedTransactions'],
+    ['pending', 'mockGetUncompletedTransactions']
+  ])('names but does not quantify a %s row whose faucet has no known scale', async (kind, _mock) => {
+    const row = {
+      id: 'UNK',
+      status: kind === 'completed' ? STATUS.Completed : STATUS.Queued,
+      displayMessage: 'unresolved token',
+      displayIcon: 'RECEIVE',
+      faucetId: 'unresolved',
+      type: 'consume',
+      amount: 1000000000000000000n,
+      completedAt: 4000
+    };
+    if (kind === 'completed') {
+      mockGetCompletedTransactions.mockImplementation(async (_a: string, offset?: number) =>
+        offset === undefined ? [row] : []
+      );
+      mockGetUncompletedTransactions.mockResolvedValue([]);
+    } else {
+      mockGetCompletedTransactions.mockImplementation(async () => []);
+      mockGetUncompletedTransactions.mockResolvedValue([row]);
+    }
+
+    await renderHistory();
+
+    const key = kind === 'completed' ? 'completed-UNK' : 'pending-UNK';
+    await waitFor(() => expect(entryKeys()).toContain(key));
+    const entry = mockHistoryViewProps.entries.find((e: any) => e.key === key);
+    expect(entry.amount).toBeUndefined();
+    expect(entry.token).toBe('Unknown');
+    expect(mockFormatAmount).not.toHaveBeenCalledWith(1000000000000000000n, 6);
   });
 
   it('forwards passthrough props and initial-loading flag to HistoryView', async () => {
@@ -559,7 +602,9 @@ describe('History', () => {
     await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
     // Duplicate `completed-P` appears exactly once.
     expect(entryKeys().filter(k => k === 'completed-P')).toHaveLength(1);
-    expect(mockHistoryViewProps.hasMore).toBe(true);
+    // Two rows against a 1000 limit is a short page, so the history is
+    // exhausted and paging stops here.
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
   });
 
   it('loadMore sets hasMore false when no older transactions remain', async () => {
@@ -571,6 +616,35 @@ describe('History', () => {
       await mockHistoryViewProps.loadMore(0);
     });
     await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+  });
+
+  // `hasMore` has to key off what the PAGE returned, not off the merged list:
+  // merged, the list is non-empty from the first successful page onward, so an
+  // exhausted history would never stop paging and the scroller — which re-arms
+  // on every parent render, and SWR re-renders this on a timer — would fire an
+  // endless run of empty queries.
+  it('keeps paging while a page comes back full', async () => {
+    const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+      id: `OLD${i}`,
+      status: STATUS.Completed,
+      displayMessage: 'older tx',
+      displayIcon: 'RECEIVE',
+      faucetId: undefined,
+      type: 'consume',
+      amount: undefined,
+      completedAt: 10_000 - i
+    }));
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [] : fullPage
+    );
+    await renderHistory();
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+
+    expect(mockHistoryViewProps.hasMore).toBe(true);
   });
 
   it('loadMore is re-entrancy guarded while a previous page is in flight', async () => {
@@ -601,6 +675,118 @@ describe('History', () => {
     await act(async () => {
       releaseInFlight([]);
     });
+  });
+
+  it('stops paging after a failed page rather than wedging or spinning', async () => {
+    // Two failure modes to avoid at once. Leaking `isLoading` wedges pagination
+    // for the session (the guard at the top returns early while it is set);
+    // clearing it while leaving `hasMore` true makes the infinite scroller retry
+    // a persistently failing page on every re-render. So: clear the flag, and
+    // stop offering more.
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined) return [];
+      throw new Error('dexie-down');
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory();
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to load history page 0'),
+      expect.any(Error)
+    );
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+
+    // `isLoading` is internal, so it is proven cleared by the next call getting
+    // past the early-return guard at all — a leaked flag would silently no-op.
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? []
+        : [
+            {
+              id: 'OLD',
+              status: STATUS.Completed,
+              displayMessage: 'older tx',
+              displayIcon: 'RECEIVE',
+              type: 'consume',
+              completedAt: 10
+            }
+          ]
+    );
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(1);
+    });
+    await waitFor(() => expect(entryKeys()).toContain('completed-OLD'));
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  // `hasMore` is a bare useState while `restEntries` is keyed to the scope, so
+  // without an explicit reset the "stop extending" decision above would follow
+  // the user to every other account and token page in this mount.
+  it('re-enables paging after a failed page when the scope changes', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined) return [];
+      throw new Error('dexie-down');
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory({ tokenId: 'tok-a' });
+
+    await act(async () => {
+      await mockHistoryViewProps.loadMore(0);
+    });
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(false));
+
+    await act(async () => {
+      rerender(<History address="0xme" tokenId="tok-b" />);
+    });
+    await waitFor(() => expect(mockHistoryViewProps.hasMore).toBe(true));
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  // `useSafeState`'s setter only checks that the component is still MOUNTED, not
+  // that its key still matches, so a page in flight across an account switch
+  // would otherwise merge one account's history into another's list.
+  it('discards a page that resolves after the scope changed', async () => {
+    let releasePage: (rows: unknown[]) => void = () => {};
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) => {
+      if (offset === undefined) return [];
+      return new Promise(resolve => {
+        releasePage = resolve;
+      });
+    });
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    const { rerender } = await renderHistory({ tokenId: 'tok-a' });
+
+    let pageDone: Promise<void> = Promise.resolve();
+    await act(async () => {
+      pageDone = mockHistoryViewProps.loadMore(0);
+    });
+
+    await act(async () => {
+      rerender(<History address="0xme" tokenId="tok-b" />);
+    });
+
+    await act(async () => {
+      releasePage([
+        {
+          id: 'FROM-A',
+          status: STATUS.Completed,
+          displayMessage: 'token A row',
+          displayIcon: 'RECEIVE',
+          type: 'consume',
+          completedAt: 10
+        }
+      ]);
+      await pageDone;
+    });
+
+    expect(entryKeys()).not.toContain('completed-FROM-A');
   });
 
   it('cancels a pending transaction by id and no-ops when the entry has no txId', async () => {
@@ -823,6 +1009,118 @@ describe('History', () => {
       bridgeIntentNonce: 'n2',
       secondaryAddress: '0xpend'
     });
+  });
+});
+
+// A batch claim's secondary assets are rendered on the row, so they have to
+// reach the entry and be reachable by search — otherwise typing a symbol the
+// user can see hides the very row showing it.
+describe('History batch-claim extra assets', () => {
+  const claimRow = {
+    id: 'CLAIM',
+    status: STATUS.Completed,
+    displayMessage: 'Claimed',
+    displayIcon: 'RECEIVE',
+    faucetId: 'fa1',
+    type: 'consume',
+    amount: 20n,
+    completedAt: 9000,
+    assetTotals: [
+      { faucetId: 'fa1', amount: 20n },
+      { faucetId: 'fa2', amount: 10n }
+    ]
+  };
+  const extras = [{ faucetId: 'fa2', amount: '10', token: 'BBB' }];
+
+  beforeEach(() => {
+    mockResolveConsumeExtraAmounts.mockImplementation(async (tx: { id?: string }) =>
+      tx.id === 'CLAIM' || tx.id === 'PCLAIM' ? extras : []
+    );
+  });
+
+  it('threads the resolved secondary assets onto completed and pending entries', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [claimRow] : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      { ...claimRow, id: 'PCLAIM', status: STATUS.Queued, initiatedAt: 100 }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    // Assert the ROW reached the resolver, not just its id: the mock keys off
+    // `tx.id`, so an `objectContaining({ id })` check passes even when the
+    // caller strips the very field the resolver needs.
+    expect(mockResolveConsumeExtraAmounts).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'CLAIM', assetTotals: claimRow.assetTotals })
+    );
+    expect(mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-CLAIM').extraAmounts).toEqual(extras);
+    expect(mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-PCLAIM').extraAmounts).toEqual(extras);
+  });
+
+  // `0n` is falsy, so a truthiness gate turns a real zero total into "no amount"
+  // — and `buildRowProps` then drops every secondary asset along with it.
+  it('keeps a zero primary total as an amount on both the completed and pending paths', async () => {
+    const zeroRow = { ...claimRow, amount: 0n };
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [zeroRow] : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      { ...zeroRow, id: 'PCLAIM', status: STATUS.Queued, initiatedAt: 100 }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    const completed = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-CLAIM');
+    const pending = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-PCLAIM');
+    expect(completed.amount).toBeDefined();
+    expect(completed.extraAmounts).toEqual(extras);
+    expect(pending.amount).toBeDefined();
+  });
+
+  it('leaves extraAmounts unset for a single-asset row rather than an empty array', async () => {
+    // An empty array is truthy, so the row would take the batch-claim rendering
+    // path (and the search predicate would scan it) for every ordinary row.
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined ? [{ ...claimRow, id: 'SINGLE' }] : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(1));
+    expect(mockHistoryViewProps.entries[0].extraAmounts).toBeUndefined();
+  });
+
+  it('finds a claim by a secondary asset symbol that appears nowhere else on the entry', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            claimRow,
+            {
+              id: 'OTHER',
+              status: STATUS.Completed,
+              displayMessage: 'unrelated',
+              displayIcon: 'SEND',
+              faucetId: 'fa1',
+              type: 'send',
+              amount: 1n,
+              completedAt: 8000
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    const { rerender } = await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+
+    // 'BBB' is only on `extraAmounts` — not the message, token or address.
+    await act(async () => {
+      rerender(<History address="0xme" searchQuery="bbb" />);
+    });
+    expect(entryKeys()).toEqual(['completed-CLAIM']);
   });
 });
 
