@@ -116,6 +116,29 @@ jobs:
       - name: Launch Simulator.app
         run: open -a Simulator || true
 
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
       # Fresh-create + boot of custom sims hangs on macos-26 runners. Pin to
       # preinstalled Xcode sims by writing .device-pair.json before globalSetup.
       - name: Pin test pair to preinstalled simulators

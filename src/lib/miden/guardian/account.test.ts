@@ -13,6 +13,7 @@ import {
   getSignerDetailsFromAccount,
   GUARDIAN_SLOT_NAMES,
   guardianProviderFromEndpoint,
+  insertGuardianAccountMonotonically,
   MULTISIG_SLOT_NAMES,
   resolveGuardianEndpoint
 } from './account';
@@ -468,5 +469,80 @@ describe('resolveGuardianEndpoint', () => {
     mockFetchFromStorage.mockResolvedValueOnce(undefined);
     const endpoint = await resolveGuardianEndpoint({} as never);
     expect(endpoint).toBe('https://default.guardian.test');
+  });
+});
+
+describe('insertGuardianAccountMonotonically', () => {
+  const makeAccount = (nonce: bigint) => ({
+    id: () => ({ toString: () => 'acc-1' }),
+    nonce: () => ({ asInt: () => nonce })
+  });
+
+  const makeClient = (storedNonce?: bigint) => ({
+    accounts: {
+      insert: jest.fn(async () => {}),
+      get: jest.fn(async () => (storedNonce === undefined ? null : makeAccount(storedNonce)))
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('inserts when the account is not present locally', async () => {
+    const client = makeClient();
+    const account = makeAccount(3n);
+
+    await insertGuardianAccountMonotonically(client as never, account as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledWith({ account, overwrite: true });
+  });
+
+  it('inserts when the snapshot is newer than local state', async () => {
+    const client = makeClient(1n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('still overwrites at an equal nonce, since the snapshot may carry more detail', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a staler snapshot instead of rolling local state backwards', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+
+    expect(client.accounts.insert).not.toHaveBeenCalled();
+  });
+
+  it('keeps the committed state when a creation-time snapshot arrives last', async () => {
+    // The `guardian-recovery` flake exactly: one recovery adopts the same
+    // account twice, and before this guard a nonce-0 snapshot landing second
+    // left the account locally uncommitted, so the following hot-key rotation
+    // was built as an account creation and the node rejected it with
+    // "initial account commitment 0x0000…0000 does not match the current
+    // commitment". Order must no longer decide the outcome.
+    const stored: { nonce: bigint } = { nonce: 0n };
+    const client = {
+      accounts: {
+        insert: jest.fn(async ({ account }: { account: { nonce: () => { asInt: () => bigint } } }) => {
+          stored.nonce = account.nonce().asInt();
+        }),
+        get: jest.fn(async () => (stored.nonce === 0n ? null : makeAccount(stored.nonce)))
+      }
+    };
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+    await insertGuardianAccountMonotonically(client as never, makeAccount(0n) as never);
+
+    expect(stored.nonce).toBe(1n);
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
   });
 });

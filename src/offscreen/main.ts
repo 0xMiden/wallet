@@ -396,6 +396,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
+  // Node-authoritative commit state of one tx id, backing the send/swap
+  // idempotent-retry guard. A plain string union, so JSON like the DTO reads
+  // above. Its absence here was not neutral: the SW-side stub returned
+  // 'not-found', which `verifySendLanded` maps to 'unknown' — "cannot prove it
+  // landed" — and the retry proceeds on that. So on the flag-on path, which is
+  // the default in the service worker, the guard could never fire and a Failed
+  // row whose submit had actually landed was resubmitted.
+  getTransactionCommitState: async (client, txId: string) => {
+    const state = await client.getTransactionCommitState(txId);
+    return new TextEncoder().encode(JSON.stringify(state));
+  },
+
   // Consumable notes (issue #260, slice 4). The RECLAIM GATE
   // (`consumableAfterBlock() <= getSyncHeight()`) lives inside
   // `getConsumableNoteDtos` → so running it HERE, in the offscreen realm that
@@ -458,6 +470,34 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(id);
   },
 
+  // Pending-note recovery chunks (guardian seed recovery). Each is a short op
+  // so the SW can interleave syncs/reads between chunks and report progress.
+  drainPrivateNoteTransport: async client => {
+    await client.drainPrivateNoteTransport();
+    return null;
+  },
+
+  importRecoveryNoteBytes: async (client, encodedProposalNotes: string[]) => {
+    const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  resolveRecoveryScanRange: async (client, createdAtSeconds: number) => {
+    const result = await client.resolveRecoveryScanRange(createdAtSeconds);
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
+  recoverPublicNotesRange: async (
+    client,
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset?: number
+  ) => {
+    const result = await client.recoverPublicNotesRange(accountId, blockFrom, blockTo, noteOffset ?? 0);
+    return new TextEncoder().encode(JSON.stringify(result));
+  },
+
   // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
   // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
   // (offscreen) client's store — which is what makes the relay belong here: under
@@ -473,6 +513,22 @@ const DISPATCH: Record<string, DispatchFn> = {
     const note = (sdk as any).Note.deserialize(noteBytes);
     await client.sendPrivateNote(note, to);
     return null;
+  },
+
+  // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
+  // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
+  // THIS realm's store, so the id lookup and the `expected_height` hint derivation
+  // only resolve here. No note bytes to carry — the sweep has only the row.
+  relayPrivateNoteById: async (client, noteId: string, to: string) => {
+    await client.relayPrivateNoteById(noteId, to);
+    return null;
+  },
+
+  // Delivery receipt read for the sweep. Same store-ownership argument; returns the
+  // boolean as UTF-8 bytes because the op channel carries bytes, not values.
+  isOutputNoteConsumed: async (client, noteId: string) => {
+    const consumed = await client.isOutputNoteConsumed(noteId);
+    return new TextEncoder().encode(consumed ? 'true' : 'false');
   },
 
   // The first WRITE moved offscreen (issue #260, slice 5a). The WHOLE

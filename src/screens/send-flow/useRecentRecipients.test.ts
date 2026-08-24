@@ -35,6 +35,31 @@ const bridgedRow = (
   }) as unknown as ITransaction;
 
 describe('selectRecentRecipients', () => {
+  // A dump's rows must never become a trust signal. This is a fund-loss path:
+  // the list is offered at the moment the user picks a destination, and the
+  // wallet presenting an address as "recent" is the wallet vouching for it.
+  it('excludes rows restored from a backup', () => {
+    const attacker = sendRow({
+      secondaryAccountId: 'mtst1apattacker0000000000000000000000',
+      completedAt: 9_999,
+      restoredFromBackup: true
+    });
+    const genuine = sendRow({ secondaryAccountId: 'mtst1apgenuine00000000000000000000000', completedAt: 10 });
+
+    const recents = selectRecentRecipients([attacker, genuine], ACCOUNT);
+
+    expect(recents.map(r => r.address)).toEqual(['mtst1apgenuine00000000000000000000000']);
+  });
+
+  it('excludes a restored bridged send even though it is the newest row', () => {
+    const attacker = bridgedRow(
+      { completedAt: 9_999, restoredFromBackup: true },
+      '0x2222222222222222222222222222222222222222'
+    );
+
+    expect(selectRecentRecipients([attacker], ACCOUNT)).toEqual([]);
+  });
+
   it('returns distinct recipients newest first', () => {
     const older = sendRow({ secondaryAccountId: 'mtst1apolder', completedAt: 10 });
     const newer = sendRow({ secondaryAccountId: 'mtst1apnewer', completedAt: 20 });

@@ -34,6 +34,58 @@ export async function resolveGuardianEndpoint(account: WalletAccount): Promise<s
   return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
 }
 
+/**
+ * Adopt a guardian-served account snapshot locally, refusing any write that
+ * would move the account's state BACKWARDS.
+ *
+ * Guardian snapshots are not ordered, and one recovery adopts the same account
+ * more than once: `recoverGuardianAccountsBySeed` matches an account at more
+ * than one HD index and inserted each match with `overwrite: true`, so whichever
+ * snapshot arrived last won. That is fine while the snapshots agree (both at the
+ * account's current nonce, the common case) and silently corrupting when they
+ * don't: a creation-time snapshot (nonce 0) landing last leaves the account
+ * locally UNCOMMITTED, so the next hot-key rotation is built as an account
+ * CREATION and the node rejects it —
+ *
+ *   initial account commitment 0x0000…0000 does not match the current
+ *   commitment 0x41978d… for account 0x2cb3bb1e…
+ *
+ * — which is the intermittent `guardian-recovery` failure seen on main. Ordering
+ * decides the outcome, hence a flake rather than a hard break.
+ *
+ * Nonce is the ordering key because it increments once per committed
+ * state-changing transaction, so a lower nonce is by definition a staler view of
+ * the same account. Equal nonces still overwrite: same committed state, and the
+ * incoming snapshot may carry detail the stored record lacks.
+ *
+ * Monotonic account state is already an invariant one layer down — the client's
+ * own store rejects the mirror image of this write with "replace_account_header:
+ * new nonce 1 is less than old nonce 2" (observed in the same failing run, on a
+ * second account). This upholds it before the write instead of discovering it
+ * afterwards, and it belongs on the wallet side because the guardian is an
+ * untrusted remote: `importAccountFromGuardian` already refuses a snapshot whose
+ * account ID doesn't match, for the same reason.
+ *
+ * Callers MUST already hold the WASM client lock — this issues client calls and
+ * does not acquire it, so acquiring here would deadlock the existing
+ * `withWasmClientLock` scopes both call sites run inside.
+ */
+export async function insertGuardianAccountMonotonically(client: MidenClient, account: Account): Promise<void> {
+  const accountId = account.id();
+  const incomingNonce = account.nonce().asInt();
+  const stored = await client.accounts.get(accountId);
+
+  if (stored && incomingNonce < stored.nonce().asInt()) {
+    console.warn(
+      `[guardian] ignoring stale account snapshot for ${accountId.toString()}: ` +
+        `guardian served nonce ${incomingNonce}, local state is at nonce ${stored.nonce().asInt()}`
+    );
+    return;
+  }
+
+  await client.accounts.insert({ account, overwrite: true });
+}
+
 // Re-export the slot names from the package for reading account state
 export const MULTISIG_SLOT_NAMES = {
   THRESHOLD_CONFIG: 'openzeppelin::multisig::threshold_config',

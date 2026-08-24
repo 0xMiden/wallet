@@ -112,6 +112,8 @@ function resetControl() {
     inlineWaitForTransactionCommit: jest.fn(async () => {}),
     // Slice 7b: the flag-off pass-through of the private-note relay.
     inlineSendPrivateNote: jest.fn(async () => {}),
+    inlineRelayPrivateNoteById: jest.fn(async () => {}),
+    inlineIsOutputNoteConsumed: jest.fn(async () => false),
     inlineExportNote: jest.fn(async () => new Uint8Array([1, 2, 3])),
     inlineGetInputNoteDetails: jest.fn(async () => [{ __inlineDetail: true }]),
     inlineGetConsumableNoteDtos: jest.fn(async () => [{ __inlineConsumable: true }]),
@@ -135,7 +137,12 @@ function resetControl() {
       remainingRequested: () => 20n
     })),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
+    inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
+    inlineDrainPrivateNoteTransport: jest.fn(async () => {}),
+    inlineImportRecoveryNoteBytes: jest.fn(async () => ({ imported: 2, failures: 0 })),
+    inlineRecoverPublicNotesRange: jest.fn(async () => ({ imported: 3, failures: 0 })),
+    inlineResolveRecoveryScanRange: jest.fn(async () => ({ startBlock: 7, latestBlock: 99 })),
     // A real pass-through lock so the flag-off "caller lock preserved" assertion
     // is meaningful (spy call count) while still executing the wrapped op.
     withWasmClientLock: jest.fn(async (fn: () => Promise<unknown>) => fn()),
@@ -144,8 +151,11 @@ function resetControl() {
       syncState: (...a: any[]) => G.__px.inlineSyncState(...a),
       waitForTransactionCommit: (...a: any[]) => G.__px.inlineWaitForTransactionCommit(...a),
       sendPrivateNote: (...a: any[]) => G.__px.inlineSendPrivateNote(...a),
+      relayPrivateNoteById: (...a: any[]) => G.__px.inlineRelayPrivateNoteById(...a),
+      isOutputNoteConsumed: (...a: any[]) => G.__px.inlineIsOutputNoteConsumed(...a),
       exportNote: (...a: any[]) => G.__px.inlineExportNote(...a),
       getInputNoteDetails: (...a: any[]) => G.__px.inlineGetInputNoteDetails(...a),
+      getTransactionCommitState: (...a: any[]) => G.__px.inlineGetTransactionCommitState(...a),
       getConsumableNoteDtos: (...a: any[]) => G.__px.inlineGetConsumableNoteDtos(...a),
       consumeNoteId: (...a: any[]) => G.__px.inlineConsumeNoteId(...a),
       sendTransaction: (...a: any[]) => G.__px.inlineSendTransaction(...a),
@@ -155,6 +165,10 @@ function resetControl() {
       // height + pswap lineage are reached through the raw `.client`.
       getInputNote: (...a: any[]) => G.__px.inlineGetInputNote(...a),
       importNoteBytes: (...a: any[]) => G.__px.inlineImportNoteBytes(...a),
+      drainPrivateNoteTransport: (...a: any[]) => G.__px.inlineDrainPrivateNoteTransport(...a),
+      importRecoveryNoteBytes: (...a: any[]) => G.__px.inlineImportRecoveryNoteBytes(...a),
+      recoverPublicNotesRange: (...a: any[]) => G.__px.inlineRecoverPublicNotesRange(...a),
+      resolveRecoveryScanRange: (...a: any[]) => G.__px.inlineResolveRecoveryScanRange(...a),
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
@@ -272,6 +286,175 @@ describe('MidenClientProxy — flag routing', () => {
     const err = await p;
     expect(err).toBeInstanceOf(Error);
     expect((err as Error).message).toContain('boom in offscreen');
+  });
+
+  it('routes pending-note recovery chunks inline when the offscreen client is disabled', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const noteBytes = [new Uint8Array([1, 2]), new Uint8Array([3])];
+
+    await midenClientProxy.drainPrivateNoteTransport();
+    const imported = await midenClientProxy.importRecoveryNoteBytes(noteBytes);
+    const scanRange = await midenClientProxy.resolveRecoveryScanRange(1_700_000_000);
+    const publicCount = await midenClientProxy.recoverPublicNotesRange('mtst1guardian', 100, 200);
+
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(4);
+    expect(G.__px.inlineDrainPrivateNoteTransport).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineImportRecoveryNoteBytes).toHaveBeenCalledWith(noteBytes);
+    expect(G.__px.inlineResolveRecoveryScanRange).toHaveBeenCalledWith(1_700_000_000);
+    expect(G.__px.inlineRecoverPublicNotesRange).toHaveBeenCalledWith('mtst1guardian', 100, 200, 0);
+    expect(imported).toEqual({ imported: 2, failures: 0 });
+    expect(scanRange).toEqual({ startBlock: 7, latestBlock: 99 });
+    expect(publicCount).toEqual({ imported: 3, failures: 0 });
+  });
+
+  it('routes proposal-note import through offscreen and preserves note bytes', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    const sdkResult = { imported: 1, failures: 0 };
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(sdkResult)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.importRecoveryNoteBytes([new Uint8Array([7, 8, 9])]);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('importRecoveryNoteBytes');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual([`s:["${Buffer.from([7, 8, 9]).toString('base64')}"]`]);
+    expect(result).toEqual(sdkResult);
+  });
+
+  it('routes one public-backfill range through offscreen with its bounds', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 5, failures: 1, saturated: false })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('recoverPublicNotesRange');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual(['s:"mtst1guardian"', 's:1000', 's:200999', 's:0']);
+    expect(result).toEqual({ imported: 5, failures: 1, saturated: false, nextNoteOffset: undefined });
+  });
+
+  it('carries the note page offset and the cursor back over the boundary', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(
+        JSON.stringify({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 })
+      ).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 1_999, 200);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0].argsB64).toEqual([
+      's:"mtst1guardian"',
+      's:1000',
+      's:1999',
+      's:200'
+    ]);
+    expect(result).toEqual({ imported: 200, failures: 0, saturated: false, nextNoteOffset: 400 });
+  });
+
+  // Like `saturated`, the cursor re-offers the same range, so a value that is
+  // not a usable index has to throw rather than be coerced into one.
+  it.each([['not-a-number'], [-1], [1.5]])('rejects a malformed nextNoteOffset (%s)', async nextNoteOffset => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: false, nextNoteOffset })).toString(
+        'base64'
+      ),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed nextNoteOffset');
+  });
+
+  // `saturated` drives the caller's split loop, so a truthy non-boolean would
+  // make it split forever instead of failing the chunk.
+  it('rejects a non-boolean saturated from the offscreen document', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ imported: 0, failures: 0, saturated: 'yes' })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 1_000, 200_999);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed saturated');
+  });
+
+  it('routes the scan-range resolution through offscreen with its created-at seconds', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify({ startBlock: 1_000, latestBlock: 250_000 })).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.resolveRecoveryScanRange(1_700_000_000);
+    await flush();
+    fireReady();
+    const result = await pending;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('resolveRecoveryScanRange');
+    expect(env.deadline_ms).toBe(60_000);
+    expect(env.argsB64).toEqual(['s:1700000000']);
+    expect(result).toEqual({ startBlock: 1_000, latestBlock: 250_000 });
+  });
+
+  // A missing `failures` would make the orchestrator's accumulator NaN, and
+  // `NaN > 0` is false — reading as a clean pass over a chunk that reported
+  // nothing, which clears the one-shot recovery flag.
+  it.each([
+    ['a missing count', { imported: 4 }],
+    ['a non-numeric count', { imported: 4, failures: 'none' }],
+    ['a negative count', { imported: 4, failures: -1 }]
+  ])('rejects a recovery chunk payload with %s', async (_label, payload) => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(payload)).toString('base64'),
+      durationMs: 2
+    }));
+
+    const pending = midenClientProxy.recoverPublicNotesRange('mtst1guardian', 0, 10);
+    await flush();
+    fireReady();
+
+    await expect(pending).rejects.toThrow('malformed failures');
   });
 });
 
@@ -434,13 +617,15 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
 
   it('flag ON → dispatches OFFSCREEN_CALL to the realm that created the note, crossing the note as SERIALIZED bytes; the SW client is NEVER used', async () => {
     const { midenClientProxy } = await loadProxy(true);
+    const { isCriticalOpInFlight } = await import('./offscreen-prover');
+    // Sampled from inside the dispatch, the only point the in-flight bracket is
+    // observable — the counter is back to zero by the time the call resolves.
+    let criticalDuringRelay: boolean | undefined;
     // The offscreen side relays and returns null (void discarded).
-    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
-      ok: true,
-      op_id: env.op_id,
-      resultB64: null,
-      durationMs: 4
-    }));
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuringRelay = isCriticalOpInFlight();
+      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 4 };
+    });
 
     const note = makeNote([0xde, 0xad, 0xbe, 0xef]);
     const p = midenClientProxy.sendPrivateNote(note as any, 'mtst1qrecipient');
@@ -458,13 +643,104 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.type).toBe('OFFSCREEN_CALL');
     expect(env.method).toBe('sendPrivateNote');
-    // A transport relay — no prove/sign — so a short read deadline, NOT the write one.
-    expect(env.deadline_ms).toBe(15_000);
+    // A write-class deadline (45s), NOT a read's 15s, and dispatched as CRITICAL.
+    //
+    // This asserted 15s on the reasoning that a transport relay does no prove or
+    // sign — true of the work, but the stakes are a write's: the transaction has
+    // already landed, so an abort here does not undo a spend, it strands one. Two
+    // things follow from `critical`, and both are the point:
+    //   - `deadline_ms` is not armed at dispatch but at EXECUTION START, when the op
+    //     wins the offscreen WASM mutex, so queue-wait behind other ops is
+    //     off-budget. Burning a 15s budget in that queue and aborting before the
+    //     first request is the reported OperationAbortedError.
+    //   - a coincident cheap read's deadline downgrades to a reject-without-kill
+    //     instead of tearing down the realm mid-relay.
+    expect(env.deadline_ms).toBe(45_000);
+    expect(criticalDuringRelay).toBe(true);
+    // ...and the bracket is released once the relay resolves.
+    expect(isCriticalOpInFlight()).toBe(false);
     // The Note crossed as RAW serialized bytes (the 'b:' tag), never JSON/handle...
     expect(env.argsB64[0].startsWith('b:')).toBe(true);
     expect(Array.from(Buffer.from(env.argsB64[0].slice(2), 'base64'))).toEqual([0xde, 0xad, 0xbe, 0xef]);
     // ...and the recipient id crossed as a JSON string.
     expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+  });
+
+  it('flag ON → relayPrivateNoteById is dispatched as CRITICAL on the relay deadline, carrying only ids', async () => {
+    // The sweep's re-push. Same realm requirement and same stakes as the original
+    // relay — the note lives in the offscreen store and the transaction has already
+    // landed — so it must not be a cheap read that a coincident deadline can tear
+    // down. It differs only in having no live Note: the row is all the sweep has.
+    const { midenClientProxy } = await loadProxy(true);
+    const { isCriticalOpInFlight } = await import('./offscreen-prover');
+    let criticalDuringRelay: boolean | undefined;
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
+      criticalDuringRelay = isCriticalOpInFlight();
+      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 3 };
+    });
+
+    const p = midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+    await flush();
+    fireReady();
+    await p;
+
+    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('relayPrivateNoteById');
+    expect(env.deadline_ms).toBe(45_000);
+    expect(criticalDuringRelay).toBe(true);
+    expect(env.argsB64[0]).toBe('s:"0xnote"');
+    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+  });
+
+  it('flag ON → isOutputNoteConsumed is a plain read and decodes the boolean', async () => {
+    // The delivery receipt. A read, not a critical op: losing it costs one sweep
+    // cycle, and the sweep's fallback ("not proven delivered") is the safe answer.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from('true').toString('base64'),
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
+    await flush();
+    fireReady();
+
+    expect(await p).toBe(true);
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.method).toBe('isOutputNoteConsumed');
+    expect(env.deadline_ms).toBe(15_000);
+  });
+
+  it('flag ON → an empty receipt result reads as not-consumed rather than throwing', async () => {
+    // A missing result must not wedge the sweep: it re-pushes, which is harmless.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.isOutputNoteConsumed('0xnote');
+    await flush();
+    fireReady();
+
+    expect(await p).toBe(false);
+  });
+
+  it('flag OFF → both sweep calls run inline on the SW client under the WASM lock', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    G.__px.inlineIsOutputNoteConsumed.mockResolvedValueOnce(true);
+
+    expect(await midenClientProxy.isOutputNoteConsumed('0xnote')).toBe(true);
+    await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+
+    expect(G.__px.inlineIsOutputNoteConsumed).toHaveBeenCalledWith('0xnote');
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON → a deadline kill rejects with OperationAbortedError (caught by the completion relay → Completed, degraded)', async () => {
@@ -609,6 +885,67 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     // `undefined` arg is JSON-null on the wire (decodeArg → null → `?? undefined`).
     expect(env.argsB64).toEqual(['s:null']);
     expect(details).toEqual([]);
+  });
+});
+
+/**
+ * This read backs the send/swap idempotent-retry guard, and it used to be a
+ * hardcoded 'not-found' whenever the flag was on — which is the DEFAULT in the
+ * service worker. 'not-found' is not a safe placeholder: `verifySendLanded` maps
+ * it to 'unknown', its "cannot prove it landed" verdict, and the retry proceeds
+ * on that. So the only path that shipped was the one where the guard could never
+ * fire, and a Failed row whose submit had landed was resubmitted — paying twice.
+ */
+describe('MidenClientProxy — getTransactionCommitState (retry double-send guard)', () => {
+  it('flag OFF → goes inline, forwarding the tx id', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const state = await midenClientProxy.getTransactionCommitState('0xtxid');
+
+    expect(G.__px.inlineGetTransactionCommitState).toHaveBeenCalledWith('0xtxid');
+    expect(state).toBe('committed');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each(['committed', 'pending', 'not-found'] as const)(
+    'flag ON → dispatches and returns %p verbatim',
+    async expected => {
+      const { midenClientProxy } = await loadProxy(true);
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: true,
+        op_id: env.op_id,
+        resultB64: Buffer.from(new TextEncoder().encode(JSON.stringify(expected))).toString('base64'),
+        durationMs: 3
+      }));
+
+      const p = midenClientProxy.getTransactionCommitState('0xtxid');
+      await flush();
+      fireReady();
+      const state = await p;
+
+      expect(G.__px.inlineGetTransactionCommitState).not.toHaveBeenCalled();
+      const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+      expect(env.method).toBe('getTransactionCommitState');
+      expect(env.argsB64).toEqual(['s:"0xtxid"']);
+      expect(state).toBe(expected);
+    }
+  );
+
+  it('flag ON → an empty dispatch result THROWS rather than reporting a state nobody checked', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const p = midenClientProxy.getTransactionCommitState('0xtxid');
+    await flush();
+    fireReady();
+
+    // The caller's catch turns a throw into the same conservative 'unknown', but
+    // it also logs — where a fabricated 'not-found' was silent.
+    await expect(p).rejects.toThrow(/getTransactionCommitState/);
   });
 });
 

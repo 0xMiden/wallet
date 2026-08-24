@@ -29,7 +29,7 @@ import { logger } from 'shared/logger';
 import {
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
-  cancelTransaction,
+  cancelTransactionAfterPipelineStopped,
   verifyConsumeLanded
 } from './cancel';
 import {
@@ -47,6 +47,7 @@ import { getAllUncompletedTransactions, getTransactionsInProgress } from './get'
 import {
   isGuardianCanonicalizationError,
   isLockedError,
+  markMayHaveSubmitted,
   readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
@@ -74,12 +75,20 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { accountIdStringToSdk, canonicalWalletAccountId, sameWalletAccountId } from '../sdk/helpers';
+import { isPrivateNoteType } from '../helpers';
+import {
+  accountIdStringToSdk,
+  accountRefToSdk,
+  buildPswapCreateRequest,
+  buildSendTransactionRequest,
+  canonicalWalletAccountId,
+  sameWalletAccountId,
+  walletAccountIdToSdk
+} from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
 export * from './complete';
@@ -278,6 +287,16 @@ const stageStampFor =
   (txId: string): ((stage: ITransactionStage, opts?: { readonly reliable?: boolean }) => Promise<void>) =>
   async (stage, opts) => {
     try {
+      // 'submitting' is stamped immediately before the submit call, so it is the
+      // exact crossing the double-send guard needs — and it has to be recorded
+      // even for an unreliable stamp, and even once the row is terminal. A
+      // concurrent cancel makes the row terminal without stopping the pipeline,
+      // and `setTransactionStage` drops writes on terminal rows, so the stage
+      // would stay frozen where the cancel caught it and Retry would read a
+      // landed send as never-broadcast. `markMayHaveSubmitted` is guard-free for
+      // that reason. Unlike `stage`, a dropped stamp here can only under-report,
+      // which the coarser `isSubmitOutcomeUnknown` reading still catches.
+      if (stage === 'submitting') await markMayHaveSubmitted(txId);
       // An UNRELIABLE stamp (replayed from the offscreen realm — see StageCallback in
       // back/miden-client-proxy.ts) records the boundary for the progress screen but
       // must not author `stage`: the requeue gates below read that field to conclude a
@@ -303,6 +322,33 @@ async function requeueTransactionForRetry(
   stage: ITransactionStage,
   cooldownSec: number
 ): Promise<void> {
+  // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
+  // time (syncHeight + recallBlocks); reusing them across a long requeue loop
+  // would strand the collateral at the Epoch allocator. Drop the cached request
+  // so the next cycle rebuilds the P2IDE note against a fresh sync height. Safe:
+  // nothing reached the chain on a pre-submit requeue.
+  //
+  // A guardian recallable `send` freezes the same absolute height, and freezes
+  // its asset too — built at first attempt, so a wrong callback flag there fails
+  // the kernel's remove-asset assertion on every cycle for as long as the bytes
+  // survive. Same rule, same pre-submit safety argument. `swap` is requeueable
+  // too and must NOT be cleared: the PSWAP flow requires byte-identical reuse.
+  //
+  // The pre-submit argument holds for the attempt running RIGHT NOW (all callers
+  // requeue from proposal creation or proving), but not necessarily for the row:
+  // a user Retry of a send that died post-submit keeps its bytes and stamps
+  // `mayHaveSubmitted`, and the fresh attempt can then hit a 409 here. Clearing
+  // on the strength of this attempt's stage would rebuild the note id that is
+  // the only thing stopping the chain from accepting a second payment, so the
+  // sticky flag vetoes the clear.
+  //
+  // Folded into the status write rather than a second `modify`: as two writes, a
+  // service-worker death between them left the row Queued with its stale bytes
+  // intact — the exact state this clear exists to prevent, and self-perpetuating
+  // once the row is picked up again. `updateTransactionStatus` Object.assigns
+  // `otherValues`, so the undefined lands in the same transaction as the status.
+  const row = await Repo.transactions.where({ id: txId }).first();
+  const clearRequestBytes = (txType === 'earn-deposit' || txType === 'send') && row?.mayHaveSubmitted !== true;
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     stage,
@@ -311,18 +357,9 @@ async function requeueTransactionForRetry(
     // the whole cooldown plus every failed attempt in the generating-transaction
     // step timings.
     stageTimestamps: undefined,
-    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec
+    nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
+    ...(clearRequestBytes ? { requestBytes: undefined } : {})
   });
-  // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
-  // time (syncHeight + recallBlocks); reusing them across a long requeue loop
-  // would strand the collateral at the Epoch allocator. Drop the cached request
-  // so the next cycle rebuilds the P2IDE note against a fresh sync height. Safe:
-  // nothing reached the chain on a pre-submit requeue.
-  if (txType === 'earn-deposit') {
-    await Repo.transactions.where({ id: txId }).modify(t => {
-      t.requestBytes = undefined;
-    });
-  }
 }
 
 /**
@@ -545,7 +582,7 @@ export const generateTransaction = async (
           `[Guardian] ${transaction.type} submitted but post-submit reconcile failed — marking Failed so the awaiting caller stops waiting:`,
           error
         );
-        await cancelTransaction(transaction, error);
+        await cancelTransactionAfterPipelineStopped(transaction, error);
         return;
       }
       // `bridged-send` is in this list too, and by the ordering above it can only
@@ -721,7 +758,7 @@ export const generateTransaction = async (
       // 'unknown' fall through to the funds-safe cancelTransaction below. CONSUME
       // only — send/swap/execute have no post-kill node identity (deferred #3b).
       if (await tryCompleteKilledConsume(transaction, error)) return;
-      await cancelTransaction(transaction, error);
+      await cancelTransactionAfterPipelineStopped(transaction, error);
     }
     return;
   }
@@ -779,10 +816,13 @@ export const generateTransaction = async (
       break;
     case 'bridged-send':
     case 'earn-deposit':
-      // Epoch bridged-send + earn-deposit are send-style (recallable P2IDE note, no
-      // `requestBytes`); Agglayer bridged-send carries a pre-built request. Route the
-      // leaf through the proxy so it runs offscreen flag-on, inline flag-off — same
-      // args the former inline `getMidenClient(options)` block passed.
+      // Agglayer bridged-send carries a pre-built B2AGG request; Epoch bridged-send
+      // + earn-deposit now ALSO carry pre-built request bytes — the P2IDE collateral
+      // note with the mandate-binding attachment (smallocator PR #38), built at
+      // initiate time by `buildEpochCollateralRequestBytes`. Route the leaf through
+      // the proxy so it runs offscreen flag-on, inline flag-off. The bare
+      // `sendTransaction` fallback only remains for legacy rows queued before the
+      // binding migration.
       //
       // The abandoned-intent guard the Guardian leaf has must apply here too: this
       // shared block had none, so a non-Guardian account still minted the orphan
@@ -791,7 +831,7 @@ export const generateTransaction = async (
       if (transaction.type === 'earn-deposit') {
         await assertEarnDepositIntentLive(transaction);
       }
-      if (transaction.type === 'bridged-send' && transaction.requestBytes) {
+      if (transaction.requestBytes) {
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
@@ -866,7 +906,9 @@ const buildColdServiceForAccount = async (
  * The P2IDE note's serial number is random, so the request must be built ONCE and
  * the SAME bytes reused for both `createCustomProposal` and
  * `signAndCreateTransactionRequest` — persisted on the row so a retry after a
- * restart reuses them (same rule as the PSWAP case). `recallBlocks` is a RELATIVE
+ * restart reuses them, which is also what makes a duplicate submit rejectable
+ * (the reused serial pins the note id). A retry only rebuilds them when the row
+ * proves nothing was broadcast; see `PRE_SUBMIT_STAGES`. `recallBlocks` is a RELATIVE
  * blocks-until-recall offset, converted to an absolute reclaim height here
  * (`syncHeight + recallBlocks`) — the guardian-path counterpart of the
  * relative→absolute conversion in `MidenClientInterface.sendTransaction`.
@@ -906,21 +948,39 @@ const ensureGuardianRecallableSendRequestBytes = async (
     } else {
       syncHeight = await midenClientProxy.getSyncHeight();
     }
-    const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
-    try {
-      const tr = await client.newSendTransactionRequest(
-        accountIdStringToSdk(transaction.accountId),
-        accountIdStringToSdk(recipientId),
-        accountIdStringToSdk(faucetId),
-        noteType,
-        amount,
-        syncHeight + recallBlocks,
-        null
-      );
-      return tr.serialize();
-    } finally {
-      client.terminate();
-    }
+    // The sender's local account supplies the outgoing asset's vault key
+    // (callback flag included) — see `buildSendTransactionRequest`.
+    //
+    // Read through `midenClientProxy`, like the sync height above, rather than a
+    // transient `WasmWebClient.createClient(...)`. That transient client existed
+    // to reach `newSendTransactionRequest`, a raw-client method; now that the
+    // request is built from statically-imported SDK types the only thing left
+    // needing a client is this account read, and the proxy does it better on both
+    // counts. Correctness: flag-ON it reads from the OFFSCREEN client that owns
+    // the canonical sync state and that will EXECUTE this request, so the vault
+    // key is derived from the same account snapshot the kernel will check it
+    // against — a separate client could disagree. Cost: no worker spawn and no
+    // second multi-MB wasm instance inside the app-wide lock, which now matters
+    // per requeue cycle rather than once, since a requeued `send` drops its
+    // cached bytes and rebuilds. The proxy read is unlocked by design and this
+    // caller already holds `withWasmClientLock`, as its W2 contract requires.
+    //
+    // Passed as canonical hex: `walletAccountIdToSdk` strips the composite
+    // `<address>_<suffix>` form, and the SDK's `resolveAccountRef` takes `0x…`
+    // directly, so neither id shape can be rejected here.
+    const account = await midenClientProxy.getAccount(walletAccountIdToSdk(transaction.accountId).toString());
+    return buildSendTransactionRequest(
+      account ?? undefined,
+      walletAccountIdToSdk(transaction.accountId),
+      // The recipient is parsed as permissively as the non-guardian path rather
+      // than bech32-only: an id the SDK's own `resolveAccountRef` accepts must
+      // not be rejected just because the account holds a guardian.
+      accountRefToSdk(recipientId),
+      faucetId,
+      amount,
+      noteType,
+      syncHeight + recallBlocks
+    ).serialize();
   });
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -1099,15 +1159,36 @@ const generateGuardianTransaction = async (
           sendTx.secondaryAccountId,
           sendTx.faucetId,
           BigInt(sendTx.amount),
-          sendTx.noteType === NoteTypeEnum.Public ? NoteType.Public : NoteType.Private,
+          // Via `isPrivateNoteType` like every other send-path coercion, so
+          // this path and the non-guardian one can't disagree about the same
+          // row. Note the direction change: the former `=== Public ? Public :
+          // Private` mapped an unrecognized value to Private (safe but silent)
+          // and a MISSING one to Private too, where this resolves missing to
+          // Public like the SDK. That is only sound because a missing noteType
+          // can no longer reach here — the dApp send boundary rejects it with
+          // InvalidParams before the user is prompted, and the wallet's own
+          // send screens always set it.
+          isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public,
           recallBlocks
         );
         proposalResult = await withGuardianConflictRetry(() =>
           service.createCustomProposal(requestBytes, 'recallable_send')
         );
       } else {
+        // Same coercion as the recallable branch above. This used to be
+        // hardcoded Private, which broke a Public guardian send two ways at
+        // once: the note went out private although the review screen (and a
+        // dApp's preview) said Public, and because the ROW still said 'public',
+        // `completeSendTransaction` skipped the private-note relay — so the
+        // recipient was never handed the note file and could not see or consume
+        // it, on a plain P2ID with no reclaim window for the sender either.
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createSendProposal(sendTx.secondaryAccountId, sendTx.faucetId, BigInt(sendTx.amount))
+          service.createSendProposal(
+            sendTx.secondaryAccountId,
+            sendTx.faucetId,
+            BigInt(sendTx.amount),
+            isPrivateNoteType(sendTx.noteType) ? NoteType.Private : NoteType.Public
+          )
         );
       }
       break;
@@ -1179,12 +1260,14 @@ const generateGuardianTransaction = async (
       // mistaken for the Agglayer (pre-built request) path.
       if (bridgeTx.extraInputs?.provider === 'epoch') {
         // The solver's allocator requires a recallable, PUBLIC P2IDE collateral
-        // note — it reads the note on-chain (a private note is "not found on-chain")
-        // AND validates its recall window (a plain P2ID has none and is rejected,
-        // "P2IDE reclaim window too small"). `createP2idProposal` can only mint a
-        // plain P2ID, so build the same public P2IDE send request the standard-
-        // account path builds (from the row's recall height) and route it through a
-        // custom proposal — same mechanism as the Agglayer branch below.
+        // note — it reads the note on-chain (a private note is "not found on-chain"),
+        // validates its recall window (a plain P2ID has none and is rejected,
+        // "P2IDE reclaim window too small"), AND requires the mandate-binding
+        // attachment (smallocator PR #38 — "Miden note is not bound to the intent
+        // mandate"). Rows queued by `createBridgeP2IDENote` carry the pre-built
+        // request (own output note with the attachment) in `requestBytes`, which
+        // `ensureGuardianRecallableSendRequestBytes` returns verbatim; its build
+        // path below is only a fallback for legacy attachment-less rows.
         const recallBlocks = bridgeTx.extraInputs?.recallBlocks;
         if (!recallBlocks) {
           throw new Error(
@@ -1216,13 +1299,13 @@ const generateGuardianTransaction = async (
       // with a reclaim height, which the multisig client's P2ID proposal cannot
       // express — so route it through a custom proposal built from a P2IDE send
       // request, exactly like the recallable `send` case (see OpenZeppelin/
-      // guardian#366). `recallBlocks` (set on the row by `openEarnPosition`) is a
-      // RELATIVE blocks-until-reclaim offset; the note's absolute reclaim height is
-      // `syncHeight + recallBlocks` at build time, the same relative→absolute
-      // conversion the non-Guardian path uses. The Epoch allocator validates the
+      // guardian#366). `recallBlocks` (set on the row from the Epoch SDK's mint
+      // callback — allocator minimum + SDK drift buffer) is a RELATIVE
+      // blocks-until-reclaim offset; the note's absolute reclaim height is
+      // `head + recallBlocks` at build time. The Epoch allocator validates the
       // REMAINING reclaim window against its own (later) chain head — not an exact
       // height — so the extra guardian propose/sign/submit delay is absorbed by
-      // `MIDEN_RECLAIM_BUFFER_BLOCKS` baked into `recallBlocks` (see earn-note.ts).
+      // the ~1000-block buffer the SDK bakes into `recallBlocks`.
       const earnTx = transaction as EarnDepositTransaction;
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       const recallBlocks = earnTx.extraInputs?.recallBlocks;
@@ -1237,11 +1320,13 @@ const generateGuardianTransaction = async (
       // MAX_QUEUED_AGE). See assertEarnDepositIntentLive; the throw is terminal
       // (→ cancelTransaction below) and a Failed row is never re-picked.
       await assertEarnDepositIntentLive(earnTx);
-      // Build the P2IDE collateral request via the shared guardian helper (same as
-      // the recallable send / Epoch bridge paths). `freshSync`: earn collateral is
-      // allocator-validated, so measure the reclaim height against a current head.
+      // Rows queued by `createEarnP2IDENote` carry the pre-built P2IDE collateral
+      // request (own output note with the mandate-binding attachment, smallocator
+      // PR #38) in `requestBytes`, which the shared guardian helper returns
+      // verbatim; its build path is only a fallback for legacy attachment-less
+      // rows (`freshSync`: measure the reclaim height against a current head).
       // Earn collateral is always PUBLIC — the allocator discovers + consumes it
-      // on-chain (createEarnP2IDNote hardcodes it), regardless of the row's noteType.
+      // on-chain (createEarnP2IDENote hardcodes it), regardless of the row's noteType.
       const requestBytes = await ensureGuardianRecallableSendRequestBytes(
         transaction,
         earnTx.secondaryAccountId!,
@@ -1268,6 +1353,14 @@ const generateGuardianTransaction = async (
       // second, divergent proposal.
       if (!transaction.requestBytes) {
         const requestBytes = await withWasmClientLock(async () => {
+          // The offered asset has to carry the vault key of the slot it is
+          // actually held in — the callback flag is part of that key, and the
+          // PSWAP builder always produces the Disabled variant. Read the vault
+          // through the proxy, like every other path that does this, so under the
+          // offscreen client the key comes from the realm that will EXECUTE the
+          // request. The proxy read is unlocked by design and this scope already
+          // holds the client lock, which is what that contract requires.
+          const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
           const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
           try {
             const tr = await client.newPswapCreateTransactionRequest(
@@ -1279,7 +1372,15 @@ const generateGuardianTransaction = async (
               NoteType.Public,
               NoteType.Public
             );
-            return tr.serialize();
+            // Built once and rewritten once, in the same scope: each builder call
+            // draws a fresh serial number, which IS the order id. See
+            // `buildPswapCreateRequest`.
+            return buildPswapCreateRequest(
+              creatorAccount ?? undefined,
+              tr,
+              swapTx.faucetId,
+              BigInt(swapTx.amount)
+            ).serialize();
           } finally {
             client.terminate();
           }
@@ -1374,6 +1475,27 @@ const generateGuardianTransaction = async (
       // replays through this callback. Guardian is the wallet's DEFAULT account type
       // and the SW build defaults the flag ON, so a flag-ON-only gap here would blank
       // the step durations on the primary send flow of the primary platform.
+      //
+      // The submit crossing rides that same channel — 'submitting' arrives like
+      // any other stage and `stageStampFor` records it — but a replayed stamp is
+      // not a substitute for pinning the guard here, because the failure this
+      // guards against is precisely the one that eats the replay: a realm killed
+      // between `submit()` and the event reaching the SW leaves the row looking
+      // never-broadcast. So pin it before dispatch and accept the
+      // over-approximation, which errs the safe way (a needless rebuild rather
+      // than a second payment).
+      //
+      // Only where there ARE bytes to pin, which is what makes the
+      // over-approximation affordable. The flag is sticky and vetoes the cached-
+      // request clear in `requeueTransactionForRetry`, so stamping a row that
+      // caches nothing would assert a crossing on a row with neither bytes nor a
+      // captured id — the exact shape `requeueFailedTransaction` refuses — and
+      // brick every non-recallable guardian send on its FIRST failure, the
+      // vault-slot rejection included. A guardian send with no recall window
+      // takes `createSendProposal` and caches nothing, so it is left alone.
+      if (transaction.requestBytes !== undefined) {
+        await markMayHaveSubmitted(transaction.id);
+      }
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),
@@ -1502,7 +1624,7 @@ const generateGuardianTransaction = async (
       break;
     case 'earn-deposit':
       // Same completion as the non-Guardian path: extract the committed P2IDE
-      // collateral note id and mark the row Deposited. `createEarnP2IDNote` reads
+      // collateral note id and mark the row Deposited. `createEarnP2IDENote` reads
       // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
       // routing this to the generic custom-tx completion would strand the deposit.
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
@@ -1622,7 +1744,7 @@ export const generateTransactionsLoop = async (
         logger.warning(
           `${tx.type} submitted but local apply failed; marking Failed so the awaiting caller stops waiting`
         );
-        if (tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+        if (tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
         return false;
       }
 
@@ -1636,8 +1758,36 @@ export const generateTransactionsLoop = async (
         // through to cancel there — a separate, pre-existing gap.) This generic path
         // covers non-guardian send/consume, whose note states the next sync reconciles
         // via ConsumedExternal.
+        //
+        // A PRIVATE send reaching here has strictly worse consequences than "the next
+        // sync reconciles it", and they are invisible from the row alone. The apply
+        // threw, so `completeSendTransaction` never ran — and that is the only code
+        // that hands a private note to the transport. The transaction is on chain and
+        // its note was never relayed to anyone, which no amount of syncing repairs:
+        // sync reconciles what the CHAIN knows, and the chain holds a commitment, not
+        // the note body the recipient needs. Marking this Completed with a bare
+        // "Completed" is therefore the same silent loss this field exists to expose.
+        //
+        // There is nothing to retry from here — the apply threw before a
+        // `TransactionResult` could be captured, so the note bytes are gone with the
+        // call frame — which is exactly why it has to be surfaced rather than
+        // absorbed.
+        // `isPrivateNoteType`, not a bare compare against the string enum: a row can
+        // hold the SDK's NUMERIC note type, which a string compare reads as public —
+        // and that would report this exact loss as a clean "Completed". Unreadable
+        // values resolve toward private, since over-reporting a delivery problem
+        // costs a stale warning while under-reporting costs the funds.
+        let isPrivateSend = tx.type === 'send';
+        if (isPrivateSend) {
+          try {
+            isPrivateSend = isPrivateNoteType(tx.noteType);
+          } catch {
+            isPrivateSend = true;
+          }
+        }
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: 'Completed',
+          displayMessage: isPrivateSend ? 'Completed — the private note could not be delivered' : 'Completed',
+          ...(isPrivateSend ? { noteDelivery: 'undelivered' as const } : {}),
           completedAt: Math.floor(Date.now() / 1000)
         });
       }
@@ -1669,7 +1819,7 @@ export const generateTransactionsLoop = async (
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();
-    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransaction(tx, e);
+    if (tx && tx.status !== ITransactionStatus.Failed) await cancelTransactionAfterPipelineStopped(tx, e);
     return false;
   }
 };

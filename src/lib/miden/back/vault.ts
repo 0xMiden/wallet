@@ -551,24 +551,27 @@ export class Vault {
         evmKeys.set(c.hdIndex, deriveEvmKeyPair(mnemonic, walletType, c.hdIndex));
       }
 
-      const initialAccounts: WalletAccount[] = createdAccounts.map((c, idx) => ({
-        publicKey: c.accountId,
-        name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
-        isPublic: walletType === WalletType.OnChain,
-        type: walletType,
-        hdIndex: c.hdIndex,
-        authScheme: c.authScheme,
-        evmAddress: evmKeys.get(c.hdIndex)?.address,
-        ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
-        ...(c.guardianKeys && {
-          hotPublicKey: c.guardianKeys.hotPublicKey,
-          coldPublicKey: c.guardianKeys.coldPublicKey
-        }),
-        ...(c.recoveredCold && {
-          coldPublicKey: c.recoveredCold.coldPublicKey,
-          requiresHotKeyRotation: true
+      const initialAccounts: WalletAccount[] = createdAccounts.map(
+        (c, idx): WalletAccount => ({
+          publicKey: c.accountId,
+          name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
+          isPublic: walletType === WalletType.OnChain,
+          type: walletType,
+          hdIndex: c.hdIndex,
+          authScheme: c.authScheme,
+          evmAddress: evmKeys.get(c.hdIndex)?.address,
+          ...(c.guardianEndpoint && { guardianEndpoint: c.guardianEndpoint }),
+          ...(c.guardianKeys && {
+            hotPublicKey: c.guardianKeys.hotPublicKey,
+            coldPublicKey: c.guardianKeys.coldPublicKey
+          }),
+          ...(c.recoveredCold && {
+            coldPublicKey: c.recoveredCold.coldPublicKey,
+            requiresHotKeyRotation: true,
+            guardianNoteRecoveryPending: true
+          })
         })
-      }));
+      );
 
       await encryptAndSaveMany(
         [
@@ -1140,6 +1143,27 @@ export class Vault {
       }
       const newAllAccounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, guardianSyncStatus } : acc
+      );
+      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
+      const currentAccount = await this.getCurrentAccount();
+      return { accounts: newAllAccounts, currentAccount };
+    });
+  }
+
+  /**
+   * Persist the one-shot pending-note recovery flag for a seed-recovered
+   * account. Set on adoption; cleared by the detached recovery after a full
+   * pass (a termination mid-run leaves it set so the next unlock retries).
+   */
+  async setGuardianNoteRecoveryPending(accountPublicKey: string, guardianNoteRecoveryPending: boolean) {
+    return withError('Failed to set Guardian note recovery state', async () => {
+      const allAccounts = await this.fetchAccounts();
+      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      const newAllAccounts = allAccounts.map(acc =>
+        acc.publicKey === accountPublicKey ? { ...acc, guardianNoteRecoveryPending } : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
       const currentAccount = await this.getCurrentAccount();

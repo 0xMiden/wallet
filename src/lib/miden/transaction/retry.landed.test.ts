@@ -15,6 +15,7 @@ import * as Repo from 'lib/miden/repo';
 
 const mockVerifySendLanded = jest.fn();
 jest.mock('./cancel', () => ({
+  ...jest.requireActual('./cancel'),
   verifySendLanded: (...args: unknown[]) => mockVerifySendLanded(...args)
 }));
 

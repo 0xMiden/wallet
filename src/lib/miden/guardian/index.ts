@@ -18,12 +18,12 @@ import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from './account';
+import { getSignerDetailsFromAccount, insertGuardianAccountMonotonically, resolveGuardianEndpoint } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { accountIdStringToSdk } from '../sdk/helpers';
+import { accountRefToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
 /**
@@ -173,7 +173,7 @@ export class MultisigService {
         throw new Error(`Guardian returned account ${returnedId} but ${accountId} was requested`);
       }
 
-      await webClient.accounts.insert({ account, overwrite: true });
+      await insertGuardianAccountMonotonically(webClient, account);
     } catch (error) {
       console.error('Error fetching account state from Guardian:', error);
       throw error;
@@ -188,20 +188,35 @@ export class MultisigService {
   }
 
   /**
-   * Create a send (P2ID) transaction proposal. Always private — the multisig
-   * client's send proposal has no reclaim-height option, so this is only used
-   * for a plain (non-recallable) Guardian send. Anything that needs a recall
-   * window or a public, allocator-readable note (recallable send, Epoch bridge,
-   * earn deposit) is built as a P2IDE send request and routed through
+   * Create a send (P2ID) transaction proposal. The multisig client's send
+   * proposal has no reclaim-height option, so this is only used for a plain
+   * (non-recallable) Guardian send. Anything that needs a recall window or a
+   * public, allocator-readable note (recallable send, Epoch bridge, earn
+   * deposit) is built as a P2IDE send request and routed through
    * `createCustomProposal`.
+   *
+   * `noteType` is a required argument rather than a hardcoded Private: the
+   * caller resolves it from the row the user actually approved. Defaulting it
+   * here is what made a Public guardian send emit a private note the recipient
+   * was never sent.
+   *
+   * Ids go through `accountRefToSdk`, not the bech32-only parser: faucet ids in
+   * particular reach the wallet in both hex and bech32 form, and the sibling
+   * recallable-send path already accepts both — a hex id that the recallable
+   * path sends fine would throw here.
    */
-  async createSendProposal(recipientId: string, faucetId: string, amount: bigint): Promise<Proposal> {
+  async createSendProposal(
+    recipientId: string,
+    faucetId: string,
+    amount: bigint,
+    noteType: NoteType
+  ): Promise<Proposal> {
     return withWasmClientLock(() =>
       this.multisig.createP2idProposal(
-        accountIdStringToSdk(recipientId).toString(),
-        accountIdStringToSdk(faucetId).toString(),
+        accountRefToSdk(recipientId).toString(),
+        accountRefToSdk(faucetId).toString(),
         amount,
-        { noteType: NoteType.Private }
+        { noteType }
       )
     );
   }

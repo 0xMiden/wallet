@@ -527,6 +527,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.ApplyUserGuardianEndpointResponse,
         applied
       };
+    case WalletMessageType.StartGuardianRecoveryRequest:
+      const recoveryStarted = await Actions.startGuardianRecovery(req.accountPublicKey);
+      return {
+        type: WalletMessageType.StartGuardianRecoveryResponse,
+        started: recoveryStarted
+      };
     case WalletMessageType.GetPublicKeyForCommitmentRequest:
       const commitmentPublicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

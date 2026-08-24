@@ -375,10 +375,12 @@ export default defineConfig({
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
-    // document. DEFAULT ON for the service-worker bundle — this is the only bundle
-    // that can open an offscreen document, so it is the only one where the flag can
-    // mean anything. Every other config defaults it `'false'` (mobile hardcodes it).
-    // Off is a strict no-op vs. the inline client.
+    // document. DEFAULT ON in the service worker — this is the bundle that runs
+    // the transaction loop, so the offscreen leaf is the SHIPPING path, not an
+    // opt-in. Code reasoning about what a failed row can prove has to assume it:
+    // the offscreen leaf reports no stages, so a row can be frozen mid-flight
+    // with a submit already gone (see PRE_SUBMIT_STAGES in transaction/retry.ts).
+    // The other bundles default OFF; mobile hardcodes OFF (no chrome.offscreen).
     // See lib/miden/back/miden-client-proxy.ts.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),

@@ -162,6 +162,7 @@ describe('SwapAmounts', () => {
         id: 'faucet-offer',
         name: 'IMIDEN',
         decimals: 8,
+        scaleIsKnown: true,
         balance: 42,
         fiatPrice: 0
       });
@@ -173,6 +174,7 @@ describe('SwapAmounts', () => {
         id: 'faucet-req',
         name: 'IETH',
         decimals: 8,
+        scaleIsKnown: true,
         balance: 0,
         fiatPrice: 0
       });

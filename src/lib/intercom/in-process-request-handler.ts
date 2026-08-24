@@ -199,6 +199,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.StartGuardianRecoveryRequest: {
+      const started = await Actions.startGuardianRecovery(req.accountPublicKey);
+      return {
+        type: WalletMessageType.StartGuardianRecoveryResponse,
+        started
+      };
+    }
+
     case WalletMessageType.GetPublicKeyForCommitmentRequest: {
       const publicKey = await Actions.getPublicKeyForCommitment(req.commitment);
       return {

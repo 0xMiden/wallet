@@ -29,7 +29,7 @@
  *
  * `data-dapp-bubble-host="true"` on the outer element keeps the existing
  * `body[data-drawer-open]` CSS morph working — no main.css edits needed.
- * The tray slides down out of sight whenever a Settings drawer or the
+ * The tray slides down out of sight whenever a Settings sub-page or the
  * new dApp actions sheet takes over the bottom of the screen.
  */
 
@@ -381,6 +381,7 @@ export const DappPeekTray: FC = () => {
   return createPortal(
     <div
       data-dapp-bubble-host="true"
+      data-testid="dapp-peek-tray"
       className="pointer-events-none fixed"
       style={{
         // Position the tray so its bottom edge sits 4pt above the top

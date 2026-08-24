@@ -4,11 +4,31 @@ import {
   IBridgedReceivePhase,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
+  INoteDeliveryState,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+
+/** A formatted secondary asset on a batch-consume row. */
+export interface IHistoryExtraAmount {
+  /** Source faucet — the only field guaranteed distinct between two entries. */
+  faucetId: string;
+  /**
+   * Formatted display amount, or `undefined` when the faucet's decimals are not
+   * known yet.
+   *
+   * A batch claim's secondary faucets are exactly the ones the wallet has never
+   * held, so their metadata is often absent — and the unknown-token fallback
+   * carries a *guessed* 6 decimals. Scaling an 18-decimal token by that renders
+   * it 10^12 too large, which is indistinguishable from a correct number. When
+   * the scale is unknown the asset is named and its amount withheld until
+   * metadata resolves; a missing number is recoverable, a wrong one is not.
+   */
+  amount?: string;
+  token: string;
+}
 
 export interface IHistoryEntry {
   key: string;
@@ -28,6 +48,14 @@ export interface IHistoryEntry {
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
   /**
+   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
+   * chain may still not be spendable by its recipient, since a private note is
+   * unreachable without its relayed body. Absent for public sends and for rows
+   * written before the field existed.
+   */
+  noteDelivery?: INoteDeliveryState;
+  /**
    * `tx.processingStartedAt` — stamped atomically with the Queued →
    * GeneratingTransaction transition. The detail page's Retry gate reads it as
    * the double-send guard's "did this row ever execute?" signal: absent means the
@@ -35,7 +63,20 @@ export interface IHistoryEntry {
    */
   processingStartedAt?: number;
   token?: string;
-  amount?: bigint;
+  /**
+   * Formatted for display, like `requestedAmount` below — every producer assigns
+   * the result of `formatAmount`, so this is decimal-shifted text and NOT base
+   * units. It was declared `bigint` behind an `as IHistoryEntry` cast at both
+   * construction sites, which would have let a reader scale a money figure a
+   * second time with no type error.
+   */
+  amount?: string;
+  /**
+   * Consume only: formatted totals of every OTHER asset in a batch claim, after
+   * the primary `amount`/`token`, rendered inline after it. "10 A, 10 A, 10 B" →
+   * amount "20", token "A", extraAmounts [{ amount: "10", token: "B" }].
+   */
+  extraAmounts?: IHistoryExtraAmount[];
   /** Swap only: formatted requested-side amount, shown on the row's right. */
   requestedAmount?: string;
   /** Swap only: requested-side token symbol. */
@@ -60,6 +101,8 @@ export interface IHistoryEntry {
   fee?: string;
   noteType?: string;
   noteId?: string;
+  /** Input notes claimed by a `consume` row (every note in a batch claim). */
+  consumedNoteIds?: string[];
   externalTxId?: string;
   faucetId?: string;
   blockNumber?: number;
@@ -83,6 +126,12 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /**
+   * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
+   * detail view can withhold affordances that turn a row back into work —
+   * a restored row's note ids and amounts come from whoever wrote the dump.
+   */
+  restoredFromBackup?: boolean;
 
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).

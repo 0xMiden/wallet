@@ -46,6 +46,91 @@ describe('transaction models', () => {
     expect(tx.completedAt).toBeUndefined();
   });
 
+  describe('ConsumeTransaction batch aggregation', () => {
+    const note = (over: Partial<ConsumableNote> & { id: string }): ConsumableNote => ({
+      faucetId: 'faucet-a',
+      amount: '10',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: NoteTypeEnum.Private,
+      ...over
+    });
+
+    // Amounts are deliberately UNEQUAL: with three identical notes, summing each
+    // note's own amount and summing the first note's amount three times give the
+    // same answer, so the test would pass against a constructor that ignores
+    // every note but the first.
+    it('totals a mixed batch per faucet and keeps amount on the first note s faucet', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', faucetId: 'faucet-a', amount: '10' }),
+        note({ id: 'n2', faucetId: 'faucet-a', amount: '3' }),
+        note({ id: 'n3', faucetId: 'faucet-b', amount: '7' })
+      ]);
+
+      expect(tx.assetTotals).toEqual([
+        { faucetId: 'faucet-a', amount: 13n },
+        { faucetId: 'faucet-b', amount: 7n }
+      ]);
+      // The headline amount is one entry of assetTotals, never a separate tally.
+      expect(tx.amount).toBe(13n);
+      expect(tx.noteIds).toEqual(['n1', 'n2', 'n3']);
+    });
+
+    // The empty-amount note sits on its OWN faucet, so its absence is visible.
+    // On a shared faucet it is invisible: `BigInt('')` is `0n`, so dropping the
+    // skip changes nothing and the test passes against a missing guard.
+    it('leaves assetTotals off a batch s odd note out when it has no amount', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', amount: '7' }),
+        note({ id: 'n2', faucetId: 'faucet-empty', amount: '' }),
+        note({ id: 'n3', amount: '5' })
+      ]);
+
+      expect(tx.assetTotals).toEqual([{ faucetId: 'faucet-a', amount: 12n }]);
+      expect(tx.amount).toBe(12n);
+    });
+
+    it('omits assetTotals entirely when no note carries an identifiable asset', () => {
+      const tx = new ConsumeTransaction('acc', [note({ id: 'n1', faucetId: '', amount: '4' })]);
+
+      // An empty faucet id still yields a headline amount, but it cannot be a
+      // per-faucet total — there is no faucet to attribute it to.
+      expect(tx.amount).toBe(4n);
+      expect(tx.assetTotals).toBeUndefined();
+    });
+
+    it('reports a note type only when the batch agrees on one', () => {
+      const uniform = new ConsumeTransaction('acc', [
+        note({ id: 'n1', type: NoteTypeEnum.Public }),
+        note({ id: 'n2', type: NoteTypeEnum.Public })
+      ]);
+      const mixed = new ConsumeTransaction('acc', [
+        note({ id: 'n1', type: NoteTypeEnum.Public }),
+        note({ id: 'n2', type: NoteTypeEnum.Private })
+      ]);
+
+      expect(uniform.noteType).toBe(NoteTypeEnum.Public);
+      expect(mixed.noteType).toBeUndefined();
+    });
+
+    // 'unknown' is what `claimable-notes`/`settlement` produce when the node did
+    // not report a storage mode. It agrees with itself across the batch, so only
+    // the explicit check keeps it off the row — otherwise the details card grows
+    // a "Note type: unknown" line that tells the user nothing.
+    it('reports no note type when the batch agrees only on not knowing', () => {
+      const tx = new ConsumeTransaction('acc', [
+        note({ id: 'n1', type: 'unknown' }),
+        note({ id: 'n2', type: 'unknown' })
+      ]);
+
+      expect(tx.noteType).toBeUndefined();
+    });
+
+    it('rejects an empty batch rather than constructing a note-less consume', () => {
+      expect(() => new ConsumeTransaction('acc', [])).toThrow('ConsumeTransaction requires at least one note');
+    });
+  });
+
   it('creates bridge receives as tracking-only completed rows', () => {
     const tx = new BridgedReceiveTransaction(
       'miden-account',

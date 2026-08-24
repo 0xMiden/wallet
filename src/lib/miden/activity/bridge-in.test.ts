@@ -1,6 +1,7 @@
 import {
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
+  resolveBridgeInNoteId,
   suppressingLinkedTxIds,
   takeAgglayerBridgeInInfo,
   takeBridgeInInfoForNotes
@@ -18,10 +19,27 @@ jest.mock('../front/storage', () => ({
 
 const mockAnyOfToArray = jest.fn();
 const mockTransactions: any[] = [];
+// Rows `tagConsumeRow` searches by note id, kept apart from `mockTransactions`
+// so the AggLayer suites above are unaffected.
+const mockNoteIdRows: any[] = [];
+const mockModify = jest.fn();
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: jest.fn(() => ({ anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })) })),
+    where: jest.fn((index?: unknown) => ({
+      anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })),
+      // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
+      modify: mockModify,
+      equals: jest.fn((noteId: string) => ({
+        filter: jest.fn((predicate: (tx: any) => boolean) => ({
+          first: jest.fn(async () =>
+            mockNoteIdRows.filter(row => row.noteIds?.includes(noteId)).find(row => predicate(row))
+          )
+        }))
+      })),
+      first: jest.fn(async () => undefined),
+      index
+    })),
     filter: jest.fn((predicate: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
@@ -35,6 +53,50 @@ beforeEach(() => {
   jest.clearAllMocks();
   for (const key of Object.keys(mockStore)) delete mockStore[key];
   mockTransactions.splice(0);
+  mockNoteIdRows.splice(0);
+});
+
+describe('resolveBridgeInNoteId', () => {
+  const NOTE_ID = 'note-abc';
+  const info: IBridgeInInfo = {
+    provider: 'epoch',
+    sourceAmount: '5',
+    sourceSymbol: 'ETH',
+    intentNonce: 'N1'
+  };
+
+  const consumeRow = (over: Record<string, unknown> = {}) => ({
+    id: 'consume-1',
+    type: 'consume',
+    status: 2,
+    noteIds: [NOTE_ID],
+    amount: 5n,
+    faucetId: 'faucet-a',
+    ...over
+  });
+
+  it('tags the consume row that claimed the note, and drops the intent', async () => {
+    mockNoteIdRows.push(consumeRow());
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId('N1', NOTE_ID);
+
+    expect(mockModify).toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toEqual([]);
+  });
+
+  // A restored row records someone else's claim. Adopting it would retitle it
+  // "Bridged from EVM", file this intent's amounts against it, and — because a
+  // hit drops the intent — leave the wallet's own consume untagged forever.
+  it('refuses a row restored from a backup, and keeps the intent pending', async () => {
+    mockNoteIdRows.push(consumeRow({ restoredFromBackup: true }));
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId('N1', NOTE_ID);
+
+    expect(mockModify).not.toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toHaveLength(1);
+  });
 });
 
 describe('takeAgglayerBridgeInInfo', () => {
@@ -61,6 +123,36 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ provider: 'agglayer', bridgeReceiveTxId: 'older' });
+  });
+
+  // Matching rewrites the tracker row to `received` and makes the real consume
+  // hide beneath it in history, so a restored tracker would adopt a genuine
+  // incoming note and file the user's money under whatever the dump said.
+  it('never adopts a genuine note into a restored tracker', async () => {
+    mockTransactions.push(
+      {
+        id: 'restored',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 1,
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      },
+      {
+        id: 'mine',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 2,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      }
+    );
+
+    // `restored` is the older row and would otherwise win the oldest-first pick.
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'mine' });
   });
 
   it('does not match a different sender or amount', async () => {

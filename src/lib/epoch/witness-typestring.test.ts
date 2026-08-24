@@ -4,7 +4,7 @@ import { buildEpochTaskDataParams } from './bridge';
 import { buildEarnTaskDataParams, EARN_UNDERLYING } from './earn';
 
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
-jest.mock('./earn-note', () => ({ createEarnP2IDNote: jest.fn() }));
+jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 
 const midenSourceAccount = '0x0123456789abcdef0123456789abcd';

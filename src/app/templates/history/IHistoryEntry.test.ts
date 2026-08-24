@@ -52,7 +52,7 @@ describe('IHistoryEntry (type-level shape)', () => {
       txType: 'send',
       status: undefined,
       token: 'TOK',
-      amount: 5n,
+      amount: '5',
       requestedAmount: '10',
       requestedToken: 'REQ',
       secondaryAddress: '0xdef',
@@ -72,7 +72,8 @@ describe('IHistoryEntry (type-level shape)', () => {
     expect(entry.key).toBe('entry-1');
     expect(entry.type).toBe(HistoryEntryType.CompletedTransaction);
     expect(entry.txType).toBe('send');
-    expect(entry.amount).toBe(5n);
+    // Display text, not base units — see the field's own note.
+    expect(entry.amount).toBe('5');
     expect(entry.outputNoteIds).toHaveLength(2);
   });
 

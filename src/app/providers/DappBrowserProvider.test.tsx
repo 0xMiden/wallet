@@ -200,6 +200,8 @@ jest.mock('lib/dapp-browser', () => ({
 
 // ── confirmation-store: REAL module so we can assert against it ────
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+// ── screen-key: REAL module — the E2E signal under test below ──────
+import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
 
 // Imports under test come LAST, after all mocks.
 import { DappBrowserProvider, useDappBrowser } from './DappBrowserProvider';
@@ -537,6 +539,127 @@ describe('switcher', () => {
     expect(result.current.switcherOpen).toBe(true);
     act(() => result.current.closeSwitcher());
     expect(result.current.switcherOpen).toBe(false);
+  });
+});
+
+// ── E2E screen-key publishing ──────────────────────────────────────
+//
+// The mobile E2E suites take exactly one screenshot per screen-key change, and
+// the whole dApp browser lives on a single route. These assertions are what
+// keep the dApp-browser filmstrip from collapsing to one frame — each one
+// corresponds to a transition the gallery has to show.
+
+describe('E2E screen-key publishing', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const ORIGINAL_E2E = process.env.MIDEN_E2E_TEST;
+
+  beforeEach(() => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    __resetScreenKeyForTest();
+    // Stands in for ScreenKeyPublisher, which isn't in this tree.
+    setRoutePart('/browser');
+  });
+
+  afterEach(() => {
+    __resetScreenKeyForTest();
+    if (ORIGINAL_E2E === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = ORIGINAL_E2E;
+  });
+
+  type Hook = ReturnType<typeof renderHook<ReturnType<typeof useDappBrowser>, void>>;
+
+  function flush(): Promise<void> {
+    return act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  /**
+   * Fire the plugin's `browserPageLoaded` the way the native side does. This is
+   * what clears `isLoading`, and therefore the last of the three conditions the
+   * provider waits for before naming the dApp — so a test that skips it is
+   * asserting the "still loading" state, not the loaded one.
+   */
+  async function firePageLoaded(id: string): Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === 'browserPageLoaded');
+    const handler = call?.[1] as ((event: { id: string }) => Promise<void>) | undefined;
+    if (!handler) throw new Error('browserPageLoaded listener was never registered');
+    await act(async () => {
+      await handler({ id });
+    });
+  }
+
+  /** Open a session and drive it all the way to "painted": instance up, page loaded. */
+  async function openUntilPainted(hook: Hook, session: ReturnType<typeof makeSession>): Promise<void> {
+    act(() => hook.result.current.open(session));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+    await firePageLoaded(session.id);
+  }
+
+  it('stays on the bare route while the dApp is still loading', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await flush();
+
+    // The native instance exists by now, but browserPageLoaded hasn't fired —
+    // capturing here would photograph a blank slot.
+    expect(getCurrentScreen().key).toBe('/browser');
+  });
+
+  it('names the dApp once it is foregrounded, loaded and has a slot', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+
+    expect(getCurrentScreen().key).toBe('/browser > dapp:dapp-a.test');
+  });
+
+  it('returns to the bare route when the dApp is parked', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+
+    await act(async () => {
+      await hook.result.current.park('dapp-a');
+    });
+
+    expect(getCurrentScreen().key).toBe('/browser');
+  });
+
+  it('changes the key when a second dApp takes the foreground', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+    const afterFirst = getCurrentScreen().seq;
+
+    await openUntilPainted(hook, makeSession('dapp-b'));
+
+    // A switch that didn't bump the sequence is a switch the suite never
+    // photographs — the alpha→beta frame is the whole point of the journey.
+    expect(getCurrentScreen().key).toBe('/browser > dapp:dapp-b.test');
+    expect(getCurrentScreen().seq).toBeGreaterThan(afterFirst);
+  });
+
+  it('names the switcher, in preference to the dApp underneath it', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+
+    act(() => hook.result.current.openSwitcher());
+    // The switcher hides every native dApp window, so the dApp is genuinely
+    // not what's on screen any more.
+    expect(getCurrentScreen().key).toBe('/browser > dapp-switcher');
+
+    act(() => hook.result.current.closeSwitcher());
+    expect(getCurrentScreen().key).toBe('/browser > dapp:dapp-a.test');
+  });
+
+  it('publishes nothing when MIDEN_E2E_TEST is not "true"', async () => {
+    process.env.MIDEN_E2E_TEST = 'false';
+    __resetScreenKeyForTest();
+
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openUntilPainted(hook, makeSession('dapp-a'));
+
+    expect(getCurrentScreen()).toEqual({ key: '', seq: 0 });
   });
 });
 

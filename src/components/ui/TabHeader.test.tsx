@@ -62,7 +62,7 @@ describe('TabHeader — structure & title', () => {
     expect(heading.className).toContain('dark:text-pure-white');
   });
 
-  it('renders the outer element as a <header> with the shared layout/border classes', () => {
+  it('renders the outer element as a <header> with the shared layout classes and a divider bar below', () => {
     const { container } = render(<TabHeader title="Explore" />);
 
     const header = container.querySelector('header');
@@ -71,7 +71,12 @@ describe('TabHeader — structure & title', () => {
     expect(header!.className).toContain('flex');
     expect(header!.className).toContain('items-center');
     expect(header!.className).toContain('justify-between');
-    expect(header!.className).toContain('border-b');
+
+    const divider = header!.nextElementSibling;
+    expect(divider).not.toBeNull();
+    expect(divider!.className).toContain('h-1');
+    expect(divider!.className).toContain('rounded-full');
+    expect(divider!.className).toContain('bg-gray-50');
   });
 
   it('reflects whatever title string it is given', () => {

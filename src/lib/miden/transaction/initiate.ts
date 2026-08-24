@@ -5,6 +5,7 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import * as Repo from 'lib/miden/repo';
+import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -30,10 +31,10 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote, NoteType as NoteTypeString } from '../types';
+import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -161,7 +162,12 @@ export const initiateConsumeNotesTransaction = async (
       const byBatch = await Repo.transactions.where('noteIds').equals(note.id).toArray();
       const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
       const sameAccount = [...dedupedRows.values()].filter(
-        tx => tx.type === 'consume' && compareAccountIds(tx.accountId, accountId)
+        // `restoredFromBackup` rows are excluded: dedup asks "did THIS wallet
+        // already claim this note", and a restored row is not evidence of that —
+        // it is whatever the backup's author wrote. Counting one would let a
+        // dump naming a note id block that note from ever being claimed, for
+        // auto-consume and for an explicit Claim alike.
+        tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
       );
 
       // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
@@ -302,6 +308,24 @@ export const initiateSwapTransaction = async (
   return dbTransaction.id;
 };
 
+/**
+ * Queue a send.
+ *
+ * Refuses a PRIVATE send outright when no note-transport endpoint is configured
+ * for the effective network, rather than queueing one that cannot possibly be
+ * delivered. Throwing here is the whole point: this runs BEFORE anything is
+ * queued, proved or submitted, so the user keeps their assets and sees an error
+ * they can act on. Allowing it through inverts that — `relay_private_note`
+ * resolves the transport API before it writes its retry outbox, so the send would
+ * land on chain, reach nobody, and leave no retry record. Every private send on
+ * such a network would be an unrecoverable loss reported as "Sent".
+ *
+ * This is not hypothetical: `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has no mainnet
+ * entry, and mainnet is a selectable network.
+ *
+ * Public sends are unaffected — the chain carries the whole note, so they need no
+ * transport at all and must keep working on a transport-less network.
+ */
 export const initiateSendTransaction = async (
   senderAccountId: string,
   recipientAccountId: string,
@@ -311,6 +335,22 @@ export const initiateSendTransaction = async (
   recallBlocks?: number,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  // Every send funnels through here — the wallet's own review screen and the
+  // dApp boundary both — so this is where the reclaim window has to be sound.
+  // It is stored on chain as a 32-bit block height, and a value that does not
+  // fit is truncated rather than refused: a window just past the limit wraps to
+  // zero and the note becomes reclaimable the moment it lands, while the screen
+  // that asked for consent says years. The review screen reaches this by
+  // `parseInt`ing a date the user picked from a calendar, so an out-of-range
+  // choice is a couple of taps away and needs no hostile page at all.
+  assertValidRecallBlocks(recallBlocks);
+
+  if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
+    throw new Error(
+      'Private sends are unavailable on this network: no note transport service is configured, so the recipient could never receive the note. Send publicly instead.'
+    );
+  }
+
   const dbTransaction = new SendTransaction(
     senderAccountId,
     amount,
@@ -328,9 +368,12 @@ export const initiateSendTransaction = async (
 /**
  * Queue a cross-chain Miden→EVM send (`bridged-send`). For the agglayer (Slow)
  * route, `requestBytes` is a pre-built B2AGG `TransactionRequest` (own output
- * note) and the standard pipeline proves + submits it via `newTransaction`, then
- * `completeBridgedSendTransaction` records it. For the epoch (Fast) route there
- * are no `requestBytes` — `bridgeEpochSend` drives the row out-of-band.
+ * note). For the epoch (Fast) route, `requestBytes` is the pre-built P2IDE
+ * collateral request carrying the mandate-binding attachment (smallocator
+ * PR #38, built by `buildEpochCollateralRequestBytes`) and `bridgeEpochSend`
+ * drives the surrounding intent out-of-band. Either way the standard pipeline
+ * proves + submits the request via `newTransaction`, then
+ * `completeBridgedSendTransaction` records it.
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -359,7 +402,12 @@ export const initiateBridgedSendTransaction = async (
   return dbTransaction.id;
 };
 
-/** Queue the recallable Miden P2IDE note that collateralizes an Earn deposit. */
+/**
+ * Queue the recallable Miden P2IDE note that collateralizes an Earn deposit.
+ * `requestBytes` is the pre-built P2IDE collateral request carrying the
+ * mandate-binding attachment (smallocator PR #38, built by
+ * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
+ */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
   amount: bigint,
@@ -367,7 +415,8 @@ export const initiateEarnDepositTransaction = async (
   marketUid: string,
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  requestBytes?: Uint8Array
 ): Promise<string> => {
   const dbTransaction = new EarnDepositTransaction(
     accountId,
@@ -376,7 +425,8 @@ export const initiateEarnDepositTransaction = async (
     marketUid,
     faucetId,
     sendParams,
-    delegateTransaction
+    delegateTransaction,
+    requestBytes
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;

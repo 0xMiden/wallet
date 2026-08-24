@@ -9,6 +9,14 @@ import { updateBridgedReceivePhase } from '../transaction/complete';
 
 const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * A restored bridge row's delivery cannot be confirmed: the tracking state that
+ * would resume it lives outside the dump, and the row's own contents are only as
+ * trustworthy as the file they came from. If the bridged note really did land,
+ * normal sync surfaces it on its own — this row is just the tracker.
+ */
+const RESTORED_BRIDGE_UNVERIFIABLE = 'Restored from a backup — delivery could not be verified.';
+
 function sameHash(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
@@ -21,9 +29,13 @@ export async function reconcileAgglayerBridgedReceives(): Promise<void> {
   const rows = await Repo.transactions
     .filter(tx => {
       if (tx.type !== 'bridged-receive') return false;
-      const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+      // Optional-chained: a throw in here rejects the whole `toArray()`, which
+      // this function's only callers swallow — so one legacy or partially
+      // written row without `extraInputs` would silently disable AggLayer
+      // reconciliation for every genuine row, on every 8-second tick.
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
       return (
-        inputs.provider === 'agglayer' &&
+        inputs?.provider === 'agglayer' &&
         inputs.phase !== 'ready' &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed'
@@ -34,6 +46,12 @@ export async function reconcileAgglayerBridgedReceives(): Promise<void> {
 
   for (const row of rows) {
     const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
+    // This loop is the reason the guard cannot live only in `reconcileBridgedReceives`:
+    // it is called both from there AND directly on an 8s interval by `AllHistory`.
+    if (row.restoredFromBackup) {
+      await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
+      continue;
+    }
     if (row.initiatedAt < cutoffSec) {
       await updateBridgedReceivePhase(row.id, 'failed', { error: 'Bridge delivery timed out.' });
       continue;
@@ -87,8 +105,23 @@ export async function reconcileBridgedReceives(): Promise<void> {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   for (const row of rows) {
-    const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
+    // A row with no `extraInputs` has no bridge to reconcile and nothing below
+    // can read; skipping it beats throwing out of the whole loop and stalling
+    // every row behind it.
+    const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+    if (inputs === undefined) continue;
     if (inputs.phase === 'ready' || inputs.phase === 'received' || inputs.phase === 'failed') continue;
+    // Terminalize rather than skip. Resuming would register a pending bridge-in
+    // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
+    // no user action — but merely skipping strands the row: these rows are born
+    // `Completed` with their lifecycle in `extraInputs.phase`, and the only other
+    // writers of that phase are driven by the pending-bridge-in registry, which
+    // lives in platform storage and does NOT travel in the dump. The row would
+    // read "Delivering" forever and keep suppressing its linked consume row.
+    if (row.restoredFromBackup) {
+      await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
+      continue;
+    }
     if (row.initiatedAt < cutoffSec) {
       await updateBridgedReceivePhase(row.id, 'failed', { error: 'Bridge delivery timed out.' });
       continue;

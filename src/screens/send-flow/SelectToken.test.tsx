@@ -226,7 +226,14 @@ describe('SelectTokenDrawer', () => {
 
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
-    const expected: UIToken = { id: 't-btc', name: 'BTC', decimals: 8, balance: 1.5, fiatPrice: 50000 };
+    const expected: UIToken = {
+      id: 't-btc',
+      name: 'BTC',
+      decimals: 8,
+      balance: 1.5,
+      fiatPrice: 50000,
+      scaleIsKnown: true
+    };
     expect(onSelect).toHaveBeenCalledWith(expected);
     expect(onOpenChange).toHaveBeenCalledWith(false);
 

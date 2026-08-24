@@ -9,7 +9,7 @@
  * error subscription).
  */
 
-import { ITransactionStatus, SendTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
   completeSendTransaction,
@@ -158,6 +158,7 @@ jest.mock('shared/logger', () => ({
 }));
 
 jest.mock('../helpers', () => ({
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => 'public'
 }));
 
@@ -291,12 +292,17 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks Completed when private-note transport fails — SDK outbox handles retry', async () => {
-    // Transport-level failures are no longer surfaced to the wallet: the
-    // SDK persists the relay payload to its durable outbox before calling
-    // transport (miden-client#2127) and retries on every subsequent
-    // sync_state. The wallet just marks Completed; eventual delivery is
-    // the SDK's responsibility.
+  it('records undelivered and qualifies the message when the private-note relay fails', async () => {
+    // The row stays Completed — the assets have left the account, so Failed would be
+    // untrue and would offer a Retry that spends a second time — but it must not
+    // read as an unqualified success.
+    //
+    // This previously asserted a bare 'Sent' on the premise that "the SDK persists
+    // the relay payload to its durable outbox before calling transport, so eventual
+    // delivery is the SDK's responsibility". Rust writes that outbox entry INSIDE
+    // the relay, after resolving the transport API, so every failure upstream of
+    // that point queues nothing — and the wallet cannot tell which side of it a
+    // rejection came from. So the pessimistic state is recorded.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -307,15 +313,68 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      // The landed tx id is still recorded: the transaction is on chain regardless.
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records relayed and reports a clean Sent when the relay succeeds', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
       expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks Completed when the WASM client lock cannot be acquired during a private send', async () => {
-    // Lock acquisition failures are also non-fatal: the on-chain tx is the
-    // source of truth and the SDK's outbox + sync_state will reconcile.
+  it('records the relay as OWED before attempting it, with the landed tx id and note', async () => {
+    // The ordering is the fix, not an implementation detail: the SDK's outbox is
+    // written from inside the relay, so between submit and that write there was no
+    // durable statement anywhere that a note was owed. An interruption in that
+    // window was indistinguishable from a delivered note. Observed from inside the
+    // relay call, which is the only place the intermediate state is visible.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    let rowDuringRelay: ITransaction | undefined;
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = { ...txStore[0]! };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(rowDuringRelay!.noteDelivery).toBe('pending');
+      expect(rowDuringRelay!.status).not.toBe(ITransactionStatus.Completed);
+      // Enough evidence to reason about the note afterwards without the result bytes.
+      expect(rowDuringRelay!.transactionId).toBeTruthy();
+      expect(rowDuringRelay!.outputNoteIds).toEqual(['note-out-1']);
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
+    // A lock failure on this path means the relay never ran, so the note was never
+    // handed to anyone. This previously asserted a bare 'Sent' on the grounds that
+    // "lock acquisition failures are non-fatal: the on-chain tx is the source of
+    // truth and the SDK's outbox + sync_state will reconcile" — but with no relay
+    // there is no outbox entry to reconcile FROM, so that reported the exact silent
+    // loss being hunted.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -330,10 +389,79 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.displayMessage).toBe('Sent');
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
+    }
+  });
+
+  it('leaves noteDelivery unset on a public send and never relays', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'public';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      metadata: () => ({ noteType: () => 'public' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // Not 'relayed' and not 'undelivered' — the question does not apply, and a
+      // public send must not surface a delivery warning.
+      expect(txStore[0]!.noteDelivery).toBeUndefined();
+      expect(txStore[0]!.displayMessage).toBe('Sent');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('relays when the row says public but the note metadata says private', async () => {
+    // The row's noteType is a wallet-side string; the note's metadata is what the
+    // transaction actually put on chain. When they disagree the note wins, because
+    // skipping the relay for a genuinely private note strands it with no trace,
+    // while relaying a public one only wastes a request.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      // The note's own metadata is the authority the row is checked against.
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the full note is unavailable for a landed private send', async () => {
+    // Failed, but the transaction LANDED — so a private note exists on chain that
+    // was never relayed. "Failed" and "undelivered" are different claims and only
+    // the second says value is sitting somewhere unreachable.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    try {
+      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
     }
   });
 
@@ -367,7 +495,9 @@ describe('completeSendTransaction', () => {
     } catch {
       // May or may not throw depending on the error path
     }
-    expect(spy).toBeDefined();
+    // `toBeDefined` on a spy is always true: it held whether the failure was
+    // logged or the path was never reached at all.
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 });
@@ -392,12 +522,73 @@ describe('getCompletedTransactions', () => {
     expect(txs[0]!.faucetId).toBe('f1');
   });
 
+  // A batch claim is filed under its FIRST note's faucet while sweeping up every
+  // other faucet, so filtering on `faucetId` alone hides the arrival of every
+  // secondary asset from that token's own history — the funds appear in no row.
+  it('files a batch claim under every faucet it swept up, not just its own', async () => {
+    txStore.push(
+      {
+        id: 'claim',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        assetTotals: [
+          { faucetId: 'f1', amount: 20n },
+          { faucetId: 'f2', amount: 10n }
+        ]
+      },
+      {
+        id: 'unrelated',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f3',
+        initiatedAt: 200
+      }
+    );
+
+    // The secondary faucet's page must show the claim...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f2')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...the primary's still does...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...and a faucet the claim never touched must not.
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f3')).map(t => t.id)).toEqual([
+      'unrelated'
+    ]);
+  });
+
   it('applies offset and limit correctly', async () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
     }
+    // `limit` is a page size, so this is "skip 2, take 5" — not "rows 2 to 5".
     const txs = await getCompletedTransactions('acc-1', 2, 5);
-    expect(txs).toHaveLength(3);
+    expect(txs.map(tx => tx.id)).toEqual(['tx-2', 'tx-3', 'tx-4', 'tx-5', 'tx-6']);
+  });
+
+  // The infinite-scroll caller asks for page N as `offset = pageSize * N`, which
+  // under the old end-index reading made every page after the first empty and
+  // silently capped history at one page.
+  it('returns a full page for offsets past the first page', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    const page1 = await getCompletedTransactions('acc-1', 4, 4);
+    expect(page1.map(tx => tx.id)).toEqual(['tx-4', 'tx-5', 'tx-6', 'tx-7']);
+  });
+
+  it('returns every row when no limit is given', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
+    expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
   });
 });
 
@@ -409,6 +600,10 @@ describe('getSwapSettlementNotes', () => {
         type: 'consume',
         status: ITransactionStatus.Completed,
         noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-c-1',
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -417,6 +612,9 @@ describe('getSwapSettlementNotes', () => {
         status: ITransactionStatus.Completed,
         // Same note re-tagged by a later batch — must not appear twice.
         noteIds: ['n-2'],
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_050,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -432,6 +630,123 @@ describe('getSwapSettlementNotes', () => {
 
     expect(notes.settled).toEqual(['n-1', 'n-2']);
     expect(notes.reclaimed).toEqual(['n-3']);
+    expect(notes.settledTransactions[0]).toEqual({
+      id: 'c-1',
+      transactionId: 'chain-c-1',
+      noteIds: ['n-1', 'n-2'],
+      amount: 685n,
+      faucetId: 'eth-faucet',
+      completedAt: 1_700_000_000
+    });
+    // Deduplicating only the id set left the transaction array disagreeing with
+    // it: the receipt drew n-2 in two rows, and a caller summing the rows'
+    // amounts to infer the fill counted the same 685 twice. A row whose notes
+    // were all claimed by an earlier consume is that same claim seen again.
+    expect(notes.settledTransactions.map(tx => tx.id)).toEqual(['c-1']);
+    expect(notes.settledTransactions.flatMap(tx => tx.noteIds)).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
+  });
+
+  it('attributes an overlapping note to the earlier consume only', async () => {
+    // A later batch that covers a new note as well as one already claimed keeps
+    // its row — it delivered something — but not the duplicate id.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.settledTransactions.map(tx => tx.noteIds)).toEqual([['n-1'], ['n-2']]);
+  });
+
+  it('reports no amount for a row whose notes were split across consumes', async () => {
+    // `amount` is an aggregate over the row's whole note list, so it stops
+    // describing the row once part of that list belongs to an earlier consume.
+    // Keeping it overstated the money: 400 + 600 read as 1000 received where
+    // only 600 arrived. There is no per-note breakdown to split it with, so the
+    // honest value is "unknown" — which the receipt renders as such.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        amount: 400n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        amount: 600n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => [tx.id, tx.noteIds, tx.amount])).toEqual([
+      ['c-1', ['n-1'], 400n],
+      ['c-2', ['n-2'], undefined]
+    ]);
+  });
+
+  it('orders same-second consumes by chain id so every device numbers the fills alike', async () => {
+    // `completedAt` is a one-second local stamp and auto-consume settles a batch
+    // within one tick, so ties are ordinary. Falling through to the Dexie scan's
+    // primary-key order numbered those fills by row UUID — arbitrary, and
+    // different on each device that saw the same order. Rows are pushed in
+    // reverse chain order here to prove the comparator, not the input order.
+    txStore.push(
+      {
+        id: 'uuid-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'uuid-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.transactionId)).toEqual(['chain-1', 'chain-2']);
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
   });
 
   it('treats an untagged kind as a settle and reads the singular noteId', async () => {
@@ -483,7 +798,12 @@ describe('getSwapSettlementNotes', () => {
 
   it('returns empty buckets when the order has no settlement consumes at all', async () => {
     const notes = await getSwapSettlementNotes('swap-unknown');
-    expect(notes).toEqual({ settled: [], reclaimed: [] });
+    expect(notes).toEqual({
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    });
   });
 });
 
@@ -621,9 +941,11 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // The errorCode dispatch is exercised; the final status depends on
-    // mock timing between updateTransactionStatus and cancelTransaction.
-    expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+    // The whole point of this error code: the transaction IS on chain, only the
+    // local apply failed, so the row must not be demoted to Failed — that would
+    // offer a retry for a consume that already happened. Accepting either
+    // terminal status here made the test's own name unfalsifiable.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
 
     sdk.withWasmClientLock = origLock;
   });
