@@ -631,6 +631,26 @@
     "message": "Ukryj pełny komunikat o błędzie",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Dostawa niepotwierdzona",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Odbiorca nie został powiadomiony",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Ta transakcja odbywa się w łańcuchu, ale prywatny adres note nie mógł zostać przekazany do usługi transportowej note. Dopóki to nie nastąpi, odbiorca nie może jej zobaczyć ani wykorzystać.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Ta transakcja odbywa się w łańcuchu bloków, ale portfel nie mógł potwierdzić, że klucz prywatny note dotarł do usługi transportowej note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Należy pozostawić ten portfel otwarty i podłączony — transakcja w kolejce zostanie automatycznie ponowiona podczas następnej synchronizacji, a ostrzeżenie zniknie, jeśli transakcja się powiedzie. Jeśli po kilku minutach odbiorca nadal nic nie otrzymał, nie należy wysyłać transakcji ponownie; należy zapisać poniższy identyfikator transakcji i skontaktować się z pomocą techniczną, ponieważ na jego podstawie nadal można odzyskać tokeny note.",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

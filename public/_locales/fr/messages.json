@@ -631,6 +631,26 @@
     "message": "Masquer l'erreur complète",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Livraison non confirmée",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Le destinataire n’a pas été averti",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Cette transaction est sur la chaîne, mais l’notee privée n’a pas pu être transmise au service de transport note. Tant que ce n’est pas le cas, le destinataire ne peut ni la voir ni la dépenser.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Cette transaction s’effectue sur la chaîne, mais le portefeuille n’a pas pu confirmer que l’notee privée avait bien été transmise au service de transport note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Laissez ce portefeuille ouvert et connecté : une livraison en file d’attente est automatiquement réessayée lors de la prochaine synchronisation, et cet avertissement disparaît si elle aboutit. Si le destinataire n’a toujours rien reçu après quelques minutes, ne renvoyez pas l’note ; enregistrez l’identifiant de transaction ci-dessous et contactez le service d’assistance, car l’ peut encore être récupérée à partir de celui-ci.",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

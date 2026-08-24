@@ -631,6 +631,26 @@
     "message": "Скрыть полный текст ошибки",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Доставка не подтверждена",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Получатель не уведомлён",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Эта транзакция находится в цепочке, но частный ключ note не удалось передать транспортной службе note. Пока это не произойдёт, получатель не сможет увидеть или потратить эти средства.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Эта транзакция находится в цепочке, но кошелек не смог подтвердить, что закрытый ключ note поступил в транспортную службу note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Держите этот кошелек открытым и подключенным — транзакция, находящаяся в очереди, автоматически повторяется при следующей синхронизации, и это предупреждение исчезнет, если она пройдет успешно. Если через несколько минут получатель по-прежнему ничего не получил, не отправляйте транзакцию повторно; сохраните идентификатор транзакции, указанный ниже, и обратитесь в службу поддержки, так как по нему всё ещё можно восстановить «note».",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

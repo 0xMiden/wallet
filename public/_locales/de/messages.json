@@ -631,6 +631,26 @@
     "message": "Den vollständigen Fehler ausblenden",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Lieferung unbestätigt",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Empfänger nicht benachrichtigt",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Diese Transaktion findet auf der Blockchain statt, aber der private „note“ konnte nicht an den Transportdienst „note“ übergeben werden. Solange dies nicht geschieht, kann der Empfänger die Transaktion weder einsehen noch ausgeben.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Diese Transaktion findet auf der Blockchain statt, aber die Wallet konnte nicht bestätigen, dass die privaten Schlüssel note den Transportdienst note erreicht haben.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Lassen Sie diese Wallet geöffnet und verbunden – eine in der Warteschlange stehende Überweisung wird bei der nächsten Synchronisierung automatisch erneut versucht, und diese Warnung verschwindet, sobald sie erfolgreich war. Sollte der Empfänger nach einigen Minuten immer noch nichts erhalten haben, senden Sie die Überweisung nicht erneut; notieren Sie sich die unten angegebene Transaktions-ID und wenden Sie sich an den Support, da die „note“ (unbezahlte Transaktionen) anhand dieser ID noch wiederhergestellt werden können.",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

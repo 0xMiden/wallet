@@ -631,6 +631,26 @@
     "message": "Hatanın tamamını gizle",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Teslimat onaylanmadı",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Alıcıya bildirim yapılmadı",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Bu işlem blok zinciri üzerindedir, ancak özel note, note aktarım hizmetine teslim edilememiştir. Teslim edilene kadar alıcı bu tutarı göremez veya harcayamaz.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Bu işlem zincir üzerindedir, ancak cüzdan, özel note adresinin note aktarım hizmetine ulaştığını doğrulayamadı.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Bu cüzdanı açık ve bağlı tutun — kuyrukta bekleyen bir teslimat, bir sonraki senkronizasyonda otomatik olarak yeniden denenir ve işlem başarılı olursa bu uyarı kaybolur. Alıcının birkaç dakika sonra hâlâ hiçbir şey almamış olması durumunda, tekrar göndermeyin; aşağıdaki işlem kimliğini kaydedin ve destek ekibiyle iletişime geçin, çünkü note bu kimlikten hâlâ kurtarılabilir.",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

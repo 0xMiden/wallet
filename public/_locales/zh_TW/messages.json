@@ -631,6 +631,26 @@
     "message": "隱藏完整錯誤訊息",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "交付尚未確認",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "收件人未收到通知",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "此筆交易雖在鏈上進行，但私有note無法傳遞至note傳輸服務。在完成傳遞之前，收款人無法查看或動用該資產。",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "此交易發生於鏈上，但錢包無法確認私鑰 note 是否已傳送至 note 傳輸服務。",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "請保持此錢包開啟並連線——排隊中的轉帳會在下次同步時自動重試，若成功完成，此警告便會消失。若幾分鐘後收款人仍未收到款項，請勿再次發送；請記錄下方的交易 ID 並聯絡客服，因為仍可透過該 ID 從 note 取回款項。",
+    "englishSource": "Keep this wallet open and connected — a queued delivery is retried automatically on the next sync, and this warning clears if it goes through. If the recipient still has nothing after a few minutes, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
