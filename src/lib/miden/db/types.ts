@@ -307,6 +307,15 @@ export interface ITransaction {
   error?: string;
   /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
   rawError?: string;
+  /**
+   * Set on every row restored from a backup file. A dump is an archive of what
+   * happened, so a restored row is a RECORD and must never become WORK: its
+   * contents — recipient, amount, `requestBytes` — come from whoever authored
+   * the file, and the FIFO loop and the Retry button both drive rows into the
+   * signer without re-confirming any of that. `importDb` lands these rows in
+   * `Failed`; this flag is what keeps them there.
+   */
+  restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
   /**
    * Current sub-phase during active processing. Readers should treat this
