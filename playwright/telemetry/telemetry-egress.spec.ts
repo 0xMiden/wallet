@@ -204,15 +204,19 @@ test.describe('Telemetry egress', () => {
       // depend on remembering a caveat, so it is gated at the source instead.
       const beforeTransit = sink.requests.length;
 
-      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`, {
-        waitUntil: 'domcontentloaded'
-      });
-      // Deliberately shorter than the dwell: this is a finger passing over the
-      // pane, not a visit. No `waitForSelector`, which would spend the budget.
-      await page.waitForTimeout(Math.floor(ROUTE_DWELL_MS / 3));
-      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/`, {
-        waitUntil: 'domcontentloaded'
-      });
+      // Driven inside the page rather than with two `goto` calls: the window
+      // has to be shorter than the dwell, and a round trip to the driver on a
+      // loaded CI machine can spend the whole budget on its own. This keeps
+      // what is being measured to the time the hash actually reads `#/send`.
+      await page.evaluate(ms => {
+        location.hash = '#/send';
+        return new Promise(resolve =>
+          setTimeout(() => {
+            location.hash = '#/';
+            resolve(undefined);
+          }, ms)
+        );
+      }, Math.floor(ROUTE_DWELL_MS / 3));
 
       await sink.settle(SILENCE_WINDOW_MS);
       expect(describeRequests(sink.requests.slice(beforeTransit))).toEqual([]);
@@ -265,21 +269,26 @@ test.describe('Telemetry egress', () => {
       // flow and last 0s, so a completed swap showed up as two unrelated rows
       // and the dashboard could not say a swap had happened at all.
       //
-      // Everything below arrived after the reload above, which is one run: an
-      // `open` pair, whatever the receive page emitted, and the abandoned send.
-      const envelopes = received().map(request => JSON.parse(request.body) as Record<string, unknown>);
+      // `received()` already IS this run: it starts at `before`, and the step
+      // above proved nothing was sent between there and the reload. Every
+      // navigation since has been hash-only, which Playwright treats as
+      // same-document — so the module state holding the run id survived, and
+      // inserting a real `page.reload()` anywhere above would break the
+      // single-session assertion below in a way that looks like a product bug.
+      const sinceReload = received().map(request => JSON.parse(request.body) as Record<string, unknown>);
       const propsOf = (envelope: Record<string, unknown>) => envelope.props as Record<string, unknown>;
-
-      const sinceReload = envelopes.slice(-6);
-      expect(sinceReload.length).toBeGreaterThan(2);
 
       // One id across more than one KIND of flow — the assertion that fails if
       // anyone reverts `sessionId` to the flow id, since that could never group
-      // an `open` with a `send`.
+      // an `open` with a `send`. Both are named rather than counted: a bare
+      // "more than one kind" would be satisfied by any incidental extra flow
+      // even after the two this step is about had stopped arriving.
       const sessions = new Set(sinceReload.map(envelope => String(envelope.sessionId)));
-      const flowNames = new Set(sinceReload.map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, '')));
+      const flowNames = [
+        ...new Set(sinceReload.map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, '')))
+      ];
       expect(sessions.size).toBe(1);
-      expect(flowNames.size).toBeGreaterThan(1);
+      expect(flowNames).toEqual(expect.arrayContaining(['open', 'send']));
 
       // And inside that one session the flows are still individually legible,
       // because `flowId` pairs them. A single flow id spanning two flow names

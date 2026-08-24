@@ -183,6 +183,48 @@ describe('runId', () => {
       now.mockRestore();
     }
   });
+
+  it('rotates after a flow that was itself left open past the idle window', () => {
+    const now = jest.spyOn(Date, 'now');
+    try {
+      // A send left open on a full-page tab overnight and dismissed in the
+      // morning. Settling it is activity, but activity that arrives this late
+      // must retire the run rather than re-arm it — otherwise one id covers
+      // both days, and every subsequent long flow extends it again.
+      now.mockReturnValue(1_000_000);
+      const overnight = beginFlow('send');
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS + 1);
+      overnight.cancel();
+
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS + 2);
+      beginFlow('swap').complete();
+
+      // The stale flow's own two events still pair, since the id is captured up
+      // front. It is the morning's flow that has to land somewhere new.
+      expect(eventAt(1).runId).toBe(eventAt(0).runId);
+      expect(eventAt(2).runId).not.toBe(eventAt(0).runId);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('rotates when the clock jumps backwards, which would otherwise stall it forever', () => {
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      beginFlow('open').complete();
+
+      // An NTP correction. A negative elapsed time is never greater than the
+      // threshold, so without an explicit check the run would never rotate
+      // again for as long as the page lived.
+      now.mockReturnValue(1_000_000 - RUN_IDLE_ROTATE_MS);
+      beginFlow('open').complete();
+
+      expect(eventAt(2).runId).not.toBe(eventAt(0).runId);
+    } finally {
+      now.mockRestore();
+    }
+  });
 });
 
 describe('classifyError', () => {

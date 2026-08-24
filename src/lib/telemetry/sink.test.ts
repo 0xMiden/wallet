@@ -1,5 +1,6 @@
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
+import { WIRE_KEYS } from './serialize';
 import { sendEvent, dropQueue, __setTransportForTest, __getQueueLengthForTest } from './sink';
 import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
 
@@ -73,18 +74,11 @@ describe('telemetry sink', () => {
     );
     const [payload] = sent;
     expect(payload).toBeDefined();
+    // Against `WIRE_KEYS` itself rather than a copy of it. A fourth hand-kept
+    // list is exactly what the export exists to prevent — this one had already
+    // drifted, missing `step`.
     for (const key of Object.keys(payload ?? {})) {
-      expect([
-        'phase',
-        'flow',
-        'flowId',
-        'runId',
-        'result',
-        'errorKind',
-        'durationMs',
-        'appVersion',
-        'platform'
-      ]).toContain(key);
+      expect(WIRE_KEYS).toContain(key);
     }
   });
 

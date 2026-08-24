@@ -19,17 +19,26 @@ let runId: TelemetryRunId | null = null;
 let lastEventAt = 0;
 
 /**
- * The id for the run this event belongs to, minting or rotating as needed.
+ * Mark activity and return the id for the run it belongs to, rotating first if
+ * the run has gone stale.
  *
  * Module scope, which in every context the wallet runs in means the lifetime of
  * one page: the extension's popup, its full-page tab and each dApp prompt window
  * are separate runs, and so is each launch of the mobile app. Nothing is written
  * anywhere, so there is no id to survive a reload — which is the property that
  * keeps this ephemeral rather than a durable install identifier.
+ *
+ * Every write to `lastEventAt` goes through here. A bare write would re-arm the
+ * idle clock without ever testing it, so a run that had already outlived the
+ * window would be resurrected instead of retired and the bound below would not
+ * hold at all.
  */
-function currentRunId(): TelemetryRunId {
+function touchRun(): TelemetryRunId {
   const now = Date.now();
-  if (runId === null || now - lastEventAt > RUN_IDLE_ROTATE_MS) {
+  // A backward jump — an NTP correction, say — makes the elapsed time negative
+  // and would otherwise suppress rotation indefinitely. Rotating on it errs in
+  // the safe direction, since an extra run only ever splits activity apart.
+  if (runId === null || now < lastEventAt || now - lastEventAt > RUN_IDLE_ROTATE_MS) {
     runId = nanoid();
   }
   lastEventAt = now;
@@ -84,26 +93,29 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
   const flowId = nanoid();
   // Fixed for the whole flow rather than read again at the end, so a flow that
   // outlives a rotation still reports both of its events under one id and stays
-  // pairable. Ending one also counts as activity, which is what keeps a run
-  // alive across a long deliberation on a review screen.
-  const runId = currentRunId();
+  // pairable.
+  const flowRunId = touchRun();
   // Monotonic: a wall-clock adjustment mid-flow must not be able to produce a
   // negative or wildly inflated duration.
   const startedAt = performance.now();
   let settled = false;
   let furthestStep: TelemetryStep | undefined;
 
-  report({ phase: 'started', flow, flowId, runId });
+  report({ phase: 'started', flow, flowId, runId: flowRunId });
 
   const end = (result: 'completed' | 'cancelled' | 'errored', errorKind?: TelemetryErrorKind): void => {
     if (settled) return;
     settled = true;
-    lastEventAt = Date.now();
+    // Ending counts as activity, so a long deliberation on a review screen keeps
+    // the run alive. The event itself still goes out under the id captured at
+    // the start, so this cannot split a pair — but if the flow sat open past the
+    // idle window, the rotation inside leaves the NEXT flow starting fresh.
+    touchRun();
     report({
       phase: 'ended',
       flow,
       flowId,
-      runId,
+      runId: flowRunId,
       result,
       durationMs: performance.now() - startedAt,
       ...(errorKind !== undefined ? { errorKind } : {}),

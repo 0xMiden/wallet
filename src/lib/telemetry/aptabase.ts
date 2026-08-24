@@ -127,9 +127,9 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * mode the allowlist exists to prevent and which `yarn ts` can no longer catch
  * on its own once the payload lands in an open object.
  *
- * Each of the nine allowlisted fields appears exactly once in the result —
+ * Each of the ten allowlisted fields appears exactly once in the result —
  * `flow` and `phase` in `eventName`, `runId` in `sessionId`, `appVersion` and
- * `platform` in `systemProps`, and the remaining four in `props`.
+ * `platform` in `systemProps`, and the remaining five in `props`.
  */
 export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Date()): AptabaseEnvelope {
   const props: AptabaseProps = { flowId: payload.flowId };
