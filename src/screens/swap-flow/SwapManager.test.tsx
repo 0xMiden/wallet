@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
 
@@ -712,11 +714,28 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('telemetry', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    /**
+     * Let the route settle. Arriving at /swap no longer begins the flow on its
+     * own: the carousel commits a route on every swipe release, so a route has
+     * to hold still to count as a visit — see `useRouteDwell`.
+     */
+    const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+    /** Render and stay, which is what a user who meant to swap does. */
+    const renderSwap = () => {
+      const rendered = renderFlow();
+      dwell();
+      return rendered;
+    };
+
     // A swap used to report nothing at all: it is not a send, so the send flow
     // never saw it, and a completed swap left no trace while an abandoned one
     // was indistinguishable from never opening the screen.
     it('begins a `swap` flow on entry', () => {
-      renderFlow();
+      renderSwap();
 
       expect(mockBeginFlow).toHaveBeenCalledTimes(1);
       expect(mockBeginFlow).toHaveBeenCalledWith('swap');
@@ -748,7 +767,7 @@ describe('SwapFlow / SwapManager', () => {
     });
 
     it('records the swap as abandoned when the user leaves without submitting', () => {
-      renderFlow();
+      renderSwap();
       setOffer('10');
 
       cleanup();
@@ -811,8 +830,26 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockBeginFlow).not.toHaveBeenCalled();
     });
 
-    it('reports the swap as abandoned when the user swipes away, without waiting for an unmount', () => {
+    it('reports nothing for a pane the carousel only swiped past', () => {
+      // Swap sits at the far end of the carousel, so it is reached — and left —
+      // by swiping through every other pane. Without a dwell each of those
+      // crossings opened and closed a flow that described nothing anyone did.
+      mockPathname = '/';
       const { rerender } = renderFlow();
+
+      mockPathname = '/swap';
+      rerender(<SwapFlow />);
+      act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+      mockPathname = '/earn';
+      rerender(<SwapFlow />);
+      dwell();
+
+      expect(mockBeginFlow).not.toHaveBeenCalled();
+    });
+
+    it('reports the swap as abandoned when the user swipes away, without waiting for an unmount', () => {
+      const { rerender } = renderSwap();
 
       mockPathname = '/';
       rerender(<SwapFlow />);
@@ -822,7 +859,7 @@ describe('SwapFlow / SwapManager', () => {
 
     it('records the step reached, so an abandoned swap says where it stopped', () => {
       mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'ReviewSwap' }] };
-      renderFlow();
+      renderSwap();
 
       expect(stepsReported()).toContain('review');
     });

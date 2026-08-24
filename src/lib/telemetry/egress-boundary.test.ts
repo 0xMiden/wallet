@@ -13,7 +13,7 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { encodingVariantsOf } from './egress-guard';
-import { beginFlow, classifyError } from './report-flow';
+import { __resetRunForTest, beginFlow, classifyError } from './report-flow';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
 import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryResult } from './types';
@@ -616,7 +616,7 @@ describe('product-event egress', () => {
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
     const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'props'))));
-    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'result']);
+    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'result']);
   });
 
   it('carries no nested structure beyond the two objects Aptabase defines', async () => {
@@ -675,6 +675,15 @@ describe('product-event egress', () => {
 
       for (const [key, value] of Object.entries(objectAt(envelope, 'props'))) {
         if (typeof value === 'number') continue;
+        // The one prop that is an opaque id rather than a member of a closed
+        // union, so it gets the shape check the session id gets instead of
+        // being looked up. Same alphabet, same bound: no phrase, no blob.
+        if (key === 'flowId') {
+          if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(value)) {
+            problems.push(`props.flowId=${String(value)}`);
+          }
+          continue;
+        }
         if (typeof value === 'string' && propValues.has(value)) continue;
         problems.push(`props.${key}=${String(value)}`);
       }
@@ -683,34 +692,62 @@ describe('product-event egress', () => {
     expect(unexpected).toEqual([]);
   });
 
-  it('uses each flow’s own id as the session id, so nothing links across flows', async () => {
-    // Aptabase's own SDKs reuse one session id for four hours, which would join
-    // every flow one person performs into a single trail. This is the assertion
-    // that fails if anybody adopts that behaviour: a session here is one flow.
+  it('groups one run under one session id, and pairs flows by the flow id inside it', async () => {
+    // The linkage this design permits, asserted from both ends. Everything a
+    // person does in one run of the app shares a session id — that is what makes
+    // the data describe a visit rather than a pile of unrelated 0s sessions —
+    // and inside it, `props.flowId` is what pairs a started with its ended.
     consentOn();
     await driveEveryInstrumentedFlow();
 
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
 
-    // The driver runs each flow more than once, so far more distinct ids than
-    // flows must appear — one shared id across the run would collapse to 1.
+    // One run, one id. More than one would mean something is minting per flow
+    // again, and the dashboard would go back to showing nothing but 0s sessions.
     const sessions = new Set(sent.map(envelope => stringAt(envelope, 'sessionId')));
-    expect(sessions.size).toBeGreaterThan(FLOWS.length);
+    expect(sessions.size).toBe(1);
 
-    // And an id may pair a started with its ended, but never more than that:
-    // two events per session, from one flow, is the whole permitted linkage.
-    const perSession = new Map<string, string[]>();
+    // A flow id, on the other hand, may pair a started with its ended and never
+    // more: it is the join key, so a shared one would fuse two unrelated flows
+    // into one funnel entry.
+    const perFlow = new Map<string, string[]>();
     for (const envelope of sent) {
-      const id = stringAt(envelope, 'sessionId');
-      perSession.set(id, [...(perSession.get(id) ?? []), stringAt(envelope, 'eventName')]);
+      const id = String(objectAt(envelope, 'props').flowId);
+      perFlow.set(id, [...(perFlow.get(id) ?? []), stringAt(envelope, 'eventName')]);
     }
-    const overlinked = [...perSession].flatMap(([id, names]) => {
+    const overlinked = [...perFlow].flatMap(([id, names]) => {
       const flows = new Set(names.map(name => name.replace(/_(started|ended)$/, '')));
-      if (flows.size > 1) return [`session ${id} spans flows ${[...flows].sort().join(', ')}`];
-      return names.length > 2 ? [`session ${id} carries ${names.length} events`] : [];
+      if (flows.size > 1) return [`flow ${id} spans flows ${[...flows].sort().join(', ')}`];
+      return names.length > 2 ? [`flow ${id} carries ${names.length} events`] : [];
     });
     expect(overlinked).toEqual([]);
+
+    // The driver runs every flow several times, so the join key has to be far
+    // more varied than the session key — this is the assertion that fails if
+    // somebody "simplifies" `flowId` into the run id and destroys the pairing.
+    expect(perFlow.size).toBeGreaterThan(FLOWS.length);
+  });
+
+  it('mints a different session id for a different run, so nothing links across launches', async () => {
+    // The whole basis for calling the run id ephemeral. It lives in module scope
+    // and is written nowhere, so a fresh page — a reopened popup, a relaunched
+    // app — starts again from nothing. `__resetRunForTest` is exactly that:
+    // forgetting, not clearing storage, because there is no storage to clear.
+    consentOn();
+    beginFlow('open').complete();
+    await flushEgress();
+    const first = envelopes().map(envelope => stringAt(envelope, 'sessionId'));
+
+    __resetRunForTest();
+    beginFlow('open').complete();
+    await flushEgress();
+    const second = envelopes()
+      .map(envelope => stringAt(envelope, 'sessionId'))
+      .filter(id => !first.includes(id));
+
+    expect(new Set(first).size).toBe(1);
+    expect(second.length).toBeGreaterThan(0);
   });
 
   it('holds the allowlist across the entire event type space, not just the paths driven above', async () => {
@@ -718,13 +755,23 @@ describe('product-event egress', () => {
     const context = resolveTelemetryContext();
 
     const events: TelemetryEvent[] = FLOWS.flatMap(flow => [
-      { phase: 'started', flow, flowId: 'sweep' },
-      ...RESULTS.map((result): TelemetryEvent => ({ phase: 'ended', flow, flowId: 'sweep', result, durationMs: 12.7 })),
+      { phase: 'started', flow, flowId: 'sweep', runId: 'sweep-run' },
+      ...RESULTS.map(
+        (result): TelemetryEvent => ({
+          phase: 'ended',
+          flow,
+          flowId: 'sweep',
+          runId: 'sweep-run',
+          result,
+          durationMs: 12.7
+        })
+      ),
       ...ERROR_KINDS.map(
         (errorKind): TelemetryEvent => ({
           phase: 'ended',
           flow,
           flowId: 'sweep',
+          runId: 'sweep-run',
           result: 'errored',
           errorKind,
           durationMs: 3.2

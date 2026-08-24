@@ -9,6 +9,7 @@ export const WIRE_KEYS: readonly string[] = [
   'phase',
   'flow',
   'flowId',
+  'runId',
   'result',
   'errorKind',
   'durationMs',
@@ -29,6 +30,7 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
     phase: event.phase,
     flow: event.flow,
     flowId: event.flowId,
+    runId: event.runId,
     appVersion: context.appVersion,
     platform: context.platform
   };

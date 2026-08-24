@@ -1029,7 +1029,7 @@ describe('handleReportTelemetryEvent', () => {
   it('forwards the event with a background-derived context', async () => {
     const response = await handleReportTelemetryEvent({
       type: WalletMessageType.ReportTelemetryEventRequest,
-      event: { phase: 'started', flow: 'send', flowId: 'f1' }
+      event: { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' }
     });
     expect(response.type).toBe(WalletMessageType.ReportTelemetryEventResponse);
     expect(jest.mocked(sendEvent).mock.calls[0]?.[1]).toEqual({

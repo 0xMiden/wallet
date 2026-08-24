@@ -935,10 +935,10 @@ describe('no persistent identifier', () => {
     // are Aptabase's rather than ours. `sessionId` is the single name that
     // reads as durable identity and it is permitted BY NAME ONLY: Aptabase
     // calls the field that, and what this wallet puts in it is the ephemeral
-    // per-flow id. `egress-boundary.test.ts` asserts the value — that two
-    // flows never share one, and that a session never carries more than one
-    // flow's pair of events. Aptabase's own SDKs would reuse it for four
-    // hours; that is the behaviour these two assertions together forbid.
+    // per-run id — minted in memory, rotated on idle, written nowhere.
+    // `egress-boundary.test.ts` asserts the value: one run is one id, and a
+    // second run gets a different one. Aptabase's own SDKs persist theirs and
+    // reuse it for four hours; that is the behaviour those assertions forbid.
     const VENDOR_NAMED = 'sessionId';
     const keys = [...APTABASE_ENVELOPE_KEYS, ...APTABASE_SYSTEM_PROP_KEYS, ...APTABASE_PROP_KEYS];
     expect(keys).toContain(VENDOR_NAMED);
@@ -1308,7 +1308,10 @@ describe('telemetry is off until the user turns it on', () => {
     // if every mocked consent test still passes.
     initCrashReporting();
     captureCrash(new Error('rpc endpoint returned status'));
-    await sendEvent({ phase: 'started', flow: 'open', flowId: 'fresh-install' }, resolveTelemetryContext());
+    await sendEvent(
+      { phase: 'started', flow: 'open', flowId: 'fresh-install', runId: 'run' },
+      resolveTelemetryContext()
+    );
     await flushEgress();
 
     expect(requests).toEqual([]);
@@ -1322,7 +1325,7 @@ describe('telemetry is off until the user turns it on', () => {
 
     initCrashReporting();
     captureCrash(new Error('rpc endpoint returned status'));
-    await sendEvent({ phase: 'started', flow: 'open', flowId: 'opted-in' }, resolveTelemetryContext());
+    await sendEvent({ phase: 'started', flow: 'open', flowId: 'opted-in', runId: 'run' }, resolveTelemetryContext());
     await flushEgress();
 
     expect(requests).toContain(INGEST_URL);

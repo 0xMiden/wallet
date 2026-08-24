@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 import { clearSendDraft, hasSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
@@ -1189,6 +1191,10 @@ describe('send telemetry', () => {
     });
 
   beforeEach(() => {
+    // Scoped to this block rather than the file: the speculative-proving effect
+    // debounces on a 500ms timer, and advancing the clock for every test here
+    // would fire it in suites that are not about it.
+    jest.useFakeTimers();
     // The flow handle is module-scoped (it outlives this route on purpose), so
     // discard any handle a previous test left open.
     settleSendFlow(flow => flow.cancel());
@@ -1197,12 +1203,28 @@ describe('send telemetry', () => {
     telemetryHandles.length = 0;
   });
 
+  afterEach(() => jest.useRealTimers());
+
+  /**
+   * Let the route settle. Arriving at /send no longer begins the flow on its
+   * own: the carousel commits a route on every swipe release, so a route has to
+   * hold still to count as a visit — see `useRouteDwell`.
+   */
+  const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+  /** Render and stay, which is what a user who meant to send does. */
+  const renderSend = (isLoading = false) => {
+    const rendered = renderFlow(isLoading);
+    dwell();
+    return rendered;
+  };
+
   const reachReview = (amount: string, recipient: string) => {
     mockSelectedContact = { id: recipient, name: 'R', isOwned: false, contactType: 'external' };
     mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
     isValidMidenAddressMock.mockImplementation((addr: string) => addr === recipient);
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
-    const rendered = renderFlow();
+    const rendered = renderSend();
     act(() => {
       fireEvent.click(screen.getByTestId('ad-select'));
     });
@@ -1219,14 +1241,14 @@ describe('send telemetry', () => {
   };
 
   it('begins the send flow on entry to /send', () => {
-    renderFlow();
+    renderSend();
 
     expect(beginFlowMock).toHaveBeenCalledTimes(1);
     expect(beginFlowMock).toHaveBeenCalledWith('send');
   });
 
   it('begins one flow per entry, not one per render', () => {
-    renderFlow();
+    renderSend();
     act(() => {
       fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecip' } });
     });
@@ -1238,7 +1260,7 @@ describe('send telemetry', () => {
   });
 
   it('cancels the flow when the user leaves the send flow without handing off', () => {
-    const { unmount } = renderFlow();
+    const { unmount } = renderSend();
 
     unmount();
 
@@ -1267,13 +1289,32 @@ describe('send telemetry', () => {
     // launch, which is what the shipped build was actually reporting.
     mockPathname = '/';
 
-    renderFlow();
+    renderSend();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing for a pane the carousel only swiped past', () => {
+    // Reaching Swap from Overview is four swipe releases, and each release
+    // navigates — so /send is committed on the way past. Before the dwell gate
+    // that emitted a matched, plausible, entirely meaningless send: begun and
+    // abandoned at `select_recipient`, by a finger that never stopped there.
+    mockPathname = '/';
+    const view = renderFlow();
+
+    mockPathname = '/send';
+    view.rerender(<SendFlow isLoading={false} />);
+    act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+    mockPathname = '/receive';
+    view.rerender(<SendFlow isLoading={false} />);
+    dwell();
 
     expect(beginFlowMock).not.toHaveBeenCalled();
   });
 
   it('records the send as abandoned when the user swipes away, without waiting for an unmount', () => {
-    const view = renderFlow();
+    const view = renderSend();
     expect(beginFlowMock).toHaveBeenCalledWith('send');
 
     mockPathname = '/';

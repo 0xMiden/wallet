@@ -10,7 +10,7 @@ jest.mock('lib/settings/helpers', () => ({
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 
 const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension' };
-const started: TelemetryEvent = { phase: 'started', flow: 'send', flowId: 'f1' };
+const started: TelemetryEvent = { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' };
 
 describe('telemetry sink', () => {
   let sent: TelemetryWirePayload[];
@@ -51,6 +51,7 @@ describe('telemetry sink', () => {
       phase: 'started',
       flow: 'send',
       flowId: 'f1',
+      runId: 'r1',
       appVersion: '1.15.21',
       platform: 'extension'
     });
@@ -59,13 +60,31 @@ describe('telemetry sink', () => {
   it('emits only allowlisted keys', async () => {
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
     await sendEvent(
-      { phase: 'ended', flow: 'send', flowId: 'f1', result: 'errored', errorKind: 'network', durationMs: 5 },
+      {
+        phase: 'ended',
+        flow: 'send',
+        flowId: 'f1',
+        runId: 'r1',
+        result: 'errored',
+        errorKind: 'network',
+        durationMs: 5
+      },
       context
     );
     const [payload] = sent;
     expect(payload).toBeDefined();
     for (const key of Object.keys(payload ?? {})) {
-      expect(['phase', 'flow', 'flowId', 'result', 'errorKind', 'durationMs', 'appVersion', 'platform']).toContain(key);
+      expect([
+        'phase',
+        'flow',
+        'flowId',
+        'runId',
+        'result',
+        'errorKind',
+        'durationMs',
+        'appVersion',
+        'platform'
+      ]).toContain(key);
     }
   });
 
@@ -94,7 +113,7 @@ describe('telemetry sink', () => {
     jest.mocked(isTelemetryEnabledAsync).mockResolvedValue(true);
     __setTransportForTest(() => new Promise(() => {}));
     for (let i = 0; i < 200; i++) {
-      void sendEvent({ phase: 'started', flow: 'send', flowId: `f${i}` }, context);
+      void sendEvent({ phase: 'started', flow: 'send', flowId: `f${i}`, runId: 'r1' }, context);
     }
     // A single `Promise.resolve()` only flushes one microtask tick, before any
     // of the 200 awaited pushes have landed — the bound would hold trivially
@@ -179,14 +198,14 @@ describe('the real Aptabase transport', () => {
     await sendEvent(started, context);
     const envelope = sentEnvelope();
     expect(envelope.eventName).toBe('send_started');
-    expect(envelope.sessionId).toBe('f1');
+    expect(envelope.sessionId).toBe('r1');
     expect(envelope.systemProps).toEqual({
       isDebug: true,
       osName: 'extension',
       appVersion: '1.15.21',
       sdkVersion: 'miden-wallet-aptabase@1.0.0'
     });
-    expect(envelope.props).toEqual({});
+    expect(envelope.props).toEqual({ flowId: 'f1' });
     expect(Object.keys(envelope).sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);
   });
 

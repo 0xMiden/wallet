@@ -152,9 +152,12 @@ Each of these is a deliberate choice, and each makes a naive reading wrong:
 - **`durationMs` has no bounds check.** `Math.round` passes a negative, `NaN`,
   or `Infinity` straight through. Durations come from `performance.now()`, which
   is monotonic, so this is not expected to bite — but nothing stops it.
-- **Cross-session analysis is impossible by construction**, not by omission.
-  There is no identifier to join on, so retention, MAU, and repeat-user funnels
-  cannot be computed from this data and are not a future extension of it.
+- **Cross-run analysis is impossible by construction**, not by omission. The
+  only identifiers are the per-flow id and the per-run id, both minted in memory
+  and both gone when the app closes, so nothing joins one launch to the next.
+  Retention, MAU and repeat-user funnels cannot be computed from this data and
+  are not a future extension of it. Within a single run the flows are joinable —
+  that is what `runId` is for — and that is the whole of the linkability.
 
 ## Withdrawing consent is not instantaneous
 
@@ -200,18 +203,33 @@ Two things it deliberately does not prove:
 
 ## How to read this data in Aptabase
 
-Two things about the dashboard will mislead you if nobody says them out loud.
+**A session is one run of the app.** Aptabase groups events by `sessionId`, and
+`sessionId` carries our `runId` — minted in memory when the app starts, thrown
+away when it stops, rotated after 30 minutes of inactivity, and written nowhere.
+So a session is a visit: it has a real duration, it holds the flows the person
+performed in order, and reading one tells you what somebody did.
 
-**Every "session" is one flow, and its duration is always 0s.** Aptabase groups
-events by `sessionId`, and `sessionId` carries our `flowId` — a fresh random
-value per flow, chosen precisely so that two things a user did cannot be joined
-together. So a session is never a visit, a "session duration" is the gap between
-the events of one flow (frequently 0ms, since `started` and `ended` can be
-milliseconds apart), and the user count is a count of flows rather than people.
-None of that is a bug and none of it is fixable without giving up the
-unlinkability that is the point of the design. Read `props.durationMs` on the
-`_ended` event for how long something actually took, and treat event counts as
-counts of activities, not of users.
+`props.flowId` is what pairs a `started` with its `ended` inside that session.
+Group by it when you want flows; group by `sessionId` when you want visits.
+
+This was not the original design, and the history is worth knowing because the
+first version looked more private and was useless. `sessionId` used to carry
+`flowId`, so every Aptabase session held exactly one flow and lasted 0s. The
+first build on a real device reported, for a session in which the user performed
+one swap, two 0s "sessions" containing a `send_started` and a `receive_share`
+pair — none of which the user did, and no mention of the swap. Even with the
+event bugs fixed, that grouping could never have described a visit.
+
+What the change costs, stated plainly: within one run, the flows a person
+performed are linkable to each other. What it does not cost is anything durable
+— no id survives a reload, none identifies a device, a person or an install, and
+nothing links two runs. `guarantees.test.ts` asserts the telemetry module cannot
+reach a persistence API at all, so there is nowhere for a longer-lived id to
+hide even by accident.
+
+**"Users" in the dashboard still is not people.** Aptabase infers a user count
+from session activity, and our sessions are app runs — so one person who opens
+the wallet three times is three. Treat it as a count of visits.
 
 **A flow with no `_ended` event is the abandonment signal.** Nothing reports "the
 user gave up"; a `started` with no matching `ended` is what that looks like, and
@@ -227,33 +245,36 @@ event with `step: review` is someone who got all the way to the last screen and
 chose not to sign. Those need completely different fixes, and before `step`
 existed both arrived as an identical bare `send_started`.
 
-### Filter the funnel by duration before reading it
+### A pane the user swiped past reports nothing
 
-Route-gating the home-carousel screens (see below) means every visit to a home
-pane opens and closes a flow — including a pane the user only passed through.
-Swiping from Send to Earn transits `/receive`, and each swipe release navigates,
-so that transit emits a matched `receive_share` pair. Tapping through the tab bar
-out of curiosity emits a cancelled `send` at `select_recipient`, a cancelled
-`receive_share`, and a cancelled `swap` at `swap_amounts`.
+The home carousel commits a route on every swipe release, so reaching Swap from
+Overview is four navigations and crosses Send, Receive and Earn on the way. Each
+crossing used to open and close a flow: a swipe from Send to Earn emitted a
+matched `receive_share` pair, and tapping through the tab bar out of curiosity
+emitted a cancelled `send` at `select_recipient` and a cancelled `swap` at
+`swap_amounts`.
 
-These are honest, balanced pairs, not leaks — but they are shallow, and left
-unfiltered they dominate the first bucket of exactly the funnel `step` exists to
-produce. They are also separable, because every `ended` event carries `durationMs`: a
-transit is a few hundred milliseconds, a real visit is seconds. **So exclude
-short flows before reading drop-off** — on duration, and not on `result`.
+Those pairs were honest — matched, balanced, with real durations — and they
+described nothing anybody did. Left in, they dominate the first bucket of exactly
+the funnel `step` exists to produce.
 
-`result` is the wrong filter because `receive_share` completes as soon as the
-address is on screen, which is immediately: the address is resolved before the
-route is even reachable. So a swipe transit through `/receive` and a deliberate
-visit both arrive `completed` with a duration near zero, and that flow's
-`cancelled` branch is close to unreachable in practice. Duration is the only
-thing that separates them.
+So the three carousel screens gate on *dwell* rather than on the route being
+current: `useRouteDwell` requires the route to hold still for 600ms before the
+flow begins. A crossing is under that; the shortest deliberate visit is well over
+it. Nothing is emitted for a pane the finger merely passed over.
 
-This is deliberately left to the reader rather than enforced by a dwell timer in
-the client. A timer would have to drop the `started` event too, which throws the
-information away irrecoverably and bakes one guess at the threshold into shipped
-builds; a duration filter is tunable afterwards, and keeps the shallow visits
-available for anyone who wants to count them.
+An earlier version of this document told the reader to filter short flows by
+`durationMs` instead. That was the wrong place for it. It makes correct numbers
+depend on remembering a caveat, and leaves the raw event stream wrong for anyone
+who reads it directly — which is how "we have telemetry" becomes "the telemetry
+says people abandon Send constantly". It was also insufficient for
+`receive_share` in particular, which completes as soon as the address is on
+screen: a transit and a real visit both arrive `completed` within milliseconds,
+so `result` could not separate them and duration was the only discriminator left.
+
+The cost of the gate is that a genuine visit shorter than 600ms reports nothing.
+That is the right direction to err: a missed visit costs one event, a spurious
+one costs the credibility of the whole funnel.
 
 ### Approvals on the extension
 
@@ -288,17 +309,19 @@ Two consequences specific to the extension's popup:
 
 ### What a completed swap looks like
 
-Four events, in two flows, if the user opened the app to do it:
+Four events, in two flows, under **one session** with a real duration, if the
+user opened the app to do it:
 
 | Event | props |
 |---|---|
-| `open_started` | — |
-| `open_ended` | `result: completed`, `durationMs` |
-| `swap_started` | — |
-| `swap_ended` | `result: completed`, `durationMs`, `step: submitting` |
+| `open_started` | `flowId: A` |
+| `open_ended` | `flowId: A`, `result: completed`, `durationMs` |
+| `swap_started` | `flowId: B` |
+| `swap_ended` | `flowId: B`, `result: completed`, `durationMs`, `step: submitting` |
 
 The `open` pair is there because the app shell mounted; the swap pair is there
-because the user went to `/swap` and submitted.
+because the user went to `/swap` and submitted. Both share one `sessionId`,
+which is what makes this readable as a visit rather than as four loose rows.
 
 It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
 at first, and the events that showed up during a swap came from unrelated screens
@@ -324,9 +347,11 @@ end, and a complete `receive_share` pair. Neither corresponded to anything the
 user did. The swap itself, which had no instrumentation yet, reported nothing.
 Every event was an artifact of the carousel.
 
-So screens in the home group gate on `pathname`, which is the carousel's own
-source of truth for which page is showing, rather than on mount — see
-`SendManager`, `SwapManager` and `Receive`. Two consequences worth knowing:
+So screens in the home group gate on `pathname` — the carousel's own source of
+truth for which page is showing — rather than on mount, and then on that route
+holding still for 600ms rather than merely being current, because every swipe
+release navigates and a crossing is not a visit. See `SendManager`,
+`SwapManager`, `Receive` and `useRouteDwell`. Two consequences worth knowing:
 
 - **A step effect must depend on the route gate as well as the step.** The flow
   now begins after the screen mounted, so a step reported on mount lands in no

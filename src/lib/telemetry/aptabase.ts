@@ -17,15 +17,26 @@ import {
  * else — no queueing, no batching, and no network call. The single egress
  * point stays `sink.ts`.
  *
- * **`sessionId` is one flow, not one session.** Aptabase's SDKs reuse a session
- * id across events with a four-hour timeout, which would link every flow a
- * person performs into a single trail — precisely the linkability this design
- * promises not to create. So `sessionId` IS the event's `flowId`: an Aptabase
- * "session" means exactly one wallet flow. The `started`/`ended` pair for one
- * flow links, which was already true and already intended; nothing links across
- * flows. No second identifier is minted and nothing is stored — there is
- * nowhere to store it anyway, since `guarantees.test.ts` asserts this module
- * cannot reach a persistence API at all.
+ * **`sessionId` is one run of the app, and `flowId` moved into `props`.** This
+ * originally sent the per-flow id as `sessionId`, on the reasoning that an
+ * Aptabase "session" carrying one wallet flow is the least linkable thing that
+ * could go in a field with that name. It was, and it made the data useless: the
+ * dashboard groups by `sessionId`, so every session held one flow, every
+ * session duration was 0s, and no session ever described anything a person did.
+ * The first build on a real device reported two 0s "sessions" for a swap and
+ * could not say that a swap had happened.
+ *
+ * So `sessionId` now carries `runId` — minted in memory per app run, rotating
+ * after idle, never stored (see `report-flow.ts`). A session is a visit again,
+ * with a real duration and an ordered list of events. `flowId` moves to `props`
+ * so a `started` can still be paired with its `ended`, which is what makes an
+ * unmatched `started` readable as an abandonment.
+ *
+ * What that costs is stated plainly, because it is a real cost: the flows one
+ * person performs in one run are linkable to each other. What it does not cost
+ * is anything durable — no id survives a reload, nothing identifies a device or
+ * an install, and `guarantees.test.ts` asserts this module cannot reach a
+ * persistence API at all, so there is nowhere for a longer-lived id to hide.
  *
  * **`systemProps` is a device fingerprint, so it is sent nearly empty.**
  * Aptabase's example envelope carries `osVersion`, `locale` and `deviceModel`.
@@ -61,6 +72,12 @@ export type AptabaseEventName = `${TelemetryFlow}_${TelemetryWirePayload['phase'
  * allowlist survives the crossing.
  */
 export interface AptabaseProps {
+  /**
+   * Pairs this event with the other half of its flow. In `props` rather than
+   * `sessionId` since the run took that field over — grouping by it inside a
+   * session is what turns a list of events back into flows.
+   */
+  flowId: string;
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
@@ -77,7 +94,7 @@ export interface AptabaseSystemProps {
 
 export interface AptabaseEnvelope {
   timestamp: string;
-  /** The per-flow id. Never a reused session — see the module comment. */
+  /** The ephemeral per-run id. Never durable — see the module comment. */
   sessionId: string;
   eventName: AptabaseEventName;
   systemProps: AptabaseSystemProps;
@@ -99,7 +116,7 @@ export const APTABASE_ENVELOPE_KEYS: readonly string[] = [
 
 export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
 
-export const APTABASE_PROP_KEYS: readonly string[] = ['result', 'errorKind', 'durationMs', 'step'];
+export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
 
 /**
  * Map one allowlisted payload onto one Aptabase envelope.
@@ -110,12 +127,12 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['result', 'errorKind', 'du
  * mode the allowlist exists to prevent and which `yarn ts` can no longer catch
  * on its own once the payload lands in an open object.
  *
- * Each of the eight allowlisted fields appears exactly once in the result —
- * `flow` and `phase` in `eventName`, `flowId` in `sessionId`, `appVersion` and
- * `platform` in `systemProps`, and the remaining three in `props`.
+ * Each of the nine allowlisted fields appears exactly once in the result —
+ * `flow` and `phase` in `eventName`, `runId` in `sessionId`, `appVersion` and
+ * `platform` in `systemProps`, and the remaining four in `props`.
  */
 export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Date()): AptabaseEnvelope {
-  const props: AptabaseProps = {};
+  const props: AptabaseProps = { flowId: payload.flowId };
   if (payload.result !== undefined) props.result = payload.result;
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
@@ -123,7 +140,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
 
   return {
     timestamp: now.toISOString(),
-    sessionId: payload.flowId,
+    sessionId: payload.runId,
     eventName: `${payload.flow}_${payload.phase}`,
     systemProps: {
       isDebug: process.env.NODE_ENV !== 'production',

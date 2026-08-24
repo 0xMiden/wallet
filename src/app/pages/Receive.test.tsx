@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 import { Receive } from './Receive';
 
 // Pending (claimable) notes moved to their own `/pending-notes` page — see
@@ -190,7 +192,20 @@ describe('Receive - receive_share telemetry', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
   let testContainer: HTMLDivElement | null = null;
 
-  const renderReceive = async () => {
+  /**
+   * Let the route settle. Entering a pane no longer begins its flow on arrival:
+   * the carousel commits a route on every swipe release, so a route has to hold
+   * still to count as a visit — see `useRouteDwell`. Every render helper below
+   * dwells by default, since that is what a real visit does; the tests that
+   * exercise a transit are the ones that deliberately do not.
+   */
+  const dwell = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(ROUTE_DWELL_MS);
+    });
+  };
+
+  const mount = async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
     await act(async () => {
@@ -198,11 +213,17 @@ describe('Receive - receive_share telemetry', () => {
     });
   };
 
+  const renderReceive = async () => {
+    await mount();
+    await dwell();
+  };
+
   /** Re-render in place, as a route change does — no unmount. */
   const rerenderReceive = async () => {
     await act(async () => {
       testRoot!.render(<Receive />);
     });
+    await dwell();
   };
 
   const unmountReceive = async () => {
@@ -221,6 +242,7 @@ describe('Receive - receive_share telemetry', () => {
   });
 
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     telemetryHandles.length = 0;
     mockPublicKey = 'test-account-123';
@@ -228,6 +250,7 @@ describe('Receive - receive_share telemetry', () => {
 
   afterEach(async () => {
     if (testRoot) await unmountReceive();
+    jest.useRealTimers();
     if (testContainer) {
       testContainer.remove();
       testContainer = null;
@@ -304,12 +327,36 @@ describe('Receive - receive_share telemetry', () => {
     await renderReceive();
 
     mockPublicKey = 'test-account-123';
-    await act(async () => {
-      testRoot!.render(<Receive />);
-    });
+    await rerenderReceive();
 
     expect(beginFlowMock).toHaveBeenCalledTimes(1);
     expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports nothing for a pane the carousel only swiped past', async () => {
+    // Receive sits between Send and Earn, so it is the pane transited most, and
+    // its flow completes on sight of the address — meaning a swipe past it used
+    // to emit a `completed` share indistinguishable from a real one. No
+    // duration filter on the reading side could separate them, because both
+    // last milliseconds. This is why the gate is a dwell and not a route check.
+    mockPathname = '/';
+    await mount();
+
+    mockPathname = '/receive';
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    // Swiped straight on to Earn without stopping.
+    await act(async () => {
+      jest.advanceTimersByTime(ROUTE_DWELL_MS - 1);
+    });
+    mockPathname = '/earn';
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+    await dwell();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
   });
 
   it('never passes the address to telemetry', async () => {

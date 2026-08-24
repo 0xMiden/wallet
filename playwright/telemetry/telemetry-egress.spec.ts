@@ -5,6 +5,7 @@ import { assertAptabaseContract, startAptabaseSink, type AptabaseSink, type Sink
 import { APTABASE_APP_KEY, APTABASE_HOST, SINK_PORT } from './config';
 import { HANDOFF_SELECTOR, PASSWORD, SEED_WORDS, importWalletToConsentPrompt } from './onboarding';
 import { encodingVariantsOf } from '../../src/lib/telemetry/egress-guard';
+import { ROUTE_DWELL_MS } from '../../src/lib/telemetry/use-route-dwell';
 import { expect, test } from '../fixtures/extension';
 
 /**
@@ -191,6 +192,32 @@ test.describe('Telemetry egress', () => {
       assertNoSentinels(received(), sentinels);
     });
 
+    await test.step('a pane the user only passed through reports nothing', async () => {
+      // The bug that made the first real build useless. TabLayout's home
+      // carousel commits a route on every swipe release, so reaching Swap from
+      // Overview crosses Send, Receive and Earn — and each crossing used to open
+      // and close a flow. They were matched, plausible, sub-second, and
+      // described nothing anybody did: a user who performed exactly one swap
+      // reported an abandoned send and a completed receive-address share.
+      //
+      // Left as a duration filter on the reading side, correct numbers would
+      // depend on remembering a caveat, so it is gated at the source instead.
+      const beforeTransit = sink.requests.length;
+
+      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`, {
+        waitUntil: 'domcontentloaded'
+      });
+      // Deliberately shorter than the dwell: this is a finger passing over the
+      // pane, not a visit. No `waitForSelector`, which would spend the budget.
+      await page.waitForTimeout(Math.floor(ROUTE_DWELL_MS / 3));
+      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/`, {
+        waitUntil: 'domcontentloaded'
+      });
+
+      await sink.settle(SILENCE_WINDOW_MS);
+      expect(describeRequests(sink.requests.slice(beforeTransit))).toEqual([]);
+    });
+
     await test.step('an abandoned multi-step flow reports the step it got to', async () => {
       // The funnel, end to end. Opening the send form and leaving it is an
       // abandoned `send`, and the whole reason `step` exists is that this event
@@ -202,6 +229,9 @@ test.describe('Telemetry egress', () => {
         waitUntil: 'domcontentloaded'
       });
       await page.waitForSelector('#root > *', { timeout: 30_000 });
+      // Stay, unlike the transit above. This is the difference between a swipe
+      // crossing the pane and a user who opened the send form.
+      await page.waitForTimeout(ROUTE_DWELL_MS * 2);
 
       // Leaving the send form without a draft is what cancels the flow.
       await page.goto(`chrome-extension://${extensionId}/fullpage.html#/`, {
@@ -227,6 +257,41 @@ test.describe('Telemetry egress', () => {
       for (const envelope of sendEnded) {
         expect((envelope.props as Record<string, unknown>).step).toBe('select_recipient');
       }
+    });
+
+    await test.step('everything one run of the app did shares a session, and the flows inside it stay separate', async () => {
+      // What a person reading the dashboard actually sees. Sending the per-flow
+      // id as `sessionId` — the original design — made every session hold one
+      // flow and last 0s, so a completed swap showed up as two unrelated rows
+      // and the dashboard could not say a swap had happened at all.
+      //
+      // Everything below arrived after the reload above, which is one run: an
+      // `open` pair, whatever the receive page emitted, and the abandoned send.
+      const envelopes = received().map(request => JSON.parse(request.body) as Record<string, unknown>);
+      const propsOf = (envelope: Record<string, unknown>) => envelope.props as Record<string, unknown>;
+
+      const sinceReload = envelopes.slice(-6);
+      expect(sinceReload.length).toBeGreaterThan(2);
+
+      // One id across more than one KIND of flow — the assertion that fails if
+      // anyone reverts `sessionId` to the flow id, since that could never group
+      // an `open` with a `send`.
+      const sessions = new Set(sinceReload.map(envelope => String(envelope.sessionId)));
+      const flowNames = new Set(sinceReload.map(envelope => String(envelope.eventName).replace(/_(started|ended)$/, '')));
+      expect(sessions.size).toBe(1);
+      expect(flowNames.size).toBeGreaterThan(1);
+
+      // And inside that one session the flows are still individually legible,
+      // because `flowId` pairs them. A single flow id spanning two flow names
+      // would fuse unrelated journeys into one funnel entry.
+      const namesByFlowId = new Map<string, Set<string>>();
+      for (const envelope of sinceReload) {
+        const id = String(propsOf(envelope).flowId);
+        const name = String(envelope.eventName).replace(/_(started|ended)$/, '');
+        namesByFlowId.set(id, (namesByFlowId.get(id) ?? new Set()).add(name));
+      }
+      expect([...namesByFlowId].filter(([, names]) => names.size > 1)).toEqual([]);
+      expect(namesByFlowId.size).toBeGreaterThan(1);
     });
 
     await test.step('withdrawing consent stops egress', async () => {
@@ -308,7 +373,7 @@ function describeRequests(requests: readonly SinkRequest[]): string[] {
  */
 const ENVELOPE_KEYS = ['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'];
 const SYSTEM_PROPS_KEYS = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
-const PROPS_KEYS = ['result', 'errorKind', 'durationMs', 'step'];
+const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
 
 function assertEnvelopeShape(request: SinkRequest): void {
   const envelope = JSON.parse(request.body) as Record<string, unknown>;
@@ -322,10 +387,13 @@ function assertEnvelopeShape(request: SinkRequest): void {
   // Both halves come from closed literal unions in `types.ts`, so anything
   // outside this shape means a free-form string reached the event name.
   expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended)$/);
-  // The session id is an ephemeral per-flow nanoid. Asserting its shape is what
-  // keeps a persistent or device-derived identifier from being introduced here
-  // without a test noticing.
+  // The session id is an ephemeral per-run nanoid, and the flow id inside
+  // `props` is a second one. Asserting both shapes is what keeps a persistent
+  // or device-derived identifier from being introduced without a test noticing:
+  // anything derived from a device would not be 21 characters of nanoid.
   expect(String(envelope.sessionId)).toMatch(/^[A-Za-z0-9_-]{21}$/);
+  expect(String((envelope.props as Record<string, unknown>).flowId)).toMatch(/^[A-Za-z0-9_-]{21}$/);
+  expect(String(envelope.sessionId)).not.toBe(String((envelope.props as Record<string, unknown>).flowId));
 }
 
 function assertNoSentinels(requests: readonly SinkRequest[], sentinels: readonly string[]): void {

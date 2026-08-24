@@ -18,6 +18,7 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -235,7 +236,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // user had not asked for, and then never ending it, since swiping away does
   // not unmount either. Every wallet launch produced a phantom abandoned send.
   // `pathname` is the carousel's own source of truth for which page is showing.
-  const onSendRoute = pathname === '/send' || pathname.startsWith('/send/');
+  //
+  // Dwelled on rather than merely current, because a swipe from Overview to Swap
+  // commits /send on the way past — see `useRouteDwell`.
+  const onSendRoute = useRouteDwell(pathname === '/send' || pathname.startsWith('/send/'));
   useEffect(() => {
     if (!onSendRoute) return;
     enterSendFlow();

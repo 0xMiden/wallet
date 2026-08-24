@@ -3,7 +3,44 @@ import { nanoid } from 'nanoid';
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryStep } from './types';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryRunId, TelemetryStep } from './types';
+
+/**
+ * How long a run may sit idle before the next event starts a new one.
+ *
+ * A bound on how much of one person's activity any single id can cover. Half an
+ * hour is long enough that stepping away from a half-finished send and coming
+ * back still reads as one visit, and short enough that a wallet left open in a
+ * background tab overnight does not link tomorrow's activity to today's.
+ */
+export const RUN_IDLE_ROTATE_MS = 30 * 60 * 1000;
+
+let runId: TelemetryRunId | null = null;
+let lastEventAt = 0;
+
+/**
+ * The id for the run this event belongs to, minting or rotating as needed.
+ *
+ * Module scope, which in every context the wallet runs in means the lifetime of
+ * one page: the extension's popup, its full-page tab and each dApp prompt window
+ * are separate runs, and so is each launch of the mobile app. Nothing is written
+ * anywhere, so there is no id to survive a reload — which is the property that
+ * keeps this ephemeral rather than a durable install identifier.
+ */
+function currentRunId(): TelemetryRunId {
+  const now = Date.now();
+  if (runId === null || now - lastEventAt > RUN_IDLE_ROTATE_MS) {
+    runId = nanoid();
+  }
+  lastEventAt = now;
+  return runId;
+}
+
+/** Test-only: forget the current run, as a fresh page load would. */
+export function __resetRunForTest(): void {
+  runId = null;
+  lastEventAt = 0;
+}
 
 export interface FlowHandle {
   complete(): void;
@@ -45,21 +82,28 @@ function report(event: TelemetryEvent): void {
  */
 export function beginFlow(flow: TelemetryFlow): FlowHandle {
   const flowId = nanoid();
+  // Fixed for the whole flow rather than read again at the end, so a flow that
+  // outlives a rotation still reports both of its events under one id and stays
+  // pairable. Ending one also counts as activity, which is what keeps a run
+  // alive across a long deliberation on a review screen.
+  const runId = currentRunId();
   // Monotonic: a wall-clock adjustment mid-flow must not be able to produce a
   // negative or wildly inflated duration.
   const startedAt = performance.now();
   let settled = false;
   let furthestStep: TelemetryStep | undefined;
 
-  report({ phase: 'started', flow, flowId });
+  report({ phase: 'started', flow, flowId, runId });
 
   const end = (result: 'completed' | 'cancelled' | 'errored', errorKind?: TelemetryErrorKind): void => {
     if (settled) return;
     settled = true;
+    lastEventAt = Date.now();
     report({
       phase: 'ended',
       flow,
       flowId,
+      runId,
       result,
       durationMs: performance.now() - startedAt,
       ...(errorKind !== undefined ? { errorKind } : {}),

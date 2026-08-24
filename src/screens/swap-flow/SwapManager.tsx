@@ -15,6 +15,7 @@ import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
+import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
@@ -102,7 +103,9 @@ const SwapManager: React.FC = () => {
   // home carousel mounts this screen on every app open and keeps it mounted, so
   // a mount-triggered flow would report a swap nobody started and then leave it
   // open, because swiping to another page does not unmount this one.
-  const onSwapRoute = pathname === '/swap' || pathname.startsWith('/swap/');
+  // Dwelled on rather than merely current: a swipe from Overview to Swap commits
+  // the panes in between, and this one is itself transited on the way back.
+  const onSwapRoute = useRouteDwell(pathname === '/swap' || pathname.startsWith('/swap/'));
   useEffect(() => {
     if (!onSwapRoute) return;
     // Adopt rather than assign, matching `enterSendFlow` and `enterRouteFlow`: an

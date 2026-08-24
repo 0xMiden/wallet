@@ -1,7 +1,7 @@
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { beginFlow, classifyError } from './report-flow';
+import { __resetRunForTest, beginFlow, classifyError, RUN_IDLE_ROTATE_MS } from './report-flow';
 import { FlowEndedEvent, TelemetryEvent } from './types';
 
 jest.mock('lib/miden/front', () => ({ request: jest.fn() }));
@@ -106,6 +106,81 @@ describe('beginFlow', () => {
       expect(unhandled).toEqual([]);
     } finally {
       process.off('unhandledRejection', collect);
+    }
+  });
+});
+
+describe('runId', () => {
+  beforeEach(() => {
+    jest.mocked(request).mockResolvedValue({ type: WalletMessageType.ReportTelemetryEventResponse });
+    __resetRunForTest();
+  });
+
+  afterEach(() => jest.resetAllMocks());
+
+  it('is shared by every flow of one run, which is what makes a session a visit', () => {
+    // The property the redesign exists for. Sending the per-flow id as the
+    // Aptabase session made each session hold one flow and last 0s, so the
+    // dashboard could not say that a person opened the wallet and then swapped.
+    beginFlow('open').complete();
+    beginFlow('swap').complete();
+
+    const runs = new Set(sentEvents().map(event => event.runId));
+    expect(runs.size).toBe(1);
+  });
+
+  it('is carried by both halves of a flow, so a pair never straddles two runs', () => {
+    beginFlow('send').complete();
+    expect(eventAt(0).runId).toBe(eventAt(1).runId);
+  });
+
+  it('starts over for a new run, since nothing about it is written down', () => {
+    beginFlow('open').complete();
+    const first = eventAt(0).runId;
+
+    // What a reopened popup or a relaunched app does: the module is evaluated
+    // again and the previous id is simply gone. There is no storage to clear.
+    __resetRunForTest();
+    beginFlow('open').complete();
+
+    expect(eventAt(2).runId).not.toBe(first);
+  });
+
+  it('rotates after a long idle, bounding how much activity one id can cover', () => {
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      beginFlow('open').complete();
+
+      // A wallet left open in a background tab overnight. Tomorrow's activity
+      // must not be joinable to today's just because the page never reloaded.
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS + 1);
+      beginFlow('open').complete();
+
+      expect(eventAt(2).runId).not.toBe(eventAt(0).runId);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('does not rotate while the run is still being used', () => {
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      beginFlow('open').complete();
+
+      // Stepping away from a half-finished send and coming back is one visit,
+      // so the threshold has to be measured from the last event and not the
+      // first — this fails if the rotation is keyed on the run's total age.
+      now.mockReturnValue(1_000_000 + RUN_IDLE_ROTATE_MS - 1);
+      beginFlow('send').complete();
+      now.mockReturnValue(1_000_000 + 2 * RUN_IDLE_ROTATE_MS - 2);
+      beginFlow('swap').complete();
+
+      const runs = new Set(sentEvents().map(event => event.runId));
+      expect(runs.size).toBe(1);
+    } finally {
+      now.mockRestore();
     }
   });
 });

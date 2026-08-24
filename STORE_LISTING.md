@@ -224,7 +224,7 @@ The app requires network connectivity to sync with the Miden blockchain for send
 - **App info and performance — Crash logs:** Collected, **optional** (same setting, off by default). Not shared. Encrypted in transit. Purposes: *Analytics* and *App functionality*. Scrubbed on-device before sending; a report containing anything resembling a recovery phrase is discarded rather than sent.
 - **App info and performance — Diagnostics:** Collected, **optional** (same setting). Not shared. Encrypted in transit. Purposes: *Analytics* and *App functionality*. Covers the error category and duration described above.
 - **App info and performance — Other app performance data:** None collected.
-- **Device or other IDs:** **None.** No user ID, device ID, install ID, or advertising ID exists anywhere in the app. The only identifier involved is a per-activity random value held in memory, never persisted and never reused.
+- **Device or other IDs:** **None.** No user ID, device ID, install ID, or advertising ID exists anywhere in the app. The only identifiers involved are two random values held in memory and never persisted: one per activity, and one per run of the app that groups the activities of that run. Both are gone when the app closes, so nothing links one launch to another.
 
 ### Data shared with third parties
 **None shared** in Play's sense (no transfer for another party's own purposes). RPC/transport traffic to `rpc.testnet.miden.io` + `transport.miden.io` is public chain data, not user PII.

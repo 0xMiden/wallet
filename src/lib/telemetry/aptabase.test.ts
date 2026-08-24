@@ -12,11 +12,11 @@ import { TelemetryErrorKind, TelemetryFlow, TelemetryResult, TelemetryWirePayloa
  * The two collisions between Aptabase's contract and this design are decided
  * here, so a future change that "completes" either one fails rather than ships:
  *
- * 1. `sessionId` is the per-flow id, not a reused session. Aptabase's own SDKs
- *    keep one session id across events with a four-hour timeout, which would
- *    link every flow a user performs into one trail. There is nowhere to keep
- *    such an id anyway — `guarantees.test.ts` asserts the telemetry module
- *    cannot reach a persistence API at all.
+ * 1. `sessionId` is the ephemeral per-RUN id, and the per-flow id rides in
+ *    `props`. Aptabase's own SDKs keep a session id in storage with a four-hour
+ *    timeout; ours is minted in memory, rotates on idle, and is written nowhere
+ *    — `guarantees.test.ts` asserts the telemetry module cannot reach a
+ *    persistence API at all, so it cannot outlive the page that minted it.
  * 2. `systemProps` carries four fields and never the three fingerprinting ones.
  *    `osVersion`, `locale` and `deviceModel` are data this wallet does not
  *    collect, and Aptabase does not require them.
@@ -28,6 +28,7 @@ const started: TelemetryWirePayload = {
   phase: 'started',
   flow: 'send',
   flowId: 'flow-1',
+  runId: 'r1',
   appVersion: '1.15.21',
   platform: 'extension'
 };
@@ -36,6 +37,7 @@ const ended: TelemetryWirePayload = {
   phase: 'ended',
   flow: 'send',
   flowId: 'flow-1',
+  runId: 'r1',
   result: 'errored',
   errorKind: 'proving',
   durationMs: 1234,
@@ -90,12 +92,13 @@ const ERROR_KINDS: readonly TelemetryErrorKind[] = Object.values(EVERY_ERROR_KIN
 
 /** Every payload the wire type can hold, so the assertions below are exhaustive. */
 const EVERY_PAYLOAD: readonly TelemetryWirePayload[] = FLOWS.flatMap(flow => [
-  { phase: 'started', flow, flowId: 'f', appVersion: '1.15.21', platform: 'ios' },
+  { phase: 'started', flow, flowId: 'f', runId: 'r1', appVersion: '1.15.21', platform: 'ios' },
   ...RESULTS.map(
     (result): TelemetryWirePayload => ({
       phase: 'ended',
       flow,
       flowId: 'f',
+      runId: 'r1',
       result,
       durationMs: 7,
       appVersion: '1.15.21',
@@ -107,6 +110,7 @@ const EVERY_PAYLOAD: readonly TelemetryWirePayload[] = FLOWS.flatMap(flow => [
       phase: 'ended',
       flow,
       flowId: 'f',
+      runId: 'r1',
       result: 'errored',
       errorKind,
       durationMs: 7,
@@ -154,32 +158,41 @@ describe('the Aptabase envelope', () => {
   });
 });
 
-describe('sessionId is the per-flow id, never a reused session', () => {
-  it('sets sessionId to the flow id', () => {
-    expect(buildEnvelope(started, NOW).sessionId).toBe('flow-1');
+describe('sessionId is the run id, and flowId is what pairs the two events', () => {
+  it('sets sessionId to the run id, not the flow id', () => {
+    // The distinction the whole redesign turns on. Sending `flowId` here is
+    // what made every Aptabase session hold one flow and last 0s.
+    expect(buildEnvelope(started, NOW).sessionId).toBe('r1');
+    expect(buildEnvelope(started, NOW).sessionId).not.toBe(started.flowId);
   });
 
-  it('pairs one flow’s started and ended events under one session id', () => {
-    // The pairing that is already intended, already true of the current
-    // payload, and adds no linkability that `flowId` did not already carry.
-    const openStarted = buildEnvelope({ ...started, flowId: 'abc' }, NOW);
-    const openEnded = buildEnvelope({ ...ended, flowId: 'abc' }, NOW);
-    expect(openStarted.sessionId).toBe(openEnded.sessionId);
+  it('groups two different flows of one run under one session id', () => {
+    // What a dashboard needs to show a visit: the flows a person performed in
+    // one run, in order, under a single row with a real duration.
+    const send = buildEnvelope({ ...started, flow: 'send', flowId: 'flow-a', runId: 'run-1' }, NOW);
+    const swap = buildEnvelope({ ...started, flow: 'swap', flowId: 'flow-b', runId: 'run-1' }, NOW);
+    expect(send.sessionId).toBe(swap.sessionId);
+    expect(send.props.flowId).not.toBe(swap.props.flowId);
   });
 
-  it('gives two different flows two different session ids', () => {
-    // This is the assertion that fails if anyone adopts Aptabase's four-hour
-    // session, which would link every flow one person performs into one trail.
-    const first = buildEnvelope({ ...started, flowId: 'flow-a' }, NOW);
-    const second = buildEnvelope({ ...started, flowId: 'flow-b' }, NOW);
-    expect(first.sessionId).toBe('flow-a');
-    expect(second.sessionId).toBe('flow-b');
+  it('separates two runs, which is the linkability bound', () => {
+    // Nothing joins one run to another. The id is minted in memory and written
+    // nowhere, so this is what a relaunch looks like on the wire.
+    const first = buildEnvelope({ ...started, runId: 'run-1' }, NOW);
+    const second = buildEnvelope({ ...started, runId: 'run-2' }, NOW);
     expect(first.sessionId).not.toBe(second.sessionId);
   });
 
-  it('mints no identifier of its own — every session id came from the payload', () => {
-    const ids = new Set(EVERY_PAYLOAD.map(payload => buildEnvelope(payload, NOW).sessionId));
-    expect([...ids]).toEqual(['f']);
+  it('carries the flow id into props on both phases, so an ended can find its started', () => {
+    expect(buildEnvelope({ ...started, flowId: 'abc' }, NOW).props.flowId).toBe('abc');
+    expect(buildEnvelope({ ...ended, flowId: 'abc' }, NOW).props.flowId).toBe('abc');
+  });
+
+  it('mints no identifier of its own — every id came from the payload', () => {
+    const sessions = new Set(EVERY_PAYLOAD.map(payload => buildEnvelope(payload, NOW).sessionId));
+    const flows = new Set(EVERY_PAYLOAD.map(payload => buildEnvelope(payload, NOW).props.flowId));
+    expect([...sessions]).toEqual(['r1']);
+    expect([...flows]).toEqual(['f']);
   });
 });
 
@@ -244,12 +257,15 @@ describe('systemProps carries the minimum and no fingerprint', () => {
 });
 
 describe('props is built field by field from the allowlist', () => {
-  it('sends no props for a started event', () => {
-    expect(buildEnvelope(started, NOW).props).toEqual({});
+  it('sends nothing but the pairing key for a started event', () => {
+    // A `started` has no outcome, no duration and no step yet. The flow id is
+    // there because without it the matching `ended` has nothing to join to.
+    expect(buildEnvelope(started, NOW).props).toEqual({ flowId: 'flow-1' });
   });
 
   it('sends the result and the duration for an ended event', () => {
     expect(buildEnvelope({ ...ended, result: 'completed', errorKind: undefined }, NOW).props).toEqual({
+      flowId: 'flow-1',
       result: 'completed',
       durationMs: 1234
     });
@@ -257,6 +273,7 @@ describe('props is built field by field from the allowlist', () => {
 
   it('sends the error kind only when the flow failed with one', () => {
     expect(buildEnvelope(ended, NOW).props).toEqual({
+      flowId: 'flow-1',
       result: 'errored',
       errorKind: 'proving',
       durationMs: 1234
@@ -293,7 +310,7 @@ describe('props is built field by field from the allowlist', () => {
     const smuggled = Object.assign({ ...ended }, { locale: 'en-GB', deviceModel: 'Pixel 8', account: 'mtst1aqs' });
     const envelope = buildEnvelope(smuggled, NOW);
 
-    expect(envelope.props).toEqual({ result: 'errored', errorKind: 'proving', durationMs: 1234 });
+    expect(envelope.props).toEqual({ flowId: 'flow-1', result: 'errored', errorKind: 'proving', durationMs: 1234 });
     expect(JSON.stringify(envelope)).not.toContain('en-GB');
     expect(JSON.stringify(envelope)).not.toContain('Pixel 8');
     expect(JSON.stringify(envelope)).not.toContain('mtst1aqs');

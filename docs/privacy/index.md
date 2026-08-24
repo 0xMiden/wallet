@@ -25,14 +25,16 @@ When the setting is on, the App reports the start and the end of a small set of 
 
 | What | Values |
 |---|---|
-| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, handling an incoming note, viewing activity |
+| Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
 | Whether it started or ended | `started` or `ended` |
 | How it ended | `completed`, `cancelled`, or `errored` |
 | Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
 | How long it took | A duration in milliseconds |
+| How far you got | The name of the furthest screen the activity reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it |
 | App version | For example, `1.15.21` |
 | Platform | `extension`, `ios`, or `android` |
 | A short random number for that one activity | Explained under "Identifiers" below |
+| A short random number for that run of the App | Explained under "Identifiers" below |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
 
@@ -66,11 +68,16 @@ We also do not call this data anonymous. Sending anything over the internet mean
 
 ## Identifiers
 
-The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as five minutes ago".
+The App holds **no persistent identifier for you** — no user id, no device id, no install id, no cookie, no advertising identifier. Nothing in the usage data or the crash reports says "this is the same person as last week", or even "as yesterday".
 
-The one identifier involved is the short random number in the table above. It is created when an activity starts, exists only in memory, is used only to match that activity's "started" message to its "ended" message, is never written to disk, and is never reused. Once the activity is over, it is gone.
+Two short random numbers are involved, and both live only in memory:
 
-**One thing worth spelling out, because it would otherwise look like the opposite.** Our analytics provider calls the field this number travels in a "session id", and their own libraries put a single value there and reuse it for four hours — which would tie together everything you did in that window. We do not do that. What we put in that field is the per-activity random number described above, so a "session" in their system is *one activity* and nothing more. Two activities you perform back to back carry two unrelated values, and there is no way to tell they came from the same person. That is also the only option available to us: the App has no way to store such a value between activities even if we wanted one, and a test asserts it stays that way.
+- **One per activity.** Created when an activity starts, used only to match that activity's "started" message to its "ended" message, never written to disk, never reused. Once the activity is over, it is gone.
+- **One per run of the App.** Created when the App starts and shared by the activities you perform in that run, so that a sequence like "opened the wallet, went to swap, changed your mind, sent instead" can be read as one visit rather than as unconnected fragments. It is never written to disk, so closing the App or reloading the extension ends it permanently and the next run gets an unrelated value. It also renews itself after 30 minutes with no activity, so a window left open does not accumulate a long trail.
+
+**What that second number does and does not allow, stated plainly.** Within one run of the App, the activities you performed can be seen as belonging together. Across runs — and across devices, and across people — nothing can. This is a deliberate trade: the earlier design used the per-activity number for both purposes, and the result was data in which every session held exactly one activity and lasted zero seconds, which could not answer the only question the feature exists to answer, namely where people get stuck.
+
+**One thing worth spelling out, because our provider's naming suggests otherwise.** Aptabase calls the field this number travels in a "session id", and their own libraries store it on your device and reuse it on a four-hour timeout — which makes it survive restarts. Ours does not exist anywhere but memory. That is also the only option available to us: the App has no way to store such a value at all, and a test asserts it stays that way.
 
 ### What that means for deleting your data
 

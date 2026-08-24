@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { useAccount } from 'lib/miden/front';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
+import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { navigate, useLocation } from 'lib/woozie';
 
 export interface ReceiveProps {}
@@ -36,7 +37,12 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
   // receive-address share every time the wallet was launched — the address
   // renders unconditionally, so it completed immediately too. Those were the
   // most numerous events the wallet emitted and none of them meant anything.
-  const onReceiveRoute = pathname === '/receive' || pathname.startsWith('/receive/');
+  //
+  // Dwelled on rather than merely current. This pane sits between Send and Earn,
+  // so it is the one the carousel transits most, and its flow completes on sight
+  // of the address — meaning a swipe past it produced a `completed` share that
+  // no duration filter on `result` could tell from a real one.
+  const onReceiveRoute = useRouteDwell(pathname === '/receive' || pathname.startsWith('/receive/'));
   useEffect(() => {
     if (!onReceiveRoute) return;
     flowRef.current = beginFlow('receive_share');

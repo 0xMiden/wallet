@@ -80,6 +80,23 @@ export type TelemetryErrorKind =
 
 export type TelemetryPlatform = 'extension' | 'ios' | 'android';
 
+/**
+ * The identifier shared by every flow in one run of the app.
+ *
+ * Minted in memory when the app starts and thrown away when it stops. It is
+ * what makes a sequence of events readable as something a person did — "opened
+ * the wallet, went to swap, gave up at review, sent instead" — which the
+ * per-flow id alone can never express, since it is by construction unrelated to
+ * every other id.
+ *
+ * The trade is deliberate and bounded. Within one run, the flows a person
+ * performed are linkable to each other; across runs, and across devices,
+ * nothing is. It touches no storage, so an app restart mints a fresh one, and
+ * it rotates on its own after `RUN_IDLE_ROTATE_MS` so a window left open for a
+ * week is not one week-long trail.
+ */
+export type TelemetryRunId = string;
+
 export interface FlowStartedEvent {
   phase: 'started';
   flow: TelemetryFlow;
@@ -89,12 +106,14 @@ export interface FlowStartedEvent {
    * abandoned flow. Never reused.
    */
   flowId: string;
+  runId: TelemetryRunId;
 }
 
 export interface FlowEndedEvent {
   phase: 'ended';
   flow: TelemetryFlow;
   flowId: string;
+  runId: TelemetryRunId;
   result: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs: number;
@@ -117,6 +136,7 @@ export interface TelemetryWirePayload {
   phase: 'started' | 'ended';
   flow: TelemetryFlow;
   flowId: string;
+  runId: TelemetryRunId;
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs?: number;

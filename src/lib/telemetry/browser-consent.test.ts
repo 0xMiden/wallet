@@ -77,7 +77,7 @@ const mockIsExtension = jest.mocked(isExtension);
 const CHECKED_PERMISSION = 'technicalAndInteraction';
 
 const CONTEXT = { appVersion: '1.15.22', platform: 'extension' } as const;
-const STARTED = { phase: 'started', flow: 'send', flowId: 'browser-consent' } as const;
+const STARTED = { phase: 'started', flow: 'send', flowId: 'browser-consent', runId: 'r1' } as const;
 
 let sent: TelemetryWirePayload[] = [];
 

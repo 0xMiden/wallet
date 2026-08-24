@@ -22,7 +22,7 @@ If they ever disagree, the code is right and the other two are wrong.
 
 ## What is actually collected
 
-Only while the setting is on. Product events carry exactly nine fields and no
+Only while the setting is on. Product events carry exactly ten fields and no
 free-form text:
 
 | Field | Values |
@@ -30,6 +30,7 @@ free-form text:
 | `phase` | `started`, `ended` |
 | `flow` | One of 16: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `swap`, `earn`, `dapp_connect`, `dapp_tx`, `guardian_rotate`, `note_handle`, `activity_view` |
 | `flowId` | Ephemeral per-flow random id, in memory only, never persisted or reused |
+| `runId` | Ephemeral per-app-run random id, in memory only, never persisted. Groups the flows of one run so a session describes a visit; rotates after 30 minutes idle, and a relaunch mints a new one |
 | `result` | `completed`, `cancelled`, `errored` (`ended` only) |
 | `errorKind` | `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout`, `unknown` (`ended` only, when it failed) |
 | `durationMs` | Rounded integer milliseconds (`ended` only) |
@@ -37,7 +38,7 @@ free-form text:
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
 
-### How those nine fields reach Aptabase
+### How those ten fields reach Aptabase
 
 `buildEnvelope` in `src/lib/telemetry/aptabase.ts` maps them onto Aptabase's
 envelope, each field exactly once, by name — never by spreading, because
@@ -46,8 +47,8 @@ Aptabase's `props` is an open object and the type system stops helping there:
 | Envelope field | Holds |
 |---|---|
 | `eventName` | `<flow>_<phase>`, e.g. `send_started`. 32 possible names, both halves closed unions |
-| `sessionId` | `flowId`. **Not** an Aptabase session — see below |
-| `props` | `result`, `errorKind`, `durationMs`, `step` |
+| `sessionId` | `runId`. One run of the app, not a durable session — see below |
+| `props` | `flowId`, `result`, `errorKind`, `durationMs`, `step` |
 | `systemProps.osName` | `platform` |
 | `systemProps.appVersion` | `appVersion` |
 | `systemProps.isDebug` | `NODE_ENV !== 'production'` |
@@ -56,12 +57,15 @@ Aptabase's `props` is an open object and the type system stops helping there:
 
 Two departures from how Aptabase's own SDKs fill this in, both deliberate:
 
-- **`sessionId` is one flow, not one session.** Their SDKs reuse a session id
-  across events with a four-hour timeout, which would link every flow one
-  person performs into a single trail. Ours is the per-flow id, so an Aptabase
-  "session" means exactly one activity. It also could not work otherwise —
-  `guarantees.test.ts` asserts the telemetry module cannot reach a persistence
-  API at all, so there is nowhere to keep a longer-lived id.
+- **`sessionId` is one run of the app, and it is never stored.** Their SDKs keep
+  a session id in device storage and reuse it on a four-hour timeout, which
+  makes it durable across launches. Ours is minted in memory, groups only the
+  flows of the run that minted it, rotates after 30 minutes of inactivity, and
+  is gone when the app closes — so nothing links two launches, two devices, or
+  two people. It could not work otherwise: `guarantees.test.ts` asserts the
+  telemetry module cannot reach a persistence API at all, so there is nowhere to
+  keep a longer-lived id even by mistake. The per-flow id moved into `props`,
+  where it still pairs a `started` with its `ended`.
 - **`systemProps.osVersion`, `locale` and `deviceModel` are never sent.** All
   three are fingerprinting vectors, none is required, and Aptabase's own
   custom-SDK example omits most of them. `egress-boundary.test.ts` fails if any
