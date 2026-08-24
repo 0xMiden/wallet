@@ -126,8 +126,29 @@ const CJK_PUNCT = String.raw`[\s«»„“”"'’()\-の的의와과]*`;
 // Guardian` ("the address is not the wallet's Guardian") looked like a hit.
 const WORDS = String.raw`(?:[\p{L}\p{M}]{1,12}\s+){0,2}`;
 
-const nounNearGuardian = (nouns: string[], connector: string): string =>
-  nouns.map(noun => `${noun}${connector}Guardian|Guardian${connector}${noun}`).join('|');
+/**
+ * Denials, which have to be exempted rather than matched. Copy that says what the
+ * Guardian is NOT — "Der Guardian ist keine App", "The Guardian is not an app" —
+ * puts the banned noun next to the name while asserting the opposite of the
+ * defect, so the noun alone cannot decide. A lookbehind on the noun is enough:
+ * the connector has already consumed the negator by the time the noun is
+ * reached, so requiring that it not be one rules the whole clause out.
+ *
+ * Only the languages whose accurate copy actually uses this construction, which
+ * is the two that name the loan words `App`/`Website` at all.
+ */
+const NEGATORS: Record<string, string[]> = {
+  en: [String.raw`not`, String.raw`not\s+an?`, String.raw`never`],
+  en_GB: [String.raw`not`, String.raw`not\s+an?`, String.raw`never`],
+  de: [String.raw`keine?`, String.raw`keinen`, String.raw`nicht`]
+};
+
+const nounNearGuardian = (nouns: string[], connector: string, negators: string[] = []): string => {
+  const notNegated = negators.map(negator => `(?<!\\b${negator}\\s)`).join('');
+  return nouns
+    .map(noun => `${notNegated}${noun}${connector}Guardian|Guardian${connector}${notNegated}${noun}`)
+    .join('|');
+};
 
 /**
  * `spaced` languages allow the intervening words; ja/ko/zh get particle-and-
@@ -138,16 +159,24 @@ const nounNearGuardian = (nouns: string[], connector: string): string =>
  */
 const wrongThing = (
   nouns: string[],
-  { extra = [], spaced = true }: { extra?: string[]; spaced?: boolean } = {}
+  { extra = [], spaced = true, negators = [] }: { extra?: string[]; spaced?: boolean; negators?: string[] } = {}
 ): RegExp =>
-  new RegExp([nounNearGuardian(nouns, spaced ? `${PUNCT}${WORDS}${PUNCT}` : CJK_PUNCT), ...extra].join('|'), 'iu');
+  new RegExp(
+    [nounNearGuardian(nouns, spaced ? `${PUNCT}${WORDS}${PUNCT}` : CJK_PUNCT, negators), ...extra].join('|'),
+    'iu'
+  );
 
 // `\S*` rather than `\w*` for an inflected tail: `\w` is ASCII-only, so it
 // matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
 // `адреса Guardian`, and such an alternative silently never fires.
 const WRONG_THING_TERMS: Record<string, RegExp> = {
-  en: wrongThing(['address', 'page', 'site', 'app']),
-  en_GB: wrongThing(['address', 'page', 'site', 'app']),
+  // `\bapp\b`, because `nounNearGuardian` adds no boundaries and the pattern is
+  // case-insensitive: bare `app` matched the first three letters of "approve",
+  // so the accurate "Authenticate to approve this Guardian switch" read as
+  // "app … Guardian". The other three nouns here cannot occur as a prefix of a
+  // word this copy uses, so they stay unanchored to keep the plural forms.
+  en: wrongThing(['address', 'page', 'site', String.raw`\bapp\b`], { negators: NEGATORS.en }),
+  en_GB: wrongThing(['address', 'page', 'site', String.raw`\bapp\b`], { negators: NEGATORS.en_GB }),
   // German needs a gender check as well as a noun check: MT rendered it as *die*
   // Guardian and *einer anderen* Guardian — feminine, which in German reads as
   // "the Guardian app/site" rather than the person/service that co-signs. The
@@ -158,9 +187,23 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // are correct German. Without it the sweep flagged both, and the `de`
   // KNOWN_GOOD entry has no compound in it, so nothing here would have noticed.
   // The wrong-noun half of such a compound is still caught by the noun list.
-  de: wrongThing([String.raw`Adress\S*`, String.raw`Seite\S*`, 'App', String.raw`Anwendung\S*`, 'Website'], {
-    extra: [String.raw`\bdie\s*[„“"«»]?\s*Guardian(?!-)`, String.raw`\beiner\s+anderen\s*[„“"«»]?\s*Guardian(?!-)`]
-  }),
+  // `\b` on the two ASCII nouns: unanchored, `App` matched inside `appliziert`
+  // and — with `nounNearGuardian` adding no boundaries and the whole pattern
+  // case-insensitive — flagged the accurate negation "Guardian ist keine App".
+  // Same false-positive class that the power family was rewritten to avoid.
+  de: wrongThing(
+    [
+      String.raw`Adress\S*`,
+      String.raw`Seite\S*`,
+      String.raw`\bApp\b`,
+      String.raw`Anwendung\S*`,
+      String.raw`\bWebsite\b`
+    ],
+    {
+      negators: NEGATORS.de,
+      extra: [String.raw`\bdie\s*[„“"«»]?\s*Guardian(?!-)`, String.raw`\beiner\s+anderen\s*[„“"«»]?\s*Guardian(?!-)`]
+    }
+  ),
   es: wrongThing([String.raw`direcci[oó]n`, String.raw`p[aá]gina`, 'sitio', String.raw`aplicaci[oó]n`]),
   fr: wrongThing(['adresse', 'page', 'site'], { extra: ['faire tourner', 'Guardiane'] }),
   ja: wrongThing([String.raw`アドレス`, String.raw`ページ`, String.raw`サイト`], {
@@ -201,49 +244,124 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
  * patterns apply to the receipt keys only.
  */
 /**
- * An approval verb with the Guardian in front of it, rather than the bare verb.
+ * An approval verb whose AGENT is the Guardian, rather than the bare verb.
  *
- * Bare stems flagged accurate copy: `approv` matched "Your two device keys
- * approve the switch, not the Guardian" — the sentence that states the correct
- * mechanism, and now a receipt key — while `polic` matched "privacy policy" and
- * `authoris` matched "unauthorised device". The verb is only wrong when the
- * GUARDIAN is the one doing it, so require the Guardian to be its subject.
+ * Bare stems cannot be used, because approval verbs appear throughout accurate
+ * copy with the user as the agent — "Rotation is approved by your two on-device
+ * keys", "Authenticate to approve this Guardian switch", and the same in all
+ * fourteen locales. What makes the sentence wrong is the Guardian doing the
+ * approving, so that is what these patterns require.
  *
- * Directional on purpose. A passive misdescription ("every transaction is
- * approved by your Guardian") puts the verb first and is NOT caught — matching
- * both directions is what produced the false positives above, since the accurate
- * sentence also has the Guardian trailing the verb, and telling those apart needs
- * per-locale negation handling. Every misdescription machine translation has
- * actually emitted here is Guardian-first; see KNOWN_BAD_POWER.
+ * Both directions, each with its own bound:
+ *
+ *  - **Guardian first** (`Guardian … approves`), which covers the verb-final
+ *    languages outright: German `wird jede Transaktion genehmigen`, Turkish
+ *    `Guardian … onaylar`, and Japanese and Korean, whose verb always trails.
+ *  - **Passive** (`approved BY your Guardian`), which requires an explicit agent
+ *    marker. Without the marker this direction would match "approve this
+ *    Guardian switch", where the Guardian is the object; with it, it cannot match
+ *    "approved by your two on-device keys", where the agent is the user's keys.
+ *
+ * Both stop at clause and sentence boundaries, so neither can pair a verb with a
+ * Guardian belonging to a different statement. That is what keeps the accurate
+ * comma-joined form — `Guardian 会共同签署每笔交易，批准由您的两个设备密钥完成` —
+ * out: the Guardian co-signs in the first clause and the approval belongs to the
+ * keys in the second.
  */
-const wrongPower = (verbs: string[], { spaced = true }: { spaced?: boolean } = {}): RegExp =>
-  new RegExp(
-    // For CJK a bounded run of any non-sentence-ending character, since the
-    // subject is not whitespace-delimited from the verb: `Guardian会批准`,
-    // `Guardianがすべての取引を承認`. Capped, and stopping at sentence enders, so
-    // it cannot reach a verb belonging to the next sentence.
-    `Guardian(?:['’]s)?${spaced ? `${PUNCT}${WORDS}${PUNCT}` : String.raw`[^。．！？!?\n]{0,12}`}(?:${verbs.join('|')})`,
-    'iu'
-  );
+// Sentence AND clause enders, the latter because Chinese and Japanese join
+// clauses with `，`/`、` where English would start a new sentence.
+const CJK_BREAK = String.raw`[^。．！？!?、，；：\n]`;
+
+// Wider than the noun family's WORDS: adverbs run long (`unconditionally`) and MT
+// interposes whole policy phrases (`Your Guardian, based on your security policy,
+// approves…` — six words), so allow six words of up to twenty letters. Commas
+// separate, periods do not: the span can cross a clause but never a sentence,
+// which is what keeps "approved by your two on-device keys. The old Guardian is
+// only notified" from pairing the verb with the next sentence's Guardian.
+const POWER_WORDS = String.raw`(?:[\p{L}\p{M}]{1,20}[\s,]+){0,6}`;
+
+// As PUNCT, plus the comma — every language here can put one straight after the
+// subject (`Guardian, cüzdanınızdaki her işlemi onaylar`).
+const POWER_PUNCT = String.raw`[\s«»„“”"'’(),\-]*`;
+
+const wrongPower = (
+  verbs: string[],
+  { spaced = true, agents = [] }: { spaced?: boolean; agents?: string[] } = {}
+): RegExp => {
+  const subjectFirst = spaced
+    ? `Guardian(?:['’]s)?${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}(?:${verbs.join('|')})`
+    : // CJK subjects are not whitespace-delimited from their verb, so bound by
+      // character count instead of words — thirty, because Korean `Guardian이
+      // 귀하의 모든 거래를 승인합니다` alone spans thirteen and the policy phrasing
+      // the English explainer used to carry spans about twenty. One optional
+      // clause mark is allowed just after the subject and its particle, which is
+      // where Japanese puts it (`Guardianは、…を承認します`); a later one still ends
+      // the span, so an approval belonging to a following clause stays out of
+      // reach — `Guardianが共同署名します、承認はあなたの鍵です` is not flagged.
+      `Guardian(?:['’]s)?${CJK_BREAK}{0,3}[、，]?${CJK_BREAK}{0,30}(?:${verbs.join('|')})`;
+
+  if (agents.length === 0) return new RegExp(subjectFirst, 'iu');
+
+  const passive = `(?:${verbs.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}(?:${agents.join('|')})${POWER_PUNCT}${POWER_WORDS}${POWER_PUNCT}Guardian`;
+  return new RegExp(`${subjectFirst}|${passive}`, 'iu');
+};
+
+/**
+ * The approval verbs themselves, kept separate from the patterns built out of
+ * them so the one key whose implicit subject is the Guardian can be swept with
+ * the bare stems (see the test near the bottom).
+ *
+ * Stems, so that "will approve", "must approve" and "approval" come along with
+ * the same entry. `polic`, `authoris` and `authoriz` are deliberately absent:
+ * as stems they matched "privacy policy" and "unauthorised device", and the
+ * policy misdescription this suite exists to keep out — "approves or rejects
+ * transactions based on your security policy" — contains `approv` anyway.
+ */
+// Unannotated so the keys stay literal: with `Record<string, string[]>` every
+// lookup below widens to `string[] | undefined`.
+const POWER_VERBS = {
+  en: ['approv', 'endors', 'confirms every'],
+  en_GB: ['approv', 'endors', 'confirms every'],
+  de: ['genehmig', 'billigt'],
+  es: ['aprob', 'aprueb', 'avala'],
+  fr: ['approuv', 'avalise'],
+  ja: [String.raw`承認`],
+  ko: [String.raw`승인`],
+  pl: ['zatwierdza', 'akceptuje ka'],
+  pt: ['endoss', 'aprov'],
+  ru: [String.raw`подтвержда`, String.raw`одобря`],
+  tr: ['onayl'],
+  uk: [String.raw`підтверджу`, String.raw`схвалю`],
+  zh_CN: [String.raw`批准`, String.raw`核准`],
+  zh_TW: [String.raw`批准`, String.raw`核准`]
+};
 
 const WRONG_POWER_TERMS: Record<string, RegExp> = {
-  // Stems, like every other locale here. `approves` alone missed "will approve",
-  // "must approve", "approval" and the near-synonyms the doc comment above
-  // already names — five of the six phrasings MT actually produces.
-  en: wrongPower(['approv', 'polic', 'endors', 'confirms every', 'authoris', 'authoriz']),
-  en_GB: wrongPower(['approv', 'polic', 'endors', 'confirms every', 'authoris', 'authoriz']),
-  de: wrongPower(['genehmig', 'billigt']),
-  es: wrongPower(['aprob', 'aprueb', 'avala']),
-  fr: wrongPower(['approuv', 'avalise']),
-  ja: wrongPower([String.raw`承認`], { spaced: false }),
-  ko: wrongPower([String.raw`승인`], { spaced: false }),
-  pl: wrongPower(['zatwierdza', 'akceptuje ka']),
-  pt: wrongPower(['endoss', 'aprov']),
-  ru: wrongPower([String.raw`подтвержда`, String.raw`одобря`]),
-  tr: wrongPower(['onayl']),
-  uk: wrongPower([String.raw`підтверджу`, String.raw`схвалю`]),
-  zh_CN: wrongPower([String.raw`批准`, String.raw`核准`], { spaced: false }),
-  zh_TW: wrongPower([String.raw`批准`, String.raw`核准`], { spaced: false })
+  en: wrongPower(POWER_VERBS.en, { agents: ['by'] }),
+  en_GB: wrongPower(POWER_VERBS.en_GB, { agents: ['by'] }),
+  de: wrongPower(POWER_VERBS.de, { agents: ['durch', 'von', 'vom'] }),
+  es: wrongPower(POWER_VERBS.es, { agents: ['por'] }),
+  fr: wrongPower(POWER_VERBS.fr, { agents: ['par'] }),
+  ja: wrongPower(POWER_VERBS.ja, { spaced: false }),
+  ko: wrongPower(POWER_VERBS.ko, { spaced: false }),
+  pl: wrongPower(POWER_VERBS.pl, { agents: ['przez'] }),
+  pt: wrongPower(POWER_VERBS.pt, { agents: ['por', 'pelo', 'pela'] }),
+  // Russian and Ukrainian mark the agent with the bare instrumental rather than a
+  // preposition, so the possessive pronoun is the marker: `подтверждается вашим
+  // Guardian`.
+  ru: wrongPower(POWER_VERBS.ru, {
+    agents: [String.raw`вашим`, String.raw`вашего`, String.raw`вашей`]
+  }),
+  // No agent marker for Turkish, Japanese, Korean or Chinese: all four are
+  // verb-final, so a Guardian doing the approving always precedes its verb and
+  // the subject-first pattern already covers it. Turkish `tarafından` even
+  // follows the Guardian rather than preceding it.
+  tr: wrongPower(POWER_VERBS.tr),
+  uk: wrongPower(POWER_VERBS.uk, {
+    agents: [String.raw`вашим`, String.raw`вашого`, String.raw`вашою`]
+  }),
+  zh_CN: wrongPower(POWER_VERBS.zh_CN, { spaced: false }),
+  zh_TW: wrongPower(POWER_VERBS.zh_TW, { spaced: false })
 };
 
 /**
@@ -369,7 +487,40 @@ const KNOWN_BAD_POWER: Array<[string, string]> = [
   ['tr', 'Guardian her işlemi onaylar'],
   ['uk', 'Ваш Guardian підтверджує кожну транзакцію'],
   ['zh_CN', 'Guardian 会批准每笔交易'],
-  ['zh_TW', 'Guardian 會批准每筆交易']
+  ['zh_TW', 'Guardian 會批准每筆交易'],
+
+  // The shapes an earlier, tighter version of these patterns let through. Each
+  // one is a real machine-translation output shape rather than a contrivance,
+  // and each exercises a specific part of the budget:
+  //
+  //   the policy phrasing #479 removed, in the two languages whose verb comes
+  //   last and whose subject is not whitespace-delimited from it;
+  ['ja', 'Guardianはあなたのセキュリティポリシーに基づいて取引を承認します'],
+  ['ko', 'Guardian은 보안 정책에 따라 모든 거래를 승인하거나 거부합니다'],
+  //   the polite topic marker, which puts a clause mark immediately after the
+  //   subject;
+  ['ja', 'Guardianは、お客様のすべての取引を承認します'],
+  //   an honorific, which alone pushes the subject-to-verb distance past twelve
+  //   characters — the corpus's own `ko` known-bad entry uses the same word;
+  ['ko', 'Guardian이 귀하의 모든 거래를 승인합니다'],
+  //   a parenthetical policy phrase, and a single adverb longer than twelve
+  //   letters;
+  ['en', 'Your Guardian, based on your security policy, approves transactions'],
+  ['en', 'Your Guardian unconditionally approves every transaction'],
+  //   German future tense, where the participle lands at the end of the clause —
+  //   the normal shape for `wird`/`hat`/`muss`, which the shipped German warning
+  //   already uses;
+  ['de', 'Ihr Guardian wird jede Transaktion genehmigen'],
+  //   and the passive, where the Guardian trails its verb. Caught only because an
+  //   explicit agent marker is required, which is what tells it apart from
+  //   "approved by your two on-device keys".
+  ['ru', 'Каждая транзакция подтверждается вашим Guardian'],
+  ['uk', 'Кожна транзакція підтверджується вашим Guardian'],
+  ['es', 'Cada transacción es aprobada por tu Guardian'],
+  ['pt', 'Cada transação é aprovada pelo seu Guardian'],
+  ['fr', 'Chaque transaction est approuvée par votre Guardian'],
+  ['pl', 'Każda transakcja jest zatwierdzana przez Twój Guardian'],
+  ['tr', 'Guardian, cüzdanınızdaki her işlemi onaylar']
 ];
 
 /**
@@ -398,8 +549,23 @@ const KNOWN_GOOD: Array<[string, string]> = [
   // The accurate statement of the mechanism, which the bare `approv` stem flagged
   // — and it lives in a receipt key, so it was swept.
   ['en', 'Your two device keys approve the switch, not the Guardian.'],
-  ['en', 'Read our privacy policy for details.'],
-  ['en', 'Sign in again from an unauthorised device.'],
+  // The accurate mechanism with the verb leading and a Guardian later in the
+  // string — the shape the passive pattern has to tell apart from a real
+  // misdescription. It clears because the agent after "by" is the user's keys,
+  // and because the span cannot cross the sentence boundary to the next Guardian.
+  ['en', 'Rotation is approved by your two on-device keys. The old Guardian is only notified.'],
+  // The Guardian as the OBJECT of an approval the user performs.
+  ['en', 'Authenticate to approve this Guardian switch.'],
+  // Accurate copy that denies a capability, which is where an unanchored noun
+  // list bites: "App" and "Website" appear precisely because the sentence is
+  // saying the Guardian is not one.
+  ['de', 'Der Guardian ist keine App.'],
+  ['de', 'Der Guardian ist keine Website.'],
+  // Comma-joined accuracy in the two languages that join clauses where English
+  // would start a sentence: the Guardian co-signs in the first clause and the
+  // approval belongs to the user's keys in the second.
+  ['zh_CN', 'Guardian 会共同签署每笔交易，批准由您的两个设备密钥完成。'],
+  ['ja', 'Guardianが共同署名します、承認はあなたの鍵です'],
   // `Guardian-<noun>` compounds: correct German, since the compound carries its
   // own gender, but "die Guardian…" read as a gender error to the sweep.
   ['de', 'Die Guardian-Signatur bleibt erforderlich.'],
@@ -494,6 +660,20 @@ describe('Guardian explainer copy accuracy (#479)', () => {
       for (const key of GUARDIAN_RECEIPT_KEYS) {
         expect(localeMessages[key]?.message ?? '').not.toMatch(banned);
       }
+    }
+  });
+
+  it('does not claim approval power on the bullet whose implicit subject is the Guardian', () => {
+    // The one key the adjacency patterns above structurally cannot cover. It is a
+    // subject-less bullet under a Guardian heading — "Co-signs every transaction
+    // …" — so the #479 regression it exists to keep out ("Approves or rejects
+    // transactions based on your security policy") carries no "Guardian" token
+    // for a pattern to anchor on. Here the bare verb IS the defect, because the
+    // Guardian is what the sentence is about; that is only safe on this key,
+    // since everywhere else the approval verbs describe the USER's two keys.
+    for (const [locale, verbs] of Object.entries(POWER_VERBS)) {
+      const message = readMessages(locale)['guardianInfoWhatItDoesDescription']?.message ?? '';
+      expect(message).not.toMatch(new RegExp(`(?:${verbs.join('|')})`, 'iu'));
     }
   });
 

@@ -111,3 +111,25 @@ it('navigates to guardian rotation, buzzing once', () => {
   expect(mockHapticLight).toHaveBeenCalledTimes(1);
   expect(mockNavigate).toHaveBeenCalledWith('/rotate-guardian');
 });
+
+it('keeps the status pill readable in both themes', () => {
+  render(<GuardianSettings />);
+
+  // green-700 is the darkest shade that existed and reaches only 4.34:1 on the
+  // green-50 fill, short of AA for text this size; green-800 (#1F5C33) is 7.34:1.
+  // The palette entry is additive and this pill is its only consumer, so without
+  // this assertion dropping either the shade or the class would leave
+  // `text-green-800` compiling to nothing, with the ink silently inherited.
+  const pill = screen.getByText('online').closest('div');
+  expect(pill).toHaveClass('text-green-800', 'dark:text-green-300');
+});
+
+it('nests the section headings under the guardian name rather than beside it', () => {
+  render(<GuardianSettings />);
+
+  // The rendered outline is h1 (Settings' NavigationHeader) → h2 (guardian name)
+  // → h3 (these two). Promoting them to h2 put them on a level with the name they
+  // sit under, which is what a screen reader's heading list shows.
+  expect(screen.getByText('about').tagName).toBe('H3');
+  expect(screen.getByText('details').tagName).toBe('H3');
+});

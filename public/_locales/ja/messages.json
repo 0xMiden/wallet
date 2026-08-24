@@ -2320,6 +2320,10 @@
     "message": "それはすでに現在のGuardianです。",
     "englishSource": "That's already your current Guardian."
   },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardianの切り替えがすでに進行中です。完了するまでお待ちください。",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
+  },
   "rotateGuardian": {
     "message": "Guardian をローテーションする",
     "englishSource": "Rotate Guardian"

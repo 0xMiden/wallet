@@ -95,9 +95,11 @@ const LanguageSettings: FC = () => {
   // Claiming `role="radiogroup"` promises arrow-key navigation, and thirteen rows
   // each keeping the default tabIndex delivered the opposite: a user who knows the
   // pattern presses Down, nothing happens, and Tab now costs thirteen stops to
-  // cross. Arrows move focus and select in one step, which is the radio contract —
-  // and here selecting also leaves the screen, so it reads as "arrow to the
-  // language you want" with no separate confirm.
+  // cross. Arrows move focus only, and deliberately do not also select: APG says
+  // to avoid selection-following-focus when activation causes a significant
+  // context change, and activating here applies the language AND leaves the
+  // screen — so arrowing past a row would strand the user in a language they were
+  // only passing over. Space or Enter on the focused row commits.
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {

@@ -44,11 +44,14 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
     error?: string | null;
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
-      {/* The picker's own h1 (ChooseGuardian.tsx, rendered whenever `hideHeader`
-          is false — and this page does not set it). Without it in the mock, the
-          "no duplicate heading" test below asserted the absence of a heading
-          against markup that had none either way, and would have stayed green if
-          the real h1 ever disappeared and left the route with no heading at all. */}
+      {/* Stands in for the picker's own h1 (ChooseGuardian.tsx, rendered whenever
+        `hideHeader` is false — and this page does not set it). It makes the "no
+        duplicate heading" test below meaningful: without it that test asserted
+        the absence of a second heading against markup that had none at all, so it
+        would have passed even if NavigationHeader had gone back to rendering one.
+        It does NOT prove the route has a heading — ChooseGuardian is mocked, so
+        the real h1 could disappear and this stays green. That belongs in a
+        ChooseGuardian test. */}
       <h1>Choose your Guardian</h1>
       {error ? <span role="alert">{error}</span> : null}
       <button

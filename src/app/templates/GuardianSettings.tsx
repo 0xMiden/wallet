@@ -77,7 +77,7 @@ const GuardianSettings: FC = () => {
         {/* Both halves of this pill needed their own shade. `dark:text-green-400`
             compiled to nothing — `theme.colors` in tailwind.config.ts replaces
             Tailwind's palette rather than extending it — so dark mode kept
-            green-700 (#38824A) at 3.4:1; green-300 is 6.6:1 there. Light mode was
+            green-700 (#38824A) at 3.05:1; green-300 is 6.6:1 there. Light mode was
             green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
             text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
         {currentEndpoint && (

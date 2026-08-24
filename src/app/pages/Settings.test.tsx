@@ -329,6 +329,12 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
+    // Deliberately pinning a KNOWN BUG, so that it is a bug this test describes
+    // rather than one it endorses: `TERMS_OF_USE_URL` in app/constants is set to
+    // the same string as `PRIVACY_POLICY_URL`, so the Terms of Service row links
+    // to the privacy policy. Whoever gives Terms its own URL should change the
+    // expectation on the next line to it and delete this comment — the red build
+    // is a reminder, not a verdict on the fix.
     expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
   });
 
@@ -430,12 +436,26 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
+  it('keeps the display face on the sub-page body', () => {
+    // Removing this class was once used to get Inter into RevealSecret's secret
+    // textareas — Preflight sets `font: inherit` on form controls, so they were
+    // picking up the display face. That fix restyled all twelve routed Settings
+    // screens to fix two fields; the textareas ask for `font-sans` themselves.
+    const { container } = render(<Settings tabSlug="general-settings" />);
+
+    expect(container.querySelector('.font-heading')).not.toBeNull();
+  });
+
   it('yields to a sub-page that focuses its own field', () => {
     render(<Settings tabSlug="reveal-private-key" />);
 
     // RevealSecret puts the caret in the password box in a useLayoutEffect;
     // the host's title focus is a plain useEffect and so runs after it, which
-    // would pull focus straight back out of the field.
+    // would pull focus straight back out of the field. Only on desktop — see the
+    // mobile case below — and only because RevealSecret's effect actually fires:
+    // it depends on `hasHardwareProtector`, without which it ran once against the
+    // component's initial `null` render and focused nothing at all, leaving these
+    // two recovery-material screens with no focus and no announcement.
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
   });
 

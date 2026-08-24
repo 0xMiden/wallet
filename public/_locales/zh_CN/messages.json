@@ -2320,6 +2320,10 @@
     "message": "这已经就是您当前的 Guardian。",
     "englishSource": "That's already your current Guardian."
   },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardian 切换已在进行中。请等待完成后再开始新的切换。",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
+  },
   "rotateGuardian": {
     "message": "轮换 Guardian",
     "englishSource": "Rotate Guardian"

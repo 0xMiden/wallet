@@ -221,6 +221,17 @@ describe('NavigationHeader', () => {
       expect(screen.getByRole('heading')).toHaveClass('text-[28px]', 'font-bold', 'text-heading-gray');
     });
 
+    it('lets a long title wrap instead of overflowing the row', () => {
+      render(<NavigationHeader title="Wiederherstellungsphrase anzeigen" variant="prominent" />);
+
+      // A flex item's automatic minimum size is its min-content width, so without
+      // `min-w-0` a long unbreakable word pushes out of the row rather than
+      // wrapping — and PageLayout's content is `overflow-hidden`, so the tail is
+      // cut with no ellipsis and nothing to scroll. At 28px bold there are only
+      // about 272px in a 360px popup, which the longer German titles already fill.
+      expect(screen.getByRole('heading')).toHaveClass('min-w-0', 'break-words');
+    });
+
     it('drops the centering spacer when the title sits next to the back button', () => {
       render(<NavigationHeader title="Settings" onBack={jest.fn()} variant="prominent" titleAlign="left" />);
 

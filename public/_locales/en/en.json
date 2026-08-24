@@ -505,6 +505,7 @@
   "currentLabel": "Current",
   "newGuardianEndpoint": "New Guardian Endpoint",
   "guardianEndpointUnchanged": "That's already your current Guardian.",
+  "guardianSwitchAlreadyInProgress": "A Guardian switch is already in progress. Wait for it to finish before starting another.",
   "rotateGuardian": "Rotate Guardian",
   "keys": "Keys",
   "customGuardian": "Custom Guardian",

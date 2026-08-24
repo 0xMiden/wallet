@@ -6,6 +6,9 @@ import RotateGuardianReview from './RotateGuardianReview';
 
 const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
+// Empty by default: the queue check before every submit only refuses when a
+// switch-guardian row is already pending for this account.
+const mockGetUncompleted = jest.fn().mockResolvedValue([]);
 const mockRequestProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockGoBack = jest.fn();
@@ -158,7 +161,8 @@ jest.mock('lib/biometric', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   initiateSwitchGuardianTransaction: (...args: unknown[]) => mockInitiateSwitch(...args),
-  requestSWTransactionProcessing: () => mockRequestProcessing()
+  requestSWTransactionProcessing: () => mockRequestProcessing(),
+  getUncompletedTransactions: (...args: unknown[]) => mockGetUncompleted(...args)
 }));
 
 jest.mock('lib/miden/back/vault', () => ({
@@ -215,6 +219,8 @@ beforeEach(() => {
   mockHasHardwareProtector.mockResolvedValue(false);
   mockUnlock.mockResolvedValue(undefined);
   mockInitiateSwitch.mockResolvedValue('switch-tx');
+  // Re-armed after `clearAllMocks`, which drops the declaration-site default.
+  mockGetUncompleted.mockResolvedValue([]);
 });
 
 it('renders the current and destination endpoints in the shared transition hero', async () => {
@@ -253,7 +259,11 @@ it('hardware authentication succeeds once and only then queues the switch', asyn
 
   fireEvent.click(confirm);
   fireEvent.click(confirm);
-  expect(mockUnlock).toHaveBeenCalledTimes(1);
+  // Awaited rather than asserted synchronously: `unlock` now sits behind the
+  // queue read. The property under test is unchanged and is what `submissionRef`
+  // being claimed before that first await guarantees — two clicks in one tick
+  // still produce exactly one unlock.
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
   expect(mockUnlock).toHaveBeenCalledWith(undefined);
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
@@ -488,7 +498,7 @@ describe('hardware back', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('swallows the press while a switch is in flight instead of abandoning it', async () => {
+  it('abandons an in-flight switch rather than swallowing the press', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     let finishAuthentication: (() => void) | undefined;
     mockUnlock.mockImplementation(() => new Promise<void>(resolve => (finishAuthentication = resolve)));
@@ -496,14 +506,20 @@ describe('hardware back', () => {
     const confirm = await screen.findByTestId('rotate-guardian-confirm');
     await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
+    // Wait for the switch to actually be in flight — `unlock` sits behind the
+    // queue read now, so pressing back sooner would not be testing the hung case.
+    await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
 
-    // Consumed and inert: navigating away mid-authentication would leave the
-    // user with no indication whether the switch was queued.
+    // Consuming the press without navigating is what made a hung `unlock`
+    // inescapable — `unlock` can never settle (no timeout on `request()`, and
+    // `onDisconnect` reconnects without rejecting), so `submitting` never clears.
     expect(mobileBackHandler!()).toBe(true);
-    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
 
+    // The switch still lands, and still does not drag the user back.
     finishAuthentication?.();
     await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
 
@@ -564,6 +580,66 @@ it('does not drag the user back after they leave mid-flight', async () => {
 
   expect(mockGoBack).toHaveBeenCalledTimes(1);
   expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+it('lets the user out of the password step when the unlock hangs there', async () => {
+  // The path that matters most: `hasHardwareProtector: false` is the default on
+  // extension and desktop, and it is where `unlock` is actually called from — the
+  // credential step, whose back goes through `handleAuthBack`. Gating only the
+  // review chevron left this step trapped exactly as before, and the step's own
+  // chevron is PageLayout's `onStepBack`, which routes straight back into it.
+  mockHasHardwareProtector.mockResolvedValue(false);
+  mockUnlock.mockImplementation(() => new Promise<void>(() => {}));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+  await waitFor(() => expect(mockUnlock).toHaveBeenCalledTimes(1));
+
+  expect(mobileBackHandler!()).toBe(true);
+
+  // Back on the review step, not stuck on the credential step.
+  await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeInTheDocument());
+});
+
+it('refuses a second switch when one is already queued for the account', async () => {
+  // `submissionRef` is per-mount, so backing out of an in-flight submission and
+  // re-entering could not see the first attempt, and
+  // `initiateSwitchGuardianTransaction` appends unconditionally — two
+  // switch-guardian rows entered the FIFO loop for one account.
+  // `endpointUnchanged` cannot catch it: the first switch has not landed, so
+  // `currentEndpoint` is still the old endpoint.
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([{ type: 'switch-guardian' }]);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+it('allows a retry after a hang, which created no row', async () => {
+  // The queue check reads the DB rather than holding a latch precisely so this
+  // works: a hung `unlock` never reached `initiate`, so nothing is queued and the
+  // user must be able to try again.
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  mockInitiateSwitch.mockResolvedValue('tx-retry');
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
 });
 
 it('announces a failure rather than only rendering it above the button', async () => {

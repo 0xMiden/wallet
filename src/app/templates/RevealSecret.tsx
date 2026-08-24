@@ -92,11 +92,18 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     formRef.current?.querySelector<HTMLInputElement>("input[name='password']")?.focus();
   }, []);
 
+  // `hasHardwareProtector` is a dependency because this component renders `null`
+  // until it resolves. Without it the effect ran once, against that first empty
+  // commit where `formRef.current` was still null, and never again — its only
+  // other dependency being a `useCallback` with an empty dep list. So the field
+  // was never actually focused on desktop, and because Settings suppresses its own
+  // title focus for this page on the strength of this effect, the route ended up
+  // announcing nothing and leaving focus on `<body>`.
   useLayoutEffect(() => {
     if (!isMobile()) {
       focusPasswordField();
     }
-  }, [focusPasswordField]);
+  }, [focusPasswordField, hasHardwareProtector]);
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
     async ({ password }) => {
@@ -197,6 +204,12 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     }
   }, [reveal, t, account]);
 
+  // `font-sans` on every secret field below. Preflight sets `font: inherit` on
+  // form controls, so a textarea with no font of its own picks up whatever the
+  // page sets — and Settings wraps its sub-pages in `font-heading`, which put the
+  // recovery phrase and private keys in a rounded display face. Asked for here
+  // rather than by dropping the wrapper's class, which would restyle all twelve
+  // routed Settings screens to fix these four fields.
   const mainContent = useMemo(() => {
     if (guardianBundle) {
       return (
@@ -212,7 +225,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-guardian-cold-private"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={guardianBundle.coldPrivateKey}
           />
           <FormField
@@ -223,7 +236,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
             id="reveal-guardian-cold-public"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={guardianBundle.coldPublicKey}
           />
           {guardianBundle.hotPublicKey && (
@@ -235,7 +248,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
               labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
               id="reveal-guardian-hot-public"
               spellCheck={false}
-              className="resize-none notranslate"
+              className="resize-none notranslate font-sans"
               value={guardianBundle.hotPublicKey}
             />
           )}
@@ -257,7 +270,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-secret-secret"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={secret}
           />
         </div>

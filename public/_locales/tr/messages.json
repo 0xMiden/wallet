@@ -2320,6 +2320,10 @@
     "message": "Bu zaten mevcut Guardian’ınız.",
     "englishSource": "That's already your current Guardian."
   },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Zaten bir Guardian geçişi sürüyor. Yenisini başlatmadan önce tamamlanmasını bekleyin.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
+  },
   "rotateGuardian": {
     "message": "Guardian'i Dönüştür",
     "englishSource": "Rotate Guardian"

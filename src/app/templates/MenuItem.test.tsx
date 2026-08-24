@@ -132,4 +132,16 @@ describe('MenuItem', () => {
       expect(link).toHaveAttribute('data-to', '#');
     });
   });
+
+  it('pads the row to a 44px touch target', () => {
+    // The row's own height is just the title's 24px line box, which sits exactly
+    // on the WCAG 2.5.8 floor and well under the iOS and Android minimums — and
+    // dropping the leading icons brought adjacent rows closer together at the
+    // same time. jsdom computes no layout, so the padding is asserted directly:
+    // 10px top and bottom on 24px is 44px.
+    const { container } = render(<MenuItem {...baseProps} />);
+
+    const row = container.querySelector('.flex.items-center.justify-between');
+    expect(row).toHaveClass('py-2.5');
+  });
 });

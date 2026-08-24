@@ -445,13 +445,14 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             // before navigating on, and popping first would race the push. The
             // one screen whose action means "done here" pops itself.
             //
-            // No `font-heading` on the wrapper either. As a blanket on the sub-page
-            // body it reached all twelve routed screens, and Preflight sets
-            // `font: inherit` on form controls — so RevealSecret's recovery-phrase
-            // and private-key textareas, which set no font of their own, rendered
-            // the app's highest-stakes text in a rounded display face. The drawers
-            // this replaced never did. Screens that want Nunito ask for it.
-            <div className="px-4 flex-1 flex flex-col min-h-0">
+            // `font-heading` stays. Dropping it to fix a font was the wrong scope:
+            // the problem was that Preflight sets `font: inherit` on form controls,
+            // so RevealSecret's recovery-phrase and private-key textareas inherited
+            // the display face for the app's highest-stakes text — but removing the
+            // blanket switched all twelve routed screens to Inter to fix those two
+            // fields, and only LanguageSettings kept Nunito, by way of an inline
+            // style. The textareas ask for `font-sans` themselves instead.
+            <div className="font-heading px-4 flex-1 flex flex-col min-h-0">
               <activeTab.Component />
             </div>
           )
@@ -478,10 +479,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                         level. */}
                     <h2 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h2>
                   </div>
-                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows
-                      each grew 20px to reach a 44px target, so keeping gap-4 on top
-                      would have spread a group taller than the drawers it replaced.
-                      Total pitch per row is unchanged. */}
+                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows each
+              grew from a 24px line box to a 44px target, so keeping gap-4 on top
+              would have spread a group much taller than the drawers it replaced.
+              Pitch still rises — 40px to 48px, about 136px over the whole root
+              list — which is extra scroll inside `overflow-y-auto` rather than
+              anything clipped. `gap-1` limits the overshoot; it does not undo it,
+              and the touch target is worth the difference. */}
                   <div className="overflow-hidden flex flex-col gap-1">
                     {group.tabs.map(tab => {
                       const isExternal = tab.linksOutsideOfWallet;

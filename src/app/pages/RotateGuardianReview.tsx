@@ -13,7 +13,11 @@ import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
-import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import {
+  getUncompletedTransactions,
+  initiateSwitchGuardianTransaction,
+  requestSWTransactionProcessing
+} from 'lib/miden/activity';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -68,8 +72,8 @@ const RotateGuardianReview: FC = () => {
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
 
-  // Set when the user leaves, so an in-flight switch that lands afterwards does
-  // not yank them onto the progress page from wherever they went. That stray
+  // Set when the user backs out of a submission, so one that lands afterwards
+  // does not yank them onto the progress page from wherever they went. That stray
   // redirect is the reason back was briefly gated on `submitting` instead — but
   // gating it removed the only exit this screen has (`hideToolbar`, so there is no
   // toolbar affordance behind the chevron), and `unlock` can hang forever rather
@@ -77,10 +81,15 @@ const RotateGuardianReview: FC = () => {
   // `onDisconnect` reconnects the port without settling anything in flight, so an
   // MV3 worker recycle mid-unlock strands the promise and `submitting` never
   // clears. Suppress the redirect, keep the exit.
-  const left = useRef(false);
+  //
+  // "Abandoned", not "left": on the password path — the default everywhere except
+  // a hardware protector — the hang happens ON the credential step, whose back
+  // goes through `handleAuthBack` and returns to this screen rather than leaving
+  // it. Gating only the chevron left that path trapped exactly as before.
+  const abandoned = useRef(false);
 
   const handleBack = useCallback(() => {
-    left.current = true;
+    abandoned.current = true;
     popBack();
   }, [popBack]);
 
@@ -132,10 +141,28 @@ const RotateGuardianReview: FC = () => {
         setError(t('invalidUrl'));
         return;
       }
+      // Claimed synchronously, before the first `await` below. The queue read is
+      // async, so latching after it would let two clicks in the same tick both get
+      // past this guard — which is the double-submit the ref exists to stop.
       submissionRef.current = true;
+      abandoned.current = false;
       setSubmitting(true);
       setError(null);
       try {
+        // A switch already queued for this account, from a PREVIOUS mount. Backing
+        // out of an in-flight submission and re-entering rebuilds this component,
+        // so `submissionRef` — per-mount — cannot see the first attempt, and
+        // `initiateSwitchGuardianTransaction` appends unconditionally: the FIFO
+        // loop ended up with two switch-guardian rows for one account.
+        // `endpointUnchanged` cannot cover it, because the first switch has not
+        // landed and `currentEndpoint` is still the old one. Reading the queue
+        // rather than holding a module-level latch keeps a retry available after a
+        // hang, since a hung `unlock` never got as far as creating a row.
+        const queued = await getUncompletedTransactions(currentAccount.publicKey);
+        if (queued.some(tx => tx.type === 'switch-guardian')) {
+          setError(t('guardianSwitchAlreadyInProgress'));
+          return;
+        }
         await unlock(credential);
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
@@ -147,7 +174,7 @@ const RotateGuardianReview: FC = () => {
         // Not if they have already backed out: the switch is queued either way and
         // shows up in Activity, so pulling them onto the progress page from
         // wherever they navigated to would be the app taking the wheel back.
-        if (!left.current) navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        if (!abandoned.current) navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -200,12 +227,17 @@ const RotateGuardianReview: FC = () => {
     [authenticateAndSwitch, password, submitting]
   );
 
+  // No `submitting` gate here either. This is the step `unlock` is actually called
+  // from on the password path, so a hung request left the user with nothing: this
+  // handler returned early, and the step's on-screen chevron is PageLayout's
+  // `onStepBack`, which routes straight back into it — and `navigationStyle="back"`
+  // renders no close button beside it.
   const handleAuthBack = useCallback(() => {
-    if (submitting) return;
+    abandoned.current = true;
     setPassword('');
     setError(null);
     setAuthStep(false);
-  }, [submitting]);
+  }, []);
 
   // Hardware/swipe back has to follow the same route the on-screen chevron does.
   // This screen hides PageLayout's toolbar, which was the only thing registering
@@ -318,11 +350,16 @@ const RotateGuardianReview: FC = () => {
                 token) rather than a one-off hex, which was a shade nothing else
                 ships and was invisible to a theme switch. Decorative: the
                 heading beside it already says this is a warning. */}
+            {/* yellow-700, not yellow-500: the panel's fill is now yellow-50, and
+                #FEA644 on #FFEFD2 is 1.72:1 — a caution mark that is effectively
+                invisible in light mode, which defeats the point of moving the
+                panel off grey. Exempt from 1.4.11 because it is aria-hidden, but
+                it is the only cautionary signal the panel has. */}
             <Icon
               name={IconName.WarningFill}
               size="sm"
               className="mt-0.5 shrink-0"
-              fill={colors.yellow[500]}
+              fill={colors.yellow[700]}
               aria-hidden="true"
             />
             <div className="text-sm">
