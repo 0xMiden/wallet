@@ -12,6 +12,7 @@ export const WIRE_KEYS: readonly string[] = [
   'result',
   'errorKind',
   'durationMs',
+  'step',
   'appVersion',
   'platform'
 ];
@@ -37,6 +38,9 @@ export function serializeEvent(event: TelemetryEvent, context: TelemetryContext)
     payload.durationMs = Math.round(event.durationMs);
     if (event.errorKind !== undefined) {
       payload.errorKind = event.errorKind;
+    }
+    if (event.step !== undefined) {
+      payload.step = event.step;
     }
   }
 

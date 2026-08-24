@@ -22,21 +22,22 @@ If they ever disagree, the code is right and the other two are wrong.
 
 ## What is actually collected
 
-Only while the setting is on. Product events carry exactly eight fields and no
+Only while the setting is on. Product events carry exactly nine fields and no
 free-form text:
 
 | Field | Values |
 |---|---|
 | `phase` | `started`, `ended` |
-| `flow` | One of 11: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `note_handle`, `activity_view` |
+| `flow` | One of 16: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `swap`, `earn`, `dapp_connect`, `dapp_tx`, `guardian_rotate`, `note_handle`, `activity_view` |
 | `flowId` | Ephemeral per-flow random id, in memory only, never persisted or reused |
 | `result` | `completed`, `cancelled`, `errored` (`ended` only) |
 | `errorKind` | `network`, `rpc`, `proving`, `validation`, `storage`, `auth`, `timeout`, `unknown` (`ended` only, when it failed) |
 | `durationMs` | Rounded integer milliseconds (`ended` only) |
+| `step` | Furthest screen reached, from a closed list of 17 screen names (`ended` only, when the flow has steps). A screen identity such as `select_amount` or `review` — never anything the user typed on it |
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
 
-### How those eight fields reach Aptabase
+### How those nine fields reach Aptabase
 
 `buildEnvelope` in `src/lib/telemetry/aptabase.ts` maps them onto Aptabase's
 envelope, each field exactly once, by name — never by spreading, because
@@ -44,9 +45,9 @@ Aptabase's `props` is an open object and the type system stops helping there:
 
 | Envelope field | Holds |
 |---|---|
-| `eventName` | `<flow>_<phase>`, e.g. `send_started`. 22 possible names, both halves closed unions |
+| `eventName` | `<flow>_<phase>`, e.g. `send_started`. 32 possible names, both halves closed unions |
 | `sessionId` | `flowId`. **Not** an Aptabase session — see below |
-| `props` | `result`, `errorKind`, `durationMs` |
+| `props` | `result`, `errorKind`, `durationMs`, `step` |
 | `systemProps.osName` | `platform` |
 | `systemProps.appVersion` | `appVersion` |
 | `systemProps.isDebug` | `NODE_ENV !== 'production'` |

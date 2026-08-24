@@ -136,10 +136,10 @@ jest.mock('lib/settings/helpers', () => ({
 // spy handle, so a test can assert both WHICH flows were begun and how each one
 // was settled. classifyError is stubbed to a constant so the assertions pin the
 // call site's wiring rather than re-testing the classifier (own suite).
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 const mockFlowHandles: Array<{ flow: string; handle: TelemetryHandle }> = [];
 const mockBeginFlow = jest.fn((flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
   mockFlowHandles.push({ flow, handle });
   return handle;
 });

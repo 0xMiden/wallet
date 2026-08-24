@@ -97,13 +97,25 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
 
+let mockPathname = '/receive';
+
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  // The receive flow only reports while its route is showing: the home carousel
+  // keeps this page mounted for the whole session, so a mount-triggered flow
+  // fired on every app open.
+  useLocation: () => ({ pathname: mockPathname })
 }));
 
 jest.mock('utils/string', () => ({
   truncateAddress: (addr: string) => addr?.slice(0, 8) || ''
 }));
+
+// Both suites render this page as if its route were showing; the one test that
+// checks the carousel case sets this to another page for itself.
+beforeEach(() => {
+  mockPathname = '/receive';
+});
 
 describe('Receive - Address', () => {
   let testRoot: ReturnType<typeof createRoot> | null = null;
@@ -213,6 +225,19 @@ describe('Receive - receive_share telemetry', () => {
       testContainer.remove();
       testContainer = null;
     }
+  });
+
+  it('reports nothing while another home page is showing, since the carousel keeps this one mounted', async () => {
+    // TabLayout renders Overview / Send / Receive / Earn / Swap as one carousel
+    // and mounts every page at once for the whole session. The address renders
+    // unconditionally, so a mount-triggered flow both began AND completed a
+    // receive-address share on every single app open — making this the wallet's
+    // most numerous event and none of it evidence that anyone shared anything.
+    mockPathname = '/';
+
+    await renderReceive();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
   });
 
   it('begins one receive_share flow on entry', async () => {

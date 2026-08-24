@@ -16,6 +16,7 @@
  * never persists, and needs no reactivity.
  */
 import { beginFlow, FlowHandle } from 'lib/telemetry';
+import { TelemetryStep } from 'lib/telemetry/types';
 
 let handle: FlowHandle | null = null;
 
@@ -39,4 +40,9 @@ export function settleSendFlow(settle: (handle: FlowHandle) => void): void {
 
 export function hasOpenSendFlow(): boolean {
   return handle !== null;
+}
+
+/** Record the furthest step the open flow reached. No-op when none is open. */
+export function reportSendStep(step: TelemetryStep): void {
+  handle?.step(step);
 }

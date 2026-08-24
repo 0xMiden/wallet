@@ -331,7 +331,7 @@ function leaksIn(haystack: string): string[] {
 
 /**
  * Written as a `Record` over the union so TypeScript, not a reviewer, is what
- * notices a twelfth flow: adding one to `TelemetryFlow` fails `yarn ts` here
+ * notices a seventeenth flow: adding one to `TelemetryFlow` fails `yarn ts` here
  * until it is driven.
  */
 const EVERY_FLOW: Record<TelemetryFlow, TelemetryFlow> = {
@@ -344,6 +344,11 @@ const EVERY_FLOW: Record<TelemetryFlow, TelemetryFlow> = {
   fund: 'fund',
   receive_share: 'receive_share',
   send: 'send',
+  swap: 'swap',
+  earn: 'earn',
+  dapp_connect: 'dapp_connect',
+  dapp_tx: 'dapp_tx',
+  guardian_rotate: 'guardian_rotate',
   note_handle: 'note_handle',
   activity_view: 'activity_view'
 };

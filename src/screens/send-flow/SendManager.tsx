@@ -37,7 +37,7 @@ import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
-import { enterSendFlow, settleSendFlow } from './send-telemetry';
+import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import {
   BridgeRoute,
   Contact,
@@ -229,13 +229,47 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // behind (same signal the speculation cleanup above uses), and the review page
   // makes the terminal call. Any other unmount is the user leaving the flow, so
   // it is recorded as cancelled rather than left as an unmatched `started`.
+  // Gated on the route, NOT on mount. TabLayout renders this screen inside a
+  // five-page carousel that mounts every page at once and keeps them mounted, so
+  // a mount-triggered flow fired on every single app open — reporting a send the
+  // user had not asked for, and then never ending it, since swiping away does
+  // not unmount either. Every wallet launch produced a phantom abandoned send.
+  // `pathname` is the carousel's own source of truth for which page is showing.
+  const onSendRoute = pathname === '/send' || pathname.startsWith('/send/');
   useEffect(() => {
+    if (!onSendRoute) return;
     enterSendFlow();
     return () => {
       if (hasSendDraft()) return;
       settleSendFlow(flow => flow.cancel());
     };
-  }, []);
+  }, [onSendRoute]);
+
+  // Report the step the user reached, so an abandoned send says WHERE it was
+  // abandoned. Without it every drop-out arrives as one bare `send_started` and
+  // "people give up at the amount screen" is not a statement the data can make.
+  // Derived from the navigator rather than pushed at each transition, so a step
+  // reached by back-navigation or by draft restore counts the same as one
+  // reached by tapping forward.
+  //
+  // Keyed on the route gate as well as the step: the flow now begins when the
+  // user arrives at /send, which is AFTER this screen mounted inside the
+  // carousel. Without `onSendRoute` here, the first step would be reported into
+  // a flow that did not exist yet and every send would arrive stepless.
+  useEffect(() => {
+    if (!onSendRoute) return;
+    switch (currentStep) {
+      case SendFlowStep.SelectRecipient:
+        reportSendStep('select_recipient');
+        break;
+      case SendFlowStep.SelectAmount:
+        reportSendStep('select_amount');
+        break;
+      case SendFlowStep.Route:
+        reportSendStep('select_route');
+        break;
+    }
+  }, [currentStep, onSendRoute]);
 
   const {
     register,

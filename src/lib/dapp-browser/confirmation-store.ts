@@ -58,9 +58,44 @@ export interface DAppConfirmationResult {
 
 type ConfirmationResolver = (result: DAppConfirmationResult) => void;
 
+/** The subset of a telemetry flow handle an approval needs. */
+export interface ApprovalFlow {
+  complete(): void;
+  cancel(): void;
+}
+
+export type ApprovalFlowReporter = (type: DAppConfirmationRequest['type']) => ApprovalFlow;
+
+let approvalFlowReporter: ApprovalFlowReporter | null = null;
+
+/**
+ * Install approval telemetry. Called by the UI; see below for why it is
+ * injected rather than imported.
+ *
+ * Pass `null` to uninstall (tests).
+ */
+export function setApprovalFlowReporter(reporter: ApprovalFlowReporter | null): void {
+  approvalFlowReporter = reporter;
+}
+
 interface PendingEntry {
   request: DAppConfirmationRequest;
   resolver: ConfirmationResolver;
+  /**
+   * The telemetry flow for this approval, when the UI has installed a reporter.
+   *
+   * Instrumented here because this store is the ONE place every dApp approval
+   * passes through — the in-app browser's modal, the extension's confirm page
+   * and the desktop sheet all arrive here — so it covers every surface and
+   * every request type instead of three components that can each be missed.
+   *
+   * Injected rather than imported because this module is reachable from the
+   * background service worker's graph, and `lib/telemetry` reaches
+   * `lib/miden/front` and therefore React. A static import would pull React
+   * into the worker bundle; `guarantees.test.ts` forbids exactly that. In the
+   * worker no reporter is installed and this stays null.
+   */
+  flow: ApprovalFlow | null;
 }
 
 const DEFAULT_SESSION_KEY = '__default__';
@@ -97,10 +132,12 @@ class DAppConfirmationStore {
     const key = keyFor(request.sessionId);
     const previous = this.pending.get(key);
     if (previous) {
+      previous.flow?.cancel();
       previous.resolver({ confirmed: false });
     }
+    const flow = approvalFlowReporter?.(request.type) ?? null;
     return new Promise(resolve => {
-      this.pending.set(key, { request, resolver: resolve });
+      this.pending.set(key, { request, resolver: resolve, flow });
       this.notifyListeners();
     });
   }
@@ -115,6 +152,14 @@ class DAppConfirmationStore {
     const entry = this.pending.get(key);
     if (!entry) return;
     this.pending.delete(key);
+    // Denying is a completed decision for the user and a cancelled flow for
+    // analysis: what this measures is approvals reached versus approvals given,
+    // so a refusal must not read the same as an approval.
+    if (result.confirmed) {
+      entry.flow?.complete();
+    } else {
+      entry.flow?.cancel();
+    }
     entry.resolver(result);
     this.notifyListeners();
   }

@@ -198,6 +198,82 @@ Two things it deliberately does not prove:
   today and is load-bearing; a vendor tightening CORS would break telemetry in
   a way no test here would catch.
 
+## How to read this data in Aptabase
+
+Two things about the dashboard will mislead you if nobody says them out loud.
+
+**Every "session" is one flow, and its duration is always 0s.** Aptabase groups
+events by `sessionId`, and `sessionId` carries our `flowId` — a fresh random
+value per flow, chosen precisely so that two things a user did cannot be joined
+together. So a session is never a visit, a "session duration" is the gap between
+the events of one flow (frequently 0ms, since `started` and `ended` can be
+milliseconds apart), and the user count is a count of flows rather than people.
+None of that is a bug and none of it is fixable without giving up the
+unlinkability that is the point of the design. Read `props.durationMs` on the
+`_ended` event for how long something actually took, and treat event counts as
+counts of activities, not of users.
+
+**A flow with no `_ended` event is the abandonment signal.** Nothing reports "the
+user gave up"; a `started` with no matching `ended` is what that looks like, and
+it is also what a crash, a force-quit, or the extension popup being dismissed
+mid-flow looks like. Those are not distinguishable, by construction — see
+Measurement bias.
+
+**`step` is the funnel.** The distribution of `props.step` across `_ended` events
+with `result: cancelled` is where people give up, which is the question this
+telemetry exists to answer. A `send_ended` with `result: cancelled, step:
+select_amount` is someone who could not get through the amount field; the same
+event with `step: review` is someone who got all the way to the last screen and
+chose not to sign. Those need completely different fixes, and before `step`
+existed both arrived as an identical bare `send_started`.
+
+### What a completed swap looks like
+
+Four events, in two flows, if the user opened the app to do it:
+
+| Event | props |
+|---|---|
+| `open_started` | — |
+| `open_ended` | `result: completed`, `durationMs` |
+| `swap_started` | — |
+| `swap_ended` | `result: completed`, `durationMs`, `step: submitting` |
+
+It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
+at first, and the events that showed up during a swap came from unrelated screens
+the user happened to pass through — a genuinely misleading result, since an
+unmatched `send_started` reads as an abandoned payment.
+
+## Instrumenting a new flow: mount is not intent
+
+`TabLayout` renders Overview, Send, Receive, Earn and Swap as a single
+five-page carousel and mounts **all of them at once**, keeping them mounted for
+the whole session. So on any screen in that group:
+
+- a flow begun in a mount effect begins on every app launch, for a screen the
+  user has not looked at;
+- it is never settled by leaving, because swiping to another page does not
+  unmount anything;
+- and a flow that completes on render — `receive_share` completes when the
+  address appears — completes on every launch too.
+
+That is not hypothetical. The first build to reach a real device reported, for a
+session in which the user performed exactly one swap: a `send_started` with no
+end, and a complete `receive_share` pair. Neither corresponded to anything the
+user did. The swap itself, which had no instrumentation yet, reported nothing.
+Every event was an artifact of the carousel.
+
+So screens in the home group gate on `pathname`, which is the carousel's own
+source of truth for which page is showing, rather than on mount — see
+`SendManager`, `SwapManager` and `Receive`. Two consequences worth knowing:
+
+- **A step effect must depend on the route gate as well as the step.** The flow
+  now begins after the screen mounted, so a step reported on mount lands in no
+  flow and the event arrives stepless. This was caught by the egress E2E, not by
+  a unit test.
+- **`instrumentation-coverage.test.ts` cannot catch this class of bug.** It
+  proves a flow is begun somewhere, not that the place it is begun means what
+  the flow's name claims. Only a real build against the sink showed it.
+
 ## Coupling to be aware of
 
 `src/lib/telemetry/guarantees.test.ts` reads the repository as text — the native

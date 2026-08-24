@@ -45,7 +45,7 @@ const ended: TelemetryWirePayload = {
 
 /**
  * Written as a `Record` over each union so TypeScript, not a reviewer, notices
- * a twelfth flow or a fourth result: widening the union fails `yarn ts` here
+ * a seventeenth flow or a fourth result: widening the union fails `yarn ts` here
  * until the new member is mapped.
  */
 const EVERY_FLOW: Record<TelemetryFlow, TelemetryFlow> = {
@@ -58,6 +58,11 @@ const EVERY_FLOW: Record<TelemetryFlow, TelemetryFlow> = {
   fund: 'fund',
   receive_share: 'receive_share',
   send: 'send',
+  swap: 'swap',
+  earn: 'earn',
+  dapp_connect: 'dapp_connect',
+  dapp_tx: 'dapp_tx',
+  guardian_rotate: 'guardian_rotate',
   note_handle: 'note_handle',
   activity_view: 'activity_view'
 };
@@ -257,6 +262,12 @@ describe('props is built field by field from the allowlist', () => {
       durationMs: 1234
     });
     expect('errorKind' in buildEnvelope({ ...ended, errorKind: undefined }, NOW).props).toBe(false);
+  });
+
+  it('sends the step only when the flow recorded one', () => {
+    // The prop that makes drop-off legible: which screen the user got to.
+    expect(buildEnvelope({ ...ended, step: 'review' }, NOW).props.step).toBe('review');
+    expect('step' in buildEnvelope(ended, NOW).props).toBe(false);
   });
 
   it('carries only allowlisted prop keys, on every event shape', () => {

@@ -31,7 +31,7 @@ import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
-import { enterSendFlow, settleSendFlow } from './send-telemetry';
+import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
 
@@ -217,12 +217,16 @@ export const ReviewTransaction: React.FC = () => {
   // next send would adopt it, inheriting a duration that is not its own.
   // Already-settled flows are untouched, so a completed submit is not
   // re-reported by the navigation away from this page.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Reaching review is the most informative single fact about an abandoned
+    // send: the user had chosen a recipient, a token and an amount, and stopped
+    // at the last screen before committing. That is a very different problem
+    // from giving up on the amount field, and only `step` distinguishes them.
+    reportSendStep('review');
+    return () => {
       settleSendFlow(flow => flow.cancel());
-    },
-    []
-  );
+    };
+  }, []);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
@@ -263,6 +267,10 @@ export const ReviewTransaction: React.FC = () => {
     // for a submit with no flow open — a deep link straight to review, or a
     // retry after the previous attempt settled this one errored.
     enterSendFlow();
+    // Past the point of no return. A flow that dies here failed while proving or
+    // submitting rather than being abandoned by the user, which is the
+    // distinction that separates "our problem" from "they changed their mind".
+    reportSendStep('submitting');
     try {
       // Drop any hash from a previous completed tx before starting a fresh one,
       // so the in-progress page can't briefly flash a stale "View on Midenscan"

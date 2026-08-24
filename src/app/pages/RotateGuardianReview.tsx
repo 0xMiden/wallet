@@ -17,6 +17,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { DetailCard, DetailRow } from 'lib/ui/DetailCard';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -71,12 +72,22 @@ const RotateGuardianReview: FC = () => {
     };
   }, [t]);
 
+  // Rotating the guardian is a security-critical flow the user can be walked
+  // into from settings or from a recovery prompt, and it ends in a password /
+  // passkey challenge — a plausible place to give up, and previously invisible.
+  useEffect(() => {
+    enterRouteFlow('guardian_rotate');
+    reportRouteFlowStep('guardian_rotate', 'review');
+    return () => settleRouteFlow('guardian_rotate', flow => flow.cancel());
+  }, []);
+
   const authenticateAndSwitch = useCallback(
     async (credential?: string) => {
       if (!currentAccount || !newEndpoint || submissionRef.current) return;
       submissionRef.current = true;
       setSubmitting(true);
       setError(null);
+      reportRouteFlowStep('guardian_rotate', 'submitting');
       try {
         await unlock(credential);
         const txId = await initiateSwitchGuardianTransaction(
@@ -86,8 +97,13 @@ const RotateGuardianReview: FC = () => {
           zustandProvider
         );
         if (isExtension()) requestSWTransactionProcessing();
+        // Settled before navigating away, which unmounts this page.
+        settleRouteFlow('guardian_rotate', flow => flow.complete());
         navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
       } catch (err) {
+        // Not settled: a wrong password leaves the user on this screen and able
+        // to try again, so the flow is still open. `submitting` already records
+        // that they got this far if they then give up.
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         submissionRef.current = false;

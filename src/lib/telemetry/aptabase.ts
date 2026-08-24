@@ -1,4 +1,11 @@
-import { TelemetryErrorKind, TelemetryFlow, TelemetryPlatform, TelemetryResult, TelemetryWirePayload } from './types';
+import {
+  TelemetryErrorKind,
+  TelemetryFlow,
+  TelemetryPlatform,
+  TelemetryResult,
+  TelemetryStep,
+  TelemetryWirePayload
+} from './types';
 
 /**
  * The Aptabase wire format, and the two places this wallet deliberately
@@ -57,6 +64,7 @@ export interface AptabaseProps {
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
+  step?: TelemetryStep;
 }
 
 export interface AptabaseSystemProps {
@@ -91,7 +99,7 @@ export const APTABASE_ENVELOPE_KEYS: readonly string[] = [
 
 export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
 
-export const APTABASE_PROP_KEYS: readonly string[] = ['result', 'errorKind', 'durationMs'];
+export const APTABASE_PROP_KEYS: readonly string[] = ['result', 'errorKind', 'durationMs', 'step'];
 
 /**
  * Map one allowlisted payload onto one Aptabase envelope.
@@ -111,6 +119,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   if (payload.result !== undefined) props.result = payload.result;
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
+  if (payload.step !== undefined) props.step = payload.step;
 
   return {
     timestamp: now.toISOString(),

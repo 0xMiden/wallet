@@ -144,3 +144,54 @@ describe('classifyError', () => {
     expect(kind).not.toContain('4200');
   });
 });
+
+describe('step', () => {
+  beforeEach(() => {
+    jest.mocked(request).mockResolvedValue({ type: WalletMessageType.ReportTelemetryEventResponse });
+  });
+
+  afterEach(() => jest.resetAllMocks());
+
+  it('rides out on `ended` rather than emitting an event of its own', async () => {
+    const flow = beginFlow('send');
+    flow.step('select_amount');
+    flow.step('review');
+    flow.cancel();
+    await flushMicrotasks();
+
+    // Two events for the whole flow, not four: progress is free.
+    expect(sentEvents()).toHaveLength(2);
+    expect(endedEventAt(1).step).toBe('review');
+  });
+
+  it('is absent when the flow never reported one, rather than guessing a default', async () => {
+    beginFlow('unlock').complete();
+    await flushMicrotasks();
+
+    expect(endedEventAt(1)).not.toHaveProperty('step');
+  });
+
+  it('keeps the last step reported, so going back a screen does not erase having reached review', async () => {
+    const flow = beginFlow('swap');
+    flow.step('review');
+    // The user navigates back to the amounts screen and gives up there. What
+    // matters for drop-off is that they had already got as far as review.
+    flow.step('swap_amounts');
+    flow.cancel();
+    await flushMicrotasks();
+
+    expect(endedEventAt(1).step).toBe('swap_amounts');
+  });
+
+  it('ignores a step recorded after the flow settled', async () => {
+    const flow = beginFlow('earn');
+    flow.step('review');
+    flow.complete();
+    // A screen unmounting after its flow completed must not rewrite history.
+    flow.step('select_amount');
+    await flushMicrotasks();
+
+    expect(sentEvents()).toHaveLength(2);
+    expect(endedEventAt(1).step).toBe('review');
+  });
+});

@@ -1,10 +1,10 @@
 import { enterSendFlow, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 
-type Handle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+type Handle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 
 const begun: Handle[] = [];
 const mockBeginFlow = jest.fn((_flow: string) => {
-  const handle: Handle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  const handle: Handle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
   begun.push(handle);
   return handle;
 });

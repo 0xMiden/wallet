@@ -3,12 +3,22 @@ import { nanoid } from 'nanoid';
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow } from './types';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryStep } from './types';
 
 export interface FlowHandle {
   complete(): void;
   cancel(): void;
   fail(kind: TelemetryErrorKind): void;
+  /**
+   * Record the furthest step reached. Emits nothing on its own — the value rides
+   * out on `ended`, so progress costs no extra events and an abandoned flow
+   * still reports where it stopped.
+   *
+   * Monotonic by call order, not by any ranking of the steps: a flow that goes
+   * back a screen keeps the furthest step it reported, because for drop-off
+   * analysis "got as far as review" is the fact worth keeping.
+   */
+  step(step: TelemetryStep): void;
 }
 
 function report(event: TelemetryEvent): void {
@@ -39,6 +49,7 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
   // negative or wildly inflated duration.
   const startedAt = performance.now();
   let settled = false;
+  let furthestStep: TelemetryStep | undefined;
 
   report({ phase: 'started', flow, flowId });
 
@@ -51,14 +62,21 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
       flowId,
       result,
       durationMs: performance.now() - startedAt,
-      ...(errorKind !== undefined ? { errorKind } : {})
+      ...(errorKind !== undefined ? { errorKind } : {}),
+      ...(furthestStep !== undefined ? { step: furthestStep } : {})
     });
   };
 
   return {
     complete: () => end('completed'),
     cancel: () => end('cancelled'),
-    fail: (kind: TelemetryErrorKind) => end('errored', kind)
+    fail: (kind: TelemetryErrorKind) => end('errored', kind),
+    // Ignored once settled, like the terminal calls themselves: a screen
+    // unmounting after its flow ended must not rewrite where the flow got to.
+    step: (step: TelemetryStep) => {
+      if (settled) return;
+      furthestStep = step;
+    }
   };
 }
 

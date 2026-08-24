@@ -34,6 +34,26 @@ describe('serializeEvent', () => {
     });
   });
 
+  it('includes step only when supplied, so a single-screen flow does not invent one', () => {
+    const withStep = serializeEvent(
+      { phase: 'ended', flow: 'swap', flowId: 'f1', result: 'cancelled', durationMs: 10, step: 'review' },
+      context
+    );
+    expect(withStep.step).toBe('review');
+
+    const withoutStep = serializeEvent(
+      { phase: 'ended', flow: 'unlock', flowId: 'f1', result: 'completed', durationMs: 10 },
+      context
+    );
+    expect('step' in withoutStep).toBe(false);
+  });
+
+  it('never puts a step on a started event, which by definition has reached nothing yet', () => {
+    const payload = serializeEvent({ phase: 'started', flow: 'swap', flowId: 'f1' }, context);
+
+    expect('step' in payload).toBe(false);
+  });
+
   it('includes errorKind only when supplied', () => {
     const withKind = serializeEvent(
       { phase: 'ended', flow: 'send', flowId: 'f1', result: 'errored', errorKind: 'network', durationMs: 10 },

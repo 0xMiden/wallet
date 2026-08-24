@@ -3,6 +3,7 @@ import React, { FC, useLayoutEffect, useMemo } from 'react';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
+import { useDappApprovalTelemetry } from 'app/hooks/useDappApprovalTelemetry';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
@@ -409,6 +410,9 @@ const PageRouter: FC = () => {
   // because this is the first component that can read wallet readiness — `App`
   // is what mounts `MidenProvider`.
   useAppLifecycleTelemetry(ctx);
+  // dApp approvals report from the confirmation store, which cannot import
+  // telemetry itself — see the hook.
+  useDappApprovalTelemetry();
 
   return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 };

@@ -64,10 +64,10 @@ const scanQRCodeMock = jest.fn();
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
 
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 const telemetryHandles: TelemetryHandle[] = [];
 const beginFlowMock = jest.fn((_flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
   telemetryHandles.push(handle);
   return handle;
 });
@@ -1257,6 +1257,29 @@ describe('send telemetry', () => {
     // the review page owns the terminal call.
     expect(handleAt(0).cancel).not.toHaveBeenCalled();
     expect(handleAt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing while another home page is showing, since the carousel keeps this one mounted', () => {
+    // TabLayout renders Overview / Send / Receive / Earn / Swap as one carousel
+    // and mounts all of them at once, for the whole session. A mount-triggered
+    // flow therefore began a send on every app open and never ended it, because
+    // swiping away does not unmount this screen — a phantom abandoned send per
+    // launch, which is what the shipped build was actually reporting.
+    mockPathname = '/';
+
+    renderFlow();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('records the send as abandoned when the user swipes away, without waiting for an unmount', () => {
+    const view = renderFlow();
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+
+    mockPathname = '/';
+    view.rerender(<SendFlow isLoading={false} />);
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
   });
 
   it('never passes the recipient address or the amount to telemetry', () => {

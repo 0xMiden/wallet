@@ -39,10 +39,10 @@ const mockWalletStoreState = {
   setLastCompletedTxHash: jest.fn()
 };
 
-type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
 const telemetryHandles: TelemetryHandle[] = [];
 const beginFlowMock = jest.fn((_flow: string) => {
-  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
   telemetryHandles.push(handle);
   return handle;
 });
@@ -719,7 +719,7 @@ describe('ReviewTransaction — send telemetry', () => {
   beforeEach(() => {
     // The outer beforeEach resets every mock, implementations included.
     beginFlowMock.mockImplementation((_flow: string) => {
-      const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+      const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
       telemetryHandles.push(handle);
       return handle;
     });

@@ -191,6 +191,44 @@ test.describe('Telemetry egress', () => {
       assertNoSentinels(received(), sentinels);
     });
 
+    await test.step('an abandoned multi-step flow reports the step it got to', async () => {
+      // The funnel, end to end. Opening the send form and leaving it is an
+      // abandoned `send`, and the whole reason `step` exists is that this event
+      // has to say WHERE it was abandoned — without it, a user who bounced off
+      // the first screen and one who reached the final review are the same row.
+      const beforeSend = sink.requests.length;
+
+      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`, {
+        waitUntil: 'domcontentloaded'
+      });
+      await page.waitForSelector('#root > *', { timeout: 30_000 });
+
+      // Leaving the send form without a draft is what cancels the flow.
+      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/`, {
+        waitUntil: 'domcontentloaded'
+      });
+
+      await page.goto(`chrome-extension://${extensionId}/fullpage.html#/settings`, {
+        waitUntil: 'domcontentloaded'
+      });
+      await sink.settle(SILENCE_WINDOW_MS);
+
+      // `body` is kept verbatim by the sink so the sentinel scan reads raw bytes;
+      // parse it here rather than assuming a shape it does not have.
+      const sendEnded = sink.requests
+        .slice(beforeSend)
+        .map(request => JSON.parse(request.body) as Record<string, unknown>)
+        .filter(envelope => envelope.eventName === 'send_ended');
+
+      expect(sendEnded).not.toEqual([]);
+      // `select_recipient` is the first screen of the send flow. Asserting the
+      // value, not merely the key's presence, so a `step` that shipped as
+      // `undefined` or as a constant would fail here.
+      for (const envelope of sendEnded) {
+        expect((envelope.props as Record<string, unknown>).step).toBe('select_recipient');
+      }
+    });
+
     await test.step('withdrawing consent stops egress', async () => {
       // Clicked through rather than deep-linked. `#/settings/general-settings`
       // renders the settings INDEX, not the tab — so a deep link looks like it
@@ -270,7 +308,7 @@ function describeRequests(requests: readonly SinkRequest[]): string[] {
  */
 const ENVELOPE_KEYS = ['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'];
 const SYSTEM_PROPS_KEYS = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
-const PROPS_KEYS = ['result', 'errorKind', 'durationMs'];
+const PROPS_KEYS = ['result', 'errorKind', 'durationMs', 'step'];
 
 function assertEnvelopeShape(request: SinkRequest): void {
   const envelope = JSON.parse(request.body) as Record<string, unknown>;

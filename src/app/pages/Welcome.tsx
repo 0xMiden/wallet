@@ -15,6 +15,7 @@ import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
+import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
@@ -105,6 +106,28 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
   console.warn('[waitForReadyState] Max attempts reached, state still not Ready');
 }
 
+/**
+ * Onboarding screen -> reported step. A `Partial` so screens with nothing worth
+ * distinguishing (the welcome splash, the transient confirmation hop) simply
+ * have no entry and leave the previous step standing as the furthest reached.
+ */
+const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>> = {
+  [OnboardingStep.SelectWalletType]: 'select_wallet_type',
+  [OnboardingStep.ChooseProtection]: 'choose_protection',
+  [OnboardingStep.SetupPasscode]: 'setup_passcode',
+  [OnboardingStep.SetupBiometric]: 'setup_biometric',
+  [OnboardingStep.BiometricSetup]: 'setup_biometric',
+  [OnboardingStep.BackupSeedPhrase]: 'backup_phrase',
+  [OnboardingStep.VerifySeedPhrase]: 'verify_phrase',
+  [OnboardingStep.CreatePassword]: 'set_password',
+  [OnboardingStep.SelectRecoveryMethod]: 'recovery_method',
+  [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
+  [OnboardingStep.ChooseGuardian]: 'choose_guardian',
+  [OnboardingStep.ImportFromSeed]: 'enter_phrase',
+  // Account creation is running; a failure here is ours, not a change of mind.
+  [OnboardingStep.Confirmation]: 'submitting'
+};
+
 const Welcome: FC = () => {
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
@@ -168,6 +191,15 @@ const Welcome: FC = () => {
     flowRef.current = null;
     settle(handle);
   }, []);
+
+  // Report the onboarding screen the user reached. First-run drop-off is the
+  // whole point of this telemetry, and without a step every abandoned setup
+  // arrives as one `create_started` with no hint whether they balked at writing
+  // down a seed phrase, at the password, or at picking a guardian.
+  useEffect(() => {
+    const reported = ONBOARDING_TELEMETRY_STEPS[step];
+    if (reported) flowRef.current?.step(reported);
+  }, [step]);
 
   // Back navigation only abandons the flow when it leaves onboarding for the
   // welcome screen; every other `back` target is a step *within* the flow.
