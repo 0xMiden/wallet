@@ -26,8 +26,19 @@ runs:
         rm -rf "${{ runner.temp }}/miden-client"
         git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
         git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
-    - name: Cache node build
-      uses: actions/cache@v4
+    # Split restore/save rather than `actions/cache`. That action saves from a
+    # POST step, and GitHub skips post steps once the job has failed — so the
+    # cache could only ever be written by a fully green run. This node takes
+    # ~36 min to compile cold, which on its own leaves too little of the job's
+    # 60 min for the specs to finish: the job fails, the post step is skipped,
+    # nothing is cached, and the next run starts cold again. The cache was
+    # therefore never populated at all, and the failure it caused was the very
+    # thing preventing it from being populated. Saving here, straight after the
+    # build, breaks the cycle — the compile is what's expensive and it has
+    # already succeeded, whatever the specs go on to do.
+    - name: Restore node build
+      id: node_cache
+      uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
         key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
@@ -47,6 +58,12 @@ runs:
       run: |
         cd "${{ runner.temp }}/miden-client"
         ./scripts/start-test-node.sh --background
+    - name: Save node build
+      if: steps.node_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/miden-client/target/test-node
+        key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.
