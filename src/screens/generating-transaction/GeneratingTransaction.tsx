@@ -127,6 +127,8 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
   // Completed with its failure in extraInputs.phase and has its own
   // withdraw-status screen — so there is no earn branch to handle.
+  // Pass the row itself, not a literal: rebuilding it field-by-field silently
+  // drops `restoredFromBackup` and re-offers Retry on an imported row.
   const canRetry = !!active && isRequeueableTransaction(active);
 
   const handleRetry = useCallback(

@@ -60,9 +60,21 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
   execute: 'DEFAULT'
 };
 
-/** Whether a Failed row can be retried by re-queueing it through the loop. */
-export const isRequeueableTransaction = (tx: { status?: ITransactionStatus; type: ITransactionType }): boolean =>
-  tx.status === ITransactionStatus.Failed && REQUEUEABLE_TYPES.includes(tx.type);
+/**
+ * Whether a Failed row can be retried by re-queueing it through the loop.
+ *
+ * A row restored from a backup is excluded no matter how retryable its type
+ * looks. Requeueing signs and broadcasts whatever the row says — recipient,
+ * amount, `requestBytes` — and for an imported row all of that was authored by
+ * whoever supplied the file, not by the user. Without this clause, landing
+ * imported rows in `Failed` would only move an unattended signature one tap
+ * away, since Retry asks for no confirmation of what it is about to send.
+ */
+export const isRequeueableTransaction = (tx: {
+  status?: ITransactionStatus;
+  type: ITransactionType;
+  restoredFromBackup?: boolean;
+}): boolean => tx.status === ITransactionStatus.Failed && !tx.restoredFromBackup && REQUEUEABLE_TYPES.includes(tx.type);
 
 /** Output-producing types whose Retry must first node-verify it didn't already
  *  land (double-send guard). Consume is excluded — it has its own input-note
@@ -368,6 +380,14 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  // Same rule as `isRequeueableTransaction`, and it matters more here: resubmit
+  // signs EVM operations with the vault key using this row's own `evmOwner`,
+  // `marketUid` and `sourceAmount`. An earn-withdraw row is born `Completed`
+  // with its lifecycle in `extraInputs.phase`, so import leaves its status
+  // untouched — the flag is the only thing marking it as not-ours.
+  if (tx.restoredFromBackup) {
+    throw new Error(`Transaction ${txId} was restored from a backup and cannot be resubmitted`);
+  }
   const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
   if (inputs.phase !== 'failed') return;
 

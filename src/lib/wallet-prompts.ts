@@ -90,6 +90,11 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
+  // A restored row still DISPLAYS whatever the backup recorded — that is
+  // deliberate — but it must not drive work. This prompt polls the bridge
+  // indexer against dump-supplied values on a timer and surfaces a Claim
+  // affordance that signs an EVM transaction.
+  if (tx.restoredFromBackup) return false;
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 
@@ -140,7 +145,13 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 }
 
 export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
-  await Promise.all(transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend));
+  // Filtered here as well as in `isBridgePromptActive`: this is exported and
+  // takes a caller-supplied list, and `pollBridgedSend` hits the allocator and
+  // writes the result back onto the row. Today's only caller passes the already
+  // filtered list; a second one would not have to.
+  await Promise.all(
+    transactions.filter(tx => tx.type === 'bridged-send' && !tx.restoredFromBackup).map(pollBridgedSend)
+  );
 }
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {

@@ -155,6 +155,30 @@ describe('isRequeueableTransaction', () => {
     expect(isRequeueableTransaction({ status: ITransactionStatus.Queued, type: 'send' })).toBe(false);
     expect(isRequeueableTransaction({ status: undefined, type: 'send' })).toBe(false);
   });
+
+  it('rejects a row restored from a backup, whatever its type', () => {
+    // Requeueing re-signs the row's own recipient and amount with no
+    // confirmation, and for an imported row those came from whoever authored
+    // the file — the type being retryable is exactly what makes it dangerous.
+    for (const type of ['send', 'consume', 'swap', 'bridged-send', 'execute'] as const) {
+      expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type, restoredFromBackup: true })).toBe(
+        false
+      );
+    }
+  });
+});
+
+// The predicate is only advisory — what must actually hold is that the write
+// path refuses. Asserting the predicate alone passes even if `requeueFailedTransaction`
+// stops consulting it, which is the regression that would re-open the hole.
+describe('requeueFailedTransaction — imported rows', () => {
+  it('refuses to queue a row restored from a backup', async () => {
+    const row = { ...failedRow(), restoredFromBackup: true };
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/not retryable/i);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('requeueFailedTransaction', () => {
