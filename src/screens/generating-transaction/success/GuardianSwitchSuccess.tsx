@@ -59,13 +59,19 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       {/* A custom endpoint is shown as its raw host, which can be long enough to
           push the pair off screen; break it rather than overflow. */}
       {newName && (
-        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-text-muted">
+        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-heading-gray">
           {previousName && (
             <>
+              {/* The arrow is the only thing carrying direction, and an untitled
+                  SVG is skipped — so the pair read as "OpenZeppelin Koda". The
+                  labels the review screen shows visibly are read out here
+                  instead, using the same keys. */}
+              <span className="sr-only">{t('currentGuardianLabel')}: </span>
               <span className="break-all">{previousName}</span>
-              <span className="shrink-0">
+              <span className="shrink-0" aria-hidden="true">
                 <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
               </span>
+              <span className="sr-only">{t('newGuardianLabel')}: </span>
             </>
           )}
           <span className="break-all">{newName}</span>

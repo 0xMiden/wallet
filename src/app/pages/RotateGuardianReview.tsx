@@ -22,6 +22,7 @@ import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
+import colors from 'utils/tailwind-colors';
 
 const RotateGuardianReview: FC = () => {
   const { t } = useTranslation();
@@ -229,19 +230,33 @@ const RotateGuardianReview: FC = () => {
           />
 
           <div className="mt-4">
-            <h3 className="text-sm font-semibold text-text-muted">{t('details')}</h3>
+            {/* `text-heading-gray` throughout rather than `text-text-muted`: the
+                muted token is #ababab, 2.3:1 on the app background in light mode.
+                These are row labels, not decoration, and the DetailCard rows this
+                block replaced carried the readable ink. */}
+            <h3 className="text-sm font-semibold text-heading-gray">{t('details')}</h3>
             <div className="flex items-center justify-between border-b border-border-faint py-3 text-sm">
-              <span className="font-medium text-text-muted">{t('walletKeyHot')}</span>
+              <span className="font-medium text-heading-gray">{t('walletKeyHot')}</span>
               <span className="font-semibold text-heading-gray">{hotKeyLabel}</span>
             </div>
             <div className="flex items-center justify-between py-3 text-sm">
-              <span className="font-medium text-text-muted">{t('recoveryPhraseCold')}</span>
+              <span className="font-medium text-heading-gray">{t('recoveryPhraseCold')}</span>
               <span className="font-semibold text-heading-gray">{t('required')}</span>
             </div>
           </div>
 
           <div className="mt-2 flex items-start gap-3 rounded-2xl bg-gray-100 p-4">
-            <Icon name={IconName.WarningFill} size="sm" className="mt-0.5 shrink-0" fill="#E8A33D" />
+            {/* The wallet's warning ink (`Alert`'s Warning variant uses the same
+                token) rather than a one-off hex, which was a shade nothing else
+                ships and was invisible to a theme switch. Decorative: the
+                heading beside it already says this is a warning. */}
+            <Icon
+              name={IconName.WarningFill}
+              size="sm"
+              className="mt-0.5 shrink-0"
+              fill={colors.yellow[500]}
+              aria-hidden="true"
+            />
             <div className="text-sm">
               <p className="font-semibold text-heading-gray">{t('oldGuardianCantBlockTitle')}</p>
               <p className="mt-1 leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</p>
@@ -256,7 +271,16 @@ const RotateGuardianReview: FC = () => {
           inside the scroller below the fold — the user had to scroll to find
           the only way forward, and a failure could render off-screen. */}
       <div className="shrink-0 px-4 pb-4 pt-2">
-        {error && <div className="mb-3 text-red-500 text-xs select-text wrap-break-word">{error}</div>}
+        {/* `role="alert"` because nothing else moves when a switch fails: focus
+            stays on Continue, the button just stops spinning, and the reason
+            appears above it silently. `max-h` + scroll so a long backend error
+            cannot grow this fixed footer and push Continue back off-screen —
+            the thing moving it out of the scroller was meant to prevent. */}
+        {error && (
+          <div role="alert" className="mb-3 max-h-24 overflow-y-auto text-red-500 text-xs select-text wrap-break-word">
+            {error}
+          </div>
+        )}
         <Button
           className="max-w-none"
           data-testid="rotate-guardian-confirm"

@@ -362,6 +362,14 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             onBack={handleSubPageBack}
             variant="prominent"
             titleAlign="left"
+            // As drawers these screens were dialogs, so they took focus and were
+            // announced by name. Routes are not announced and the row that
+            // opened them unmounts with the list, dropping focus to <body>.
+            focusTitleOnMount
+            // Prefixed: the scroll container below is a sibling in this same
+            // fragment and keys on the slug too, and two siblings sharing a key
+            // makes React render both of them.
+            key={`header-${activeTab.slug}`}
           />
         )
       ) : (
@@ -373,8 +381,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           instead of replacing it and the offset carried across: opening Language
           from the bottom of the list landed mid-list, and coming back left
           Settings wherever Language had been scrolled to. The drawers this
-          replaced never had the problem — they scrolled in their own portal. */}
-      <div key={tabSlug ?? 'root'} className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
+          replaced never had the problem — they scrolled in their own portal.
+          Keyed on the RESOLVED tab, not the raw slug: an unrecognised slug falls
+          through to the root list, and keying on the slug gave that same list a
+          different identity per bad URL. */}
+      <div key={activeTab?.slug ?? 'root'} className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
         {activeTab ? (
           activeTab.hasOwnLayout ? (
             <activeTab.Component />
@@ -394,10 +405,20 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               {tabGroups.map(group => (
                 <div key={group.titleI18nKey} className="py-3 first:pt-0">
                   <div className="flex items-center gap-1.5 pb-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0">
+                    {/* Decorative: the heading beside it names the group, so an
+                        unlabelled graphic in the tree just adds an anonymous
+                        node before every section. */}
+                    <div
+                      aria-hidden="true"
+                      className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0"
+                    >
                       <group.Icon className="w-4 h-4" />
                     </div>
-                    <h3 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h3>
+                    {/* h2, not h3: the only heading above these is the page title
+                        the header renders as h1, so h3 left a gap in the outline
+                        and screen-reader heading navigation reported a missing
+                        level. */}
+                    <h2 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h2>
                   </div>
                   <div className="overflow-hidden flex flex-col gap-4">
                     {group.tabs.map(tab => {
@@ -407,12 +428,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                       // openExternalUrl); such rows never route to a /settings page.
                       const hasCustomClick = isSeedPhrase || !!tab.onClick;
                       const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
-                      const handleClick = isSeedPhrase
-                        ? () => {
-                            hapticLight();
-                            setShowSeedWarning(true);
-                          }
-                        : tab.onClick;
+                      // No `hapticLight()` here: MenuItem fires one for every
+                      // branch it renders, so this row buzzed twice on tap while
+                      // every other row buzzed once.
+                      const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
                       return (
                         <MenuItem
                           key={tab.slug + tab.titleI18nKey}

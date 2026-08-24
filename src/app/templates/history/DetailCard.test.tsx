@@ -121,10 +121,12 @@ describe('ExternalLinkValue', () => {
 describe('StatusPill', () => {
   const pill = (container: HTMLElement) => container.firstChild as HTMLElement;
   const dot = (container: HTMLElement) => pill(container).querySelector('div') as HTMLElement;
-  // The leading icon is also a <span> (the v2-icon mock), so exclude it when
-  // selecting the text label.
+  // The leading decoration is a <span> too — the aria-hidden wrapper, and inside
+  // it the v2-icon mock — so the label is identified by NOT being hidden. That
+  // doubles as the assertion that the glyph stays out of the accessibility tree:
+  // it restates the label, and announcing both named the status twice.
   const label = (container: HTMLElement) =>
-    pill(container).querySelector('span:not([data-testid="v2-icon"])') as HTMLElement;
+    pill(container).querySelector('span:not([aria-hidden]):not([data-testid="v2-icon"])') as HTMLElement;
 
   it('renders the completed variant as a solid green pill with dark ink and a matching checkmark', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
@@ -213,9 +215,9 @@ describe('StatusPill', () => {
 
   it('treats non-terminal statuses (Queued / GeneratingTransaction) as in-progress', () => {
     const { container: queued } = render(<StatusPill status={ITransactionStatus.Queued} />);
-    expect(queued.querySelector('span')).toHaveTextContent('t:inProgress');
+    expect(label(queued)).toHaveTextContent('t:inProgress');
 
     const { container: generating } = render(<StatusPill status={ITransactionStatus.GeneratingTransaction} />);
-    expect(generating.querySelector('span')).toHaveTextContent('t:inProgress');
+    expect(label(generating)).toHaveTextContent('t:inProgress');
   });
 });

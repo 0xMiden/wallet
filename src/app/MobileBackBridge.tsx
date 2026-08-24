@@ -13,7 +13,9 @@ const TAB_PAGES = ['/history', '/settings', '/browser'];
  * Higher-priority handlers (dialogs, Navigator flows, onboarding) can intercept first.
  *
  * Behavior:
- * - Settings subpage (/settings/xxx): go to /settings
+ * - Settings subpage (/settings/xxx): pop one entry, or land on /settings when
+ *   the page was opened cold — these are real routes now and can nest, so
+ *   jumping straight to the list would skip the page the chevron goes back to
  * - Tab pages (history, settings, browser) with no history: go to home
  * - If historyPosition > 0: go back in history
  * - Other pages with no history: go to home

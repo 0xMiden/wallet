@@ -142,16 +142,22 @@ export const StatusPill: FC<{
     >
       {/* Muted first for the same reason as the colours: a cancellation reads
           Failed, and a grey "Cancelled" pill wearing the failure ✕ names two
-          outcomes at once. */}
-      {isMuted ? (
-        <div className="w-2 h-2 rounded-full bg-current" />
-      ) : isCompleted ? (
-        <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-      ) : isFailed ? (
-        <Icon name={IconName.Close} size="xs" fill="currentColor" />
-      ) : (
-        <div className="w-2 h-2 rounded-full bg-current" />
-      )}
+          outcomes at once.
+
+          Decorative — each glyph restates the label beside it, so leaving them
+          in the accessibility tree announced the status twice, once of them as
+          an unnamed graphic. */}
+      <span aria-hidden="true" className="flex items-center">
+        {isMuted ? (
+          <div className="w-2 h-2 rounded-full bg-current" />
+        ) : isCompleted ? (
+          <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
+        ) : isFailed ? (
+          <Icon name={IconName.Close} size="xs" fill="currentColor" />
+        ) : (
+          <div className="w-2 h-2 rounded-full bg-current" />
+        )}
+      </span>
       <span className="text-xs font-semibold">{label}</span>
     </div>
   );

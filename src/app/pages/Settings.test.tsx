@@ -111,8 +111,16 @@ jest.mock('components/Button', () => ({
 }));
 
 jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div data-testid="nav-header">
+  NavigationHeader: ({
+    title,
+    onBack,
+    focusTitleOnMount
+  }: {
+    title: string;
+    onBack?: () => void;
+    focusTitleOnMount?: boolean;
+  }) => (
+    <div data-testid="nav-header" data-focus-title={String(Boolean(focusTitleOnMount))}>
       <span data-testid="nav-title">{title}</span>
       <button type="button" data-testid="nav-back" onClick={onBack}>
         back
@@ -148,7 +156,13 @@ jest.mock('app/templates/MenuItem', () => ({
       data-slug={slug === undefined ? 'undefined' : String(slug)}
       data-external={String(!!linksOutsideOfWallet)}
       data-righttext={rightText === undefined ? 'undefined' : String(rightText)}
-      onClick={() => onClick && onClick()}
+      // The real MenuItem fires exactly one hapticLight per tap, on every branch
+      // it renders. The mock has to as well, or a caller adding its own — which
+      // the recovery-phrase row did, buzzing twice — is invisible here.
+      onClick={() => {
+        hapticLight();
+        onClick?.();
+      }}
     >
       {titleI18nKey}
     </button>
@@ -358,6 +372,34 @@ describe('Settings page — root menu (non-guardian)', () => {
     // Same route, so React would otherwise reconcile one container and keep its
     // scrollTop: the sub-page opened at the list's offset and vice versa.
     expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
+  });
+
+  it('takes focus to the sub-page title, which a route change does not announce', () => {
+    render(<Settings tabSlug="language" />);
+
+    // As drawers these were dialogs and took focus on open; as routes nothing
+    // moves focus and the row that opened them is gone, so it lands on <body>.
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+  });
+
+  it('leaves focus alone on the settings list itself', () => {
+    render(<Settings tabSlug={null} />);
+
+    // Arriving from the wallet home, not from within Settings — stealing focus
+    // here would fight the navigation the user already made.
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+  });
+
+  it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
+    const { rerender } = render(<Settings tabSlug="language" />);
+    const first = screen.getByTestId('nav-header');
+
+    rerender(<Settings tabSlug="general-settings" />);
+
+    // Keyed on the slug so the header remounts and its focus effect re-runs;
+    // reconciling one header would announce the first page's name only.
+    expect(screen.getByTestId('nav-header')).not.toBe(first);
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
   });
 
   it('navigates home when the root header back button is pressed', () => {

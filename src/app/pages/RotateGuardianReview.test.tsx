@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import RotateGuardianReview from './RotateGuardianReview';
 
@@ -24,6 +24,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 let mockCurrentEndpoint = 'https://old.example';
+let mobileBackHandler: (() => boolean | void) | undefined;
 
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
   useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
@@ -173,6 +174,15 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
 
+// Captured rather than executed: on mobile this is the only back affordance on
+// the credential step, and the screen hides PageLayout's toolbar, so nothing
+// else registers one.
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (handler: () => boolean | void) => {
+    mobileBackHandler = handler;
+  }
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: { currentAccount: typeof mockCurrentAccount }) => unknown) =>
     selector({ currentAccount: mockCurrentAccount })
@@ -187,6 +197,7 @@ jest.mock('lib/woozie', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mobileBackHandler = undefined;
   mockCurrentEndpoint = 'https://old.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
@@ -366,6 +377,69 @@ it('still refuses it from the password step, which submits straight past the fir
   expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
   expect(mockUnlock).not.toHaveBeenCalled();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
+});
+
+describe('hardware back', () => {
+  it('backs out of the credential step rather than off the screen', async () => {
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    expect(document.querySelector('#rotate-guardian-password')).not.toBeNull();
+
+    // Wrapped: this handler is invoked by the native bridge, outside React's
+    // event system, so the state it sets is not batched for us.
+    let handled: boolean | void = undefined;
+    act(() => {
+      handled = mobileBackHandler!();
+    });
+    expect(handled).toBe(true);
+
+    // Back to review, not out to Settings or the wallet home.
+    expect(await screen.findByTestId('rotate-guardian-confirm')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves the review screen for the picker it came from', async () => {
+    render(<RotateGuardianReview />);
+    await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
+
+    // historyPosition is 1 in this suite, so this pops rather than falling back.
+    expect(mobileBackHandler!()).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('swallows the press while a switch is in flight instead of abandoning it', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finishAuthentication: (() => void) | undefined;
+    mockUnlock.mockImplementation(() => new Promise<void>(resolve => (finishAuthentication = resolve)));
+    render(<RotateGuardianReview />);
+    const confirm = await screen.findByTestId('rotate-guardian-confirm');
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+
+    // Consumed and inert: navigating away mid-authentication would leave the
+    // user with no indication whether the switch was queued.
+    expect(mobileBackHandler!()).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    finishAuthentication?.();
+    await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
+  });
+});
+
+it('announces a failure rather than only rendering it above the button', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockUnlock.mockRejectedValue(new Error('cancelled'));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  // Focus stays on Continue and the button just stops spinning, so without a
+  // live region the reason is never conveyed.
+  expect(await screen.findByRole('alert')).toHaveTextContent('cancelled');
 });
 
 it('fails closed when hardware-protector detection fails', async () => {

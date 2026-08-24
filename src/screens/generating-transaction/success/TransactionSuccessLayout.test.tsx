@@ -52,6 +52,21 @@ const baseProps = {
 
 const footerLabels = () => screen.getAllByTestId('footer-action').map(button => button.textContent);
 
+it('promotes the body title to h1 when the header carries no title', () => {
+  render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
+
+  // Every receipt passes an empty header title, so this is the screen's only
+  // heading — as an h2 it left the page with no h1 and the header announcing a
+  // nameless level-1 heading.
+  expect(screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' })).toBeInTheDocument();
+});
+
+it('keeps the body title one level below a titled header', () => {
+  render(<TransactionSuccessLayout {...baseProps} headerTitle="Success!" />);
+
+  expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
+});
+
 it('renders the green check hero when no custom artwork is supplied', () => {
   render(<TransactionSuccessLayout {...baseProps} />);
 

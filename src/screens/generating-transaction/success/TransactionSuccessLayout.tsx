@@ -104,7 +104,11 @@ export const SuccessHero: FC = () => (
 );
 
 /** Full-width hairline shown under the title on the amount-led variants. */
-export const SuccessDivider: FC = () => <div className="mt-6 h-1 w-full rounded-xs bg-[#F2F2F4]" />;
+// `bg-gray-100` (--color-hover-bg) rather than the literal `#F2F2F4` it shipped
+// as: that near-white is a light-mode value with no dark counterpart, so on the
+// dark receipt the divider read as a bright bar across the card. The token flips
+// to a translucent white and stays a hairline separator in both themes.
+export const SuccessDivider: FC = () => <div className="mt-6 h-1 w-full rounded-xs bg-gray-100" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
 export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
@@ -230,7 +234,14 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-3 pt-6">
         {hero ?? <SuccessHero />}
 
-        <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
+        {/* The receipts pass no `headerTitle`, so this IS the screen's heading and
+            has to be the h1; when a header title is present this stays a level
+            below it. */}
+        {headerTitle ? (
+          <h2 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h2>
+        ) : (
+          <h1 className="mt-6 w-full text-center text-[2rem] font-heading font-bold text-heading-gray">{title}</h1>
+        )}
 
         {children}
       </main>

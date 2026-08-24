@@ -102,13 +102,29 @@ const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBloc
  * "your current Guardian page" to users. Whitespace-anchored, so it collapses to
  * nothing for the CJK patterns, which rely on adjacency.
  */
-const NEAR = String.raw`[\s«»„“”"'’(),.\-]*(?:\S{1,12}\s+){0,2}[\s«»„“”"'’(),.\-]*`;
+// Quotes and brackets only — no sentence terminators, or the pattern reaches
+// across a full stop and flags two unrelated clauses.
+const PUNCT = String.raw`[\s«»„“”"'’()\-]*`;
 
-const nounNearGuardian = (nouns: string[]): string =>
-  nouns.map(noun => `${noun}${NEAR}Guardian|Guardian${NEAR}${noun}`).join('|');
+// Up to two intervening words, counted as LETTERS rather than `\S`: a character
+// budget in a script without spaces buys a whole clause, so `地址不是钱包的
+// Guardian` ("the address is not the wallet's Guardian") looked like a hit.
+const WORDS = String.raw`(?:[\p{L}\p{M}]{1,12}\s+){0,2}`;
 
-const wrongThing = (nouns: string[], extra: string[] = [], caseInsensitive = true): RegExp =>
-  new RegExp([nounNearGuardian(nouns), ...extra].join('|'), caseInsensitive ? 'i' : '');
+const nounNearGuardian = (nouns: string[], connector: string): string =>
+  nouns.map(noun => `${noun}${connector}Guardian|Guardian${connector}${noun}`).join('|');
+
+/**
+ * `spaced` languages allow the intervening words; ja/ko/zh get punctuation-only
+ * adjacency, which is all their known-bad strings ever needed (`Guardianアドレス`,
+ * `Guardian 주소`, `地址 Guardian`) and the only form that cannot run past a
+ * sentence boundary in text that has no word spacing.
+ */
+const wrongThing = (
+  nouns: string[],
+  { extra = [], spaced = true }: { extra?: string[]; spaced?: boolean } = {}
+): RegExp =>
+  new RegExp([nounNearGuardian(nouns, spaced ? `${PUNCT}${WORDS}${PUNCT}` : PUNCT), ...extra].join('|'), 'iu');
 
 // `\S*` rather than `\w*` for an inflected tail: `\w` is ASCII-only, so it
 // matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
@@ -118,9 +134,12 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   en_GB: wrongThing(['address', 'page', 'site', 'app']),
   de: wrongThing([String.raw`Adress\S*`]),
   es: wrongThing([String.raw`direcci[oó]n`, String.raw`p[aá]gina`, 'sitio', String.raw`aplicaci[oó]n`]),
-  fr: wrongThing(['adresse', 'page', 'site'], ['faire tourner', 'Guardiane']),
-  ja: wrongThing([String.raw`アドレス`, String.raw`ページ`, String.raw`サイト`], [String.raw`最新情報`], false),
-  ko: wrongThing([String.raw`주소`], [], false),
+  fr: wrongThing(['adresse', 'page', 'site'], { extra: ['faire tourner', 'Guardiane'] }),
+  ja: wrongThing([String.raw`アドレス`, String.raw`ページ`, String.raw`サイト`], {
+    extra: [String.raw`最新情報`],
+    spaced: false
+  }),
+  ko: wrongThing([String.raw`주소`], { spaced: false }),
   pl: wrongThing([String.raw`adres\S*`, String.raw`stron\S*`, String.raw`witryn\S*`]),
   pt: wrongThing([String.raw`endere[cç]o`, String.raw`p[aá]gina`, String.raw`vers[aã]o`]),
   ru: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`]),
@@ -129,14 +148,20 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
   // at the first non-punctuation character, cannot supply. Kept local to `tr`: a
   // `\S*` tail is safe between whitespace-delimited words and dangerous in CJK,
   // where it would run to the end of the sentence.
-  tr: wrongThing([String.raw`adres\S*`], [String.raw`Guardian\S*\s*adres`]),
-  uk: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`, String.raw`список`, String.raw`верс\S+`], [], true),
-  zh_CN: wrongThing([String.raw`地址`], [], false),
-  zh_TW: wrongThing(
-    [String.raw`地址`, String.raw`帳戶`],
-    [String.raw`最新\s?Guardian`, String.raw`新版\s?Guardian`],
-    false
-  )
+  tr: wrongThing([String.raw`adres\S*`], { extra: [String.raw`Guardian\S*\s*adres`] }),
+  uk: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`, String.raw`список`, String.raw`верс\S+`]),
+  // `版` is "version". Both Chinese locales called the previous provider the
+  // "old-VERSION Guardian", which describes a software release rather than the
+  // Guardian being switched away from — the same class of error as "Guardian
+  // address" in the European locales.
+  zh_CN: wrongThing([String.raw`地址`], {
+    extra: [String.raw`[旧新最]版\s?Guardian`],
+    spaced: false
+  }),
+  zh_TW: wrongThing([String.raw`地址`, String.raw`帳戶`], {
+    extra: [String.raw`最新\s?Guardian`, String.raw`[舊新]版\s?Guardian`],
+    spaced: false
+  })
 };
 
 /**
@@ -164,12 +189,22 @@ const WRONG_POWER_TERMS: Record<string, RegExp> = {
   zh_TW: /批准|核准/
 };
 
-/** Union of both families, for the strings where the Guardian is the subject. */
+/**
+ * Union of both families, for the strings where the Guardian is the subject.
+ *
+ * Flags are carried over from BOTH operands rather than rebuilt: composing the
+ * sources into a new pattern silently drops any flag the new one lacks, and `u`
+ * is load-bearing — without it `\p{L}` in the connector stops meaning "a letter"
+ * and the alternative it sits in can never match. A guard that quietly matches
+ * nothing is the exact failure this suite exists to prevent, so the union is
+ * taken mechanically instead of listing flags by hand.
+ */
 const bannedForReceipt = (locale: string): RegExp | undefined => {
   const thing = WRONG_THING_TERMS[locale];
   const power = WRONG_POWER_TERMS[locale];
   if (!thing || !power) return undefined;
-  return new RegExp(`${thing.source}|${power.source}`, thing.flags.includes('i') ? 'i' : '');
+  const flags = [...new Set([...thing.flags, ...power.flags])].join('');
+  return new RegExp(`${thing.source}|${power.source}`, flags);
 };
 
 /**
@@ -232,7 +267,34 @@ const KNOWN_BAD_WARNING: Array<[string, string]> = [
   ['pt', 'O antigo endereço Guardian é apenas notificado.'],
   ['tr', 'Eski Guardian adresiniz bunu engelleyemez'],
   ['tr', 'Eski Guardian adresine yalnızca bildirim gönderilir.'],
-  ['ko', '기존 Guardian 주소에는 단지 알림만 전송됩니다.']
+  ['ko', '기존 Guardian 주소에는 단지 알림만 전송됩니다.'],
+  ['zh_CN', '您的旧版Guardian无法阻止此操作'],
+  ['zh_TW', '您的舊版 Guardian 無法阻止此事']
+];
+
+/**
+ * The other half of the self-test: strings the guard must NOT flag. Every
+ * pattern here is a stem-plus-connector, so an over-broad connector would reject
+ * correct copy — and the failure mode would be a red build on a good
+ * translation, which is how a guard gets deleted. These are the real shipped
+ * strings plus the near-misses that motivated each narrowing: a sentence
+ * boundary between the noun and "Guardian", and a Chinese clause long enough
+ * that a character-budget connector spanned it.
+ */
+const KNOWN_GOOD: Array<[string, string]> = [
+  ['en', 'Your wallet address did not change. Your Guardian co-signs every transaction.'],
+  ['en', 'This is already your current Guardian.'],
+  ['de', 'Ihre Wallet-Adresse bleibt gleich. Ihr Guardian signiert weiterhin mit.'],
+  ['es', 'Tu dirección de wallet no cambia. El Guardian co-firma cada transacción.'],
+  ['fr', 'Votre adresse de portefeuille ne change pas. Votre Guardian co-signe.'],
+  ['pl', 'Twój adres portfela się nie zmienia. Twój Guardian współpodpisuje.'],
+  ['ru', 'Ваш адрес кошелька не меняется. Ваш Guardian подписывает вместе с вами.'],
+  ['tr', 'Cüzdan adresiniz değişmez. Guardian her işlemi birlikte imzalar.'],
+  ['uk', 'Ваша адреса гаманця не змінюється. Ваш Guardian підписує разом із вами.'],
+  ['ja', 'ウォレットのアドレスは変わりません。Guardianが共同署名します。'],
+  ['ko', '지갑 주소는 변경되지 않습니다. Guardian이 공동 서명합니다.'],
+  ['zh_CN', '您的钱包地址不会改变，Guardian 会共同签署每笔交易。'],
+  ['zh_TW', '您的錢包地址不會改變，Guardian 會共同簽署每筆交易。']
 ];
 
 const KNOWN_BAD_REMOVAL = [
@@ -355,6 +417,18 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     }
   });
 
+  it('leaves correct copy alone, so the patterns cannot pass by rejecting everything', () => {
+    for (const [locale, good] of KNOWN_GOOD) {
+      const banned = bannedForReceipt(locale);
+      expect(banned).toBeDefined();
+      expect(good).not.toMatch(banned!);
+      const thing = WRONG_THING_TERMS[locale];
+      expect(thing).toBeDefined();
+      expect(good).not.toMatch(thing!);
+      expect(good).not.toMatch(REMOVAL_TERMS);
+    }
+  });
+
   it('guards every locale that ships the receipt', () => {
     // A locale with no pattern is a locale nobody is checking.
     for (const locale of LOCALES) {
@@ -368,10 +442,15 @@ describe('Guardian explainer copy accuracy (#479)', () => {
   });
 
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {
+    // Every key this suite guards, not just the receipt bullets: `en.json` is
+    // what the app reads at runtime and `messages.json` is what the translation
+    // generator reads, so a key corrected in one and not the other ships the
+    // wrong English AND regenerates every locale from the stale source.
     for (const key of [
       'guardianInfoWhatItDoesDescription',
       'guardianInfoSwitchingIsEasyDescription',
-      ...SUCCESS_RECEIPT_KEYS
+      ...GUARDIAN_RECEIPT_KEYS,
+      ...ROTATION_WARNING_KEYS
     ]) {
       expect(enJson[key]).toBe(message(key));
     }

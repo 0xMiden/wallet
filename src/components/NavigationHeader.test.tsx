@@ -15,8 +15,11 @@ jest.mock('app/icons/v2', () => ({
 
 // Mock CircleButton so we can assert which icon/handler/props it received
 // without exercising its internals (covered by its own suite).
+// Rest props are forwarded so the aria-labels are observable: without that, the
+// icon-only back and close buttons could lose their accessible names and every
+// test here would still pass.
 jest.mock('./CircleButton', () => ({
-  CircleButton: ({ icon, onClick, className, size, color }: any) => (
+  CircleButton: ({ icon, onClick, className, size, color, ...rest }: any) => (
     <button
       data-testid="circle-button"
       data-icon={icon}
@@ -24,6 +27,7 @@ jest.mock('./CircleButton', () => ({
       data-color={color}
       className={className}
       onClick={onClick}
+      {...rest}
     />
   )
 }));
@@ -62,6 +66,10 @@ describe('NavigationHeader', () => {
     expect(button).toHaveAttribute('data-icon', IconName.ChevronLeft);
     expect(button).toHaveAttribute('data-size', 'sm');
     expect(button).toHaveClass('shrink-0');
+    // CircleButton's default fill is a literal `black`, invisible on the dark app
+    // background — the chevron has to inherit the header's flipping ink too, not
+    // just the prominent variant's arrow.
+    expect(button).toHaveAttribute('data-color', 'currentColor');
 
     fireEvent.click(button);
     expect(onBack).toHaveBeenCalledTimes(1);
@@ -149,6 +157,31 @@ describe('NavigationHeader', () => {
 
     const outer = getOuterDiv();
     expect(outer).toHaveClass('flex', 'flex-row', 'px-4', 'items-center', 'w-full', 'bg-app-bg', 'py-4');
+  });
+
+  it('names both icon-only controls for assistive technology', () => {
+    render(<NavigationHeader title="Both" onBack={jest.fn()} onClose={jest.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'close' })).toBeInTheDocument();
+  });
+
+  describe('focusTitleOnMount', () => {
+    it('takes focus to the title so a routed screen is announced', () => {
+      render(<NavigationHeader title="Language" onBack={jest.fn()} focusTitleOnMount />);
+
+      const heading = screen.getByRole('heading', { name: 'Language' });
+      expect(heading).toHaveFocus();
+      // Programmatically focusable only — it must not join the tab order.
+      expect(heading).toHaveAttribute('tabindex', '-1');
+    });
+
+    it('leaves focus alone by default', () => {
+      render(<NavigationHeader title="Language" onBack={jest.fn()} />);
+
+      expect(screen.getByRole('heading')).not.toHaveFocus();
+      expect(screen.getByRole('heading')).not.toHaveAttribute('tabindex');
+    });
   });
 
   // Every screen this commit converted from a drawer to a route renders the

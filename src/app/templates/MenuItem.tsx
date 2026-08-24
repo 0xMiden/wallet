@@ -29,7 +29,11 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, rightText 
           <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-2">
-          {rightText && <span className="font-heading text-sm text-text-muted font-normal">{rightText}</span>}
+          {/* Not `text-text-muted`: that token is #ababab in light mode, which is
+              2.3:1 on the app background — this is the row's value ("English"),
+              not decoration. `text-heading-gray` reads 9.2:1 light and flips to
+              white in dark. */}
+          {rightText && <span className="font-heading text-sm text-heading-gray font-normal">{rightText}</span>}
           <ChevronRightIcon className="h-4 w-4 stroke-black" aria-hidden="true" />
         </div>
       </div>

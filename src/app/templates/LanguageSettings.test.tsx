@@ -153,6 +153,15 @@ describe('LanguageSettings', () => {
     expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
+  it('exposes the active language to assistive technology, not just in colour', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    expect(screen.getByRole('button', { pressed: true })).toHaveTextContent('Español');
+    // Exactly one row claims the state.
+    expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(1);
+  });
+
   it('leaves once however many times the user taps', () => {
     render(<LanguageSettings />);
 

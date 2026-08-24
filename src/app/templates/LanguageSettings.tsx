@@ -69,6 +69,10 @@ const LanguageSettings: FC = () => {
           <button
             key={code}
             type="button"
+            // Selection is otherwise conveyed only by colour, weight and an
+            // unlabelled checkmark, so a screen reader heard thirteen identical
+            // "English, button" rows with no way to tell which one is active.
+            aria-pressed={isSelected}
             className="flex items-center justify-between py-3 w-full text-left"
             onClick={() => handleSelect(code)}
           >
@@ -81,7 +85,11 @@ const LanguageSettings: FC = () => {
             >
               {label}
             </span>
-            {isSelected && <Icon name={IconName.Checkmark} size="xs" fill={PRIMARY_HEX} />}
+            {isSelected && (
+              <span aria-hidden="true">
+                <Icon name={IconName.Checkmark} size="xs" fill={PRIMARY_HEX} />
+              </span>
+            )}
           </button>
         );
       })}

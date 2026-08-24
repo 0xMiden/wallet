@@ -2417,7 +2417,7 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "您的舊版 Guardian 無法阻止此事",
+    "message": "您的舊 Guardian 無法阻止此事",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {

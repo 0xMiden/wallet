@@ -1,4 +1,4 @@
-import React, { HTMLAttributes } from 'react';
+import React, { HTMLAttributes, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -18,6 +18,13 @@ export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'prominent';
   /** Title placement; 'left' sits the title next to the back button. */
   titleAlign?: 'center' | 'left';
+  /**
+   * Move keyboard/screen-reader focus to the title on mount. For screens reached
+   * by an in-app route change, which browsers and Woozie do not announce: the
+   * trigger unmounts with the page it was on, so focus falls to `<body>` and the
+   * new screen is never named.
+   */
+  focusTitleOnMount?: boolean;
 }
 
 export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
@@ -28,11 +35,17 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   innerDivClassName,
   variant = 'default',
   titleAlign = 'center',
+  focusTitleOnMount = false,
   ...props
 }) => {
   const { t } = useTranslation();
   const prominent = variant === 'prominent';
   const centered = titleAlign === 'center';
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (focusTitleOnMount) titleRef.current?.focus();
+  }, [focusTitleOnMount]);
   return (
     <>
       <div
@@ -45,18 +58,26 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
       >
         <div className={classNames('flex flex-row items-center gap-x-4 w-full text-xl text-black', innerDivClassName)}>
           {onBack ? (
-            // text-black auto-flips to white in dark mode; currentColor carries it
-            // into the SVG fill so the arrow stays visible on the dark circle.
+            // currentColor on BOTH variants: CircleButton defaults its icon fill to
+            // a literal `black`, invisible on the dark app background. The inner div
+            // above carries `text-black`, which auto-flips, so the glyph follows the
+            // theme. The default variant was left out of the original fix, which is
+            // why the chevron vanished in dark mode on token detail and the seed
+            // phrase screens.
             <CircleButton
               aria-label={t('back')}
               icon={prominent ? IconName.ArrowLeft : IconName.ChevronLeft}
               onClick={onBack}
               className={classNames('shrink-0', prominent && 'w-10 h-10 bg-gray-25 text-black')}
               size="sm"
-              color={prominent ? 'currentColor' : undefined}
+              color="currentColor"
             />
           ) : null}
           <h1
+            ref={titleRef}
+            // -1 so it is programmatically focusable without joining the tab
+            // order, the standard shape for a route-change focus target.
+            tabIndex={focusTitleOnMount ? -1 : undefined}
             className={classNames(
               'font-heading flex-1',
               centered ? 'text-center' : 'text-left',

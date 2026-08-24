@@ -32,14 +32,18 @@ export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
     return (
       <div data-testid="guardian-transition-hero" className={`w-full ${className}`}>
         <div className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-surface-interactive px-4 py-4">
-          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-text-muted">
+          {/* `text-heading-gray`, matching the "New Guardian" chip below rather
+              than `text-text-muted`: the two chips sit one above the other, and
+              the muted token is 2.3:1 on this white pill in light mode while the
+              other chip's ink is 9.2:1. */}
+          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-heading-gray">
             {previousLabel}
           </span>
           <h2 className="mt-1.5 break-all text-center font-heading text-xl font-bold text-heading-gray">
             {guardianEndpointDisplayName(previousEndpoint, unknown)}
           </h2>
           {previousOption && (
-            <p className="mt-0.5 text-xs font-semibold text-text-muted">
+            <p className="mt-0.5 text-xs font-semibold text-heading-gray">
               {t('guardianProviderRegion', { provider: previousOption.operatedBy, region: previousOption.location })}
             </p>
           )}
