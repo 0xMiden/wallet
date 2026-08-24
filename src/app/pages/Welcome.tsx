@@ -113,12 +113,14 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
  * splash — simply has no entry and leaves the previous step standing as the
  * furthest reached.
  *
- * Only screens this component can actually reach appear here. The wallet-type
- * screen is deliberately absent: the flow BEGINS from it (see
- * `beginOnboardingFlow`), so by the time there is a flow to report against, the
- * user has already left. `Welcome.test.tsx` fails on an entry for a screen no
- * `setStep` call can produce, which is how the three original dead entries were
- * found.
+ * Only screens that can actually produce an event appear here, which is a
+ * stronger condition than being renderable and is why three original entries
+ * were dead. Two named screens this component never shows; `Welcome.test.tsx`
+ * now fails on those. The third, the wallet-type screen, IS reachable — but the
+ * flow BEGINS from it (see `beginOnboardingFlow`), so there is nothing open to
+ * report against while the user is on it, and no `back` returns there with a
+ * flow alive. That ordering is not something a static test can see, so it is
+ * recorded here instead.
  */
 const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>> = {
   [OnboardingStep.ChooseProtection]: 'choose_protection',

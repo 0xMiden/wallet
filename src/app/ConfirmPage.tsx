@@ -540,7 +540,12 @@ const ConfirmDAppForm: FC = () => {
 
   // The extension's approval telemetry. The confirmation store the other
   // platforms report from is unreachable here — see `useApprovalPrompt`.
-  const settleApproval = useApprovalPrompt(payload.type);
+  //
+  // Suppressed for the auto-approved reconnect handled above, where the user is
+  // shown nothing and asked nothing: that path never reaches `confirm`, so a
+  // flow begun for it would never be settled.
+  const autoApproved = payload.type === 'connect' && Boolean(payload.existingPermission);
+  const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
 
   const confirm = useCallback(
     async (confirmed: boolean) => {

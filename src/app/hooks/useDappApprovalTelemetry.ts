@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { setApprovalFlowReporter } from 'lib/dapp-browser/confirmation-store';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
@@ -25,22 +25,48 @@ export function approvalFlowFor(type: string): TelemetryFlow {
  *
  * Mount is a fair trigger here, unlike the home-carousel screens: this page
  * exists only to ask, so it is rendered when — and only when — a prompt is shown.
+ *
+ * `enabled` exists for the one case where that is untrue: a `connect` from an
+ * already-permitted dApp is auto-approved during render and the user is never
+ * asked anything. Reporting it would emit an approval that was reached and not
+ * granted — indistinguishable from a refusal, recurring, and correlated with
+ * nothing the user did. Exactly the phantom-event class this instrumentation
+ * exists to avoid, so such a prompt begins no flow at all.
  */
-export function useApprovalPrompt(type: string): (confirmed: boolean) => void {
+export function useApprovalPrompt(type: string, enabled = true): (confirmed: boolean) => void {
   const flowRef = useRef<FlowHandle | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     flowRef.current = beginFlow(approvalFlowFor(type));
     flowRef.current.step('awaiting_approval');
-    // Closing the window without deciding is an abandoned approval, which is a
-    // real and interesting outcome rather than a gap in the data.
     return () => {
       flowRef.current?.cancel();
       flowRef.current = null;
     };
-  }, [type]);
+  }, [type, enabled]);
 
-  return (confirmed: boolean) => {
+  // Dismissing the popup is how an approval is abandoned, and destroying a
+  // browser window does not unmount a React tree — so the effect cleanup above
+  // never runs on that path and cannot be what reports it. `pagehide` fires as
+  // the document goes away, whether the user hit the X or the request timed out
+  // and the background closed the window. The event still lands: `report` posts
+  // it over the intercom port to the background, which owns the request.
+  //
+  // A no-op after a decision, since settling nulls the ref first.
+  useEffect(() => {
+    const onHide = () => {
+      const flow = flowRef.current;
+      if (!flow) return;
+      flowRef.current = null;
+      flow.cancel();
+    };
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, []);
+
+  // Stable, so the callbacks in `ConfirmPage` that depend on it stay memoized.
+  return useCallback((confirmed: boolean) => {
     const flow = flowRef.current;
     if (!flow) return;
     flowRef.current = null;
@@ -49,7 +75,7 @@ export function useApprovalPrompt(type: string): (confirmed: boolean) => void {
     // refusal must not read the same as consent.
     if (confirmed) flow.complete();
     else flow.cancel();
-  };
+  }, []);
 }
 
 /**

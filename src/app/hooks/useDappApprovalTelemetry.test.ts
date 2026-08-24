@@ -97,12 +97,42 @@ describe('useApprovalPrompt', () => {
     expect(handle().cancel).toHaveBeenCalledTimes(1);
   });
 
-  it('reports a window closed without deciding as an abandoned approval', () => {
+  it('reports a dismissed popup as an abandoned approval, which no unmount would have caught', () => {
+    // Destroying a browser window does not unmount a React tree, so an effect
+    // cleanup cannot be what reports this — the original test asserted `unmount`
+    // and passed while production emitted nothing at all.
+    renderHook(() => useApprovalPrompt('connect'));
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(handle().cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a route change away from the prompt too', () => {
     const { unmount } = renderHook(() => useApprovalPrompt('connect'));
 
     unmount();
 
     expect(handle().cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports nothing twice when the popup is dismissed after a decision', () => {
+    const { result } = renderHook(() => useApprovalPrompt('connect'));
+    result.current(true);
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(handle().complete).toHaveBeenCalledTimes(1);
+    expect(handle().cancel).not.toHaveBeenCalled();
+  });
+
+  it('begins no flow for an approval the user is never shown', () => {
+    // An already-permitted dApp reconnecting is auto-approved during render and
+    // never reaches the settle callback, so a flow begun here could only ever
+    // arrive as an unmatched `started` — a phantom refusal.
+    renderHook(() => useApprovalPrompt('connect', false));
+
+    expect(beginFlow).not.toHaveBeenCalled();
   });
 
   it('does not re-report on the unmount that follows a decision', () => {

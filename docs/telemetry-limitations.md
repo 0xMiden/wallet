@@ -238,15 +238,41 @@ out of curiosity emits a cancelled `send` at `select_recipient`, a cancelled
 
 These are honest, balanced pairs, not leaks — but they are shallow, and left
 unfiltered they dominate the first bucket of exactly the funnel `step` exists to
-produce. They are also trivially separable, because every `ended` event carries
-`durationMs`: a transit is a few hundred milliseconds, a real visit is seconds.
-**So exclude cancelled flows under about a second before reading drop-off.**
+produce. They are also separable, because every `ended` event carries `durationMs`: a
+transit is a few hundred milliseconds, a real visit is seconds. **So exclude
+short flows before reading drop-off** — on duration, and not on `result`.
+
+`result` is the wrong filter because `receive_share` completes as soon as the
+address is on screen, which is immediately: the address is resolved before the
+route is even reachable. So a swipe transit through `/receive` and a deliberate
+visit both arrive `completed` with a duration near zero, and that flow's
+`cancelled` branch is close to unreachable in practice. Duration is the only
+thing that separates them.
 
 This is deliberately left to the reader rather than enforced by a dwell timer in
 the client. A timer would have to drop the `started` event too, which throws the
 information away irrecoverably and bakes one guess at the threshold into shipped
 builds; a duration filter is tunable afterwards, and keeps the shallow visits
 available for anyone who wants to count them.
+
+### Approvals on the extension
+
+`dapp_connect` and `dapp_tx` are reported from two disjoint places, because the
+platforms do not share a path: mobile and desktop go through the confirmation
+store, while the extension uses an intercom and a popup window that never
+touches it and reports from `ConfirmPage` instead. A change to one is not a
+change to the other.
+
+Two consequences specific to the extension's popup:
+
+- **An auto-approved reconnect reports nothing at all.** A `connect` from an
+  already-permitted dApp is granted during render without asking, so there is no
+  approval to measure and no flow is begun. Approval counts therefore exclude
+  reconnects by design.
+- **Auto-lock mid-prompt splits one approval into two flows.** The confirm page
+  swaps in the unlock screen when the wallet locks, which unmounts the prompt
+  (cancelling its flow) and remounts it on unlock (beginning another). One
+  prompt, two flows, the first spuriously cancelled.
 
 ### Two known biases in the `submitting` bucket
 
