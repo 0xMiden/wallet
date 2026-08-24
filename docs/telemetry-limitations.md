@@ -353,6 +353,15 @@ Three things to know before reading them:
 - **`prove_settled` with `result: completed` is not always good news.** Filter on
   `step: prove_fallback` — those all succeeded, and every one of them is a user
   who waited for a prover that was not answering.
+- **`prove_settled` counts real proves only, not speculative ones.** The wallet
+  pre-proves a send it expects you to confirm, and that attempt is deliberately
+  left out. Its failures are routine — the amount changed, you went back a
+  screen, the document was reaped — so folding them in would inflate the prove
+  failure rate with aborts and destroy the only number that says whether proving
+  works. The cost is that a prover degrading shows up here one step later than it
+  could, when a real prove hits it. If the fallback rate is ever needed as an
+  early warning, the speculative path needs its own operation rather than a share
+  of this one.
 
 ### What a completed swap looks like
 
@@ -372,6 +381,31 @@ which may arrive under a different session:
 The `open` pair is there because the app shell mounted; the swap pair is there
 because the user went to `/swap` and submitted. Both share one `sessionId`,
 which is what makes this readable as a visit rather than as four loose rows.
+
+### Handled failures do not become crash reports, and the worker has none
+
+Two separate decisions that look like one gap.
+
+**Handled failures stay on the product channel deliberately.** Everything above
+is a failure the wallet caught, classified and rendered. Sending those to Sentry
+as well would buy a free-text message and a stack in exchange for turning a
+routine, expected outcome — a prover being briefly unreachable — into crash
+volume, and for widening the surface a scrubber has to hold from "unexpected
+errors" to "every error". The closed-union `errorKind` plus `step` is what these
+failures are worth; if one of them ever needs a stack to diagnose, it is not
+being handled properly and that is the thing to fix.
+
+**Unhandled errors in the service worker are reported nowhere.** This one is a
+real gap, not a decision. `initCrashReporting` is called from React contexts
+only, so its `error` and `unhandledrejection` listeners never exist in the
+worker — where the transaction pipeline, sync and every background timer
+actually run. An unhandled rejection there is invisible on both channels. Fixing
+it is not a matter of calling the same function: the worker has no `window`, so
+registration has to target `self`, and it has to re-run on every wake because
+module state does not survive a teardown — and the worker's import graph is
+guarded by a test precisely to keep it small, which a Sentry client is not. Until
+that is done, read a healthy crash dashboard as "the UI is not throwing", which
+is a much narrower claim than it appears.
 
 It is emphatically *not* a `send_*` pair. Swap had no instrumentation of its own
 at first, and the events that showed up during a swap came from unrelated screens

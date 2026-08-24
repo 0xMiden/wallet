@@ -169,12 +169,24 @@ describe('reporting an outage', () => {
   });
 
   it('reports how long it lasted when it lifts', () => {
-    markConnectivityIssue('prover');
-    clearConnectivityIssue('prover');
+    // The clock is driven, because mark and clear otherwise happen in the same
+    // tick — so a correct implementation and one that hardcodes `0`, or that
+    // reads `since` after clearing it, all report `0` and the assertion could
+    // not tell them apart. This duration is the number the docs promise is the
+    // outage length.
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      markConnectivityIssue('prover');
+      now.mockReturnValue(1_000_000 + 90_000);
+      clearConnectivityIssue('prover');
+    } finally {
+      now.mockRestore();
+    }
 
     expect(reported()).toEqual([
       { operation: 'service_prover', result: 'errored', durationMs: 0 },
-      { operation: 'service_prover', result: 'completed', durationMs: expect.any(Number) }
+      { operation: 'service_prover', result: 'completed', durationMs: 90_000 }
     ]);
   });
 
@@ -184,16 +196,26 @@ describe('reporting an outage', () => {
     // at once, and that was the ONLY path — so both categories could report an
     // outage beginning and never its end. Every node outage read as unresolved
     // and none carried a duration, while the docs promised otherwise.
-    markConnectivityIssue('node');
-    markConnectivityIssue('network');
-    clearReachabilityIssues();
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(2_000_000);
+      markConnectivityIssue('node');
+      markConnectivityIssue('network');
+      now.mockReturnValue(2_000_000 + 45_000);
+      clearReachabilityIssues();
+    } finally {
+      now.mockRestore();
+    }
 
-    expect(
-      reported()
-        .filter(event => event.result === 'completed')
-        .map(event => event.operation)
-        .sort()
-    ).toEqual(['service_network', 'service_node']);
+    // The duration is asserted here too, because the way to get this wrong twice
+    // is to report after clearing `since` — which yields a `completed` event for
+    // each category, satisfying a names-only check, with every length zero.
+    expect(reported().filter(event => event.result === 'completed')).toEqual(
+      expect.arrayContaining([
+        { operation: 'service_node', result: 'completed', durationMs: 45_000 },
+        { operation: 'service_network', result: 'completed', durationMs: 45_000 }
+      ])
+    );
   });
 
   it('reports nothing for a clear that had nothing to clear', () => {

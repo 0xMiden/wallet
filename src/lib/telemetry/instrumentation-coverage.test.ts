@@ -15,8 +15,19 @@ import { TelemetryFlow, TelemetryOperation, TelemetryStep } from './types';
  *
  * Source-scanned rather than driven, because "some component, somewhere, on a
  * path we did not think to render in a test" is exactly the gap. A false pass is
- * possible (a literal in dead code), a false failure is not, and the failure
- * mode this guards against is silence.
+ * possible, a false failure is not, and the failure mode this guards against is
+ * silence.
+ *
+ * Two ways a false pass happens, both worth knowing before trusting a green run
+ * here. A literal in dead code satisfies the scan. And so does a bare mapping
+ * entry: the operations and steps reached through the tables in
+ * `transaction-operation.ts` and `connectivity-state.ts` are passed to the
+ * reporter as variables, so what the scan can see is that a name is MAPPED, not
+ * that any live path reports it. That is not hypothetical — the `node` and
+ * `network` outages passed here while being unable to report their recovery at
+ * all, because the only code that cleared them did not report. Behaviour of that
+ * kind belongs in the owning module's own tests; this file answers the narrower
+ * question of whether a declared name is wired to anything.
  */
 
 const SRC = resolve(__dirname, '..', '..');
@@ -139,17 +150,35 @@ describe('every declared flow is actually begun somewhere', () => {
  */
 const UNREACHABLE_BY_DESIGN: readonly TelemetryOperation[] = ['tx_other'];
 
+/**
+ * Operations whose literal is fixed inside a helper rather than written at the
+ * call site.
+ *
+ * `prove` is reported from three separate prove implementations — the
+ * non-guardian fallback, the guardian inline leaf and the guardian offscreen
+ * leaf — and every one of them wants the same fields computed the same way.
+ * `reportProve` exists so those three cannot drift apart, at the cost that no
+ * call site names `'prove'` and a literal search sees none of them.
+ */
+const DEDICATED_REPORTER: Partial<Record<TelemetryOperation, string>> = { prove: 'reportProve' };
+
 describe('every declared operation is actually reported somewhere', () => {
   const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
     operation => !UNREACHABLE_BY_DESIGN.includes(operation)
   );
 
   it.each(reachable)('%s has a call site that reports it', operation => {
-    // Either passed to `reportOperation` as a literal, or sitting as the value
-    // of a mapping entry — the transaction operations are reached through the
-    // total maps in `transaction-operation.ts` rather than named at each call.
+    // Three shapes, because three kinds of call site are all legitimate:
+    // passed to `reportOperation` as a literal; sitting as the value of a
+    // mapping entry, which is how the transaction operations are reached; or
+    // named by a dedicated helper that hard-codes the operation, so the literal
+    // lives in the helper and the call sites carry only its name.
     const reported = filesMatching(
-      new RegExp(String.raw`reportOperation\(\{[^}]*'${operation}'|:\s*'${operation}'`, 's')
+      new RegExp(
+        String.raw`reportOperation\(\{[^}]*'${operation}'|:\s*'${operation}'` +
+          (DEDICATED_REPORTER[operation] !== undefined ? String.raw`|${DEDICATED_REPORTER[operation]}\(` : ''),
+        's'
+      )
     );
 
     expect(reported.length).toBeGreaterThan(0);

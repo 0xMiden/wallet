@@ -1,3 +1,4 @@
+import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { touchRun } from './run';
 import { sendEvent } from './sink';
@@ -92,6 +93,35 @@ export interface SettledOperation {
  * awaited this would be able to observe a telemetry problem, which is precisely
  * what nothing in the wallet should be able to do.
  */
+/**
+ * Report one prove attempt.
+ *
+ * A named helper because the wallet has three separate implementations of the
+ * same delegate-with-local-fallback prove — the general one in
+ * `proveWithFallback`, and one each for the guardian pipeline's inline and
+ * offscreen routes — and instrumenting them by hand three times is how two of
+ * them ended up reporting different things. Which prover ran is the fact worth
+ * having, so it is the only thing a caller has to decide.
+ *
+ * `prove_fallback` with `completed` is the case to watch: the transaction landed,
+ * nothing failed, and the user waited for a remote prover that never answered.
+ */
+export function reportProve(attempt: {
+  /** From `performance.now()`, before the first attempt, so a fallback's duration is what the user actually waited. */
+  startedAt: number;
+  step: 'prove_delegate' | 'prove_local' | 'prove_fallback';
+  /** Absent when it succeeded. */
+  error?: unknown;
+}): void {
+  reportOperation({
+    operation: 'prove',
+    result: attempt.error === undefined ? 'completed' : 'errored',
+    durationMs: performance.now() - attempt.startedAt,
+    step: attempt.step,
+    ...(attempt.error !== undefined ? { errorKind: classifyError(attempt.error) } : {})
+  });
+}
+
 export function reportOperation(settled: SettledOperation): void {
   void (async () => {
     try {

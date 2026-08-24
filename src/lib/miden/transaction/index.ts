@@ -24,8 +24,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
-import { classifyError } from 'lib/telemetry/classify';
-import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -54,7 +53,8 @@ import {
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
-import { markConnectivityIssue } from '../activity/connectivity-state';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
@@ -851,7 +851,17 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
-      provenTx = await executedTx.prove({ prover: localProver });
+      // Reported like every other prove. This is the one that runs on mobile,
+      // where there is no offscreen document and no delegation, so leaving it out
+      // would make mobile the platform whose proves are invisible.
+      const localStartedAt = performance.now();
+      try {
+        provenTx = await executedTx.prove({ prover: localProver });
+        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -874,35 +884,21 @@ const runGuardianPipeline = async (
       const proveStartedAt = performance.now();
       try {
         provenTx = await executedTx.prove({});
-        reportOperation({
-          operation: 'prove',
-          result: 'completed',
-          durationMs: performance.now() - proveStartedAt,
-          step: 'prove_delegate'
-        });
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        // The outage the fallback is covering for. `proveWithFallback` marks this
+        // too, and without it a prover failing only on guardian operations would
+        // raise no banner and produce no `service_prover` event.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
         try {
           provenTx = await executedTx.prove({ prover: fallbackProver });
-          // A success, and the fact worth having: the transaction landed and the
-          // user waited for a remote prover that never answered first.
-          reportOperation({
-            operation: 'prove',
-            result: 'completed',
-            durationMs: performance.now() - proveStartedAt,
-            step: 'prove_fallback'
-          });
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
         } catch (fallbackError) {
-          reportOperation({
-            operation: 'prove',
-            result: 'errored',
-            durationMs: performance.now() - proveStartedAt,
-            errorKind: classifyError(fallbackError),
-            step: 'prove_fallback'
-          });
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
           throw fallbackError;
         }
       }
@@ -1365,6 +1361,16 @@ const generateGuardianTransaction = async (
     }
     throw error;
   }
+
+  // The pipeline proved and submitted, so whatever prover outage the requeue
+  // above marked is over. Cleared HERE rather than where the prove succeeded,
+  // because those are different realms: the mark happens in the worker, and on
+  // the extension's default build the prove itself happens in the offscreen
+  // document, whose module state the worker does not share. Clearing from the
+  // offscreen side would leave the worker's flag set forever — the banner
+  // stuck on, and, since `markConnectivityIssue` no-ops on an already-active
+  // category, every later prover outage deduped away and never reported.
+  clearConnectivityIssue('prover');
 
   // The tx id, re-derived from the (possibly offscreen-round-tripped) result
   // rather than a separate handle: the offscreen pipeline returns only the

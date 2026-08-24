@@ -22,7 +22,7 @@ import { SettledOperation } from 'lib/telemetry/report-operation';
 
 import { cancelTransaction } from './cancel';
 import { TRANSACTION_INTERRUPTED_ON_STARTUP, USER_CANCELLED_TRANSACTION_REASON } from './constants';
-import { updateTransactionStatus } from './helper';
+import { completeVerifiedLandedTransaction, updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus, ITransactionType, SendTransaction } from '../db/types';
 
 const reported: SettledOperation[] = [];
@@ -215,6 +215,29 @@ describe('a transaction that succeeded', () => {
         step: 'proving'
       }
     ]);
+  });
+
+  it('reports the success when a failed transaction turns out to have landed', async () => {
+    // The ambiguous post-submit abort: the wallet failed the row because it could
+    // not tell whether the money had moved, then node evidence said it had. Both
+    // events stand — the failure was true when reported, and without this one the
+    // case that motivated the reconciliation existing would be permanently
+    // counted as a failure and never as a success.
+    const tx = row('reconciled', { status: ITransactionStatus.Failed, error: 'Could not verify' });
+    await Repo.transactions.add(tx);
+
+    await completeVerifiedLandedTransaction(tx.id);
+
+    expect(reported).toEqual([{ operation: 'tx_send', result: 'completed', durationMs: expect.any(Number) }]);
+  });
+
+  it('reports nothing when there was no failed row to reconcile', async () => {
+    const tx = row('nothing-to-reconcile', { status: ITransactionStatus.Completed });
+    await Repo.transactions.add(tx);
+
+    await completeVerifiedLandedTransaction(tx.id);
+
+    expect(reported).toEqual([]);
   });
 
   it('reports nothing for a status on the way there', async () => {

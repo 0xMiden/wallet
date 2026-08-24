@@ -108,7 +108,8 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   checkGuardianDrift: jest.fn(),
-  applyUserGuardianEndpoint: jest.fn()
+  applyUserGuardianEndpoint: jest.fn(),
+  handleReportTelemetryEvent: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -599,6 +600,41 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     // Routed to markOpStarted with the op id — NOT to the sign handler.
     expect(proxyMock.markOpStarted).toHaveBeenCalledWith('op-started-42');
     expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('routes an OFFSCREEN_TELEMETRY_EVENT to the telemetry handler and returns false', async () => {
+    // The offscreen document is the one realm that can neither install a page
+    // transport nor be detected as the worker — it has a `window` and never
+    // loads the React app — so it forwards over this channel instead. Proving
+    // runs there on the extension's default build, which makes this listener
+    // the whole path by which a prove event reaches the wire.
+    Actions.handleReportTelemetryEvent.mockResolvedValue({ type: 'x' });
+    const sendResponse = jest.fn();
+    const event = { phase: 'settled', operation: 'prove', runId: 'r', result: 'completed', durationMs: 12 };
+
+    const ret = signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event }, {}, sendResponse);
+
+    // Fire-and-forget, like OFFSCREEN_OP_STARTED: nothing answers, so holding
+    // the port open would leave the sender's promise pending until Chrome
+    // closed it.
+    expect(ret).toBe(false);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(Actions.handleReportTelemetryEvent).toHaveBeenCalledWith({ event });
+    // And it did NOT reach the sign handler this listener is shared with.
+    expect(_g.__mainTest.swSignCallback).not.toHaveBeenCalled();
+  });
+
+  it('swallows a rejecting telemetry handler, so a signing listener cannot fail because of telemetry', async () => {
+    // This listener is shared with signing. An unhandled rejection here is an
+    // unhandled rejection in the worker, which in some runtimes is fatal — and
+    // it would be fatal on behalf of the one subsystem that must never be able
+    // to break a transaction.
+    Actions.handleReportTelemetryEvent.mockRejectedValue(new Error('sink is gone'));
+
+    expect(() =>
+      signListener()({ target: 'sw', type: 'OFFSCREEN_TELEMETRY_EVENT', event: { phase: 'settled' } }, {}, jest.fn())
+    ).not.toThrow();
+    await new Promise(resolve => setTimeout(resolve, 0));
   });
 
   it('ignores an OFFSCREEN_OP_STARTED with a non-string op_id (no markOpStarted, no crash)', () => {

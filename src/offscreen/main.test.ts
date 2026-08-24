@@ -453,6 +453,42 @@ describe('offscreen/main — startup / init()', () => {
   });
 });
 
+describe('offscreen/main — telemetry forwarding', () => {
+  it('installs a transport, because nothing else in this realm would', async () => {
+    // The failure this catches, which the whole suite used to miss: the reporter
+    // sends directly when it is the worker and uses an installed transport when
+    // it is a page. This document is neither — it HAS a `window`, so it takes the
+    // page branch, and it never loads the React app, so nothing installs one.
+    // Left alone it silently drops every event, and proving happens HERE on the
+    // extension's default build.
+    await loadModule();
+    const { reportOperation } = await import('lib/telemetry/report-operation');
+    G.chrome.runtime.sendMessage.mockClear();
+
+    reportOperation({ operation: 'prove', result: 'completed', durationMs: 5, step: 'prove_fallback' });
+    await flush();
+
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_TELEMETRY_EVENT',
+      event: expect.objectContaining({ phase: 'settled', operation: 'prove', step: 'prove_fallback' })
+    });
+  });
+
+  it('does not let a forwarding failure escape into a prove', async () => {
+    // The transport is awaited inside the reporter, which swallows — but this is
+    // the realm where a stray rejection would take a transaction down with it,
+    // so the property is worth pinning at the boundary rather than inferred from
+    // a unit test two modules away.
+    await loadModule();
+    const { reportOperation } = await import('lib/telemetry/report-operation');
+    G.chrome.runtime.sendMessage.mockRejectedValue(new Error('the worker is gone'));
+
+    expect(() => reportOperation({ operation: 'prove', result: 'completed', durationMs: 5 })).not.toThrow();
+    await flush();
+  });
+});
+
 describe('offscreen/main — onMessage listener guard clauses', () => {
   it('ignores an undefined message (returns false, no response)', async () => {
     await loadModule();

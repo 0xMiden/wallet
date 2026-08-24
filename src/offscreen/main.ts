@@ -47,7 +47,7 @@ import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-cli
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { setOperationTransport } from 'lib/telemetry/report-operation';
+import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 const TAG = '[offscreen-prover]';
 
@@ -487,14 +487,33 @@ const DISPATCH: Record<string, DispatchFn> = {
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
     let provenTx;
+    // Reported from here as well as from the two inline copies, because on the
+    // extension THIS is the copy that runs: every guardian leaf type is offscreen
+    // routable and the flag defaults on, so instrumenting only the inline path
+    // left guardian operations contributing nothing to prover health on the build
+    // almost everyone uses.
+    const proveStartedAt = performance.now();
     if (!delegateTransaction) {
-      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      try {
+        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       try {
         provenTx = await executedTx.prove({});
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        try {
+          provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     const submittedTx = await provenTx.submit();

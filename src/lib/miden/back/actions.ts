@@ -598,9 +598,20 @@ export async function processDApp(
 export async function handleReportTelemetryEvent(
   req: ReportTelemetryEventRequest
 ): Promise<ReportTelemetryEventResponse> {
-  await sendEvent(req.event, resolveTelemetryContext());
+  // Every sender is extension-internal and typed, so a bad `phase` cannot arrive
+  // from a caller that typechecks. It can arrive from one that does not: the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire. The serializer's allowlist keeps a stray field off the
+  // wire regardless, but not a stray event NAME — `buildEnvelope` would compose
+  // one from a missing phase and POST something outside the closed union. Cheaper
+  // to refuse it here than to make every reader wonder what `open_undefined` is.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
   return { type: WalletMessageType.ReportTelemetryEventResponse };
 }
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {
