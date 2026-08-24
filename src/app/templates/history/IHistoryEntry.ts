@@ -117,6 +117,12 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /**
+   * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
+   * detail view can withhold affordances that turn a row back into work —
+   * a restored row's note ids and amounts come from whoever wrote the dump.
+   */
+  restoredFromBackup?: boolean;
 
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).

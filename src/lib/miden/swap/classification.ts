@@ -39,6 +39,11 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
     .filter(
       tx =>
         tx.status === ITransactionStatus.Completed &&
+        // "Orders created by THIS wallet" is the whole point of this list, and a
+        // restored row is not evidence of that — it says whatever the backup's
+        // author wrote. Downstream this drives reclaim, which initiates a real
+        // consume against the order's own `expiresAt` and asset data.
+        !tx.restoredFromBackup &&
         compareAccountIds(tx.accountId, accountId) &&
         isSwapTransaction(tx)
     )

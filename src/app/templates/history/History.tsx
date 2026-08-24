@@ -329,6 +329,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -401,6 +402,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
   });

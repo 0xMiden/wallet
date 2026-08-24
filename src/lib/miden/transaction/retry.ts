@@ -94,19 +94,31 @@ const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
  * the value they already projected). It is required to tell the replayable
  * Agglayer route from the non-replayable Epoch one — see `REQUEUEABLE_TYPES`.
  *
- * Deliberately does NOT decide the double-send question. This gate drives the
- * Retry AFFORDANCE, and a row whose submit cannot be ruled out must still show
- * one: the refusal comes from `requeueFailedTransaction`, which can explain
+ * A row restored from a backup is excluded no matter how retryable its type
+ * looks. Requeueing signs and broadcasts whatever the row says — recipient,
+ * amount, `requestBytes` — and for an imported row all of that was authored by
+ * whoever supplied the file, not by the user. Without this clause, landing
+ * imported rows in `Failed` would only move an unattended signature one tap
+ * away, since Retry asks for no confirmation of what it is about to send.
+ *
+ * Deliberately does NOT decide the double-send question, which is a different
+ * kind of doubt and gets a different answer. There the row IS the user's own
+ * instruction and only its outcome is unknown, so the affordance must still
+ * appear: the refusal comes from `requeueFailedTransaction`, which can explain
  * itself and take the user's acknowledgement (see `UnverifiableSendRetryError`).
  * Hiding the button instead leaves those rows with no exit at all, which is what
  * makes people re-send by hand — the double payment the guard exists to prevent.
+ * An imported row has no such exit to offer, because there is no user intent
+ * behind it to confirm; hence the hard exclusion above.
  */
 export const isRequeueableTransaction = (tx: {
   status?: ITransactionStatus;
   type: ITransactionType;
   bridgeProvider?: IBridgeProvider;
+  restoredFromBackup?: boolean;
 }): boolean => {
   if (tx.status !== ITransactionStatus.Failed) return false;
+  if (tx.restoredFromBackup) return false;
   if (!REQUEUEABLE_TYPES.includes(tx.type)) return false;
   if (tx.type === 'bridged-send' && tx.bridgeProvider === NON_REQUEUEABLE_BRIDGE_PROVIDER) return false;
   return true;
@@ -470,6 +482,14 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
 export const retryEarnWithdrawReceive = async (txId: string): Promise<void> => {
   const tx = await Repo.transactions.where({ id: txId }).first();
   if (!tx || tx.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
+  // Same rule as `isRequeueableTransaction`, and it matters more here: resubmit
+  // signs EVM operations with the vault key using this row's own `evmOwner`,
+  // `marketUid` and `sourceAmount`. An earn-withdraw row is born `Completed`
+  // with its lifecycle in `extraInputs.phase`, so import leaves its status
+  // untouched — the flag is the only thing marking it as not-ours.
+  if (tx.restoredFromBackup) {
+    throw new Error(`Transaction ${txId} was restored from a backup and cannot be resubmitted`);
+  }
   const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
   if (inputs.phase !== 'failed') return;
 

@@ -122,8 +122,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
   // Completed with its failure in extraInputs.phase and has its own
   // withdraw-status screen — so there is no earn branch to handle.
-  // A bare row carries no `bridgeProvider` — that field lives on the UI history
-  // entry — so feed it from `extraInputs` or the Epoch (Fast) guard never fires.
+  // Spread the row rather than rebuilding it field-by-field, which would silently
+  // drop `restoredFromBackup` and re-offer Retry on an imported row. The one field
+  // added on top is `bridgeProvider`: a bare row does not carry it (it lives on the
+  // UI history entry), so without it the Epoch (Fast) guard never fires.
   const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
