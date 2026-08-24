@@ -8,7 +8,13 @@ import { IconName } from 'app/icons/v2';
 import { CircleButton } from './CircleButton';
 
 export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
-  title: string;
+  /**
+   * Optional, because a screen whose body owns the page heading must not get a
+   * second one here — the Guardian picker renders its own h1 plus a description
+   * and an info button. Omitting it renders no heading at all rather than an
+   * empty one; see the render below.
+   */
+  title?: string;
   mode?: 'back' | 'close';
   onBack?: () => void;
   onClose?: () => void;
@@ -73,20 +79,30 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
               color="currentColor"
             />
           ) : null}
-          <h1
-            ref={titleRef}
-            // -1 so it is programmatically focusable without joining the tab
-            // order, the standard shape for a route-change focus target.
-            tabIndex={focusTitleOnMount ? -1 : undefined}
-            className={classNames(
-              'font-heading flex-1',
-              centered ? 'text-center' : 'text-left',
-              prominent ? 'text-[28px] font-bold text-heading-gray' : 'font-medium',
-              onBack && centered ? 'pr-10' : ''
-            )}
-          >
-            {props.title}
-          </h1>
+          {/* No heading when there is no title, rather than an empty one — same
+              shape as ScreenHeader. A caller passes no title when the screen it
+              wraps owns the page heading itself (the Guardian picker renders its
+              own h1 plus a description and an info button), and an `<h1></h1>`
+              here announced a nameless level-1 heading above it. The spacer keeps
+              a close button pinned right. */}
+          {props.title ? (
+            <h1
+              ref={titleRef}
+              // -1 so it is programmatically focusable without joining the tab
+              // order, the standard shape for a route-change focus target.
+              tabIndex={focusTitleOnMount ? -1 : undefined}
+              className={classNames(
+                'font-heading flex-1',
+                centered ? 'text-center' : 'text-left',
+                prominent ? 'text-[28px] font-bold text-heading-gray' : 'font-medium',
+                onBack && centered ? 'pr-10' : ''
+              )}
+            >
+              {props.title}
+            </h1>
+          ) : (
+            <div className="flex-1" />
+          )}
         </div>
         {onClose ? (
           // CircleButton defaults its icon fill to a literal `black`, which is

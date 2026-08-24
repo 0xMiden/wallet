@@ -26,7 +26,6 @@ import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
@@ -82,6 +81,13 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  /**
+   * Set when the sub-page focuses something itself on mount — a password or
+   * faucet-id field, via `useLayoutEffect`. The host's title focus runs in a
+   * plain `useEffect`, which fires AFTER layout effects, so it would take focus
+   * straight back off the field the page just put the caret in.
+   */
+  ownsInitialFocus?: boolean;
   // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
@@ -205,12 +211,14 @@ const TAB_GROUPS: TabGroup[] = [
 const HIDDEN_TABS: Tab[] = [
   {
     slug: 'reveal-private-key',
+    ownsInitialFocus: true,
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
+    ownsInitialFocus: true,
     titleI18nKey: 'revealHotKey',
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
@@ -225,6 +233,7 @@ const HIDDEN_TABS: Tab[] = [
   },
   {
     slug: 'edit-miden-faucet-id',
+    ownsInitialFocus: true,
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
@@ -339,13 +348,15 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     };
   }, [showSettingsRoot]);
 
+  // Neither of these buzzes: both are rendered by `Button`, which fires a
+  // hapticLight on every click. Close buzzed twice and View fired a medium AND a
+  // light on one tap — the same double-fire as the recovery-phrase row, hidden
+  // here because the Button mock in the tests does not haptic.
   const handleSeedWarningClose = useCallback(() => {
-    hapticLight();
     setShowSeedWarning(false);
   }, []);
 
   const handleSeedWarningView = useCallback(() => {
-    hapticMedium();
     setShowSeedWarning(false);
     navigate('/settings/reveal-seed-phrase');
   }, []);
@@ -365,7 +376,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
             // As drawers these screens were dialogs, so they took focus and were
             // announced by name. Routes are not announced and the row that
             // opened them unmounts with the list, dropping focus to <body>.
-            focusTitleOnMount
+            // Skipped for the pages that focus a field themselves — see
+            // `ownsInitialFocus`.
+            focusTitleOnMount={!activeTab.ownsInitialFocus}
             // Prefixed: the scroll container below is a sibling in this same
             // fragment and keys on the slug too, and two siblings sharing a key
             // makes React render both of them.
@@ -449,7 +462,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
               ))}
             </div>
 
-            <p className="font-heading text-sm font-medium text-text-muted pt-2">
+            {/* `text-heading-gray`, as with the other muted text this PR touched:
+                `text-text-muted` is #ababab, which is 2.30:1 on the page, and 14px
+                medium is nowhere near the large-text exemption — the PR shrank
+                this from text-base without changing the ink. */}
+            <p className="font-heading text-sm font-medium text-heading-gray pt-2">
               {t('settingsVersion', { version: pkg.version })}
             </p>
           </div>

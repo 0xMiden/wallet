@@ -2017,7 +2017,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Il cosigne chaque transaction : ni votre appareil ni l'Guardiane ne peuvent transférer des fonds seuls. Il vous aide à récupérer votre compte si vous perdez votre appareil.",
+    "message": "Il cosigne chaque transaction : ni votre appareil ni le Guardian ne peuvent transférer des fonds seuls. Il vous aide à récupérer votre compte si vous perdez votre appareil.",
     "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
@@ -2033,7 +2033,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Vous pouvez à tout moment changer d’Guardiane à l’aide de votre phrase de récupération. Seule la personne qui cosigne change ; votre compte et vos fonds restent les mêmes.",
+    "message": "Vous pouvez à tout moment changer de Guardian à l’aide de votre phrase de récupération. Seule la personne qui cosigne change ; votre compte et vos fonds restent les mêmes.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {

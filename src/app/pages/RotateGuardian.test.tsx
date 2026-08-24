@@ -93,10 +93,18 @@ it('hands the picker the endpoint the account is actually on, and allows a custo
   // guard below has nothing to compare against.
   expect(picker).toHaveAttribute('data-current', 'https://old.example');
   expect(picker).toHaveAttribute('data-allow-custom', 'true');
-  expect(screen.getByRole('heading', { name: 'rotateGuardian' })).toBeInTheDocument();
   // The screen owns its header, so PageLayout's toolbar must stay hidden or the
   // page renders two.
   expect(screen.getByTestId('page-layout')).toHaveAttribute('data-hide-toolbar', 'true');
+});
+
+it('leaves the page heading to the picker rather than titling the header too', () => {
+  render(<RotateGuardian />);
+
+  // ChooseGuardianScreen renders its own h1 plus a description and an info
+  // link, so a title here made two level-1 headings and two stacked titles.
+  expect(screen.queryByRole('heading')).toBeNull();
+  expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument();
 });
 
 it('routes a genuinely different endpoint to review, url-encoded', () => {

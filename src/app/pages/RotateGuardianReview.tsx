@@ -33,7 +33,7 @@ const RotateGuardianReview: FC = () => {
   // The picker is this screen's only parent, and the screen rebuilds its whole
   // state from the query string, so a cold load belongs back at the picker rather
   // than dumped at the wallet home.
-  const handleBack = useBackWithFallback('/rotate-guardian');
+  const popBack = useBackWithFallback('/rotate-guardian');
 
   const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
   // The picker refuses to rotate onto the active guardian, but this screen takes
@@ -47,6 +47,16 @@ const RotateGuardianReview: FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submissionRef = useRef(false);
+
+  // Inert while a switch is in flight, matching the hardware/swipe handler below.
+  // Only that one was gated, so on the hardware-protector path — where the user
+  // stays on this screen through `unlock` and `initiate` — the chevron could
+  // navigate away mid-flight while the in-flight promise went on to redirect to
+  // the progress page, or the user could re-enter and queue a second switch.
+  const handleBack = useCallback(() => {
+    if (submitting) return;
+    popBack();
+  }, [submitting, popBack]);
 
   useEffect(() => {
     let cancelled = false;

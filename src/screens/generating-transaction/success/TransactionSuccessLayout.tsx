@@ -104,11 +104,13 @@ export const SuccessHero: FC = () => (
 );
 
 /** Full-width hairline shown under the title on the amount-led variants. */
-// `bg-gray-100` (--color-hover-bg) rather than the literal `#F2F2F4` it shipped
-// as: that near-white is a light-mode value with no dark counterpart, so on the
-// dark receipt the divider read as a bright bar across the card. The token flips
-// to a translucent white and stays a hairline separator in both themes.
-export const SuccessDivider: FC = () => <div className="mt-6 h-1 w-full rounded-xs bg-gray-100" />;
+// `bg-gray-50`, the token TabHeader's divider uses, rather than the literal
+// `#F2F2F4` this shipped as: that near-white has no dark counterpart, so on the
+// dark receipt it read as a bright bar across the card. gray-50 is #f3f3f3 in
+// light — the same value, so the light design is unchanged — and composites to
+// roughly #333 on the dark background instead of vanishing into it, which is
+// what bg-gray-100 (#ffffff0d, ~#232323) would have done.
+export const SuccessDivider: FC = () => <div className="mt-6 h-1 w-full rounded-xs bg-gray-50" />;
 
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
 export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {

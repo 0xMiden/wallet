@@ -8,6 +8,7 @@ const mockUnlock = jest.fn();
 const mockInitiateSwitch = jest.fn();
 const mockRequestProcessing = jest.fn();
 const mockNavigate = jest.fn();
+const mockGoBack = jest.fn();
 const mockHasHardwareProtector = jest.fn();
 const mockIsMobile = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => true);
@@ -191,7 +192,7 @@ jest.mock('lib/store', () => ({
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: '?endpoint=https%3A%2F%2Fnew.example', historyPosition: 1 }),
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  goBack: jest.fn(),
+  goBack: () => mockGoBack(),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
@@ -404,8 +405,13 @@ describe('hardware back', () => {
     render(<RotateGuardianReview />);
     await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 
-    // historyPosition is 1 in this suite, so this pops rather than falling back.
     expect(mobileBackHandler!()).toBe(true);
+
+    // It has to actually leave: returning true without navigating swallows the
+    // press and traps the user on the screen. historyPosition is 1 in this
+    // suite, so the pop is the expected route, not the '/rotate-guardian'
+    // fallback.
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
@@ -426,6 +432,34 @@ describe('hardware back', () => {
     finishAuthentication?.();
     await waitFor(() => expect(mockInitiateSwitch).toHaveBeenCalledTimes(1));
   });
+});
+
+it('keeps Continue out of the scroll region so it cannot land below the fold', async () => {
+  const { container } = render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+
+  // The illustration plus the prominent header cost ~220px of a 600px popup, so
+  // a CTA inside the scroller sat below the fold — the user had to scroll to
+  // find the only way forward, and a failure could render off-screen entirely.
+  const scroller = container.querySelector('.flex-1.min-h-0.overflow-y-auto');
+  expect(scroller).not.toBeNull();
+  expect(scroller!.contains(confirm)).toBe(false);
+});
+
+it('ignores the chevron while a switch is in flight, as the hardware handler does', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockUnlock.mockImplementation(() => new Promise<void>(() => {}));
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+  // Leaving mid-flight would strand an in-flight promise that still redirects to
+  // the progress page, and let the user re-enter and queue a second switch.
+  expect(mockGoBack).not.toHaveBeenCalled();
+  expect(mockNavigate).not.toHaveBeenCalled();
 });
 
 it('announces a failure rather than only rendering it above the button', async () => {

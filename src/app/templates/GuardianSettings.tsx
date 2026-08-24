@@ -72,8 +72,14 @@ const GuardianSettings: FC = () => {
           )}
         </div>
         <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
+        {/* `dark:text-green-300`, not `green-400`: `theme.colors` in
+            tailwind.config.ts replaces Tailwind's palette rather than extending
+            it, and the custom green scale is 50/100/300/500/600/700 — so
+            `dark:text-green-400` compiled to nothing and the pill kept
+            `green-700` (#38824A) in dark mode at 3.4:1. green-300 is 7.4:1
+            there; light mode is untouched. */}
         {currentEndpoint && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-400">
+          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-700 dark:bg-green-500/15 dark:text-green-300">
             <span className="h-2 w-2 rounded-full bg-green-500" />
             <span>{t('online')}</span>
           </div>
@@ -81,9 +87,14 @@ const GuardianSettings: FC = () => {
       </div>
 
       <section className="mt-5">
-        <h3 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-text-muted">
+        {/* `text-heading-gray`, the token the Settings page's own group headings
+            use, rather than `text-text-muted`: muted is #ababab, and on the
+            gray-25 chip this sits on (#f9f9f9) that is 2.18:1 — a 14px semibold
+            heading, so it needs 4.5:1, not the large-text 3:1. heading-gray is
+            8.69:1 there and pure white on the dark chip. */}
+        <h2 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('about')}
-        </h3>
+        </h2>
         <p className="mt-2 text-sm leading-5 text-heading-gray">
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
         </p>
@@ -102,9 +113,9 @@ const GuardianSettings: FC = () => {
       <hr className="my-3 border-border-faint" />
 
       <section className="pb-4">
-        <h3 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-text-muted">
+        <h2 className="inline-block self-start rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('details')}
-        </h3>
+        </h2>
         <div className="mt-1">
           <GuardianDetailRow label={t('guardianProvider')} value={provider} />
           <GuardianDetailRow label={t('guardianEndpointLabel')} value={endpoint} />

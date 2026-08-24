@@ -36,6 +36,13 @@ export const CircleButton: React.FC<ButtonProps> = ({
         'flex justify-center items-center',
         'aspect-square rounded-full p-1',
         'transition-colors duration-150 ease-hover focus:outline-none shadow-none',
+        // `focus:bg-gray-100` was the only focus affordance, and gray-100 is
+        // #e1dbdb on white — a 1.37:1 tint, identical to hover, and 5% white in
+        // dark mode. Keyboard users had no way to see where focus was, which this
+        // PR made load-bearing: the converted settings pages are no longer
+        // focus-trapping dialogs dismissable with Escape, so this chevron is the
+        // only way back. `focus-visible` so a mouse click still shows nothing.
+        'focus-visible:ring-2 focus-visible:ring-primary-500/60',
         'hover:bg-gray-100 focus:bg-gray-100 disabled:bg-gray-50',
         disabled ? 'cursor-default' : 'cursor-pointer',
         className

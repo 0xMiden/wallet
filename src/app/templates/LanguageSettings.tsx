@@ -1,5 +1,7 @@
 import React, { FC, useCallback, useMemo, useRef } from 'react';
 
+import { useTranslation } from 'react-i18next';
+
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
@@ -13,31 +15,50 @@ import { PRIMARY_HEX } from 'utils/brand-colors';
  * added here.
  */
 export const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Español' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'zh_CN', label: '简体中文' },
-  { code: 'zh_TW', label: '繁體中文' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'pl', label: 'Polski' },
-  { code: 'uk', label: 'Українська' },
-  { code: 'tr', label: 'Türk' },
-  { code: 'pt', label: 'Português' },
-  { code: 'ru', label: 'Русский' }
+  // `bcp47` is the label's own language, not the app's. Each label is written in
+  // the language it names, so without it a screen reader reads all thirteen with
+  // the current UI voice — an English voice either mispronounces or skips the
+  // CJK and Cyrillic entries outright. This is the one list a user who cannot
+  // read the current language has to be able to operate.
+  { code: 'en', label: 'English', bcp47: 'en' },
+  { code: 'es', label: 'Español', bcp47: 'es' },
+  { code: 'fr', label: 'Français', bcp47: 'fr' },
+  { code: 'de', label: 'Deutsch', bcp47: 'de' },
+  { code: 'zh_CN', label: '简体中文', bcp47: 'zh-Hans' },
+  { code: 'zh_TW', label: '繁體中文', bcp47: 'zh-Hant' },
+  { code: 'ja', label: '日本語', bcp47: 'ja' },
+  { code: 'ko', label: '한국어', bcp47: 'ko' },
+  { code: 'pl', label: 'Polski', bcp47: 'pl' },
+  { code: 'uk', label: 'Українська', bcp47: 'uk' },
+  { code: 'tr', label: 'Türk', bcp47: 'tr' },
+  { code: 'pt', label: 'Português', bcp47: 'pt' },
+  { code: 'ru', label: 'Русский', bcp47: 'ru' }
 ];
 
 const LanguageSettings: FC = () => {
   const selectedLocale = getCurrentLocale();
+  const { t } = useTranslation();
   const { trackEvent } = useAnalytics();
   const goBackToSettings = useBackWithFallback('/settings');
 
   const currentCode = useMemo(() => {
-    const exact = LANGUAGES.find(({ code }) => code === selectedLocale);
+    // Underscores, because the list is keyed the way the locale directories are
+    // (`zh_CN`) while the resolvers can hand back either form: `getCurrentLocale`
+    // normalizes i18next's tag but not its fallbacks, and the extension's
+    // `getUILanguage()` returns `zh-CN`.
+    const normalized = selectedLocale.replace(/-/g, '_');
+    const exact = LANGUAGES.find(({ code }) => code === normalized);
     if (exact) return exact.code;
-    const base = selectedLocale.split(/[-_]/)[0];
-    return LANGUAGES.find(({ code }) => code === base)?.code || 'en';
+
+    const base = normalized.split('_')[0];
+    const baseMatch = LANGUAGES.find(({ code }) => code === base);
+    if (baseMatch) return baseMatch.code;
+
+    // A base with no unregionalized entry — the only language the wallet ships
+    // per-region. On mobile/desktop `getNativeLocale()` truncates to the base, so
+    // a Chinese device arrived here as a bare `zh`, matched nothing, and the
+    // picker badged English as the current language.
+    return LANGUAGES.find(({ code }) => code.startsWith(`${base}_`))?.code || 'en';
   }, [selectedLocale]);
 
   // `goBack()` is `history.go(-1)`, which lands on a later task, so the rows stay
@@ -62,17 +83,23 @@ const LanguageSettings: FC = () => {
   );
 
   return (
-    <div className="flex flex-col">
-      {LANGUAGES.map(({ code, label }) => {
+    // A radiogroup, not thirteen loose buttons: the choice is single-select, and
+    // that is the only thing that conveys "one of 13" and mutual exclusivity.
+    // `aria-pressed` would announce "toggle button, pressed" — a two-state
+    // control the user could un-press, when in fact activating the current row
+    // just leaves the screen.
+    <div className="flex flex-col" role="radiogroup" aria-label={t('language')}>
+      {LANGUAGES.map(({ code, label, bcp47 }) => {
         const isSelected = code === currentCode;
         return (
           <button
             key={code}
             type="button"
+            role="radio"
             // Selection is otherwise conveyed only by colour, weight and an
             // unlabelled checkmark, so a screen reader heard thirteen identical
             // "English, button" rows with no way to tell which one is active.
-            aria-pressed={isSelected}
+            aria-checked={isSelected}
             className="flex items-center justify-between py-3 w-full text-left"
             onClick={() => handleSelect(code)}
           >
@@ -80,6 +107,7 @@ const LanguageSettings: FC = () => {
                 swallow per-glyph fallback so CJK names (日本語, 한국어, 中文) render as
                 missing-glyph boxes; falling straight to sans-serif renders them. */}
             <span
+              lang={bcp47}
               className={`text-base ${isSelected ? 'text-primary-500 font-semibold' : 'text-heading-gray font-medium'}`}
               style={{ fontFamily: "'Nunito', sans-serif" }}
             >

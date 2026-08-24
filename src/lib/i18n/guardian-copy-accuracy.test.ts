@@ -58,6 +58,15 @@ const GUARDIAN_RECEIPT_KEYS = [
   // The review screen's only error copy, now that the same-endpoint guard runs
   // there rather than after the credential prompt.
   'guardianEndpointUnchanged',
+  // The two explainer strings this suite was originally written for (#479), in
+  // the per-locale sweep and not just the English assertions further down. They
+  // were the last keys still checked in English only, and every mistranslation
+  // the sweep was built to catch was sitting in them: "the Guardian
+  // application" (es), the invented "l'Guardiane" (fr), "a different Guardian
+  // ADDRESS" (pl/pt/ru/tr), "a different Guardian ACCOUNT" (zh_TW), and a
+  // feminine article treating it as an app (de).
+  'guardianInfoWhatItDoesDescription',
+  'guardianInfoSwitchingIsEasyDescription',
   ...SUCCESS_RECEIPT_KEYS
 ] as const;
 
@@ -106,6 +115,12 @@ const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBloc
 // across a full stop and flags two unrelated clauses.
 const PUNCT = String.raw`[\s«»„“”"'’()\-]*`;
 
+// As PUNCT, plus the genitive/attributive particles. Without them the sweep only
+// saw the spaced forms (`Guardian アドレス`) and missed the idiomatic ones —
+// `Guardianのアドレス`, `Guardian의 주소`, `Guardian的地址` — which are the
+// shapes machine translation actually produces in these languages.
+const CJK_PUNCT = String.raw`[\s«»„“”"'’()\-の的의와과]*`;
+
 // Up to two intervening words, counted as LETTERS rather than `\S`: a character
 // budget in a script without spaces buys a whole clause, so `地址不是钱包的
 // Guardian` ("the address is not the wallet's Guardian") looked like a hit.
@@ -115,16 +130,17 @@ const nounNearGuardian = (nouns: string[], connector: string): string =>
   nouns.map(noun => `${noun}${connector}Guardian|Guardian${connector}${noun}`).join('|');
 
 /**
- * `spaced` languages allow the intervening words; ja/ko/zh get punctuation-only
- * adjacency, which is all their known-bad strings ever needed (`Guardianアドレス`,
- * `Guardian 주소`, `地址 Guardian`) and the only form that cannot run past a
- * sentence boundary in text that has no word spacing.
+ * `spaced` languages allow the intervening words; ja/ko/zh get particle-and-
+ * punctuation adjacency only, which covers every form their known-bad strings
+ * take (`Guardianアドレス`, `Guardianのアドレス`, `Guardian 주소`, `地址 Guardian`)
+ * and is the only shape that cannot run past a sentence boundary in text with no
+ * word spacing.
  */
 const wrongThing = (
   nouns: string[],
   { extra = [], spaced = true }: { extra?: string[]; spaced?: boolean } = {}
 ): RegExp =>
-  new RegExp([nounNearGuardian(nouns, spaced ? `${PUNCT}${WORDS}${PUNCT}` : PUNCT), ...extra].join('|'), 'iu');
+  new RegExp([nounNearGuardian(nouns, spaced ? `${PUNCT}${WORDS}${PUNCT}` : CJK_PUNCT), ...extra].join('|'), 'iu');
 
 // `\S*` rather than `\w*` for an inflected tail: `\w` is ASCII-only, so it
 // matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
@@ -132,7 +148,14 @@ const wrongThing = (
 const WRONG_THING_TERMS: Record<string, RegExp> = {
   en: wrongThing(['address', 'page', 'site', 'app']),
   en_GB: wrongThing(['address', 'page', 'site', 'app']),
-  de: wrongThing([String.raw`Adress\S*`]),
+  // German needs a gender check as well as a noun check: MT rendered it as *die*
+  // Guardian and *einer anderen* Guardian — feminine, which in German reads as
+  // "the Guardian app/site" rather than the person/service that co-signs. The
+  // noun list cannot see that, because the noun is right and only the article is
+  // wrong. `der`/`einem` are the correct masculine forms and are not matched.
+  de: wrongThing([String.raw`Adress\S*`], {
+    extra: [String.raw`\bdie\s*[„“"«»]?\s*Guardian`, String.raw`\beiner\s+anderen\s*[„“"«»]?\s*Guardian`]
+  }),
   es: wrongThing([String.raw`direcci[oó]n`, String.raw`p[aá]gina`, 'sitio', String.raw`aplicaci[oó]n`]),
   fr: wrongThing(['adresse', 'page', 'site'], { extra: ['faire tourner', 'Guardiane'] }),
   ja: wrongThing([String.raw`アドレス`, String.raw`ページ`, String.raw`サイト`], {
@@ -173,8 +196,11 @@ const WRONG_THING_TERMS: Record<string, RegExp> = {
  * patterns apply to the receipt keys only.
  */
 const WRONG_POWER_TERMS: Record<string, RegExp> = {
-  en: /approves|policy/i,
-  en_GB: /approves|policy/i,
+  // Stems, like every other locale here. `approves` alone missed "will approve",
+  // "must approve", "approval" and the near-synonyms the doc comment above
+  // already names — five of the six phrasings MT actually produces.
+  en: /approv|polic|endors|confirms every|authoris|authoriz/i,
+  en_GB: /approv|polic|endors|confirms every|authoris|authoriz/i,
   de: /genehmig|billigt/i,
   es: /aprob|aprueb|avala/i,
   fr: /approuv|avalise/i,
@@ -269,7 +295,52 @@ const KNOWN_BAD_WARNING: Array<[string, string]> = [
   ['tr', 'Eski Guardian adresine yalnızca bildirim gönderilir.'],
   ['ko', '기존 Guardian 주소에는 단지 알림만 전송됩니다.'],
   ['zh_CN', '您的旧版Guardian无法阻止此操作'],
-  ['zh_TW', '您的舊版 Guardian 無法阻止此事']
+  ['zh_TW', '您的舊版 Guardian 無法阻止此事'],
+  // The explainer strings as they actually shipped, before this sweep reached
+  // them. Pinned so re-adding the keys can never quietly stop mattering.
+  ['es', 'ni tu dispositivo ni la aplicación «Guardian» pueden mover fondos'],
+  ['fr', "ni votre appareil ni l'Guardiane ne peuvent"],
+  ['pl', 'przejść na inny adres Guardian'],
+  ['pt', 'mudar para um endereço Guardian diferente'],
+  ['ru', 'перейти на другой адрес Guardian'],
+  ['tr', 'farklı bir Guardian adresine geçebilirsiniz'],
+  ['zh_TW', '切換至不同的 Guardian 帳戶'],
+  ['de', 'weder Ihr Gerät noch die „Guardian“ können Gelder']
+];
+
+/**
+ * One approval claim per locale, asserted against WRONG_POWER_TERMS directly.
+ * `bannedForReceipt` ORs the two families, so a KNOWN_BAD hit can be satisfied
+ * entirely by the noun pattern — which left ten of the fourteen approval
+ * patterns never proven to fire at all. That is the "guard becomes decoration"
+ * failure this suite exists to prevent, applied to itself.
+ */
+const KNOWN_BAD_POWER: Array<[string, string]> = [
+  ['en', 'Your new Guardian will approve every transaction'],
+  ['en_GB', 'The Guardian approves transactions based on your security policy'],
+  ['de', 'Ihr Guardian genehmigt jede Transaktion'],
+  ['es', 'Tu Guardian aprueba cada transacción'],
+  ['fr', 'Votre Guardian approuve chaque transaction'],
+  ['ja', 'Guardianがすべての取引を承認します'],
+  ['ko', 'Guardian이 모든 거래를 승인합니다'],
+  ['pl', 'Twój Guardian zatwierdza każdą transakcję'],
+  ['pt', 'Seu Guardian aprova todas as transações'],
+  ['ru', 'Ваш Guardian подтверждает каждую транзакцию'],
+  ['tr', 'Guardian her işlemi onaylar'],
+  ['uk', 'Ваш Guardian підтверджує кожну транзакцію'],
+  ['zh_CN', 'Guardian 会批准每笔交易'],
+  ['zh_TW', 'Guardian 會批准每筆交易']
+];
+
+/**
+ * Idiomatic CJK misdescriptions using the genitive particle rather than a space.
+ * These are the forms machine translation actually emits, and a punctuation-only
+ * connector missed all three.
+ */
+const KNOWN_BAD_CJK_PARTICLE: Array<[string, string]> = [
+  ['ja', 'Guardianのアドレスは変わりません'],
+  ['ko', 'Guardian의 주소가 변경되었습니다'],
+  ['zh_CN', 'Guardian的地址已更改']
 ];
 
 /**
@@ -284,6 +355,8 @@ const KNOWN_BAD_WARNING: Array<[string, string]> = [
 const KNOWN_GOOD: Array<[string, string]> = [
   ['en', 'Your wallet address did not change. Your Guardian co-signs every transaction.'],
   ['en', 'This is already your current Guardian.'],
+  ['en_GB', 'Your wallet address has not changed. Your Guardian co-signs every transaction.'],
+  ['pt', 'O endereço da sua carteira não muda. O Guardian co-assina cada transação.'],
   ['de', 'Ihre Wallet-Adresse bleibt gleich. Ihr Guardian signiert weiterhin mit.'],
   ['es', 'Tu dirección de wallet no cambia. El Guardian co-firma cada transacción.'],
   ['fr', 'Votre adresse de portefeuille ne change pas. Votre Guardian co-signe.'],
@@ -414,6 +487,23 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     }
     for (const bad of KNOWN_BAD_REMOVAL) {
       expect(bad).toMatch(REMOVAL_TERMS);
+    }
+  });
+
+  it('proves each family fires on its own, not just their union', () => {
+    for (const [locale, bad] of KNOWN_BAD_POWER) {
+      const power = WRONG_POWER_TERMS[locale];
+      expect(power).toBeDefined();
+      expect(bad).toMatch(power!);
+    }
+    // Every locale that ships must appear above; otherwise its approval pattern
+    // is unexercised and could be a typo that never fires.
+    expect([...KNOWN_BAD_POWER.map(([locale]) => locale)].sort()).toEqual([...EXPECTED_LOCALES].sort());
+
+    for (const [locale, bad] of KNOWN_BAD_CJK_PARTICLE) {
+      const thing = WRONG_THING_TERMS[locale];
+      expect(thing).toBeDefined();
+      expect(bad).toMatch(thing!);
     }
   });
 

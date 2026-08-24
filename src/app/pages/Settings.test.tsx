@@ -102,8 +102,19 @@ jest.mock('app/icons/v2', () => ({
 
 jest.mock('components/Button', () => ({
   __esModule: true,
+  // Fires the haptic the real Button fires on every click (Button.tsx). Without
+  // it the mock made a caller adding its own invisible here — which is exactly
+  // how both seed-warning handlers came to double-buzz.
   Button: ({ title, onClick, variant }: { title: string; onClick?: () => void; variant?: string }) => (
-    <button type="button" data-testid={`btn-${title}`} data-variant={variant} onClick={onClick}>
+    <button
+      type="button"
+      data-testid={`btn-${title}`}
+      data-variant={variant}
+      onClick={() => {
+        hapticLight();
+        onClick?.();
+      }}
+    >
       {title}
     </button>
   ),
@@ -156,9 +167,12 @@ jest.mock('app/templates/MenuItem', () => ({
       data-slug={slug === undefined ? 'undefined' : String(slug)}
       data-external={String(!!linksOutsideOfWallet)}
       data-righttext={rightText === undefined ? 'undefined' : String(rightText)}
-      // The real MenuItem fires exactly one hapticLight per tap, on every branch
-      // it renders. The mock has to as well, or a caller adding its own — which
-      // the recovery-phrase row did, buzzing twice — is invisible here.
+      // The real MenuItem produces exactly one hapticLight per tap on every
+      // branch: the external anchor and the <button> call it directly, and the
+      // routed <Link> gets one from woozie's Link (Link.tsx). MenuItem's own unit
+      // test mocks Link and so sees none on that branch — don't take that as the
+      // product behaviour. The mock has to buzz, or a caller adding its own —
+      // which the recovery-phrase row did, buzzing twice — is invisible here.
       onClick={() => {
         hapticLight();
         onClick?.();
@@ -382,6 +396,15 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
+  it('yields to a sub-page that focuses its own field', () => {
+    render(<Settings tabSlug="reveal-private-key" />);
+
+    // RevealSecret puts the caret in the password box in a useLayoutEffect;
+    // the host's title focus is a plain useEffect and so runs after it, which
+    // would pull focus straight back out of the field.
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+  });
+
   it('leaves focus alone on the settings list itself', () => {
     render(<Settings tabSlug={null} />);
 
@@ -474,24 +497,29 @@ describe('Settings page — seed phrase warning overlay', () => {
     expect(screen.getByText('pleaseWriteDownRecoveryPhrase')).toBeInTheDocument();
   });
 
-  it('closes the overlay via the Close button (haptic light, no navigation)', () => {
+  // Each of these taps must produce exactly ONE buzz, from Button. The handlers
+  // used to add their own on top, so Close buzzed twice and View fired a medium
+  // and a light together.
+  it('closes the overlay via the Close button with a single haptic and no navigation', () => {
     render(<Settings tabSlug={null} />);
     fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-close'));
 
-    expect(mockHapticLight).toHaveBeenCalledTimes(2); // open + close
+    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for Close
+    expect(mockHapticMedium).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
   });
 
-  it('navigates to reveal-seed-phrase via the View button (haptic medium)', () => {
+  it('navigates to reveal-seed-phrase via the View button with a single haptic', () => {
     render(<Settings tabSlug={null} />);
     fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-view'));
 
-    expect(mockHapticMedium).toHaveBeenCalledTimes(1);
+    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for View
+    expect(mockHapticMedium).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-seed-phrase');
     expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
   });

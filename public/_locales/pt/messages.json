@@ -2033,7 +2033,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Você pode mudar para um endereço Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem é co-signatário sofre alterações; sua conta e seus fundos permanecem os mesmos.",
+    "message": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem é co-signatário sofre alterações; sua conta e seus fundos permanecem os mesmos.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {

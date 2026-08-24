@@ -76,14 +76,27 @@ describe('LanguageSettings', () => {
     mockHistoryPosition = 1;
   });
 
-  it('renders one button per supported language, in order, with the right labels', () => {
+  it('renders one radio per supported language, in order, with the right labels', () => {
     render(<LanguageSettings />);
 
-    const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(LANGUAGES.length);
+    // Radios in a radiogroup, not toggle buttons: the choice is single-select, so
+    // this is what conveys "one of 13" and mutual exclusivity.
+    const rows = screen.getAllByRole('radio');
+    expect(rows).toHaveLength(LANGUAGES.length);
 
     LANGUAGES.forEach(({ label }, index) => {
-      expect(buttons[index]).toHaveTextContent(label);
+      expect(rows[index]).toHaveTextContent(label);
+    });
+  });
+
+  it('tags each label with its own language so a screen reader switches voice', () => {
+    render(<LanguageSettings />);
+
+    // Each label is written in the language it names, so without `lang` all
+    // thirteen are read with the current UI voice — an English voice either
+    // mispronounces or silently skips the CJK and Cyrillic entries.
+    LANGUAGES.forEach(({ label, bcp47 }) => {
+      expect(screen.getByText(label)).toHaveAttribute('lang', bcp47);
     });
   });
 
@@ -157,9 +170,28 @@ describe('LanguageSettings', () => {
     mockGetCurrentLocale.mockReturnValue('es');
     render(<LanguageSettings />);
 
-    expect(screen.getByRole('button', { pressed: true })).toHaveTextContent('Español');
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('Español');
     // Exactly one row claims the state.
-    expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(1);
+    expect(screen.getAllByRole('radio', { checked: true })).toHaveLength(1);
+  });
+
+  it('resolves a region-truncated locale to the region it ships', () => {
+    // `getNativeLocale()` truncates to the base on mobile/desktop, so a Chinese
+    // device arrives as a bare `zh`. Chinese is the only language the wallet
+    // ships per-region, so nothing matched and the picker badged English.
+    mockGetCurrentLocale.mockReturnValue('zh');
+    render(<LanguageSettings />);
+
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('简体中文');
+  });
+
+  it('resolves a hyphenated regional tag, which the extension resolver returns', () => {
+    // `getCurrentLocale` normalizes i18next's tag but not its fallbacks, and the
+    // extension's `getUILanguage()` hands back `zh-TW`.
+    mockGetCurrentLocale.mockReturnValue('zh-TW');
+    render(<LanguageSettings />);
+
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('繁體中文');
   });
 
   it('leaves once however many times the user taps', () => {

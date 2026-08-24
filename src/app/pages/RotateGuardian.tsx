@@ -43,7 +43,12 @@ const RotateGuardian: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      <NavigationHeader title={t('rotateGuardian')} onBack={handleBack} variant="prominent" titleAlign="left" />
+      {/* No title: ChooseGuardianScreen renders its own h1 ("Choose your
+          Guardian") plus the description and the "What is a Guardian?" link, and
+          titling the header too gave the page two level-1 headings and two
+          stacked titles. Hiding the picker's header instead would drop the
+          description and the info affordance with it. */}
+      <NavigationHeader onBack={handleBack} variant="prominent" titleAlign="left" />
       <ChooseGuardianScreen
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}

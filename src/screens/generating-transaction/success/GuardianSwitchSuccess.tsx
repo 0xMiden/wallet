@@ -71,9 +71,12 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
               <span className="shrink-0" aria-hidden="true">
                 <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
               </span>
-              <span className="sr-only">{t('newGuardianLabel')}: </span>
             </>
           )}
+          {/* Outside the previous-name branch: a legacy row has only the new
+              endpoint, and with the label nested it announced a bare hostname
+              with nothing saying what it was. */}
+          <span className="sr-only">{t('newGuardianLabel')}: </span>
           <span className="break-all">{newName}</span>
         </div>
       )}
