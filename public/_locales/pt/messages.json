@@ -2421,7 +2421,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "A rotação é aprovada por suas duas chaves no dispositivo. O antigo endereço Guardian é apenas notificado.",
+    "message": "A rotação é aprovada por suas duas chaves no dispositivo. O antigo Guardian é apenas notificado.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {

@@ -2421,7 +2421,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый адрес «Guardian» получает лишь уведомление.",
+    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый «Guardian» получает лишь уведомление.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {

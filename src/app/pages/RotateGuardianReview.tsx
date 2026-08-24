@@ -17,6 +17,7 @@ import { initiateSwitchGuardianTransaction, requestSWTransactionProcessing } fro
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -147,6 +148,21 @@ const RotateGuardianReview: FC = () => {
     setAuthStep(false);
   }, [submitting]);
 
+  // Hardware/swipe back has to follow the same route the on-screen chevron does.
+  // This screen hides PageLayout's toolbar, which was the only thing registering
+  // a back handler, so MobileBackBridge's catch-all took over and threw the user
+  // out to the wallet home from the credential step and from a cold-opened
+  // review alike.
+  useMobileBackHandler(() => {
+    if (submitting) return true;
+    if (authStep) {
+      handleAuthBack();
+      return true;
+    }
+    handleBack();
+    return true;
+  }, [authStep, handleAuthBack, handleBack, submitting]);
+
   if (authStep) {
     return (
       <PageLayout
@@ -231,20 +247,24 @@ const RotateGuardianReview: FC = () => {
               <p className="mt-1 leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</p>
             </div>
           </div>
-
-          {error && <div className="mt-3 text-red-500 text-xs select-text wrap-break-word">{error}</div>}
-
-          <div className="mt-auto pt-4">
-            <Button
-              className="max-w-none"
-              data-testid="rotate-guardian-confirm"
-              title={t('continue')}
-              onClick={handleContinue}
-              disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
-              isLoading={submitting}
-            />
-          </div>
         </div>
+      </div>
+
+      {/* Continue and its error sit OUTSIDE the scroll region, same shape as
+          TransactionSuccessLayout (#463). The illustration and the prominent
+          header together cost ~220px of the 600px popup, which pushed a CTA
+          inside the scroller below the fold — the user had to scroll to find
+          the only way forward, and a failure could render off-screen. */}
+      <div className="shrink-0 px-4 pb-4 pt-2">
+        {error && <div className="mb-3 text-red-500 text-xs select-text wrap-break-word">{error}</div>}
+        <Button
+          className="max-w-none"
+          data-testid="rotate-guardian-confirm"
+          title={t('continue')}
+          onClick={handleContinue}
+          disabled={submitting || hasHardwareProtector === null || !currentAccount || !newEndpoint}
+          isLoading={submitting}
+        />
       </div>
     </PageLayout>
   );

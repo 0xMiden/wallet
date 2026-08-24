@@ -368,7 +368,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
         <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
+      {/* Keyed so the scroller remounts per page. `/settings` and
+          `/settings/<slug>` are one route, so React reconciled this container
+          instead of replacing it and the offset carried across: opening Language
+          from the bottom of the list landed mid-list, and coming back left
+          Settings wherever Language had been scrolled to. The drawers this
+          replaced never had the problem — they scrolled in their own portal. */}
+      <div key={tabSlug ?? 'root'} className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
         {activeTab ? (
           activeTab.hasOwnLayout ? (
             <activeTab.Component />

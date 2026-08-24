@@ -338,6 +338,28 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-righttext', 'xx');
   });
 
+  it('keeps the header out of the scroll region so the only back affordance stays reachable', () => {
+    render(<Settings tabSlug="language" />);
+
+    const header = screen.getByTestId('nav-header');
+    const scroller = document.querySelector('.overflow-y-auto');
+    // Language and Address Book overflow the popup; a header inside the scroller
+    // scrolls away with them, and these pages have no other way back.
+    expect(scroller).not.toBeNull();
+    expect(scroller!.contains(header)).toBe(false);
+  });
+
+  it('gives each page its own scroll container so offsets do not carry across', () => {
+    const { rerender } = render(<Settings tabSlug={null} />);
+    const listScroller = document.querySelector('.overflow-y-auto');
+
+    rerender(<Settings tabSlug="language" />);
+
+    // Same route, so React would otherwise reconcile one container and keep its
+    // scrollTop: the sub-page opened at the list's offset and vice versa.
+    expect(document.querySelector('.overflow-y-auto')).not.toBe(listScroller);
+  });
+
   it('navigates home when the root header back button is pressed', () => {
     render(<Settings tabSlug={null} />);
 

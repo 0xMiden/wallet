@@ -2421,7 +2421,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Die Rotation wird durch Ihre beiden geräteinternen Schlüssel genehmigt. Die alte „Guardian“ wird lediglich benachrichtigt.",
+    "message": "Die Rotation wird durch Ihre beiden geräteinternen Schlüssel genehmigt. Der alte „Guardian“ wird lediglich benachrichtigt.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {

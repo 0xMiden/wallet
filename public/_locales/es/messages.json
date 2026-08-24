@@ -2417,7 +2417,7 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Tu antigua dirección de Guardian no puede bloquear esto",
+    "message": "Tu antiguo Guardian no puede bloquear esto",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {

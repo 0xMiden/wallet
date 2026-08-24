@@ -22,6 +22,11 @@ const LOCALES = fs
   .readdirSync(LOCALES_DIR)
   .filter(entry => fs.existsSync(path.join(LOCALES_DIR, entry, 'messages.json')));
 
+// Pinned, because everything below is a loop over LOCALES: a discovery that
+// silently returned one locale — or none — would report a green sweep while
+// checking nothing. This list is the assertion that the sweep has a subject.
+const EXPECTED_LOCALES = ['de', 'en', 'en_GB', 'es', 'fr', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'uk', 'zh_CN', 'zh_TW'];
+
 const messages = readMessages('en');
 const enJson: Record<string, string> = JSON.parse(fs.readFileSync(path.join(EN_DIR, 'en.json'), 'utf8'));
 
@@ -57,6 +62,16 @@ const GUARDIAN_RECEIPT_KEYS = [
 ] as const;
 
 /**
+ * The rotation warning, held apart from the receipt keys above. It is the one
+ * place the UI explains what the OLD Guardian can still do, and the only
+ * Guardian copy whose subject is the user's keys rather than the Guardian — so
+ * it is swept for the "wrong thing" family only. Six locales rendered it as
+ * "your old Guardian ADDRESS", the exact confusion the receipt's "your wallet
+ * address did not change" bullet has to survive.
+ */
+const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBlockBody'] as const;
+
+/**
  * Per-language wording that misdescribes the Guardian. Two families:
  *
  *  - **Wrong thing.** The Guardian is a co-signer — not an address, page, site,
@@ -77,24 +92,82 @@ const GUARDIAN_RECEIPT_KEYS = [
  * bullet says "your WALLET address"), the pattern requires Guardian adjacency
  * rather than banning the noun outright.
  */
-const BANNED_TERMS: Record<string, RegExp> = {
-  en: /Guardian (address|page|site|app)|approves|policy/i,
-  en_GB: /Guardian (address|page|site|app)|approves|policy/i,
-  // `\S*` rather than `\w*` for the inflected tail: `\w` is ASCII-only, so it
-  // matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
-  // `адреса Guardian`, and the alternative silently never fires.
-  de: /Adress\S* Guardian|Guardian[-\s]?Adress|genehmig|billigt/i,
-  es: /direcci[oó]n (del |de la )?Guardian|p[aá]gina .{0,3}Guardian|sitio (del )?Guardian|aplicaci[oó]n .{0,3}Guardian|aprob|aprueb|avala/i,
-  fr: /adresse (du |de la )?Guardian|page (du )?Guardian|site (du )?Guardian|approuv|avalise|faire tourner|Guardiane/i,
-  ja: /最新情報|承認|Guardian\s?(アドレス|ページ|サイト)/,
-  ko: /Guardian\s?주소|승인/,
-  pl: /adres\S* Guardian|stron\S* Guardian|witryn\S* Guardian|zatwierdza|akceptuje ka/i,
-  pt: /endere[cç]o (do |da )?Guardian|p[aá]gina (do )?Guardian|endoss|aprov/i,
-  ru: /адрес\S* Guardian|Guardian[-\s]адрес|сайт Guardian|подтвержда|одобря/i,
-  tr: /Guardian\S*\s*adres|adresi Guardian|onayl/i,
-  uk: /адрес\S* Guardian|Guardian[-\s]адрес|сайт Guardian|список .{0,2}Guardian|верс\S+ Guardian|підтверджу|схвалю/i,
-  zh_CN: /Guardian\s?地址|地址\s?Guardian|批准|核准/,
-  zh_TW: /Guardian\s?(地址|帳戶)|地址\s?Guardian|最新\s?Guardian|新版\s?Guardian|批准|核准/
+/**
+ * Whatever a translation puts between the noun and the word "Guardian":
+ * articles and prepositions in any of the languages here, plus the quotes,
+ * brackets and dashes the locale files wrap the product name in. Written once
+ * because hand-listing `(du |de la )?` per language is exactly how the guard let
+ * `adresse « Guardian »` and `адрес «Guardian»` through — the noun and the name
+ * were adjacent in meaning but not in the pattern.
+ */
+const NEAR = String.raw`[\s«»„“”"'’(),.\-]*(?:de |del |de la |du |da |do |der |die |das |dem |den |the |el |la |le |les |di )?[\s«»„“”"'’(),.\-]*`;
+
+const nounNearGuardian = (nouns: string[]): string =>
+  nouns.map(noun => `${noun}${NEAR}Guardian|Guardian${NEAR}${noun}`).join('|');
+
+const wrongThing = (nouns: string[], extra: string[] = [], caseInsensitive = true): RegExp =>
+  new RegExp([nounNearGuardian(nouns), ...extra].join('|'), caseInsensitive ? 'i' : '');
+
+// `\S*` rather than `\w*` for an inflected tail: `\w` is ASCII-only, so it
+// matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
+// `адреса Guardian`, and such an alternative silently never fires.
+const WRONG_THING_TERMS: Record<string, RegExp> = {
+  en: wrongThing(['address', 'page', 'site', 'app']),
+  en_GB: wrongThing(['address', 'page', 'site', 'app']),
+  de: wrongThing([String.raw`Adress\S*`]),
+  es: wrongThing([String.raw`direcci[oó]n`, String.raw`p[aá]gina`, 'sitio', String.raw`aplicaci[oó]n`]),
+  fr: wrongThing(['adresse', 'page', 'site'], ['faire tourner', 'Guardiane']),
+  ja: wrongThing([String.raw`アドレス`, String.raw`ページ`, String.raw`サイト`], [String.raw`最新情報`], false),
+  ko: wrongThing([String.raw`주소`], [], false),
+  pl: wrongThing([String.raw`adres\S*`, String.raw`stron\S*`, String.raw`witryn\S*`]),
+  pt: wrongThing([String.raw`endere[cç]o`, String.raw`p[aá]gina`]),
+  ru: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`]),
+  // Turkish glues the possessive onto the name — `Guardian’ın adresine` — so the
+  // name side needs an inflectional tail that the shared connector, which stops
+  // at the first non-punctuation character, cannot supply. Kept local to `tr`: a
+  // `\S*` tail is safe between whitespace-delimited words and dangerous in CJK,
+  // where it would run to the end of the sentence.
+  tr: wrongThing([String.raw`adres\S*`], [String.raw`Guardian\S*\s*adres`]),
+  uk: wrongThing([String.raw`адрес\S*`, String.raw`сайт\S*`, String.raw`список`, String.raw`верс\S+`], [], true),
+  zh_CN: wrongThing([String.raw`地址`], [], false),
+  zh_TW: wrongThing(
+    [String.raw`地址`, String.raw`帳戶`],
+    [String.raw`最新\s?Guardian`, String.raw`新版\s?Guardian`],
+    false
+  )
+};
+
+/**
+ * "Wrong power" is tracked separately from "wrong thing" because the approval
+ * verbs are only false when the GUARDIAN is doing the approving. The rotation
+ * warning says the opposite and is correct: the switch "is approved by your two
+ * on-device keys". Sweeping that string for `genehmigt` / `aprueba` / `承認`
+ * would flag the very sentence that states the accurate mechanism, so these
+ * patterns apply to the receipt keys only.
+ */
+const WRONG_POWER_TERMS: Record<string, RegExp> = {
+  en: /approves|policy/i,
+  en_GB: /approves|policy/i,
+  de: /genehmig|billigt/i,
+  es: /aprob|aprueb|avala/i,
+  fr: /approuv|avalise/i,
+  ja: /承認/,
+  ko: /승인/,
+  pl: /zatwierdza|akceptuje ka/i,
+  pt: /endoss|aprov/i,
+  ru: /подтвержда|одобря/i,
+  tr: /onayl/i,
+  uk: /підтверджу|схвалю/i,
+  zh_CN: /批准|核准/,
+  zh_TW: /批准|核准/
+};
+
+/** Union of both families, for the strings where the Guardian is the subject. */
+const bannedForReceipt = (locale: string): RegExp | undefined => {
+  const thing = WRONG_THING_TERMS[locale];
+  const power = WRONG_POWER_TERMS[locale];
+  if (!thing || !power) return undefined;
+  return new RegExp(`${thing.source}|${power.source}`, thing.flags.includes('i') ? 'i' : '');
 };
 
 /**
@@ -136,6 +209,23 @@ const KNOWN_BAD: Array<[string, string]> = [
 // the Cyrillic and CJK alternatives can carry no `\b` at all.
 const REMOVAL_TERMS =
   /\bremove|\bdisable|\bdelete|entfern|l[oö]sch|elimin|quitar|supprim|enlev|usun|usuw|remov|apagar|excluir|удал|видал|kaldır|silin|\bsil\b|çıkar|削除|解除|제거|삭제|移除|删除|刪除/i;
+
+/**
+ * The rotation-warning strings as they actually shipped, before this sweep
+ * covered them. Six locales called the co-signer an address; several wrapped the
+ * product name in quotes, which is how they slipped past a pattern that expected
+ * the noun and the name to be adjacent.
+ */
+const KNOWN_BAD_WARNING: Array<[string, string]> = [
+  ['es', 'Tu antigua dirección de Guardian no puede bloquear esto'],
+  ['fr', 'L’ancienne adresse « Guardian » est simplement informée.'],
+  ['ru', 'Старый адрес «Guardian» получает лишь уведомление.'],
+  ['pl', 'Twój stary adres Guardian nie może tego zablokować'],
+  ['pt', 'O antigo endereço Guardian é apenas notificado.'],
+  ['tr', 'Eski Guardian adresiniz bunu engelleyemez'],
+  ['tr', 'Eski Guardian adresine yalnızca bildirim gönderilir.'],
+  ['ko', '기존 Guardian 주소에는 단지 알림만 전송됩니다.']
+];
 
 const KNOWN_BAD_REMOVAL = [
   'You can rotate or remove your Guardian again at any time',
@@ -194,7 +284,7 @@ describe('Guardian explainer copy accuracy (#479)', () => {
   it('ships the whole receipt surface in every locale', () => {
     for (const locale of LOCALES) {
       const localeMessages = readMessages(locale);
-      for (const key of GUARDIAN_RECEIPT_KEYS) {
+      for (const key of [...GUARDIAN_RECEIPT_KEYS, ...ROTATION_WARNING_KEYS]) {
         expect(localeMessages[key]?.message).toBeTruthy();
       }
     }
@@ -206,10 +296,25 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     // "New Guardian PAGE", "the latest Guardian NEWS", and — worst — "your new
     // Guardian will APPROVE every transaction", the capability #479 exists to deny.
     for (const locale of LOCALES) {
-      const banned = BANNED_TERMS[locale];
+      const banned = bannedForReceipt(locale);
       if (!banned) continue;
       const localeMessages = readMessages(locale);
       for (const key of GUARDIAN_RECEIPT_KEYS) {
+        expect(localeMessages[key]?.message ?? '').not.toMatch(banned);
+      }
+    }
+  });
+
+  it('does not call the Guardian an address on the rotation warning, in any translation', () => {
+    // Only the "wrong thing" family here: this string's whole job is to say the
+    // switch is approved by the USER's two keys, so the approval verbs are
+    // accurate. What is not accurate is naming the co-signer an address, which
+    // six locales did.
+    for (const locale of LOCALES) {
+      const banned = WRONG_THING_TERMS[locale];
+      if (!banned) continue;
+      const localeMessages = readMessages(locale);
+      for (const key of ROTATION_WARNING_KEYS) {
         expect(localeMessages[key]?.message ?? '').not.toMatch(banned);
       }
     }
@@ -228,7 +333,12 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     // Without this, a typo or an ASCII `\b` in front of a Cyrillic alternative
     // turns a guard into decoration and nothing tells you.
     for (const [locale, bad] of KNOWN_BAD) {
-      const banned = BANNED_TERMS[locale];
+      const banned = bannedForReceipt(locale);
+      expect(banned).toBeDefined();
+      expect(bad).toMatch(banned!);
+    }
+    for (const [locale, bad] of KNOWN_BAD_WARNING) {
+      const banned = WRONG_THING_TERMS[locale];
       expect(banned).toBeDefined();
       expect(bad).toMatch(banned!);
     }
@@ -240,8 +350,13 @@ describe('Guardian explainer copy accuracy (#479)', () => {
   it('guards every locale that ships the receipt', () => {
     // A locale with no pattern is a locale nobody is checking.
     for (const locale of LOCALES) {
-      expect(BANNED_TERMS[locale]).toBeDefined();
+      expect(WRONG_THING_TERMS[locale]).toBeDefined();
+      expect(WRONG_POWER_TERMS[locale]).toBeDefined();
     }
+  });
+
+  it('sweeps every locale the wallet ships, so a green run cannot mean an empty sweep', () => {
+    expect([...LOCALES].sort()).toEqual([...EXPECTED_LOCALES].sort());
   });
 
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {

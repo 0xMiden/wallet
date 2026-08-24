@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { TransactionSuccessLayout } from './TransactionSuccessLayout';
 
@@ -27,8 +27,16 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
+// Exposes onClose rather than swallowing it: the receipt's header X is one of the
+// two ways out of the screen, and a stub that drops the prop lets the layout stop
+// wiring it without a single test noticing.
 jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title }: { title: string }) => <div>{title}</div>
+  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+    <div>
+      {title}
+      <button data-testid="header-close" onClick={onClose} />
+    </div>
+  )
 }));
 
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
@@ -85,4 +93,28 @@ it('renders a lone primary action when there is no secondary one, ordering flag 
   render(<TransactionSuccessLayout {...baseProps} secondaryFirst />);
 
   expect(footerLabels()).toEqual(['Done']);
+});
+
+it("invokes the caller's own handlers from both CTAs and the header close", () => {
+  const primary = jest.fn();
+  const secondary = jest.fn();
+  const onClose = jest.fn();
+  render(
+    <TransactionSuccessLayout
+      {...baseProps}
+      primaryAction={{ label: 'Done', onClick: primary }}
+      secondaryAction={{ label: 'View in Activities', onClick: secondary }}
+      onClose={onClose}
+    />
+  );
+
+  // Every exit from the receipt, wired end to end: asserting the labels alone
+  // left the layout free to render buttons that do nothing.
+  fireEvent.click(screen.getByText('Done'));
+  fireEvent.click(screen.getByText('View in Activities'));
+  fireEvent.click(screen.getByTestId('header-close'));
+
+  expect(primary).toHaveBeenCalledTimes(1);
+  expect(secondary).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalledTimes(1);
 });

@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useMemo } from 'react';
+import React, { FC, useCallback, useMemo, useRef } from 'react';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
@@ -40,8 +40,16 @@ const LanguageSettings: FC = () => {
     return LANGUAGES.find(({ code }) => code === base)?.code || 'en';
   }, [selectedLocale]);
 
+  // `goBack()` is `history.go(-1)`, which lands on a later task, so the rows stay
+  // live and mounted after the first tap. As a drawer the exit was an idempotent
+  // `onClose`; as a route a second tap queues a second traversal and overshoots
+  // past Settings.
+  const leaving = useRef(false);
+
   const handleSelect = useCallback(
     (code: string) => {
+      if (leaving.current) return;
+      leaving.current = true;
       hapticLight();
       trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);

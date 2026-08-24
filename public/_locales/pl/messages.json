@@ -2417,11 +2417,11 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Twój stary adres Guardian nie może tego zablokować",
+    "message": "Twój stary Guardian nie może tego zablokować",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stara adresowa kopia (Guardian) otrzymuje jedynie powiadomienie.",
+    "message": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stary Guardian otrzymuje jedynie powiadomienie.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {

@@ -2417,11 +2417,11 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Eski Guardian adresiniz bunu engelleyemez",
+    "message": "Eski Guardian’ınız bunu engelleyemez",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian adresine yalnızca bildirim gönderilir.",
+    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian’a yalnızca bildirim gönderilir.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {

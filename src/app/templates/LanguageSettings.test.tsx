@@ -153,6 +153,20 @@ describe('LanguageSettings', () => {
     expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
+  it('leaves once however many times the user taps', () => {
+    render(<LanguageSettings />);
+
+    // history.go(-1) resolves on a later task, so the rows are still live and
+    // mounted after the first tap; a second traversal would overshoot Settings.
+    fireEvent.click(screen.getByText('Deutsch'));
+    fireEvent.click(screen.getByText('Deutsch'));
+    fireEvent.click(screen.getByText('Français'));
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLocale).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLocale).toHaveBeenCalledWith('de');
+  });
+
   it('routes to the settings root, replacing, when opened cold with no history to pop', () => {
     mockHistoryPosition = 0;
     render(<LanguageSettings />);

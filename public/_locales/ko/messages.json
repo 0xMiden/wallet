@@ -2421,7 +2421,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian 주소에는 단지 알림만 전송됩니다.",
+    "message": "로테이션은 기기에 저장된 두 개의 키로 승인됩니다. 기존 Guardian에는 알림만 전송됩니다.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
