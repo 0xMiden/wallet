@@ -2033,7 +2033,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian adresine geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2317,8 +2317,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Bu zaten şu anki \"guardian\"unuzdur.",
-    "englishSource": "That's already your current guardian."
+    "message": "Bu zaten mevcut Guardian’ınız.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Zaten bir Guardian geçişi sürüyor. Yenisini başlatmadan önce tamamlanmasını bekleyin.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Guardian'i Dönüştür",
@@ -2360,10 +2364,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Güncellendi!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Çevrimiçi",
     "englishSource": "Online"
@@ -2372,9 +2372,37 @@
     "message": "İnceleme rotasyonu",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Yeni",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Güncel Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Yeni Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardian’ınızı başarıyla değiştirdiniz!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Şu anda neler değişiyor",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Yeni Guardian’ınız bundan sonra her işlemi sizinle birlikte imzalayacaktır — eski Guardian’ınızın artık herhangi bir rolü yoktur.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Cüzdan adresiniz, fonlarınız ve geçmişiniz değişmemiştir. Rotasyon sırasında hiçbir şey taşınmamıştır.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Yeni işlemlerin tamamlanabilmesi için yeni Guardian’ınızın erişilebilir olması gerekir.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Guardian'ınızı istediğiniz zaman yeniden değiştirebilirsiniz — kurtarma ifadenizi güvenli bir yerde saklayın, bu işlem için gereklidir.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
@@ -2393,11 +2421,11 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Eski Guardian adresiniz bunu engelleyemez",
+    "message": "Eski Guardian’ınız bunu engelleyemez",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian adresine yalnızca bildirim gönderilir.",
+    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian’a yalnızca bildirim gönderilir.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2691,10 +2719,6 @@
   "viewInActivities": {
     "message": "Etkinlikler'de görüntüle",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Etkinliği görüntüle",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",

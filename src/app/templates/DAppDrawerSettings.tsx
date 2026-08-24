@@ -11,7 +11,7 @@ import { navigate } from 'lib/woozie';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 
-const DAppDrawerSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
+const DAppDrawerSettings: FC = () => {
   const { t } = useTranslation();
   const { getAllDAppSessions } = useMidenContext();
   const account = useAccount();
@@ -55,18 +55,13 @@ const DAppDrawerSettings: FC<{ onClose?: () => void }> = ({ onClose }) => {
             testID={GeneralSettingsSelectors.DAppToggle}
           />
         </div>
-        <span className="text-xs text-text-muted">{t('dAppsToggleDescription')}</span>
+        {/* `text-heading-gray`: `text-text-muted` is #ababab, 2.30:1 on the light
+            page, and this 12px line is the only explanation of what the toggle does. */}
+        <span className="text-xs text-heading-gray">{t('dAppsToggleDescription')}</span>
       </div>
 
       {hasConnectedDApps && (
-        <button
-          type="button"
-          onClick={() => {
-            onClose?.();
-            navigate('/settings/dapps');
-          }}
-          className="w-full"
-        >
+        <button type="button" onClick={() => navigate('/settings/dapps')} className="w-full">
           <div className="flex items-center justify-between text-heading-gray">
             <div className="flex flex-col">
               <span className="font-medium text-base">{t('seeConnected')}</span>

@@ -2017,7 +2017,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Firma conjuntamente cada transacción: ni tu dispositivo ni la aplicación «Guardian» pueden mover fondos por sí solos. Te ayuda a recuperar tu cuenta si pierdes tu dispositivo.",
+    "message": "Firma conjuntamente cada transacción: ni tu dispositivo ni el Guardian pueden mover fondos por sí solos. Te ayuda a recuperar tu cuenta si pierdes tu dispositivo.",
     "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
@@ -2033,7 +2033,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Puedes cambiar a una «Guardian» diferente en cualquier momento con tu frase de recuperación. Solo cambia la persona que la cofirma; tu cuenta y tus fondos siguen siendo los mismos.",
+    "message": "Puedes cambiar a un Guardian diferente en cualquier momento con tu frase de recuperación. Solo cambia quien cofirma; tu cuenta y tus fondos siguen siendo los mismos.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2317,8 +2317,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Eso ya es tu «guardian» actual.",
-    "englishSource": "That's already your current guardian."
+    "message": "Eso ya es tu Guardian actual.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Ya hay un cambio de Guardian en curso. Espera a que termine antes de iniciar otro.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Rotar Guardian",
@@ -2360,10 +2364,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian ¡Actualizado!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "En línea",
     "englishSource": "Online"
@@ -2372,9 +2372,37 @@
     "message": "Rotación de revisiones",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Nuevo",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Guardian actual",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Nuevo Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "¡Has rotado con éxito tu Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "¿Qué cambia ahora?",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Tu nuevo Guardian firmará conjuntamente todas las transacciones a partir de ahora; tu antiguo Guardian ya no tiene ninguna función.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Tu dirección de monedero, tus fondos y tu historial no han cambiado. No se ha movido nada durante la rotación.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Para que las nuevas transacciones se puedan completar, es necesario que tu nuevo Guardian sea accesible.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Puedes volver a rotar tu «Guardian» en cualquier momento; guarda tu frase de recuperación en un lugar seguro, ya que es necesaria para hacerlo.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Autentifícate para aprobar este cambio de Guardian.",
@@ -2393,7 +2421,7 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Tu antigua dirección de Guardian no puede bloquear esto",
+    "message": "Tu antiguo Guardian no puede bloquear esto",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
@@ -2691,10 +2719,6 @@
   "viewInActivities": {
     "message": "Ver en «Actividades»",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Ver actividad",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ver detalles",

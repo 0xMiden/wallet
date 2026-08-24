@@ -18,6 +18,7 @@ describe('SettingsSelectors', () => {
     RevealPrivateKeyButton: 'Settings/RevealPrivateKeyButton',
     RevealHotKeyButton: 'Settings/RevealHotKeyButton',
     KeysButton: 'Settings/KeysButton',
+    GuardianSettingsButton: 'Settings/GuardianSettingsButton',
     RevealSeedPhraseButton: 'Settings/RevealSeedPhraseButton',
     DAppsButton: 'Settings/DAppsButton',
     NetworksButton: 'Settings/NetworksButton',

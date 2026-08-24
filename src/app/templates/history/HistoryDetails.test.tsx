@@ -140,12 +140,12 @@ jest.mock('components/GuardianTransitionHero', () => ({
   )
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, backLabel, onBack }: { title: string; backLabel: string; onBack: () => void }) => (
+jest.mock('components/NavigationHeader', () => ({
+  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
       <button data-testid="back-button" onClick={onBack}>
-        {backLabel}
+        back
       </button>
     </div>
   )

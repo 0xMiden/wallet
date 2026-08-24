@@ -4,9 +4,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
-import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import LanguageSettings from './LanguageSettings';
+import LanguageSettings, { LANGUAGES } from './LanguageSettings';
 
 // `lib/i18n/react` reads the persisted locale and re-inits i18next on write.
 // Mock both so the initial `getCurrentLocale()` steers `currentCode`, and
@@ -19,6 +18,19 @@ jest.mock('lib/i18n/react', () => ({
 // Native haptic bridge — stub to a spy so selecting a row is testable off-device.
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
+}));
+
+// This screen is routed now, so it owns its own exit: `useBackWithFallback` pops
+// history when there is somewhere to pop to and routes to /settings otherwise.
+const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+let mockHistoryPosition = 1;
+
+jest.mock('lib/woozie', () => ({
+  goBack: (...args: unknown[]) => mockGoBack(...args),
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
 // `app/icons/v2` pulls in SVG asset imports. Render a marker span that echoes the
@@ -42,38 +54,34 @@ const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 const mockUpdateLocale = updateLocale as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 
-// Mirror of the component's language list — the single source of assertions for
-// row count / labels / codes.
-const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Español' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'zh_CN', label: '简体中文' },
-  { code: 'zh_TW', label: '繁體中文' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'pl', label: 'Polski' },
-  { code: 'uk', label: 'Українська' },
-  { code: 'tr', label: 'Türk' },
-  { code: 'pt', label: 'Português' },
-  { code: 'ru', label: 'Русский' }
-];
-
 describe('LanguageSettings', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetCurrentLocale.mockReturnValue('en');
+    mockHistoryPosition = 1;
   });
 
-  it('renders one button per supported language, in order, with the right labels', () => {
+  it('renders one radio per supported language, in order, with the right labels', () => {
     render(<LanguageSettings />);
 
-    const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(LANGUAGES.length);
+    // Radios in a radiogroup, not toggle buttons: the choice is single-select, so
+    // this is what conveys "one of 13" and mutual exclusivity.
+    const rows = screen.getAllByRole('radio');
+    expect(rows).toHaveLength(LANGUAGES.length);
 
     LANGUAGES.forEach(({ label }, index) => {
-      expect(buttons[index]).toHaveTextContent(label);
+      expect(rows[index]).toHaveTextContent(label);
+    });
+  });
+
+  it('tags each label with its own language so a screen reader switches voice', () => {
+    render(<LanguageSettings />);
+
+    // Each label is written in the language it names, so without `lang` all
+    // thirteen are read with the current UI voice — an English voice either
+    // mispronounces or silently skips the CJK and Cyrillic entries.
+    LANGUAGES.forEach(({ label, bcp47 }) => {
+      expect(screen.getByText(label)).toHaveAttribute('lang', bcp47);
     });
   });
 
@@ -85,7 +93,10 @@ describe('LanguageSettings', () => {
     const icons = screen.getAllByTestId('icon');
     expect(icons).toHaveLength(1);
     expect(icons[0]).toHaveAttribute('data-name', 'Checkmark');
-    expect(icons[0]).toHaveAttribute('data-fill', PRIMARY_HEX);
+    // The literal, not the imported binding: the module is mocked just below, so
+    // asserting against `PRIMARY_HEX` compared the mock to itself and held for any
+    // colour the component might have used instead.
+    expect(icons[0]).toHaveAttribute('data-fill', '#E77537');
     expect(icons[0]).toHaveAttribute('data-size', 'xs');
 
     // The Español label carries the selected styling…
@@ -94,7 +105,7 @@ describe('LanguageSettings', () => {
 
     // …while an unselected row carries the default styling.
     const unselectedLabel = screen.getByText('English');
-    expect(unselectedLabel).toHaveClass('text-black', 'font-medium');
+    expect(unselectedLabel).toHaveClass('text-heading-gray', 'font-medium');
   });
 
   it('falls back to the base language when the locale is region-tagged (en-US → en)', () => {
@@ -124,34 +135,144 @@ describe('LanguageSettings', () => {
     expect(screen.getAllByTestId('icon')).toHaveLength(1);
   });
 
-  it('selecting a language fires haptics, persists the locale, and closes', () => {
-    const onClose = jest.fn();
-    render(<LanguageSettings onClose={onClose} />);
+  it('selecting a language fires haptics, persists the locale, and leaves', () => {
+    render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('Deutsch'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Picking a language finishes the task, so the screen has to leave — without
+    // this the selection silently stranded the user on the list.
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
-  it('does not throw when a language is selected without an onClose handler', () => {
+  it('exposes the active language to assistive technology, not just in colour', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
     render(<LanguageSettings />);
 
-    expect(() => fireEvent.click(screen.getByText('日本語'))).not.toThrow();
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockUpdateLocale).toHaveBeenCalledWith('ja');
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('Español');
+    // Exactly one row claims the state.
+    expect(screen.getAllByRole('radio', { checked: true })).toHaveLength(1);
   });
 
-  it('re-selecting the already-active language still persists and closes', () => {
-    const onClose = jest.fn();
+  it('gives the group one tab stop, on the current language', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    // Roving tabindex. Thirteen rows at the default tabIndex=0 made the group
+    // thirteen tab stops, which is both the opposite of the radiogroup contract
+    // and thirteen presses to get past the list.
+    const stops = screen.getAllByRole('radio').filter(row => row.getAttribute('tabindex') === '0');
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toHaveTextContent('Español');
+  });
+
+  it.each([
+    ['ArrowDown', 'Français'],
+    ['ArrowRight', 'Français'],
+    ['ArrowUp', 'English'],
+    ['ArrowLeft', 'English']
+  ])('moves focus with %s, as the radio pattern promises', (key, expected) => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    const current = screen.getByRole('radio', { checked: true });
+    current.focus();
+    fireEvent.keyDown(current, { key });
+
+    expect(document.activeElement).toHaveTextContent(expected);
+  });
+
+  it('wraps at the ends of the list', () => {
     mockGetCurrentLocale.mockReturnValue('en');
-    render(<LanguageSettings onClose={onClose} />);
+    render(<LanguageSettings />);
+
+    const rows = screen.getAllByRole('radio');
+    rows[0]!.focus();
+    fireEvent.keyDown(rows[0]!, { key: 'ArrowUp' });
+
+    expect(document.activeElement).toBe(rows[rows.length - 1]);
+  });
+
+  it('leaves other keys to the browser', () => {
+    mockGetCurrentLocale.mockReturnValue('es');
+    render(<LanguageSettings />);
+
+    const current = screen.getByRole('radio', { checked: true });
+    current.focus();
+    fireEvent.keyDown(current, { key: 'Tab' });
+
+    // Swallowing Tab would trap focus in the list.
+    expect(document.activeElement).toBe(current);
+  });
+
+  it.each(['zh', 'zh-Hans', 'zh-Hant', 'zh-Hant-TW', 'zh-HK'])(
+    'badges English for %s, which is the language that actually renders',
+    locale => {
+      // i18next's resources are keyed `zh-CN`/`zh-TW` with no bare `zh` bundle, so
+      // every one of these resolves to `en` and the UI is in English. Claiming
+      // 简体中文 would contradict the screen and hide the repair — the row that
+      // would switch them to Chinese would be the one already checkmarked. For
+      // `zh-Hant`/`zh-Hant-TW` it would also name the wrong script, since list
+      // order reaches `zh_CN` first.
+      mockGetCurrentLocale.mockReturnValue(locale);
+      render(<LanguageSettings />);
+
+      expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('English');
+    }
+  );
+
+  it('resolves a regional tag with no regional bundle to its base language', () => {
+    // `en_GB` ships as a messages catalogue but not as a picker row, and i18next
+    // resolves it to `en`. This is the tier the removed one was confused with.
+    mockGetCurrentLocale.mockReturnValue('en-GB');
+    render(<LanguageSettings />);
+
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('English');
+  });
+
+  it('resolves a hyphenated regional tag, which the extension resolver returns', () => {
+    // `getCurrentLocale` normalizes i18next's tag but not its fallbacks, and the
+    // extension's `getUILanguage()` hands back `zh-TW`.
+    mockGetCurrentLocale.mockReturnValue('zh-TW');
+    render(<LanguageSettings />);
+
+    expect(screen.getByRole('radio', { checked: true })).toHaveTextContent('繁體中文');
+  });
+
+  it('leaves once however many times the user taps', () => {
+    render(<LanguageSettings />);
+
+    // history.go(-1) resolves on a later task, so the rows are still live and
+    // mounted after the first tap; a second traversal would overshoot Settings.
+    fireEvent.click(screen.getByText('Deutsch'));
+    fireEvent.click(screen.getByText('Deutsch'));
+    fireEvent.click(screen.getByText('Français'));
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLocale).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLocale).toHaveBeenCalledWith('de');
+  });
+
+  it('routes to the settings root, replacing, when opened cold with no history to pop', () => {
+    mockHistoryPosition = 0;
+    render(<LanguageSettings />);
+
+    fireEvent.click(screen.getByText('日本語'));
+
+    expect(mockUpdateLocale).toHaveBeenCalledWith('ja');
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+  });
+
+  it('re-selecting the already-active language still persists and leaves', () => {
+    mockGetCurrentLocale.mockReturnValue('en');
+    render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('English'));
 
     expect(mockUpdateLocale).toHaveBeenCalledWith('en');
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 });

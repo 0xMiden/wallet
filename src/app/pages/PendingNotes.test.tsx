@@ -11,6 +11,7 @@ import PendingNotes from './PendingNotes';
 
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
+let mockHistoryPosition = 0;
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -18,7 +19,9 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/woozie', () => ({
   goBack: (...args: unknown[]) => mockGoBack(...args),
-  navigate: (...args: unknown[]) => mockNavigate(...args)
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
 jest.mock('lib/platform', () => ({
@@ -73,18 +76,15 @@ jest.mock('lib/telemetry', () => ({
   classifyError: (error: unknown) => classifyErrorMock(error)
 }));
 
-function setHistoryLength(length: number) {
-  Object.defineProperty(window.history, 'length', { configurable: true, value: length });
-}
-
 describe('PendingNotes back affordance', () => {
   beforeEach(() => {
     mockGoBack.mockClear();
     mockNavigate.mockClear();
+    mockHistoryPosition = 0;
   });
 
   it('pops history when there is a previous screen to return to', () => {
-    setHistoryLength(3);
+    mockHistoryPosition = 2;
     render(<PendingNotes />);
 
     fireEvent.click(screen.getByLabelText('back'));
@@ -94,22 +94,21 @@ describe('PendingNotes back affordance', () => {
   });
 
   it('routes home instead of leaving a dead back button when opened cold (no history)', () => {
-    // A received-note notification opens a fresh tab (history length 1), where
-    // history.go(-1) is a no-op — so back must fall back to the home route.
-    setHistoryLength(1);
+    // A received-note notification opens a fresh tab at the first history entry,
+    // where history.go(-1) is a no-op — so back must fall back to the home route,
+    // replacing rather than pushing so forward does not return here.
+    mockHistoryPosition = 0;
     render(<PendingNotes />);
 
     fireEvent.click(screen.getByLabelText('back'));
 
-    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).toHaveBeenCalledWith('/', 'replace');
     expect(mockGoBack).not.toHaveBeenCalled();
   });
 
   it('horizontally insets the header (px-4) so it lines up with the px-4 body (#460)', () => {
-    // The PendingTab body is `px-4`; the ScreenHeader carries no horizontal
-    // inset of its own, so — like every other ScreenHeader consumer — it must be
-    // wrapped in a `px-4` container. Without it the back arrow + title sit 16px
-    // left of every row below, reading as misaligned.
+    // The PendingTab body is `px-4`; NavigationHeader carries its own `px-4`
+    // inset, so the back arrow + title line up with every row below.
     render(<PendingNotes />);
 
     const header = screen.getByLabelText('back').closest('.px-4');
@@ -148,7 +147,10 @@ describe('PendingNotes - note_handle telemetry', () => {
     jest.clearAllMocks();
     telemetryHandles.length = 0;
     pendingTabProps = {};
-    setHistoryLength(3);
+    // A position with something behind it, so the back affordance pops rather
+    // than routing home. Irrelevant to what these tests assert, but a cold-open
+    // page renders a different header and none of them are about that.
+    mockHistoryPosition = 2;
   });
 
   it('does not begin a flow merely for opening the screen', () => {

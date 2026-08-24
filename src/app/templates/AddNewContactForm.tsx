@@ -91,7 +91,7 @@ export const AddNewContactForm: React.FC<AddNewContactFormProps> = ({
           errorCaption={errors.name?.message}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
           maxLength={50}
-          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-text-muted placeholder:font-medium rounded-10"
+          className="font-sans bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-text-muted placeholder:font-medium rounded-10"
           fieldWrapperBottomMargin={false}
         />
         <FormField
@@ -104,7 +104,7 @@ export const AddNewContactForm: React.FC<AddNewContactFormProps> = ({
           data-testid="address-book-address-input"
           placeholder={t('enterAddress')}
           errorCaption={errors.address?.message}
-          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
+          className="font-sans bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
           fieldWrapperBottomMargin={false}
           containerClassName="bg-gray-25 border-gray-100 border rounded-10"
         />

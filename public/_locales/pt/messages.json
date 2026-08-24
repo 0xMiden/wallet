@@ -2033,7 +2033,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Você pode mudar para um endereço Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem é co-signatário sofre alterações; sua conta e seus fundos permanecem os mesmos.",
+    "message": "Você pode mudar para um Guardian diferente a qualquer momento usando sua frase de recuperação. Apenas quem é co-signatário sofre alterações; sua conta e seus fundos permanecem os mesmos.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2317,8 +2317,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Essa já é a sua “guardian” atual.",
-    "englishSource": "That's already your current guardian."
+    "message": "Esse já é o seu Guardian atual.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Já existe uma mudança de Guardian em andamento. Aguarde a conclusão antes de iniciar outra.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "",
@@ -2360,10 +2364,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Atualizado!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2372,9 +2372,37 @@
     "message": "Rotação de revisão",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Novo",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Guardian atual",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Novo Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Você realizou com sucesso a rotação do seu Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "O que muda agora",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Seu novo Guardian coassina todas as transações a partir de agora — seu antigo Guardian não tem mais nenhuma função.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "O endereço da sua carteira, seus fundos e seu histórico permanecem inalterados. Nada foi movimentado durante a rotação.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "As novas transações precisam que seu novo Guardian esteja acessível antes de poderem ser concluídas.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Você pode alternar seu Guardian novamente a qualquer momento — mantenha sua frase de recuperação em segurança, ela é necessária para fazer isso.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Autentique-se para aprovar esta mudança de Guardian.",
@@ -2397,7 +2425,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "A rotação é aprovada por suas duas chaves no dispositivo. O antigo endereço Guardian é apenas notificado.",
+    "message": "A rotação é aprovada por suas duas chaves no dispositivo. O antigo Guardian é apenas notificado.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2691,10 +2719,6 @@
   "viewInActivities": {
     "message": "Visualizar em Atividades",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Ver atividades",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ver detalhes",
