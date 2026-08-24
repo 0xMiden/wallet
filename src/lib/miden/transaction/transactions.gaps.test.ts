@@ -131,6 +131,9 @@ jest.mock('shared/logger', () => ({
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'private';
 jest.mock('../helpers', () => ({
+  // Real `isPrivateNoteType`: it decides whether a completed send relays its
+  // note file to the recipient, so stubbing it would make that branch vacuous.
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 
@@ -451,6 +454,136 @@ describe('completeCustomTransaction private-note delivery', () => {
     expect(mockSendPrivateNote).not.toHaveBeenCalled();
     expect(mockWaitForCommit).not.toHaveBeenCalled();
     expect(txStore[0]!.noteDelivery).toBeUndefined();
+  });
+});
+
+describe('a custom transaction that strands a private note says so', () => {
+  const customRow = (id: string, overrides: Record<string, unknown> = {}) => {
+    const row: Record<string, unknown> & { status?: ITransactionStatus; displayMessage?: string } = {
+      id,
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      ...overrides
+    };
+    txStore.push(row);
+    return row;
+  };
+
+  const resultWithNotes = (notes: unknown[]) =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    }) as any;
+
+  const privateNote = { metadata: () => ({ noteType: () => 'private' }), intoFull: () => ({ valid: true }) };
+
+  it('flags the row when no recipient was ever named, and does not pretend to deliver', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-stranded', { secondaryAccountId: undefined });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    // On chain, so Completed — failing it would be untrue and would offer a Retry
+    // that spends the assets a second time.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
+  });
+
+  it('counts them when more than one is stranded', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-stranded-2', { secondaryAccountId: undefined });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote, privateNote, privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(row.displayMessage).toBe('Completed — 3 private notes could not be delivered');
+  });
+
+  it('flags a note that cannot be turned into deliverable bytes', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-nofull', { secondaryAccountId: 'recipient' });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(
+        row as any,
+        resultWithNotes([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+  });
+
+  it('says nothing when the note was handed over', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-delivered', { secondaryAccountId: 'recipient' });
+
+    await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({ valid: true }, 'recipient');
+    expect(row.displayMessage).not.toContain('could not be delivered');
+  });
+
+  // A relay throw IS treated as undelivered, and this case used to assert the
+  // opposite on the premise that the note is already in the client's store by the
+  // time the transport is called, so the SDK's retry outbox would deliver it.
+  //
+  // That premise does not survive contact with where the outbox is written. Rust
+  // writes the entry INSIDE the relay and only after it has resolved the transport
+  // API, so every failure upstream of that write queues nothing while throwing
+  // exactly like a mid-transport timeout that DID queue: transport not configured,
+  // a realm torn down before the op ran, and — new under 0.16 — `sendPrivateOutput`
+  // failing to resolve the note by id in this client's store. The two are
+  // indistinguishable from here, so the row records the pessimistic one:
+  // over-reporting a note that arrives anyway costs a stale warning, while
+  // under-reporting costs the funds.
+  it('flags a relay that threw, because the transport may never have received it', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-relay-threw', { secondaryAccountId: 'recipient' });
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down') as never);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    // Completed, because the transaction really is on chain — Failed would offer a
+    // Retry that spends a second time.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toContain('could not be delivered');
+    expect(row.noteDelivery).toBe('undelivered');
+  });
+
+  it('says nothing for a public note, which needs no delivery at all', async () => {
+    _gh.__noteTypeForTest = 'public';
+    const row = customRow('tx-public', { secondaryAccountId: undefined });
+
+    await completeCustomTransaction(
+      row as any,
+      resultWithNotes([{ metadata: () => ({ noteType: () => 'public' }), intoFull: () => ({ valid: true }) }])
+    );
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).not.toContain('could not be delivered');
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
 });
 

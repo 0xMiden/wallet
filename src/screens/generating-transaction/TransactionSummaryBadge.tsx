@@ -3,8 +3,11 @@ import React, { FC, ReactNode, useMemo } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ITransaction } from 'lib/miden/db/types';
-import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { formatAmount } from 'lib/shared/format';
@@ -81,13 +84,24 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
   }
 
   return (
+    // The OUTER row deliberately does not wrap. `lhs → rhs` is the pill's whole
+    // grammar, and letting the three siblings wrap as units breaks every
+    // one-line variant — a send at the 360px popup would put the amount and the
+    // recipient on separate lines with the arrow stranded between them.
+    //
+    // Only `lhs` wraps internally, because only it is unbounded: a batch claim
+    // lists every asset it swept up. Both of this pill's ancestors hide
+    // overflow, so the old `shrink-0 whitespace-nowrap` simply dropped the tail
+    // — and the activity row's "+N more" pointed here for a full list this could
+    // not show. The arrow stays vertically centred, so on a wrapped claim it
+    // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-full bg-surface-interactive py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
         className
       )}
     >
-      <div className="flex shrink-0 font-heading items-center gap-1.5 whitespace-nowrap font-extrabold text-heading-gray text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-heading-gray text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
@@ -103,15 +117,24 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
 interface ResolvedAsset {
   symbol: string;
   decimals?: number;
+  /**
+   * False when `decimals` is the unknown-token placeholder's guess rather than
+   * a figure the faucet reported. `formatAmount` falls back to MIDEN's 6 for an
+   * absent `decimals`, so a caller cannot tell "unknown" from "6" by that field
+   * alone — it has to ask this one.
+   */
+  scaleIsKnown: boolean;
 }
 
 /**
  * Two-tone swap-side amount — dark amount immediately followed by the grey
  * symbol (".15ETH"), matching the mock's logo-less pill.
  */
-const SwapAmountText: FC<{ amount: string; symbol: string }> = ({ amount, symbol }) => (
+// `amount` is absent when the faucet's scale is a guess: the side is named
+// without a quantity rather than shown at an invented one.
+const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    <span className="text-heading-gray">{amount}</span>
+    {amount !== undefined && <span className="text-heading-gray">{amount}</span>}
     <span className="text-gray">{symbol}</span>
   </span>
 );
@@ -124,28 +147,92 @@ const SwapAmountText: FC<{ amount: string; symbol: string }> = ({ amount, symbol
  */
 export const resolveSwapAsset = (
   faucetId: string | undefined,
-  assetsMetadata: Record<string, AssetMetadata> | undefined
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
 ): ResolvedAsset => {
   const swapToken = getSwapTokenByFaucetId(faucetId);
-  const metadata = faucetId ? assetsMetadata?.[faucetId] : undefined;
+  // Resolved rather than read straight from the store: an off-registry faucet
+  // the store has never resolved must come back as the placeholder, so the
+  // scale check below sees a record that admits its 6 is a guess.
+  const metadata = resolveDisplayMetadata(faucetId, assetsMetadata, nativeFaucetId);
   return {
-    symbol: swapToken?.symbol ?? metadata?.symbol ?? MIDEN_METADATA.symbol,
-    decimals: swapToken?.decimals ?? metadata?.decimals
+    symbol: swapToken?.symbol ?? metadata.symbol,
+    // A registry token states its own decimals. Off the registry, only metadata
+    // the wallet actually resolved may be scaled by — the unknown-token
+    // placeholder's 6 is a guess, and `undefined` here withholds the quantity
+    // rather than inventing one.
+    decimals: swapToken?.decimals ?? (hasKnownScale(metadata) ? metadata.decimals : undefined),
+    scaleIsKnown: swapToken !== undefined || hasKnownScale(metadata)
   };
 };
 
 /** USDC fallback decimals for an earn deposit when the faucet has no metadata (mirrors `MIDEN_USDC_DECIMALS`). */
 const EARN_USDC_DECIMALS = 6;
 
-/** Human protocol labels per Epoch lender key (the `LENDER` segment of a `marketUid`). */
-const EARN_LENDER_LABELS: Record<string, string> = { DUMMY_LENDING: 'AAVE' };
+/**
+ * Format a claim's assets as `["20 A", "10 B"]`, one entry per faucet swept up.
+ *
+ * Shared by the in-progress badge and the success receipt because they render
+ * the SAME claim seconds apart on the SAME screen: the receipt replaces the
+ * badge once the row completes. Deriving them separately is what let the receipt
+ * silently drop every secondary asset and label an unresolved faucet MIDEN while
+ * the badge called it Unknown.
+ *
+ * A batch claim sums per faucet (`assetTotals`); legacy rows without it fall
+ * back to the first faucet's `amount`/`faucetId`. Empty when the row carries no
+ * amount at all, which callers should render as no summary rather than a blank.
+ *
+ * `nativeFaucetId` is passed in rather than read here: the synchronous accessor
+ * returns `null` until discovery lands and firing it from inside this function
+ * gave no way to re-render afterwards, so a claim of the native asset kept the
+ * `Unknown` label for the life of the screen while the activity row — which
+ * awaits the id — called the same claim MIDEN. Callers pass `useMidenFaucetId()`,
+ * which re-renders when the id arrives. `null` means "not yet known", so the
+ * native branch simply does not match until it is.
+ */
+export const formatConsumeAssetParts = (
+  transaction: ITransaction,
+  assetsMetadata: Record<string, AssetMetadata> | undefined,
+  nativeFaucetId: string | null
+): string[] => {
+  const totals =
+    transaction.assetTotals && transaction.assetTotals.length > 0
+      ? transaction.assetTotals
+      : transaction.amount !== undefined && transaction.faucetId
+        ? [{ faucetId: transaction.faucetId, amount: transaction.amount }]
+        : [];
 
-/** Build the "AAVE-USDC" pair label from an Epoch `marketUid` (`LENDER:chainId:token`). USDC-only today. */
-const earnMarketLabel = (marketUid: string): string | undefined => {
+  return totals.map(total => {
+    const tokenMetadata = assetsMetadata?.[total.faucetId];
+    // Mirrors `getTokenMetadata`, which the activity row for this same claim
+    // goes through: an unresolved NON-native faucet is Unknown, not MIDEN.
+    // Labelling it MIDEN would name a foreign token after the native one —
+    // and a batch claim's secondary faucets are exactly the ones the wallet
+    // has no metadata for, since it has never held them.
+    const fallback =
+      nativeFaucetId !== null && total.faucetId === nativeFaucetId ? MIDEN_METADATA : DEFAULT_TOKEN_METADATA;
+    const resolved = tokenMetadata ?? fallback;
+    // No trustworthy scale means no honest way to convert this faucet's base
+    // units — the unknown-token placeholder's 6 is a guess, not a fact, and
+    // using it renders an 18-decimal token 10^12 too large. Name the asset and
+    // withhold the quantity until real metadata resolves. Checked on the
+    // resolved record rather than the placeholder's identity because the
+    // placeholder is cached, and a stored copy is never `===` the constant.
+    return hasKnownScale(resolved)
+      ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
+      : resolved.symbol;
+  });
+};
+
+/**
+ * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
+ * the lender key itself, hyphenated (e.g. `DUMMY_LENDING` → "DUMMY-LENDING").
+ * No hardcoded aliases: the badge shows the real market name.
+ */
+export const earnMarketLabel = (marketUid: string): string | undefined => {
   const lenderKey = marketUid.split(':')[0];
   if (!lenderKey) return undefined;
-  const protocol = EARN_LENDER_LABELS[lenderKey] ?? lenderKey;
-  return `${protocol}-USDC`;
+  return lenderKey.replaceAll('_', '-');
 };
 
 /**
@@ -153,7 +240,7 @@ const earnMarketLabel = (marketUid: string): string | undefined => {
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
  *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
- *   earn-deposit  →  {amount} {symbol}        ↑   {protocol}-USDC   (up-arrow separator)
+ *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Consumed
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for
@@ -164,20 +251,18 @@ export const useTransactionSummaryBadgeContent = (
   transaction?: ITransaction
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
-      const amount =
-        transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+      const parts = formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId);
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
-      if (!amount) return undefined;
+      if (parts.length === 0) return undefined;
 
       return {
-        lhs: `${amount} ${symbol}`,
+        lhs: parts.join(', '),
         rhs: t('consumed', { defaultValue: 'Consumed' })
       };
     }
@@ -200,16 +285,16 @@ export const useTransactionSummaryBadgeContent = (
     }
 
     if (transaction?.type === 'swap') {
-      const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata);
+      const offered = resolveSwapAsset(transaction.faucetId, assetsMetadata, nativeFaucetId);
       const requestedFaucetId = transaction.extraInputs?.requestedFaucetId;
-      const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata);
+      const requested = resolveSwapAsset(requestedFaucetId, assetsMetadata, nativeFaucetId);
 
-      const offeredAmount =
-        transaction.amount !== undefined ? formatAmount(transaction.amount, offered.decimals) : undefined;
       const requestedRaw = transaction.extraInputs?.requestedAmount;
-      const requestedAmount = requestedRaw !== undefined ? formatAmount(requestedRaw, requested.decimals) : undefined;
+      if (transaction.amount === undefined || requestedRaw === undefined) return undefined;
 
-      if (!offeredAmount || !requestedAmount) return undefined;
+      // Present but unscalable: name the side, withhold the quantity.
+      const offeredAmount = offered.scaleIsKnown ? formatAmount(transaction.amount, offered.decimals) : undefined;
+      const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
@@ -220,23 +305,27 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction?.type !== 'send') return undefined;
 
-    const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-    const symbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol;
-    const amount =
-      transaction.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
+    const tokenMetadata = resolveDisplayMetadata(transaction.faucetId, assetsMetadata, nativeFaucetId);
+    const symbol = tokenMetadata.symbol;
+    // A faucet the wallet has never resolved carries the placeholder's guessed
+    // 6 decimals. Naming the token alone is honest; converting by a guess is
+    // not, and this badge IS the hero of the transaction detail screen.
     const recipient = transaction.secondaryAccountId
       ? truncateAddress(transaction.secondaryAccountId, false, 8, 8)
       : undefined;
 
-    if (!amount || !recipient) return undefined;
+    if (transaction.amount === undefined || !recipient) return undefined;
+
+    // Present but unscalable: name the token, withhold the quantity.
+    const amount = hasKnownScale(tokenMetadata) ? formatAmount(transaction.amount, tokenMetadata.decimals) : undefined;
 
     return {
-      lhs: `${amount} ${symbol}`,
+      lhs: amount ? `${amount} ${symbol}` : symbol,
       rhs: (
         <>
           <span className="min-w-0 truncate">{recipient}</span>
         </>
       )
     };
-  }, [assetsMetadata, t, transaction]);
+  }, [assetsMetadata, nativeFaucetId, t, transaction]);
 };

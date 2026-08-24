@@ -699,6 +699,29 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).toHaveBeenCalled();
     });
 
+    // Dedup asks "did THIS wallet already claim this note". A restored row is
+    // not evidence of that, and counting one would let a dump naming a note id
+    // block that note from ever being claimed.
+    it('does not dedup against a row restored from a backup', async () => {
+      mockDedupQuery([
+        {
+          id: 'restored-tx',
+          type: 'consume',
+          noteId: 'note-123',
+          accountId: 'account-1',
+          status: ITransactionStatus.Completed,
+          restoredFromBackup: true,
+          initiatedAt: 100
+        }
+      ]);
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateConsumeTransaction('account-1', note);
+
+      expect(result).not.toBe('restored-tx');
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+    });
+
     it('falls back to initiatedAt when a Failed row has no completedAt (backoff still applies)', async () => {
       // Edge case: a Failed row whose `completedAt` was never written (e.g. a
       // crash mid-cancel). Both the sort comparator and the backoff check use
@@ -1374,6 +1397,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     }));
 
     jest.doMock('../helpers', () => ({
+      ...jest.requireActual('../helpers'),
       toNoteTypeString: jest.fn(() => 'public')
     }));
 
@@ -1512,6 +1536,7 @@ describe('completeCustomTransaction (isolated)', () => {
     }));
 
     jest.doMock('../helpers', () => ({
+      ...jest.requireActual('../helpers'),
       toNoteTypeString: jest.fn(() => 'public')
     }));
 

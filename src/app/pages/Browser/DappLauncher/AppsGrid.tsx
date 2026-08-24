@@ -47,6 +47,8 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
       onClick={handleClick}
       className="flex flex-col items-center gap-3 rounded-2xl border border-[#E5E5EA] bg-white p-4 text-left active:opacity-90"
       aria-label={dapp.name}
+      data-testid="dapp-grid-card"
+      data-dapp-url={dapp.url}
     >
       <motion.div
         layoutId={`dapp-favicon-${dapp.url}`}

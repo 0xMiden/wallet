@@ -20,6 +20,7 @@ import {
   getPendingNotesUsdTotal,
   type PendingNoteValue,
   pollActiveBridgePrompts,
+  useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
   WalletPromptType
@@ -45,6 +46,11 @@ type WalletPromptDefinition = {
 };
 
 const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition> = {
+  [WalletPromptType.GuardianNoteRecovery]: {
+    titleKey: 'guardianNoteRecoveryPromptTitle',
+    bodyKey: 'guardianNoteRecoveryTransportStep',
+    dismissible: false
+  },
   [WalletPromptType.Bridge]: {
     titleKey: 'bridgePromptTitle',
     bodyKey: 'bridgePromptBody',
@@ -94,6 +100,7 @@ const WALLET_PROMPT_TEST_IDS: Partial<Record<WalletPromptType, string>> = {
 };
 
 const WALLET_PROMPT_ORDER = [
+  WalletPromptType.GuardianNoteRecovery,
   WalletPromptType.PendingNotes,
   WalletPromptType.Bridge,
   WalletPromptType.HotKeyRotationNeeded,
@@ -130,6 +137,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const [rotationStatusIndicator, setRotationStatusIndicator] = useState<PromptCardStatus>('idle');
   const rotatingRef = useRef(false);
   const [bridgeTransactions, setBridgeTransactions] = useState<string[]>([]);
+  const noteRecoveryProgress = useGuardianNoteRecoveryProgress(
+    account.guardianNoteRecoveryPending === true ? account.publicKey : null
+  );
   const bridgePromptPending = isPromptPending(WalletPromptType.Bridge);
   const hotKeyPromptPending = isPromptPending(WalletPromptType.HotKeyHardwareUnavailable);
   const pendingNotesStatus = storage.prompts[WalletPromptType.PendingNotes];
@@ -147,6 +157,28 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     () => formatUsd(getPendingNotesUsdTotal(claimableNotes ?? [], tokenPrices)),
     [claimableNotes, tokenPrices]
   );
+
+  // One localized line per recovery step; the public-backfill step carries the
+  // live block progress the SW reports after each scanned chunk.
+  const noteRecoveryBody = useMemo(() => {
+    if (!noteRecoveryProgress) return undefined;
+    switch (noteRecoveryProgress.step) {
+      case 'transport':
+        return t('guardianNoteRecoveryTransportStep');
+      case 'proposals':
+        return t('guardianNoteRecoveryProposalsStep');
+      case 'public': {
+        const { syncedToBlock, latestBlock } = noteRecoveryProgress;
+        if (syncedToBlock === undefined || latestBlock === undefined) {
+          return t('guardianNoteRecoveryPublicPreparingStep');
+        }
+        return t('guardianNoteRecoveryPublicStep', {
+          current: syncedToBlock.toLocaleString(),
+          latest: latestBlock.toLocaleString()
+        });
+      }
+    }
+  }, [noteRecoveryProgress, t]);
 
   const hasBalance = useMemo(() => balances.some(token => token.balance > 0), [balances]);
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
@@ -294,6 +326,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
     return WALLET_PROMPT_ORDER.filter(type => {
+      if (type === WalletPromptType.GuardianNoteRecovery) return noteRecoveryProgress !== null;
       if (type === WalletPromptType.PendingNotes) return showPendingNotesPrompt;
       if (type === WalletPromptType.Faucet) return showFaucetPrompt;
       if (type === WalletPromptType.Bridge) return bridgePromptPending && bridgeTransactions.length > 0;
@@ -305,6 +338,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     bridgeTransactions.length,
     isLoaded,
     isPromptPending,
+    noteRecoveryProgress,
     showFaucetPrompt,
     showPendingNotesPrompt
   ]);
@@ -314,6 +348,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const promptOverrides = useCallback(
     (type: WalletPromptType): PromptCardOverrides => {
       switch (type) {
+        case WalletPromptType.GuardianNoteRecovery:
+          return {
+            body: noteRecoveryBody,
+            status: 'loading'
+          };
         case WalletPromptType.Faucet:
           return {
             onAction: fundWallet,
@@ -347,6 +386,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     },
     [
       bridgeTransactions,
+      noteRecoveryBody,
       copyHotKeyError,
       copyStatusIndicator,
       faucetStatusIndicator,

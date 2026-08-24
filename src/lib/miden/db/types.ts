@@ -34,6 +34,12 @@ export type IBridgeProvider = 'epoch' | 'agglayer';
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
 
+/** One faucet's summed amount inside a batch consume. */
+export interface IConsumedAssetTotal {
+  faucetId: string;
+  amount: bigint;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
@@ -324,6 +330,8 @@ export interface ITransaction {
   /** All note ids for batch consume transactions (noteId is the first) */
   noteIds?: string[];
   noteType?: NoteType;
+  /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
@@ -339,6 +347,15 @@ export interface ITransaction {
   error?: string;
   /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
   rawError?: string;
+  /**
+   * Set on every row restored from a backup file. A dump is an archive of what
+   * happened, so a restored row is a RECORD and must never become WORK: its
+   * contents — recipient, amount, `requestBytes` — come from whoever authored
+   * the file, and the FIFO loop and the Retry button both drive rows into the
+   * signer without re-confirming any of that. `importDb` lands these rows in
+   * `Failed`; this flag is what keeps them there.
+   */
+  restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
   /**
    * Current sub-phase during active processing. Readers should treat this
@@ -398,6 +415,72 @@ export interface ITransaction {
    * already hold is a no-op.
    */
   nextRelayAt?: number;
+  /**
+   * Sticky: set once some attempt on this row reached a point from which a
+   * chain submit cannot be ruled out, and never unset. Guards the cached
+   * `requestBytes` of a guardian recallable `send` from being rebuilt, since
+   * those bytes pin the note id that makes the chain reject a duplicate —
+   * rebuilding them after a possible submit risks paying the recipient twice.
+   *
+   * A per-attempt `stage` cannot carry this, for two independent reasons.
+   * Requeueing clears `stage`, so the signal survived exactly one retry and the
+   * next failure at an early stage looked pre-submit and cleared the bytes
+   * anyway. And a row can be failed out from under a running pipeline by
+   * `cancelTransaction`, which freezes `stage` wherever the cancel caught it
+   * while the pipeline goes on to submit — so the stage can say 'proving'
+   * about a transfer that landed. "May have submitted" is a property of the
+   * row's history, not of the attempt currently running, so the leaves write it
+   * directly at the submit crossing (`markMayHaveSubmitted`).
+   *
+   * Absent does NOT by itself mean "never submitted". It means no attempt
+   * recorded a crossing, which for rows written by an older build — no leaf ever
+   * stamped this — is simply unknown; `PRE_SUBMIT_STAGES` documents how those are
+   * read conservatively from the stage and the presence of cached bytes.
+   */
+  mayHaveSubmitted?: boolean;
+  /**
+   * Unix seconds at which this row was failed from OUTSIDE its own pipeline —
+   * the Cancel button — while that pipeline was still running. Not the same
+   * claim as `mayHaveSubmitted`, and deliberately not merged into it.
+   *
+   * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
+   * do not yet know whether one will: the cancel marks the row but does not
+   * abort the work, so the pipeline runs on and may still submit. The GUARDIAN
+   * leaves stamp `mayHaveSubmitted` before submitting and their writes go through
+   * a terminal row, so a crossing that occurs there IS recorded — but only from
+   * the moment the leaf reaches it. Between the cancel and that stamp the row
+   * looks pre-submit, and a retry in that window would rebuild the request and pay
+   * twice. This field covers exactly that gap.
+   *
+   * For a send from a non-guardian account there is no such stamp to supplement:
+   * that leaf calls through to the proxy without recording anything, and the row
+   * stays at the 'sending' its pipeline set once at pickup. This field is then the
+   * only evidence that exists, which is why the retry guard refuses on it outright
+   * rather than merely declining to rebuild.
+   *
+   * It has to expire, which is why it is a timestamp rather than a boolean. The
+   * first version of this guard was a sticky flag, and a sticky "maybe" is
+   * indistinguishable from "yes" forever: a send that failed while proving got
+   * its bytes pinned permanently, so every retry replayed the identical bad
+   * request instead of rebuilding it — defeating the callback-asset fix this
+   * whole change exists for, and freezing an absolute reclaim height that a
+   * later attempt could land already past. So:
+   *
+   *   - the pipeline's own catch CLEARS it, because reaching that catch proves
+   *     the pipeline stopped; if it had submitted, the leaf already stamped
+   *     `mayHaveSubmitted` and the guard holds on that instead;
+   *   - failing that, it lapses after `MAX_WAIT_BEFORE_CANCEL`, the app's own
+   *     definition of the longest a pipeline can plausibly still be alive.
+   *
+   * Both the Cancel button and the stuck reaper set it. The reaper used to be
+   * excluded, on the reasoning that a row it takes has already exceeded that same
+   * maximum and so cannot still be running — but the threshold is when the app
+   * stops waiting, not when the work stops: nothing aborts the pipeline, a mobile
+   * write has no deadline at all, and the maximum is counted in ACTIVE seconds, so
+   * a reaped row can still be mid-submit. That made the reaper the widest instance
+   * of the window this field exists to cover.
+   */
+  cancelledInFlightAt?: number;
 }
 
 export interface ISuccessTransactionOutput {
@@ -506,6 +589,21 @@ export class ConsumeTransaction implements ITransaction {
   noteIds: string[];
   secondaryAccountId?: string;
   faucetId: string;
+  /** Storage mode of the consumed note(s); unset when unknown or when a batch mixes modes. */
+  noteType?: NoteType;
+  /**
+   * Per-faucet totals for a batch claim, in first-seen order. `amount`/`faucetId`
+   * above only cover the first note's faucet, so a mixed batch (10 A, 10 A, 10 B)
+   * needs this to display "+20 A, +10 B". Absent on legacy rows.
+   *
+   * At queue time this is an estimate: a `ConsumableNote` carries only the first
+   * fungible asset of its note, so a note holding two assets contributes one.
+   * `completeConsumeTransaction` recomputes it from the executed transaction,
+   * where every asset of every note is visible. The estimate does survive on a
+   * row completed by `tryCompleteKilledConsume`, which has no transaction result
+   * to recompute from.
+   */
+  assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -533,18 +631,57 @@ export class ConsumeTransaction implements ITransaction {
     this.noteIds = list.map(n => n.id);
     this.faucetId = first.faucetId;
     this.secondaryAccountId = first.senderAddress;
-    // Display amount: sum of the notes sharing the first note's faucet. Notes
-    // of other faucets in a mixed batch aren't reflected here (display only).
-    this.amount =
-      first.amount !== ''
-        ? list.filter(n => n.faucetId === first.faucetId && n.amount !== '').reduce((s, n) => s + BigInt(n.amount), 0n)
-        : undefined;
+    // Surface the note type in history only when it is known and uniform
+    // across the batch — a mixed private/public claim has no single answer.
+    this.noteType = first.type !== 'unknown' && list.every(n => n.type === first.type) ? first.type : undefined;
+    // Keyed rather than scanned: a Claim All is uncapped, and anyone can send the
+    // account notes, so the batch length is not ours to bound.
+    const totals = new Map<string, bigint>();
+    for (const note of list) {
+      if (note.amount === '') continue;
+      totals.set(note.faucetId, (totals.get(note.faucetId) ?? 0n) + BigInt(note.amount));
+    }
+    // Display amount: sum of the notes sharing the first note's faucet. Notes of
+    // other faucets in a mixed batch aren't reflected here (display only). Read
+    // off the same map rather than re-scanning, so the headline amount can never
+    // disagree with its own entry in `assetTotals`.
+    this.amount = first.amount !== '' ? totals.get(first.faucetId) : undefined;
+    // A note with no faucet has no identifiable asset, so it can carry a headline
+    // amount but never its own per-faucet total.
+    const identifiedTotals = Array.from(totals, ([faucetId, amount]) => ({ faucetId, amount })).filter(
+      total => total.faucetId !== ''
+    );
+    this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
   }
+}
+
+/**
+ * Requested side of a swap, persisted on `SwapTransaction.extraInputs`.
+ *
+ * `orderId` is strictly output info (the PSWAP lineage id resolved by
+ * `completeSwapTransaction`) rather than an input, but it rides here to avoid a
+ * Dexie schema change; it is absent until completion, and so are the stamps
+ * below. Exported because readers of persisted rows — which predate any of these
+ * optional fields — need the same shape without hand-rolling their own copy.
+ */
+export interface ISwapExtraInputs {
+  requestedFaucetId: string;
+  requestedAmount: bigint;
+  orderId?: bigint | string;
+  expirySeconds?: number;
+  /** Absent on orders placed before expiry stamping; those never auto-settle. */
+  expiresAt?: number;
+  expiryTriggeredAt?: number;
+  autoConsume?: boolean;
+  /** Stamped when a payback-claim settlement consume completes. */
+  settledAt?: number;
+  /** Stamped when an expiry-reclaim settlement consume completes. */
+  reclaimedAt?: number;
 }
 
 /**
@@ -568,22 +705,7 @@ export class SwapTransaction implements ITransaction {
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
-  // Requested side of the swap. `orderId` is strictly output info (the PSWAP
-  // lineage id resolved by `completeSwapTransaction`) rather than an input, but
-  // it rides here to avoid a Dexie schema change; it's absent until completion.
-  extraInputs: {
-    requestedFaucetId: string;
-    requestedAmount: bigint;
-    orderId?: bigint | string;
-    expirySeconds?: number;
-    expiresAt?: number;
-    expiryTriggeredAt?: number;
-    autoConsume?: boolean;
-    /** Stamped when a payback-claim settlement consume completes. */
-    settledAt?: number;
-    /** Stamped when an expiry-reclaim settlement consume completes. */
-    reclaimedAt?: number;
-  };
+  extraInputs: ISwapExtraInputs;
   delegateTransaction?: boolean;
   /**
    * Serialized PSWAP-create `TransactionRequest`, populated lazily by the
@@ -718,7 +840,11 @@ export class EarnDepositTransaction implements ITransaction {
   noteType?: NoteType;
   transactionId?: string;
   outputNoteIds?: string[];
-  /** Guardian path: serialized P2IDE send request reused across propose/sign/retry. */
+  /**
+   * Serialized P2IDE collateral request (own output note with the Epoch
+   * mandate-binding attachment), built once at initiate time and reused
+   * verbatim across the standard pipeline, guardian propose/sign, and retries.
+   */
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -736,7 +862,8 @@ export class EarnDepositTransaction implements ITransaction {
     marketUid: string,
     faucetId: string,
     sendParams: IBridgedSendNoteParams,
-    delegateTransaction?: boolean
+    delegateTransaction?: boolean,
+    requestBytes?: Uint8Array
   ) {
     this.id = uuid();
     this.type = 'earn-deposit';
@@ -745,6 +872,7 @@ export class EarnDepositTransaction implements ITransaction {
     this.faucetId = faucetId;
     this.secondaryAccountId = sendParams.recipientId;
     this.noteType = sendParams.noteType;
+    this.requestBytes = requestBytes;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.displayIcon = 'DEFAULT';

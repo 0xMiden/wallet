@@ -22,7 +22,7 @@ jest.mock('./chain', () => ({
   MIDEN_MIN_RECLAIM_BLOCKS: 100,
   MIDEN_RECLAIM_BUFFER_BLOCKS: 10
 }));
-jest.mock('./earn-note', () => ({ createEarnP2IDNote: jest.fn() }));
+jest.mock('./earn-note', () => ({ createEarnP2IDENote: jest.fn() }));
 jest.mock('./sdk', () => ({ getEpochReadOnlySdk: jest.fn() }));
 jest.mock('lib/miden/activity', () => ({ updateEarnDepositStatus: jest.fn() }));
 jest.mock('lib/miden/repo', () => ({ transactions: { filter: jest.fn(), where: jest.fn() } }));
@@ -158,6 +158,7 @@ interface DepositRow {
   type: string;
   status: number;
   extraInputs?: Record<string, unknown>;
+  restoredFromBackup?: boolean;
 }
 
 function wireRows(rows: DepositRow[]) {
@@ -200,6 +201,23 @@ describe('reconcileEarnDeposits', () => {
     await reconcileEarnDeposits(d);
 
     expect(d.updateStatus).toHaveBeenCalledWith('TX1', 'confirmed', { evmTxHash: '0xdest' });
+    expect(d.startStatusPoll).not.toHaveBeenCalled();
+  });
+
+  // A restored deposit's `intentNonce` and `evmRecipient` came from the backup
+  // file. Reconciling it polls a stranger's intent and writes the answer onto
+  // the user's row as if it were their own deposit.
+  it('reconciles nothing for a row restored from a backup', async () => {
+    wireRows([depositRow({ restoredFromBackup: true })]);
+    const d = withStatus(deps(), [
+      { chainId: MIDEN_CHAIN, status: 'completed', transactionHash: '0xsource' },
+      { chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }
+    ]);
+
+    await reconcileEarnDeposits(d);
+
+    expect(d.getSdk).not.toHaveBeenCalled();
+    expect(d.updateStatus).not.toHaveBeenCalled();
     expect(d.startStatusPoll).not.toHaveBeenCalled();
   });
 

@@ -745,6 +745,14 @@
     "message": "Gizli Seed phrase adresinizi herhangi bir alana olduğu gibi yapıştırabilirsiniz",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Kurtarma ifadesindeki kelime listesinde bir veya daha fazla kelime bulunmuyor. Vurgulanan kelimeleri kontrol edin.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Bu token'ın ondalık basamakları doğrulanamadığı için tutarlar gösterilemez veya gönderilemez.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Oops!",
     "englishSource": "Oops!"
@@ -777,6 +785,10 @@
   "retry": {
     "message": "Tekrar dene",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "Yine de yeniden dene",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1726,6 +1738,34 @@
     "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Hesap kurtarma algılandı",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Özel notes adresini tarama: note aktarımını boşaltma…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Özel notes adresini tarama: bekleyen tekliflerden notes adresini içe aktarma…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "notes'un halka açık veritabanını senkronize ediyor…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "notes'ın senkronizasyonu: $latest$ adresindeki $current$ bloğu",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Bekleyen Notes'unuz var",
     "englishSource": "You have Pending Notes"
@@ -2029,7 +2069,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian adresine geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
+    "message": "Kurtarma ifadenizle istediğiniz zaman farklı bir Guardian'a geçebilirsiniz. Yalnızca ortak imza sahibi değişir; hesabınız ve fonlarınız aynı kalır.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2313,8 +2353,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Bu zaten şu anki \"guardian\"unuzdur.",
-    "englishSource": "That's already your current guardian."
+    "message": "Bu zaten mevcut Guardian’ınız.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Zaten bir Guardian geçişi sürüyor. Yenisini başlatmadan önce tamamlanmasını bekleyin.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Guardian'i Dönüştür",
@@ -2356,10 +2400,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Güncellendi!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Çevrimiçi",
     "englishSource": "Online"
@@ -2368,9 +2408,37 @@
     "message": "İnceleme rotasyonu",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Yeni",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Güncel Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Yeni Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Guardian’ınızı başarıyla değiştirdiniz!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Şu anda neler değişiyor",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Yeni Guardian’ınız bundan sonra her işlemi sizinle birlikte imzalayacaktır — eski Guardian’ınızın artık herhangi bir rolü yoktur.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Cüzdan adresiniz, fonlarınız ve geçmişiniz değişmemiştir. Rotasyon sırasında hiçbir şey taşınmamıştır.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Yeni işlemlerin tamamlanabilmesi için yeni Guardian’ınızın erişilebilir olması gerekir.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Guardian'ınızı istediğiniz zaman yeniden değiştirebilirsiniz — kurtarma ifadenizi güvenli bir yerde saklayın, bu işlem için gereklidir.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
@@ -2389,11 +2457,11 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Eski Guardian adresiniz bunu engelleyemez",
+    "message": "Eski Guardian’ınız bunu engelleyemez",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian adresine yalnızca bildirim gönderilir.",
+    "message": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian’a yalnızca bildirim gönderilir.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2536,6 +2604,30 @@
     "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Cüzdan dosyanız oluşturuluyor…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Dışa Aktarma Başarısız",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Cüzdan dosyanız oluşturulamadı, bu nedenle hiçbir şey kaydedilmedi. Lütfen dışa aktarmayı tekrar deneyin.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Henüz Kaydedilmedi",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Cüzdan dosyanız hazır, ancak dosyayı nereye kaydedeceğinizi seçmeden paylaşım penceresini kapattınız.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Nereye Kaydedeceğinizi Seçin",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Şifrelenmiş Cüzdan Dosyası",
     "englishSource": "Encrypted Wallet File"
@@ -2663,10 +2755,6 @@
   "viewInActivities": {
     "message": "Etkinlikler'de görüntüle",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Etkinliği görüntüle",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",
@@ -3305,6 +3393,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ daha fazlası",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ daha fazlası",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Bu dApp yüklenemiyor",
     "englishSource": "Can't load this dApp"
@@ -3608,16 +3714,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Aç",
+    "message": "Açık",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Doldurulmuş",
+    "message": "Gerçekleşti",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Geri kazanılmış",
+    "message": "Geri alındı",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Kısmen gerçekleşti",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Kısmen gerçekleşti, kalan geri alındı",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Yuvarlakları doldur",
@@ -3627,9 +3741,96 @@
     "message": "Dolduruldu",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$total$$symbol$ tutarının $filled$ kadarı gerçekleşti",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Bu takasta paketlenen Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Gerçekleşme Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Kullanıldı · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Bekleyen gerçekleşme",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "DEX üzerinde eşleştiriliyor…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Henüz hiçbir Note paketlenmedi.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Pending Notes'a git",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Mevcut değil",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "Kullanım işlemi kimliği",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "Kullanım işlemi kimliği $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Oluşturuldu",
@@ -4022,6 +4223,10 @@
   "consumed": {
     "message": "Tüketilen",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Tür",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "İşlem Kimliği",

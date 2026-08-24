@@ -170,12 +170,35 @@ export class EmulatorControl {
     throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
   }
 
-  async install(serial: string, apkPath: string): Promise<void> {
+  async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);
     }
     // `install -r -t` allows replacing + accepting test packages.
     await execFileAsync('adb', ['-s', serial, 'install', '-r', '-t', apkPath]);
+
+    // Pre-grant the runtime permissions whose system dialogs would otherwise
+    // appear over the app on first launch (Android 13+ gates POST_NOTIFICATIONS
+    // behind a prompt). That dialog is modal: it swallows taps meant for the
+    // wallet AND dims everything behind it, which is how it first showed up
+    // here — a dApp-browser screenshot where the dApp had loaded correctly but
+    // the whole screen was greyed out under "Allow Bread to send you
+    // notifications?".
+    //
+    // Granting rather than dismissing keeps it deterministic: there is no
+    // dialog to race. Failures are swallowed because the permission does not
+    // exist below API 33, where `pm grant` errors instead of no-op'ing.
+    if (packageName) {
+      await execFileAsync('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pm',
+        'grant',
+        packageName,
+        'android.permission.POST_NOTIFICATIONS'
+      ]).catch(() => {});
+    }
   }
 
   async uninstall(serial: string, packageName: string): Promise<void> {
@@ -225,6 +248,37 @@ export class EmulatorControl {
   async terminate(serial: string, packageName: string): Promise<void> {
     // `am force-stop` always exits 0 even if the package is already stopped.
     await execFileAsync('adb', ['-s', serial, 'shell', 'am', 'force-stop', packageName]);
+  }
+
+  /**
+   * Pre-grant the POST_NOTIFICATIONS runtime permission (Android 13+/API 33+)
+   * so the wallet's `checkPermissions()` returns granted and the OS
+   * notification-permission dialog never appears — otherwise it covers the
+   * centre of every composited screenshot. This changes no app behaviour: the
+   * real permission code path still runs, the OS just answers immediately.
+   *
+   * Must be re-run before every launch, not once after install: `pm clear`
+   * (wipeAppState, used for per-test isolation on warm emulators) resets granted
+   * runtime permissions along with app data.
+   *
+   * Best-effort — on a pre-33 image or an AOSP build that doesn't declare the
+   * permission, `pm grant` exits non-zero, and there is no dialog to suppress
+   * there anyway.
+   */
+  async grantNotifications(serial: string, packageName: string): Promise<void> {
+    try {
+      await execFileAsync('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pm',
+        'grant',
+        packageName,
+        'android.permission.POST_NOTIFICATIONS'
+      ]);
+    } catch {
+      // permission not declared / pre-33 image — no prompt to dodge
+    }
   }
 
   async screenshot(serial: string, outPath: string): Promise<void> {

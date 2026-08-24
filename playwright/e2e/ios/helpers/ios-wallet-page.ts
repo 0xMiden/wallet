@@ -106,6 +106,19 @@ export class IosWalletPage implements WalletPage {
     return this.cdp.evaluate(fn);
   }
 
+  /**
+   * Evaluate a raw JS body (must `return`) in the wallet webview.
+   *
+   * `evaluate(fn)` serialises a closure and so cannot capture runtime values;
+   * several suites already work around that by interpolating JSON into a raw
+   * body via the private `cdp.eval`. The dApp-browser driver is shared between
+   * the iOS and Android page objects, so it needs that capability as public
+   * surface rather than reaching into a private field.
+   */
+  async evalJs<T = unknown>(js: string): Promise<T> {
+    return this.cdp.eval<T>(js);
+  }
+
   // ── Bridge-IN test hooks (installed page-side on mobile via mobile-adapter) ──
   // The hooks return Promises, and this RWI bridge's async eval is broken, so
   // async hooks use the stash-and-poll pattern (start the promise + stash the

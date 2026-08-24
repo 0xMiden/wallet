@@ -1,5 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import {
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
+  reportGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
@@ -23,6 +28,7 @@ import {
   reportHotKeyRotationNeeded,
   seedWalletPrompt,
   setWalletPromptStatus,
+  useGuardianNoteRecoveryProgress,
   useWalletPromptStorage
 } from './wallet-prompts';
 
@@ -391,6 +397,99 @@ describe('wallet prompts', () => {
   });
 });
 
+describe('guardian note-recovery progress card', () => {
+  const OTHER_ACCOUNT = 'account-2';
+  const ACCOUNT = 'account-1';
+
+  beforeEach(async () => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it('reads the progress of the account it was given', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+  });
+
+  // Seed recovery flags EVERY adopted account, so a record belonging to another
+  // account is the normal case rather than an edge one. Narrating its blocks
+  // under this account's name would be a lie about which recovery is running.
+  it('ignores the progress of a different account', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: OTHER_ACCOUNT, step: 'public', syncedToBlock: 500 });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // The card is non-dismissible, so a record whose run died with its realm
+  // would otherwise sit on screen forever.
+  it('ages out a record that stopped being refreshed', async () => {
+    // Written far enough in the past that the real clock makes it stale, so the
+    // hook runs against an unmocked `Date.now`.
+    const dateSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 60_000);
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+    dateSpy.mockRestore();
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    // Long enough for a fresh record to have shown up.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+  });
+
+  it('drops the card when the account it was narrating stops recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => useGuardianNoteRecoveryProgress(id), {
+      initialProps: { id: ACCOUNT as string | null }
+    });
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+    rerender({ id: null });
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // Every home view mounts this. Reading storage on a 2s interval for accounts
+  // with no recovery at all is pure background cost, so a null id means idle.
+  it('does not read storage at all when no account is recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(null));
+
+    await waitFor(() => expect(result.current).toBeNull());
+    expect(getItemSpy).not.toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY);
+  });
+
+  it('picks up a later write without remounting', async () => {
+    jest.useFakeTimers();
+    try {
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+      const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+      await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+      // Mobile and desktop get no storage events, so the poll is the only way
+      // the card advances there.
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+
+      await waitFor(() => expect(result.current?.syncedToBlock).toBe(900));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('bridge prompts', () => {
   const baseBridge = (over: Partial<ITransaction>): ITransaction =>
     ({
@@ -430,6 +529,33 @@ describe('bridge prompts', () => {
     const active = await fetchActiveBridgePrompts('acct-1');
 
     expect(active.map(tx => tx.id)).toEqual(['epoch-pending', 'agg-unclaimed', 'in-flight']);
+  });
+
+  // Import deliberately leaves a restored row's bridge status alone so history
+  // stays truthful, which means the prompt is what has to refuse it: this card
+  // polls the bridge indexer against dump-supplied values on a timer and puts a
+  // Claim button — an EVM signature — in front of the user.
+  it('excludes a restored bridge from the prompt whatever its recorded status', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', epochStatus: 'pending' },
+        initiatedAt: 500
+      }),
+      baseBridge({
+        id: 'restored-agg',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', claimStatus: 'ready' },
+        initiatedAt: 400
+      }),
+      baseBridge({ id: 'restored-in-flight', restoredFromBackup: true, status: ITransactionStatus.Queued }),
+      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 10 })
+    );
+
+    const active = await fetchActiveBridgePrompts('acct-1');
+
+    expect(active.map(tx => tx.id)).toEqual(['mine']);
   });
 
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
@@ -476,6 +602,22 @@ describe('bridge prompts', () => {
 
     expect(updateClaimStatus).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
+  });
+
+  // Defence in depth: today's only caller passes the list `fetchActiveBridgePrompts`
+  // already filtered, but this is exported and takes whatever it is given, and
+  // `pollBridgedSend` queries the allocator and writes back onto the row.
+  it('polls nothing for a restored row even when handed one directly', async () => {
+    const restored = baseBridge({
+      id: 'agg-restored',
+      restoredFromBackup: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    await pollActiveBridgePrompts([restored]);
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {

@@ -7,6 +7,7 @@ import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
@@ -21,6 +22,43 @@ export interface FetchBalancesOptions {
 }
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
+
+const UNRESOLVED_RETRY_BASE_MS = 30_000;
+const UNRESOLVED_RETRY_MAX_MS = 15 * 60_000;
+
+/**
+ * Faucets whose metadata could not be resolved, and the earliest time to try
+ * them again.
+ *
+ * Two bad options meet here. Persisting the placeholder answers the question
+ * forever with a guess — the skip filter below never asks again, so the wrong
+ * decimals outlive whatever caused the failure. Not persisting it re-asks on
+ * every refresh, and balances refresh every few seconds, so a faucet that
+ * simply cannot be read turns into a permanent RPC drip.
+ *
+ * So neither is stored: the record stays absent, and the retry is spaced out
+ * here instead. A faucet that resolves later still heals, and one that never
+ * will costs a request every quarter of an hour rather than every five seconds.
+ * Module-scoped because it is a rate limit, not state — losing it on reload
+ * only means one more attempt.
+ */
+const unresolvedFaucets = new Map<string, { attempts: number; nextAttemptAt: number }>();
+
+function shouldRetryUnresolved(assetId: string, now: number): boolean {
+  const seen = unresolvedFaucets.get(assetId);
+  return seen === undefined || now >= seen.nextAttemptAt;
+}
+
+function recordUnresolved(assetId: string, now: number): void {
+  const attempts = (unresolvedFaucets.get(assetId)?.attempts ?? 0) + 1;
+  const backoff = Math.min(UNRESOLVED_RETRY_BASE_MS * 2 ** (attempts - 1), UNRESOLVED_RETRY_MAX_MS);
+  unresolvedFaucets.set(assetId, { attempts, nextAttemptAt: now + backoff });
+}
+
+/** Exported for tests: the backoff is process-wide and would otherwise leak between cases. */
+export function __resetUnresolvedFaucetsForTest(): void {
+  unresolvedFaucets.clear();
+}
 
 /**
  * E2E-only: parse a Guardian account's on-chain auth structure (signer set +
@@ -143,19 +181,38 @@ export async function fetchBalances(
 
   // Fetch missing metadata for non-MIDEN tokens
   {
+    const now = Date.now();
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== midenFaucetId && !localMetadatas[assetId];
+        return assetId !== midenFaucetId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
+        // A lookup can fail two ways, and both used to end the same: the guess
+        // was written to the store as though it were the answer. It throws when
+        // the RPC or the WASM client is unavailable, and it RETURNS the
+        // placeholder when the faucet was reached but could not be read. The
+        // second is the one that hid here — it lands on the success path, so it
+        // was persisted despite `fetchTokenMetadata` deliberately not caching
+        // it "so a later fetch can retry".
+        //
+        // Either way the placeholder is used for THIS refresh only: it goes to
+        // `localMetadatas`, which keeps the token on screen, and never to
+        // `fetchedMetadatas`, which is what gets persisted and published.
         try {
           const tokenMetadata = await fetchTokenMetadata(assetId);
-          fetchedMetadatas[assetId] = tokenMetadata.base;
+          if (hasKnownScale(tokenMetadata.base)) {
+            fetchedMetadatas[assetId] = tokenMetadata.base;
+            unresolvedFaucets.delete(assetId);
+          } else {
+            localMetadatas[assetId] = tokenMetadata.base;
+            recordUnresolved(assetId, now);
+          }
         } catch (e) {
           console.warn('Failed to fetch metadata for', assetId, e);
-          fetchedMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
+          localMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
+          recordUnresolved(assetId, now);
         }
       });
     await Promise.all(metadataFetchPromises);
@@ -197,11 +254,13 @@ export async function fetchBalances(
       hasMiden = true;
     }
 
-    const tokenMetadata = isMiden ? MIDEN_METADATA : localMetadatas[tokenId];
-    if (!tokenMetadata) {
-      // Skip assets without metadata (metadata fetch failed)
-      continue;
-    }
+    // The placeholder rather than a `continue`: an unresolved faucet is a real
+    // holding, and dropping the row hides an asset the user owns. It carries
+    // `scaleIsUnknown`, so the row renders as a name without a quantity instead
+    // of a number derived from guessed decimals. This also keeps the token
+    // visible while its lookup is in backoff, and matches what the sync path
+    // (`updateBalancesFromSyncData`) already does for the same case.
+    const tokenMetadata = isMiden ? MIDEN_METADATA : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
     const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);

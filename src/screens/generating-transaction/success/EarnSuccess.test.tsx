@@ -3,26 +3,23 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { ButtonVariant } from 'components/Button';
+import { EarnDepositTransaction } from 'lib/miden/db/types';
+import { NoteTypeEnum } from 'lib/miden/types';
 
 import { EarnSuccess } from './EarnSuccess';
-import type { TransactionSuccessLayoutProps } from './TransactionSuccessLayout';
+import type { ReceiptRow, TransactionSuccessLayoutProps } from './TransactionSuccessLayout';
 
 /**
- * `EarnSuccess` is a thin STUB: it wires the shared `TransactionSuccessLayout`
- * with the earn copy (header "Success!", title "You're Earning!") and a
- * two-button footer where BOTH the primary ("Done") and secondary
- * ("View Details") actions — plus the header close — are currently pointed at
- * the single `onDoneClick` callback (the earn data model / details route don't
- * exist yet). The whole component is one JSX return with no conditional
- * branches, so a single render covers every line; the assertions below verify
- * the exact props it hands to the layout and that all three wiring points fire
- * `onDoneClick`.
+ * `EarnSuccess` is the routed receipt for a completed `earn-deposit` row: a
+ * "{amount} {symbol} ↑ {market}" summary pill plus Market / Total Deposited /
+ * Transaction ID rows, all derived from the tracking row. These tests assert
+ * the derived strings and the action wiring (Done → onDoneClick, View Details →
+ * navigate('/earn/positions'), close → onDoneClick).
  *
- * We mock the shared layout to (a) keep coverage scoped to `EarnSuccess.tsx`
- * and (b) capture the props it receives, since those props ARE the behaviour of
- * this stub. `react-i18next` is mocked to return the caller's `defaultValue`
- * (or the raw key when none is given), mirroring the sibling
- * `TransactionSuccess.test.tsx`.
+ * We mock the shared layout module to (a) keep coverage scoped to
+ * `EarnSuccess.tsx` and (b) capture the props/rows it derives. `react-i18next`
+ * is mocked to return the caller's `defaultValue` (or the raw key), mirroring
+ * the sibling `TransactionSuccess.test.tsx`.
  */
 
 jest.mock('react-i18next', () => ({
@@ -38,9 +35,33 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' }
 }));
 
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
+
+// Same shims the sibling TransactionSummaryBadge.test.tsx uses: `formatAmount`
+// echoes the raw base units (decimal handling is that helper's own test's job)
+// and the metadata module avoids the SDK import graph.
+jest.mock('lib/shared/format', () => ({
+  formatAmount: (amount: bigint) => String(amount)
+}));
+jest.mock('lib/miden/metadata', () => ({
+  MIDEN_METADATA: { symbol: 'MIDEN', decimals: 6 }
+}));
+
+// The wallet store only supplies `assetsMetadata`; empty → the USDC fallbacks.
+let mockAssetsMetadata:
+  | Record<string, { symbol: string; decimals: number; name?: string; scaleIsUnknown?: boolean }>
+  | undefined = {};
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { assetsMetadata: unknown }) => unknown) =>
+    selector({ assetsMetadata: mockAssetsMetadata })
+}));
+
 // Captures the last props handed to the shared layout. `mock`-prefixed so
 // jest's factory-hoisting allows the out-of-scope reference.
 let mockLastLayoutProps: TransactionSuccessLayoutProps | undefined;
+let mockLastRows: ReceiptRow[] | undefined;
+let mockLastPill: { lhs?: React.ReactNode; rhs?: React.ReactNode; separator?: React.ReactNode } | undefined;
 
 jest.mock('./TransactionSuccessLayout', () => ({
   __esModule: true,
@@ -59,95 +80,112 @@ jest.mock('./TransactionSuccessLayout', () => ({
           </button>
         )}
         <button data-testid="close" aria-label="close" onClick={props.onClose} />
+        {props.children}
       </div>
     );
+  },
+  SuccessSummaryPill: (props: { lhs?: React.ReactNode; rhs?: React.ReactNode; separator?: React.ReactNode }) => {
+    mockLastPill = props;
+    return (
+      <div data-testid="pill">
+        {props.lhs} {props.rhs}
+      </div>
+    );
+  },
+  SuccessDivider: () => <hr data-testid="divider" />,
+  ReceiptRows: ({ rows }: { rows: ReceiptRow[] }) => {
+    mockLastRows = rows;
+    return <div data-testid="rows" />;
   }
 }));
+
+/** A completed earn-deposit row: 10 USDC (6dp base units) into DUMMY_LENDING. */
+const earnDeposit = () =>
+  new EarnDepositTransaction(
+    'mtst1sender',
+    10_000_000n,
+    '0x0000000000000000000000000000000000000001',
+    'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    'mtst1faucet',
+    { recipientId: 'mtst1allocator', noteType: NoteTypeEnum.Public, recallBlocks: 2000 }
+  );
 
 describe('EarnSuccess', () => {
   beforeEach(() => {
     mockLastLayoutProps = undefined;
+    mockLastRows = undefined;
+    mockLastPill = undefined;
+    mockAssetsMetadata = {};
+    mockNavigate.mockClear();
   });
 
-  it('renders the shared success layout with the earn header and title copy', () => {
-    render(<EarnSuccess onDoneClick={() => {}} />);
+  // A stored record only outranks the USDC constants when it actually resolved.
+  // The unknown-token placeholder is not evidence about this faucet, and its
+  // guessed 6 decimals would be applied to a deposit denominated in the
+  // collateral token the wallet already knows the scale of.
+  it('prefers the USDC constants over an unknown-token placeholder record', () => {
+    mockAssetsMetadata = {
+      mtst1faucet: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+    };
 
-    expect(screen.getByTestId('layout')).toBeInTheDocument();
-    // `defaultValue`s flow through the mocked `t`.
-    expect(screen.getByTestId('header-title')).toHaveTextContent('Success!');
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
+    expect(mockLastPill?.lhs).toBe('10000000 USDC');
+  });
+
+  it('renders the earn title and derives the pill from the row (USDC fallback + market name)', () => {
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
+
     expect(screen.getByTestId('title')).toHaveTextContent("You're Earning!");
+    expect(mockLastPill?.lhs).toBe('10000000 USDC');
+    expect(mockLastPill?.rhs).toBe('DUMMY-LENDING');
+    expect(mockLastPill?.separator).toBeTruthy();
   });
 
-  it('passes the exact header/title strings to the layout props', () => {
-    render(<EarnSuccess onDoneClick={() => {}} />);
+  it('uses the faucet metadata symbol/decimals when present', () => {
+    mockAssetsMetadata = { mtst1faucet: { symbol: 'mUSDC', decimals: 4 } };
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={() => {}} />);
 
-    expect(mockLastLayoutProps).toBeDefined();
-    expect(mockLastLayoutProps!.headerTitle).toBe('Success!');
-    expect(mockLastLayoutProps!.title).toBe("You're Earning!");
+    expect(mockLastPill?.lhs).toBe('10000000 mUSDC');
   });
 
-  it('wires a Primary "Done" action and a Secondary "View Details" action', () => {
-    render(<EarnSuccess onDoneClick={() => {}} />);
+  it('builds Market, Total Deposited, and Transaction ID rows', () => {
+    render(
+      <EarnSuccess
+        transaction={earnDeposit()}
+        txHash="0xabcdef1234567890"
+        onDoneClick={() => {}}
+        onViewExplorer={() => {}}
+      />
+    );
 
-    const { primaryAction, secondaryAction } = mockLastLayoutProps!;
-
-    // `t('done')` has no defaultValue → the raw key is used verbatim.
-    expect(primaryAction.label).toBe('done');
-    expect(primaryAction.variant).toBe(ButtonVariant.Primary);
-
-    expect(secondaryAction).toBeDefined();
-    expect(secondaryAction!.label).toBe('View Details');
-    expect(secondaryAction!.variant).toBe(ButtonVariant.Secondary);
-
-    // Both buttons render with their labels.
-    expect(screen.getByTestId('primary')).toHaveTextContent('done');
-    expect(screen.getByTestId('secondary')).toHaveTextContent('View Details');
+    const labels = (mockLastRows ?? []).map(row => row.label);
+    expect(labels).toEqual(['Market', 'Total Deposited', 'Transaction ID']);
+    expect(mockLastRows?.[0]?.value).toBe('DUMMY-LENDING');
+    expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
   });
 
-  it('points the primary action at onDoneClick', () => {
+  it('wires Done to onDoneClick and View Details to the positions route', () => {
     const onDoneClick = jest.fn();
-    render(<EarnSuccess onDoneClick={onDoneClick} />);
+    render(<EarnSuccess transaction={earnDeposit()} onDoneClick={onDoneClick} />);
+
+    expect(mockLastLayoutProps!.primaryAction.variant).toBe(ButtonVariant.Primary);
+    expect(mockLastLayoutProps!.secondaryAction!.variant).toBe(ButtonVariant.Secondary);
 
     fireEvent.click(screen.getByTestId('primary'));
-
     expect(onDoneClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('points the secondary "View Details" action at onDoneClick (details route not yet wired)', () => {
-    const onDoneClick = jest.fn();
-    render(<EarnSuccess onDoneClick={onDoneClick} />);
 
     fireEvent.click(screen.getByTestId('secondary'));
-
-    expect(onDoneClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('points the header close (onClose) at onDoneClick', () => {
-    const onDoneClick = jest.fn();
-    render(<EarnSuccess onDoneClick={onDoneClick} />);
+    expect(mockNavigate).toHaveBeenCalledWith('/earn/positions');
 
     fireEvent.click(screen.getByTestId('close'));
-
-    expect(onDoneClick).toHaveBeenCalledTimes(1);
+    expect(onDoneClick).toHaveBeenCalledTimes(2);
   });
 
-  it('routes all three interaction points (primary, secondary, close) to the same handler', () => {
-    const onDoneClick = jest.fn();
-    render(<EarnSuccess onDoneClick={onDoneClick} />);
+  it('renders no pill sides when the row is missing', () => {
+    render(<EarnSuccess onDoneClick={() => {}} />);
 
-    // Same referential handler behind every action.
-    expect(mockLastLayoutProps!.primaryAction.onClick).toBe(onDoneClick);
-    expect(mockLastLayoutProps!.secondaryAction!.onClick).toBe(onDoneClick);
-    expect(mockLastLayoutProps!.onClose).toBe(onDoneClick);
-
-    fireEvent.click(screen.getByTestId('primary'));
-    fireEvent.click(screen.getByTestId('secondary'));
-    fireEvent.click(screen.getByTestId('close'));
-
-    expect(onDoneClick).toHaveBeenCalledTimes(3);
-  });
-
-  it('is exported as a component (function)', () => {
-    expect(typeof EarnSuccess).toBe('function');
+    expect(mockLastPill?.lhs).toBeUndefined();
+    expect(mockLastPill?.rhs).toBeUndefined();
   });
 });

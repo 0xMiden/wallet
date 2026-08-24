@@ -61,6 +61,7 @@
     "format": "prettier --write src",
     "lint:i18n": "eslint src --ext .ts,.tsx --config .eslintrc.i18n.json --no-eslintrc --max-warnings 0",
     "lint:e2e": "node scripts/lint-e2e-harness.mjs",
+    "perf:ios-frames": "node scripts/ios-frame-perf.cjs",
     "test:e2e": "playwright test",
     "test:e2e:blockchain:build": "rimraf dist/chrome_unpacked && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:bg && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome yarn build:cs && cross-env MIDEN_USE_MOCK_CLIENT=false MIDEN_E2E_TEST=true MIDEN_E2E_DISABLE_SIDEPANEL=true MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=true MIDEN_NETWORK=${E2E_NETWORK:-testnet} TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
     "test:e2e:blockchain": "yarn test:e2e:blockchain:build && playwright test --config playwright.e2e.config.ts",
@@ -114,7 +115,9 @@
     "build:devnet": "cross-env MIDEN_NETWORK=devnet yarn build:extension",
     "dev:devnet": "cross-env MIDEN_NETWORK=devnet yarn dev",
     "build:desktop:devnet": "cross-env MIDEN_NETWORK=devnet yarn build:desktop",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:e2e:mobile:dapp:run": "playwright test --config playwright.ios.dapp.config.ts",
+    "test:e2e:android:dapp:run": "playwright test --config playwright.android.dapp.config.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.1",
@@ -134,7 +137,7 @@
     "@dicebear/avatars": "4.2.5",
     "@dicebear/avatars-bottts-sprites": "4.2.5",
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
-    "@epoch-protocol/epoch-intents-sdk": "^1.0.35",
+    "@epoch-protocol/epoch-intents-sdk": "1.0.38",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
     "@miden-sdk/miden-sdk": "0.16.0-rc.3",

@@ -120,9 +120,12 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
+// Spread the real module: the send flow's authorization gate calls
+// `sameWalletAccountId`, and a stub narrowed to one export makes it `undefined`
+// — which fails as "not a function" rather than exercising the check.
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32-addr',
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
 // ── Imports under test ─────────────────────────────────────────────

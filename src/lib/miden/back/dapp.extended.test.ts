@@ -142,8 +142,11 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  getBech32AddressFromAccountId: () => 'bech32-addr',
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
 // Mock the wallet adapter package so the enums are defined at import time.
@@ -757,6 +760,91 @@ describe('requestTransaction', () => {
     expect((res as any).transactionId).toBe('tx-send-1');
     expect(mockInitiateSendTransaction).toHaveBeenCalled();
     expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  // The session authorizes ONE account, but the account to debit comes from the
+  // request. This entrypoint reaches the same send flow as `requestSendTransaction`
+  // while validating only `sourcePublicKey` — which the attacking page satisfies
+  // with its own connected account — so a sender check on the outer function is
+  // not on this path at all. The approval sheet does not show the sender, so
+  // nothing on screen would have given it away either.
+  it('refuses a Send-typed transaction that names an account the session never authorized', async () => {
+    mockInitiateSendTransaction.mockResolvedValue('tx-send-evil');
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'send',
+          payload: {
+            senderAddress: 'miden-account-2',
+            recipientAddress: 'attacker',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '100'
+          }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // Rejected before anything is queued — not merely reported after the fact.
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Send-typed transaction with no sender at all as InvalidParams', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'send',
+          payload: { recipientAddress: 'bob', faucetId: 'faucet-1', noteType: 'Private', amount: '100' }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  /**
+   * Same hole, one branch over, and the widest one: the custom payload is an
+   * opaque base64 `TransactionRequest`, so it can do anything the named account
+   * can. `requestCustomTransaction` stores `payload.address` verbatim as the
+   * row's `accountId` and the loop signs for whatever it finds there. The sheet
+   * renders the request blob's own description and never names the account being
+   * debited, so approval is not consent to this.
+   */
+  it('refuses a custom transaction against an account the session never authorized', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: {
+          type: 'custom',
+          payload: { address: 'miden-account-2', transactionRequest: 'req', recipientAddress: 'attacker' }
+        }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bare/legacy custom payload naming a foreign account too', async () => {
+    // No `type`, which is the path a legacy caller takes into the same flow.
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { payload: { address: 'miden-account-2', transactionRequest: 'req' } }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a custom payload with no address as InvalidParams, not a TypeError', async () => {
+    await expect(
+      dapp.requestTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { payload: { transactionRequest: 'req' } }
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
 });
 

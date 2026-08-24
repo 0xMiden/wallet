@@ -117,7 +117,11 @@ jobs:
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension
         run: yarn test:e2e:blockchain:build
-      - run: npx playwright install --with-deps chromium
+      # See the e2e workflows: `--with-deps` shells out to apt and the browser
+      # download itself has wedged for hours. Cap it so a stall fails fast.
+      - name: Install Playwright Browsers
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
       - name: Run stress suite (conservation enforced)
         # xvfb-run, like every other E2E workflow: a browser EXTENSION cannot be
         # loaded headless, so the suite launches headed Chromium, and a headed

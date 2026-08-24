@@ -745,6 +745,14 @@
     "message": "您可以將完整的密鑰 Seed phrase 貼到任何欄位中",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "恢復短語中的單字列表中缺少一個或多個單字。請檢查已標示的單字。",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "此代幣的小數位數無法驗證，因此無法顯示或傳送相關金額。",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "哎呀！",
     "englishSource": "Oops!"
@@ -777,6 +785,10 @@
   "retry": {
     "message": "重試",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "仍然重試",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal：$amount$",
@@ -1726,6 +1738,34 @@
     "message": "我們無法為您的錢包充值。請重新嘗試。",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "偵測到帳戶復原",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "正在掃描私有區塊鏈 notes：正在清空 note 傳輸通道……",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "正在掃描私有 notes：從待審議提案中匯入 notes……",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "正在同步公開區塊鏈 notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "同步公開區塊鏈 notes：$latest$ 的第 $current$ 個區塊",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "您有待處理的 Notes",
     "englishSource": "You have Pending Notes"
@@ -2029,7 +2069,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可隨時使用恢復短語切換至不同的 Guardian 帳戶。僅共同簽署人會變更；您的帳戶與資金將保持不變。",
+    "message": "您可隨時使用恢復短語切換至不同的 Guardian。僅共同簽署人會變更；您的帳戶與資金將保持不變。",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2313,8 +2353,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "這正是您當前的 guardian。",
-    "englishSource": "That's already your current guardian."
+    "message": "這正是您當前的 Guardian。",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardian 切換已在進行中。請等待完成後再開始新的切換。",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "輪替 Guardian",
@@ -2356,10 +2400,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian 已更新！",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "線上",
     "englishSource": "Online"
@@ -2368,9 +2408,37 @@
     "message": "審查輪替",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "新",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "目前 Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "新的 Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "您已成功輪換您的 Guardian！",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "現有變更內容",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "從即日起，您的全新 Guardian 將共同簽署每筆交易——您舊有的 Guardian 將不再扮演任何角色。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "您的錢包地址、資金及交易紀錄均維持不變。輪替過程中並未移動任何資產。",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "新交易必須確保您的新 Guardian 可被存取，才能完成。",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "您隨時可以再次輪替您的「Guardian」——請妥善保管您的恢復短語，這是進行此操作的必要條件。",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "請進行驗證以批准此 Guardian 切換。",
@@ -2389,7 +2457,7 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "您的舊版 Guardian 無法阻止此事",
+    "message": "您的舊 Guardian 無法阻止此事",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
@@ -2536,6 +2604,30 @@
     "message": "會自動將收到的 MIDEN notes 計入您的餘額中 —— 效果等同於點擊「領取」。此過程不會消耗您的資金，也不會產生任何手續費。",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "正在建立您的錢包檔案……",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "匯出失敗",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "無法建立您的錢包檔案，因此未儲存任何資料。請嘗試再次匯出。",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "尚未儲存",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "您的錢包檔案已準備就緒，但您在選擇儲存位置前就關閉了共享表單。",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "選擇儲存位置",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "加密錢包檔案",
     "englishSource": "Encrypted Wallet File"
@@ -2663,10 +2755,6 @@
   "viewInActivities": {
     "message": "在「活動」中檢視",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "檢視活動",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "查看詳情",
@@ -3305,6 +3393,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ 更多",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ 更多",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "無法載入此 dApp",
     "englishSource": "Can't load this dApp"
@@ -3608,16 +3714,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "開啟",
+    "message": "未成交",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "已填滿",
+    "message": "已成交",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "重獲",
+    "message": "已收回",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "部分成交",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "部分成交，剩餘已收回",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "填裝子彈",
@@ -3627,9 +3741,96 @@
     "message": "已填滿",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "已成交 $filled$／$total$$symbol$",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "打包進此交換的 Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "成交 Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "已消耗 · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "待成交",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "正在 DEX 撮合…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "尚未打包任何 Note。",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "前往 Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "暫無",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "消耗交易 ID",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "消耗交易 ID $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "建立於",
@@ -4022,6 +4223,10 @@
   "consumed": {
     "message": "消耗",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note 類型",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "交易編號",

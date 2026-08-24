@@ -227,9 +227,13 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     '/history-details/:transactionId',
+    // Keyed on the id: the receipt holds a transaction's worth of state and two
+    // pollers keyed on its order, and it only loads when it has no entry yet. A
+    // route change that reconciles in place would therefore keep showing — and
+    // keep polling for — the previous transaction indefinitely.
     onlyReady(({ transactionId }) => (
       <FullScreenPage>
-        <HistoryDetails transactionId={transactionId!} />
+        <HistoryDetails key={transactionId} transactionId={transactionId!} />
       </FullScreenPage>
     ))
   ],

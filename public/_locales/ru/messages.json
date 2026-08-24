@@ -745,6 +745,14 @@
     "message": "Вы можете вставить весь свой секретный код Seed phrase в любое поле",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Одно или несколько слов отсутствуют в списке слов восстановительной фразы. Проверьте выделенные слова.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Десятичные знаки этого токена не удалось проверить, поэтому суммы не могут отображаться или отправляться.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Ой!",
     "englishSource": "Oops!"
@@ -777,6 +785,10 @@
   "retry": {
     "message": "Повторить попытку",
     "englishSource": "Retry"
+  },
+  "retryAnyway": {
+    "message": "Всё равно повторить",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -1726,6 +1738,34 @@
     "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
     "englishSource": "We couldn't fund your wallet. Please try again."
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Обнаружено восстановление учетной записи",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Сканирование частного notes: слив транспорта note…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Сканирование частного реестра notes: импорт notes из ожидающих предложений…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Синхронизация публичного реестра notes…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Синхронизация публичной цепочки блоков notes: блок $current$ из $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "У вас есть ожидающие квитанции (Notes)",
     "englishSource": "You have Pending Notes"
@@ -2029,7 +2069,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти на другой адрес Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
+    "message": "Вы можете в любой момент перейти на другой Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2313,8 +2353,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Это и есть ваш текущий «guardian».",
-    "englishSource": "That's already your current guardian."
+    "message": "Это и есть ваш текущий «Guardian».",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Смена «Guardian» уже выполняется. Дождитесь её завершения, прежде чем начинать новую.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Поворот стража",
@@ -2356,10 +2400,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Обновлено!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2368,9 +2408,37 @@
     "message": "График проверок",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Новое",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Текущий Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Новый Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Вы успешно произвели ротацию своего Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Что меняется сейчас",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не играет никакой роли.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Адрес вашего кошелька, средства и история остаются без изменений. Во время ротации ничего не перемещалось.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Для завершения новых транзакций необходимо, чтобы ваш новый Guardian был доступен.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Вы можете в любой момент снова сменить своего Guardian — храните фразу восстановления в безопасности, она необходима для этого.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдите аутентификацию, чтобы одобрить переключение Guardian.",
@@ -2393,7 +2461,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый адрес «Guardian» получает лишь уведомление.",
+    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый «Guardian» получает лишь уведомление.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2536,6 +2604,30 @@
     "message": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать «Получить». При этом ваши средства не тратятся и комиссия не взимается.",
     "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
   },
+  "encryptedWalletFileExporting": {
+    "message": "Создание файла кошелька…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Ошибка экспорта",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Файл вашего кошелька не удалось создать, поэтому ничего не было сохранено. Пожалуйста, попробуйте экспортировать ещё раз.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Ещё не сохранено",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Файл вашего кошелька готов, но вы закрыли окно выбора места сохранения, не указав, где его сохранить.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Выберите, где сохранить",
+    "englishSource": "Choose Where to Save"
+  },
   "encryptedWalletFileExportedTitle1": {
     "message": "Зашифрованный файл кошелька",
     "englishSource": "Encrypted Wallet File"
@@ -2663,10 +2755,6 @@
   "viewInActivities": {
     "message": "Просмотр в разделе «Деятельность»",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Просмотреть активность",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Посмотреть подробности",
@@ -3305,6 +3393,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ и другие",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ и другие",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Не удается загрузить это dApp",
     "englishSource": "Can't load this dApp"
@@ -3608,16 +3714,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Открыть",
+    "message": "Открыт",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Заполнен",
+    "message": "Исполнен",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Восстановленный",
+    "message": "Возвращён",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Частично исполнен",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Частично исполнен, остаток возвращён",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Заполнить кружки",
@@ -3627,9 +3741,96 @@
     "message": "Заполнен",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ из $total$$symbol$ исполнено",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "Notes, объединённые в этот свап",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Note исполнения $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Использовано · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Ожидаемое исполнение",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Подбор на DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Notes пока не объединены.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Перейти к Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Нет в наличии",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "ID транзакции использования",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "ID транзакции использования $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Создано",
@@ -4022,6 +4223,10 @@
   "consumed": {
     "message": "Потреблено",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Тип",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Идентификатор транзакции",

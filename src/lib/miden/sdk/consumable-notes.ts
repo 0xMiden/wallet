@@ -78,6 +78,13 @@ export type ConsumableNoteDto = {
  * packs `[_, orderId, depth, 0]` into one attachment word; the terminal `0` limb
  * is the discriminator. Returns the first matching word, or null.
  *
+ * An all-zero word is skipped: the SDK has no truly empty attachment (content
+ * is 1..=256 words), so `new NoteAttachment()` encodes "no attachment" as one
+ * zero word — which every P2ID/P2IDE note this wallet sends now carries. That
+ * word satisfies the `[_, orderId, depth, 0]` shape test below and would
+ * otherwise be read as order 0 at depth 0. A real payback carrying an all-zero
+ * word would be indistinguishable from an empty attachment anyway.
+ *
  * Try/catch-guarded per attachment because a malformed attachment must not sink
  * the whole reduction — matching the old classifier's defensiveness.
  */
@@ -87,6 +94,7 @@ export function attachmentOrderAndDepth(record: InputNoteRecord): { orderId: str
       for (const word of attachment.toWords()) {
         const values = word.toU64s();
         if (values.length === 4 && values[3] === 0n && values[1] != null && values[2] != null) {
+          if (values.every(value => value === 0n)) continue;
           return { orderId: values[1].toString(), depth: Number(values[2]) };
         }
       }

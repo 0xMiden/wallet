@@ -45,7 +45,7 @@ interface EpochState {
 interface MidenExecuteOpts {
   collateralType?: CollateralType;
   midenSourceAccount?: string;
-  createMidenP2IDNote?: SolveIntentParams['createMidenP2IDNote'];
+  createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
 }
 
 interface EpochActions {
@@ -276,7 +276,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         preFetchedQuote: quote as CrossChainQuote,
         collateralType: opts?.collateralType,
         midenSourceAccount: opts?.midenSourceAccount,
-        createMidenP2IDNote: opts?.createMidenP2IDNote
+        createMidenP2IDENote: opts?.createMidenP2IDENote
       });
       console.log('[epoch] Miden→EVM intent', intent);
       if (intent.error) {

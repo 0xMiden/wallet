@@ -2,6 +2,7 @@ import { expect, test } from '../../fixtures/two-wallets';
 import { bridgeOutFast, fundBridgeToken, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { newEvmDestination } from '../../helpers/sepolia';
+import { swOf } from '../../helpers/swap';
 import { AnvilInstance } from '../../ios/helpers/anvil';
 import { installMockCompact } from '../../ios/helpers/evm-doubles';
 
@@ -77,6 +78,20 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
 
     await walletA.createGuardianWallet(GUARDIAN_URL);
     await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+
+    // Arm smallocator PR #38 binding validation on POST /compact: the fake reads
+    // the submitted collateral note's attachment felts from the wallet SW (the
+    // persisted request bytes the guardian pipeline proves + submits) and 400s —
+    // failing the bridge below — unless the attachment commits to the mandate.
+    allocator.setNoteInspector(noteId =>
+      swOf(walletA).evaluate(
+        (id: string) =>
+          (
+            globalThis as unknown as { __TEST_NOTE_ATTACHMENT_FELTS__: (noteId: string) => Promise<string[] | null> }
+          ).__TEST_NOTE_ATTACHMENT_FELTS__(id),
+        noteId
+      )
+    );
 
     // The Sepolia leg isn't settled by the fake, so a fresh 0x recipient is fine.
     await bridgeOutFast(walletA, {

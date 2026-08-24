@@ -50,8 +50,18 @@ module.exports = {
     Expected: 'Expected',
     Processing: 'Processing'
   },
+  // AssetCallbackFlag enum — the flag `buildSendTransactionRequest` derives from
+  // a vault key, and that `lib/agglayer/b2agg` sets explicitly.
+  AssetCallbackFlag: {
+    Disabled: 0,
+    Enabled: 1
+  },
   // Other SDK types
   FungibleAsset: jest.fn(),
+  NoteAssets: jest.fn(),
+  NoteAttachment: jest.fn(),
+  NoteArray: jest.fn(),
+  TransactionRequestBuilder: jest.fn(),
   BasicFungibleFaucetComponent: jest.fn(),
   TransactionResult: jest.fn(),
   AccountId: jest.fn(),

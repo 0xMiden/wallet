@@ -38,9 +38,7 @@ jobs:
       #     echo "${{ secrets.ENV }}" > .env
 
       - name: Run install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Build chrome
         uses: borales/actions-yarn@v4

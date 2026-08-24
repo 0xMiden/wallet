@@ -8,16 +8,20 @@ import * as Repo from 'lib/miden/repo';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
-import { MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { buildEpochCollateralRequestBytes } from './collateral-note';
 import { ifHextoBech32, type BridgeNoteDeps } from './miden-note';
 
-export interface CreateEarnP2IDNoteArgs {
+export interface CreateEarnP2IDENoteArgs {
   senderAccountId: string;
   faucetId: string;
   /** Collateral amount in faucet base units (decimal string from the Epoch SDK callback). */
   amount: string;
   /** Epoch allocator account the P2IDE collateral note is sent to. */
   allocatorId: string;
+  /** SDK-supplied RELATIVE reclaim window — used exactly as provided (never hardcoded). */
+  recallBlocks: number;
+  /** SDK-supplied mandate-binding felts — written verbatim as the note attachment. */
+  bindingAttachmentFelts: bigint[];
   /** 0x EVM address that owns the resulting lending position — recorded on the row. */
   evmRecipient: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) — recorded on the row. */
@@ -28,28 +32,49 @@ export interface CreateEarnP2IDNoteArgs {
 }
 
 /**
- * Earn-side P2IDE note creator. Wired to the Epoch SDK's `createMidenP2IDNote`
+ * Earn-side P2IDE note creator. Wired to the Epoch SDK's `createMidenP2IDENote`
  * callback for the lending-deposit intent — the same mechanics as
- * `createBridgeP2IDNote`, but it queues a dedicated `earn-deposit` activity row
+ * `createBridgeP2IDENote`, but it queues a dedicated `earn-deposit` activity row
  * instead of a `bridged-send`:
  *
- * - SDK passes the faucet, collateral amount, and the allocator's Miden account id.
- * - We queue an `earn-deposit` tx with `recallBlocks = MIDEN_MIN_RECLAIM_BLOCKS +
- *   MIDEN_RECLAIM_BUFFER_BLOCKS` so the resulting note is a recallable P2IDE (the
- *   Miden SDK uses presence of `reclaimAfter` to choose P2IDE over P2ID). The
- *   buffer covers the blocks that elapse during proving/submission — the
- *   allocator validates the remaining window against ITS later chain head.
+ * - SDK passes the faucet, collateral amount, the allocator's Miden account id,
+ *   the reclaim window (`recallBlocks`, allocator minimum + SDK buffer), and the
+ *   mandate-binding attachment felts (smallocator PR #38 — the allocator rejects
+ *   notes whose attachment doesn't commit to the intent mandate).
+ * - The public P2IDE note (with the binding attachment) is built HERE via
+ *   `buildEpochCollateralRequestBytes` and persisted on the row as
+ *   `requestBytes`, so both the standard pipeline (`newTransaction`) and the
+ *   guardian custom-proposal path submit the exact same note.
  * - Service worker (extension) or in-page background processor (mobile/desktop)
  *   prove + submit the tx.
  * - We wait via Dexie liveQuery, then read the committed `outputNoteIds[0]` off the
  *   tx record and hand it back to the SDK.
  */
-export async function createEarnP2IDNote(
-  args: CreateEarnP2IDNoteArgs
+export async function createEarnP2IDENote(
+  args: CreateEarnP2IDENoteArgs
 ): Promise<{ success: boolean; noteId?: string; txId?: string }> {
-  const { senderAccountId, faucetId, amount, allocatorId, evmRecipient, marketUid, deps, onRowCreated } = args;
+  const {
+    senderAccountId,
+    faucetId,
+    amount,
+    allocatorId,
+    recallBlocks,
+    bindingAttachmentFelts,
+    evmRecipient,
+    marketUid,
+    deps,
+    onRowCreated
+  } = args;
   try {
-    console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, marketUid });
+    console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
+    const requestBytes = await buildEpochCollateralRequestBytes({
+      senderAccountId,
+      allocatorId,
+      faucetId,
+      amount: BigInt(amount),
+      recallBlocks,
+      bindingAttachmentFelts
+    });
     const txId = await initiateEarnDepositTransaction(
       ifHextoBech32(senderAccountId),
       BigInt(amount),
@@ -59,11 +84,12 @@ export async function createEarnP2IDNote(
       {
         recipientId: ifHextoBech32(allocatorId),
         noteType: NoteTypeEnum.Public,
-        recallBlocks: MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
+        recallBlocks
       },
       // Delegate to the remote prover — local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
-      true
+      true,
+      requestBytes
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.
@@ -90,7 +116,7 @@ export async function createEarnP2IDNote(
     console.log('[epoch] earn note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
-    console.error('[epoch] createEarnP2IDNote threw', err);
+    console.error('[epoch] createEarnP2IDENote threw', err);
     return { success: false };
   }
 }

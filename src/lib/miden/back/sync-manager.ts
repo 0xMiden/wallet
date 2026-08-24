@@ -277,8 +277,10 @@ async function runSync(): Promise<void> {
       // Collect all unique faucet IDs from both notes and vault assets
       const allFaucetIds = new Set([...parsedNotes.map(n => n.faucetId), ...vaultAssets.map(a => a.faucetId)]);
 
-      const metadataCache: Record<string, { decimals: number; symbol: string; name: string; thumbnailUri?: string }> =
-        {};
+      const metadataCache: Record<
+        string,
+        { decimals: number; symbol: string; name: string; thumbnailUri?: string; scaleIsUnknown?: boolean }
+      > = {};
       await Promise.all(
         [...allFaucetIds].map(async faucetId => {
           try {
@@ -287,7 +289,8 @@ async function runSync(): Promise<void> {
               decimals: base.decimals,
               symbol: base.symbol,
               name: base.name,
-              thumbnailUri: base.thumbnailUri
+              thumbnailUri: base.thumbnailUri,
+              scaleIsUnknown: base.scaleIsUnknown
             };
           } catch {}
         })

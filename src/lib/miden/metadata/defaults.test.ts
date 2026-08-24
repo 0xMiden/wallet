@@ -65,5 +65,8 @@ describe('static metadata constants', () => {
   it('DEFAULT_TOKEN_METADATA has the Unknown defaults', () => {
     expect(DEFAULT_TOKEN_METADATA.symbol).toBe('Unknown');
     expect(DEFAULT_TOKEN_METADATA.name).toBe('Unknown');
+    // Its 6 decimals are a placeholder, not a fact about any faucet. Every
+    // display site asks `hasKnownScale` before converting by them.
+    expect(DEFAULT_TOKEN_METADATA.scaleIsUnknown).toBe(true);
   });
 });

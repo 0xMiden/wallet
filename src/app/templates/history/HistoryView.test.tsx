@@ -54,7 +54,12 @@ jest.mock('components/ui', () => ({
     iconBg?: string;
     title: string;
     subtitle?: string;
-    amount?: { value: string; symbol?: string; direction?: string };
+    amount?: {
+      value: string;
+      symbol?: string;
+      direction?: string;
+      extra?: { key: string; value: string; symbol?: string }[];
+    };
     status: { label: string; tone: string };
     onClick?: () => void;
   }) => (
@@ -66,6 +71,9 @@ jest.mock('components/ui', () => ({
       data-amount-value={amount?.value ?? ''}
       data-amount-symbol={amount?.symbol ?? ''}
       data-amount-direction={amount?.direction ?? ''}
+      // Flattened as `key:value symbol|…` so both the contents AND the order
+      // (the row renders them unsorted, first-seen) are assertable.
+      data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
       data-status-label={status.label}
       data-status-tone={status.tone}
       data-clickable={onClick ? 'yes' : 'no'}
@@ -281,7 +289,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       __faucet: true,
       transactionIcon: 'RECEIVE',
       secondaryAddress: 'mtst1abcdefghijklmnop',
-      amount: 100n,
+      amount: '100',
       token: 'MDN',
       txId: 'tx-faucet',
       timestamp: DAY_A
@@ -291,7 +299,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'failed-icon',
       transactionIcon: 'FAILED',
       secondaryAddress: 'mtst1_underscoreaddress',
-      amount: 5n,
+      amount: '5',
       token: 'MDN',
       message: 'Failed by icon',
       txId: 'tx-failed-icon',
@@ -313,7 +321,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'receive',
       transactionIcon: 'RECEIVE',
       secondaryAddress: '0x1234',
-      amount: 50n,
+      amount: '50',
       token: 'MDN',
       message: 'Received',
       txId: 'tx-receive',
@@ -324,7 +332,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'send',
       transactionIcon: 'SEND',
       secondaryAddress: 'mtst1longsendaddressnoUnderscore',
-      amount: 20n,
+      amount: '20',
       token: 'MDN',
       message: 'Sent',
       txId: 'tx-send',
@@ -340,7 +348,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       token: 'MDN',
       requestedToken: 'ETH',
       requestedAmount: '0.5',
-      amount: 10n,
+      amount: '10',
       message: 'swap ignored',
       txId: 'tx-swap-full',
       type: HistoryEntryType.ProcessingTransaction,
@@ -350,7 +358,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     makeEntry({
       key: 'mint',
       transactionIcon: 'MINT',
-      amount: 7n,
+      amount: '7',
       token: 'MDN',
       message: 'Minted',
       txId: 'tx-mint',
@@ -371,7 +379,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       transactionIcon: 'SWAP',
       txType: 'swap',
       token: 'MDN',
-      amount: 3n,
+      amount: '3',
       message: 'swap fallback',
       txId: 'tx-swap-partial',
       timestamp: DAY_B
@@ -394,7 +402,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       __faucet: true,
       transactionIcon: 'SEND',
       secondaryAddress: 'shortaddr',
-      amount: 1n,
+      amount: '1',
       token: 'MDN',
       txId: 'tx-faucet-send',
       timestamp: DAY_B
@@ -406,7 +414,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       txType: 'earn-withdraw',
       transactionIcon: undefined,
       earnWithdrawPhase: 'delivering',
-      amount: 2n,
+      amount: '2',
       token: 'USDC',
       txId: 'tx-earn-withdraw',
       timestamp: DAY_B
@@ -416,7 +424,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       key: 'earn-deposit',
       txType: 'earn-deposit',
       transactionIcon: undefined,
-      amount: 5n,
+      amount: '5',
       token: 'USDC',
       message: 'Depositing',
       txId: 'tx-earn-deposit',
@@ -634,7 +642,7 @@ describe('HistoryView token-scoped swap rows', () => {
     requestedToken: 'ETH',
     requestedFaucetId: 'requested-faucet',
     requestedAmount: '0.5',
-    amount: 10n,
+    amount: '10',
     txId: 'tx-swap-scoped'
   });
 
@@ -691,10 +699,174 @@ describe('HistoryView token-scoped swap rows', () => {
   });
 });
 
+// A "Claim All" is filed under its FIRST note's faucet while sweeping up every
+// other faucet, so the row has to say what else arrived — and must not say it on
+// a page scoped to a token the claim never touched.
+describe('HistoryView batch-claim extra assets', () => {
+  const claimEntry = (overrides: Partial<IHistoryEntry> = {}) =>
+    makeEntry({
+      key: 'claim',
+      transactionIcon: 'RECEIVE',
+      txType: 'consume',
+      message: 'Claimed',
+      faucetId: 'faucet-a',
+      amount: '20',
+      token: 'AAA',
+      extraAmounts: [
+        { faucetId: 'faucet-b', amount: '10', token: 'BBB' },
+        { faucetId: 'faucet-c', amount: '5', token: 'CCC' }
+      ],
+      txId: 'tx-claim',
+      ...overrides
+    });
+
+  const renderClaim = (tokenId?: string, overrides: Partial<IHistoryEntry> = {}) => {
+    render(<HistoryView {...baseProps} entries={[claimEntry(overrides)]} fullHistory tokenId={tokenId} />);
+    return screen.getByTestId('activity-row');
+  };
+
+  it('appends every secondary asset, signed and in order, on the unscoped list', () => {
+    const row = renderClaim(undefined);
+    expect(row).toHaveAttribute('data-amount-value', '+20');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b:+10 BBB|faucet-c:+5 CCC');
+  });
+
+  it('shows only the scoped faucet total on that token page, never a foreign asset', () => {
+    // Listing "+10 BBB" on token C's page states a balance change that never
+    // touched C — the same reason a swap row is signed by side when scoped.
+    const row = renderClaim('faucet-c');
+    expect(row).toHaveAttribute('data-amount-value', '+5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  it('keeps the row faucet total, with no extras, on the primary token page', () => {
+    const row = renderClaim('faucet-a');
+    expect(row).toHaveAttribute('data-amount-value', '+20');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  it('omits the extras entirely for a single-asset claim', () => {
+    const row = renderClaim(undefined, { extraAmounts: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '+20');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  it('signs the extras like the primary amount on an outgoing row', () => {
+    const row = renderClaim(undefined, { transactionIcon: 'SEND', txType: 'send' });
+    expect(row).toHaveAttribute('data-amount-value', '-20');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b:-10 BBB|faucet-c:-5 CCC');
+  });
+
+  // `ConsumeTransaction` leaves `amount` undefined when the FIRST note's value is
+  // unknown, and a zero total is a real total. Gating the extras on a headline
+  // the batch may legitimately lack would blank every asset the claim collected.
+  it('promotes the first secondary asset when the claim has no headline amount', () => {
+    const row = renderClaim(undefined, { amount: undefined, token: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '+10');
+    expect(row).toHaveAttribute('data-amount-symbol', 'BBB');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-c:+5 CCC');
+  });
+
+  it('keeps a zero primary total and its extras', () => {
+    const row = renderClaim(undefined, { amount: '0' });
+    expect(row).toHaveAttribute('data-amount-value', '+0');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b:+10 BBB|faucet-c:+5 CCC');
+  });
+
+  it('still scopes correctly when there is no headline amount', () => {
+    const row = renderClaim('faucet-c', { amount: undefined, token: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '+5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  // An extra whose faucet never resolved carries no amount: its decimals are
+  // unknown, and the unknown-token fallback's 6 would render an 18-decimal token
+  // 10^12 too large. The asset is still named — a claim that swept it up did
+  // happen — it just goes unquantified.
+  it('names an unquantified secondary asset without inventing a number', () => {
+    const row = renderClaim(undefined, {
+      extraAmounts: [
+        { faucetId: 'faucet-b', amount: undefined, token: 'Unknown' },
+        { faucetId: 'faucet-c', amount: '5', token: 'CCC' }
+      ]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '+20');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b: Unknown|faucet-c:+5 CCC');
+  });
+
+  // The headline is the row's one prominent number, so a quantified line wins
+  // the promotion even when an unquantified one precedes it.
+  it('promotes a quantified line over an unquantified one', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: undefined,
+      extraAmounts: [
+        { faucetId: 'faucet-b', amount: undefined, token: 'Unknown' },
+        { faucetId: 'faucet-c', amount: '5', token: 'CCC' }
+      ]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '+5');
+    expect(row).toHaveAttribute('data-amount-symbol', 'CCC');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-b: Unknown');
+  });
+
+  // The discriminating case for keying promotion on the TOKEN rather than the
+  // amount: the primary is NAMED but unquantified, so it still owns the
+  // headline. Promoting the quantified secondary would file the row under
+  // faucet A while reading as a credit of C.
+  it('keeps a named but unquantified primary in the headline', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: 'AAA',
+      extraAmounts: [{ faucetId: 'faucet-c', amount: '5', token: 'CCC' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'AAA');
+    expect(row).toHaveAttribute('data-amount-extra', 'faucet-c:+5 CCC');
+  });
+
+  // A single-faucet row whose scale is unknown has no extras to fall back on.
+  // Skipping the amount block entirely would drop the asset's NAME too, leaving
+  // a row that says nothing about what moved.
+  it('names a lone asset that has no trustworthy number', () => {
+    const row = renderClaim(undefined, { amount: undefined, token: 'Unknown', extraAmounts: undefined });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
+
+  // Nothing to promote but the unquantified line itself. Rendering no amount at
+  // all would erase every asset the claim collected, so the row names the asset
+  // and shows no number.
+  it('renders a claim whose every asset is unquantified', () => {
+    const row = renderClaim(undefined, {
+      amount: undefined,
+      token: undefined,
+      extraAmounts: [{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+    expect(row).toHaveAttribute('data-amount-extra', '');
+  });
+
+  // A token page scoped to the unresolvable faucet: same rule, one line.
+  it('shows the scoped faucet unquantified rather than at a guessed scale', () => {
+    const row = renderClaim('faucet-b', {
+      extraAmounts: [{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]
+    });
+    expect(row).toHaveAttribute('data-amount-value', '');
+    expect(row).toHaveAttribute('data-amount-symbol', 'Unknown');
+  });
+});
+
 describe('HistoryView infinite scroll wiring', () => {
   const twoEntries = [
-    makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: 1n, token: 'MDN' }),
-    makeEntry({ key: 'b', message: 'B', txId: 'txb', transactionIcon: 'SEND', amount: 2n, token: 'MDN' })
+    makeEntry({ key: 'a', message: 'A', txId: 'txa', transactionIcon: 'SEND', amount: '1', token: 'MDN' }),
+    makeEntry({ key: 'b', message: 'B', txId: 'txb', transactionIcon: 'SEND', amount: '2', token: 'MDN' })
   ];
 
   it('wraps the list in InfiniteScroll when a scrollParentRef is provided', () => {
@@ -799,7 +971,7 @@ describe('HistoryView earn-deposit status chip', () => {
     const entry = makeEntry({
       txType: 'earn-deposit',
       message: 'Depositing',
-      amount: 5n,
+      amount: '5',
       token: 'USDC',
       ...overrides
     });
@@ -851,5 +1023,19 @@ describe('HistoryView earn-deposit status chip', () => {
     const row = renderDeposit({ type: HistoryEntryType.PendingTransaction, earnDepositStatus: 'failed' });
     expect(row).toHaveAttribute('data-status-label', 'pending');
     expect(row).toHaveAttribute('data-status-tone', 'pending');
+  });
+  // date-fns THROWS on an Invalid Date, so one unusable timestamp used to take
+  // the whole list down rather than just its own row. `Number.isFinite` alone is
+  // not enough — 1e300 is finite and still overflows the Date range.
+  describe('an unusable timestamp', () => {
+    it.each([
+      ['NaN', NaN],
+      ['Infinity', Infinity],
+      ['out of Date range', 1e300]
+    ])('still renders the row when the timestamp is %s', (_label, timestamp) => {
+      expect(() => render(<HistoryView {...baseProps} entries={[makeEntry({ timestamp })]} />)).not.toThrow();
+
+      expect(screen.getAllByTestId('history-item')).toHaveLength(1);
+    });
   });
 });

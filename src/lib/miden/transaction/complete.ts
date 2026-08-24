@@ -17,6 +17,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
+  IConsumedAssetTotal,
   IConsumeSwapSettleExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -30,7 +31,7 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
@@ -44,11 +45,16 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // rather than once per note inside the loop.
   const notesToRelay: Note[] = [];
 
-  // Sticky across both phases. A private note that could not even be converted to a
-  // relayable note is as undelivered as one whose relay was rejected, so it has to
-  // reach the row's delivery state the same way — dropping those with only a
-  // console line is how a note goes missing without a trace.
-  let relayFailed = false;
+  // How many of this transaction's private notes cannot be shown to have reached
+  // the transport. Counted across BOTH phases — conversion and relay — because a
+  // note that could not even be turned into a relayable note is as undelivered as
+  // one whose relay was rejected, and dropping either with only a console line is
+  // how a note goes missing without a trace.
+  //
+  // A count rather than a flag so the row can say how many, which is the difference
+  // between a user knowing one note of several is stuck and assuming the whole
+  // transaction failed.
+  let undeliveredNotes = 0;
 
   for (const note of outputNotes) {
     // Only care about private notes
@@ -57,7 +63,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     }
 
     if (!transaction.secondaryAccountId) {
+      // The recipient is supplied by the requesting site and is optional, so a
+      // custom request that emits a private note without naming one lands here.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
+      undeliveredNotes++;
       continue;
     }
 
@@ -66,13 +75,13 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note', { txId: transaction.id });
-        relayFailed = true;
+        undeliveredNotes++;
         continue;
       }
       notesToRelay.push(maybeFullNote);
     } catch (error) {
       console.error('Failed to convert output note into full note', { txId: transaction.id, error });
-      relayFailed = true;
+      undeliveredNotes++;
       continue;
     }
   }
@@ -121,13 +130,13 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
           errorName: error instanceof Error ? error.name : typeof error,
           errorMessage: error instanceof Error ? error.message : String(error)
         });
-        relayFailed = true;
+        undeliveredNotes++;
       }
     }
 
     // Pessimistic aggregate: one undelivered note among several still means value is
     // unreachable, so the row must not read as fully delivered.
-    noteDelivery = relayFailed ? 'undelivered' : 'relayed';
+    noteDelivery = undeliveredNotes > 0 ? 'undelivered' : 'relayed';
 
     try {
       await recordNoteDelivery(transaction.id, noteDelivery);
@@ -147,7 +156,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         error
       });
     }
-  } else if (relayFailed) {
+  } else if (undeliveredNotes > 0) {
     // Private notes existed but none could be turned into a relayable note.
     noteDelivery = 'undelivered';
     try {
@@ -163,6 +172,18 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
   if (noteDelivery) updatedTransaction.noteDelivery = noteDelivery;
+
+  if (undeliveredNotes > 0) {
+    // Completed, not Failed: the transaction is on chain and the assets have left
+    // the account, so failing the row would be untrue and would offer a Retry that
+    // spends again. What is wrong is the DELIVERY, and the row is the only place
+    // the user would ever learn about it — `error` is rendered for failed rows
+    // only, so the label is what carries it.
+    updatedTransaction.displayMessage =
+      undeliveredNotes === 1
+        ? 'Completed — a private note could not be delivered'
+        : `Completed — ${undeliveredNotes} private notes could not be delivered`;
+  }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
@@ -186,14 +207,29 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  let amount = 0n;
+  // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
+  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
+  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // completed row recomputes it here against the executed transaction and stays
+  // consistent with `amount` below (which is this list's `faucetId` entry).
+  const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
-      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
-        amount += noteAsset.amount();
-      }
+      const assetFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+      totalsByFaucet.set(assetFaucetId, (totalsByFaucet.get(assetFaucetId) ?? 0n) + noteAsset.amount());
     }
   }
+  const assetTotals: IConsumedAssetTotal[] = Array.from(totalsByFaucet, ([id, total]) => ({
+    faucetId: id,
+    amount: total
+  }));
+  const amount = totalsByFaucet.get(faucetId) ?? 0n;
+
+  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // otherwise the details card would label a mixed claim by its first note alone.
+  const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
+  const firstNoteType = noteTypes[0];
+  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -201,7 +237,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     secondaryAccountId,
     faucetId,
     amount,
-    noteType: toNoteTypeString(note.metadata().noteType()),
+    assetTotals,
+    noteType: uniformNoteType,
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
@@ -562,7 +599,25 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
  * "ask the note", not "assume public".
  */
 const isPrivateOutputSend = (tx: SendTransaction, note: Note | undefined): boolean => {
-  if (tx.noteType === NoteTypeEnum.Private) return true;
+  // Via `isPrivateNoteType`, not a bare `=== NoteTypeEnum.Private` compare: a row can
+  // carry the SDK's NUMERIC note type (the enum is accepted wherever a note type is
+  // taken, and `Private` is `0`), which a string compare answers "public" for. That
+  // would build a private note and then skip its relay entirely.
+  //
+  // The throw is swallowed rather than propagated because this runs AFTER the
+  // transaction is on chain: failing a LANDED send before its id is captured would
+  // leave Retry to rebuild the request and pay a second time. An unreadable value
+  // falls through to the note's own metadata below, which is the better answer than
+  // either assuming public or escalating a delivery problem into a double spend.
+  try {
+    if (isPrivateNoteType(tx.noteType)) return true;
+  } catch (error) {
+    console.warn('Unrecognized noteType on the row; deferring to the note metadata', {
+      txId: tx.id,
+      noteType: tx.noteType,
+      error
+    });
+  }
 
   if (note) {
     try {
