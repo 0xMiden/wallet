@@ -25,7 +25,7 @@ import {
 /**
  * The verbatim `Display` text miden-client produces for
  * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
- * shipped `@miden-sdk/miden-sdk@0.16.0-rc.2` wasm. That SDK attaches NO code
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.3` wasm. That SDK attaches NO code
  * property for this variant, so this string is the ONLY signal the wallet's
  * classifier has. Building the fixture from the real message — instead of
  * hand-setting an `errorCode` the SDK never sets — is what makes these tests

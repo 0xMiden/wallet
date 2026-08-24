@@ -70,7 +70,15 @@ for slice in "${SLICES[@]}"; do
   [ -f "$built" ] || { echo "Error: $target produced no library" >&2; exit 1; }
   # The C ABI the Swift plugin links against. If this is missing the app fails to
   # link, so check here rather than in Xcode.
-  nm -gU "$built" | grep -q '_miden_prove_transaction' \
+  #
+  # Capture nm's output instead of piping it: fat LTO leaves some members (all of
+  # compiler_builtins) as LLVM bitcode, and Xcode's nm refuses any bitcode newer
+  # than its own reader ("Unknown attribute kind"), exiting non-zero. Under
+  # `pipefail` that status sinks the pipeline even though nm listed every native
+  # member — including the one carrying this symbol — and a good archive gets
+  # rejected. The symbol it did find is the evidence we want; nm's status is not.
+  symbols="$(nm -gU "$built" 2>/dev/null || true)"
+  grep -q '_miden_prove_transaction' <<<"$symbols" \
     || { echo "Error: $target library does not export _miden_prove_transaction" >&2; exit 1; }
   cp "$built" "$STAGING/$(basename "${slice##*:}").a"
 done
