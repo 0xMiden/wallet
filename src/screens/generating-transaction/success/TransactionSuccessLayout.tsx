@@ -3,16 +3,18 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { ReviewLabel } from 'components/review/ReviewRow';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { ITransaction } from 'lib/miden/db/types';
-import { MIDEN_METADATA } from 'lib/miden/metadata';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
 
-import { TransactionSummaryBadge } from '../TransactionSummaryBadge';
+import { formatConsumeAssetParts, TransactionSummaryBadge } from '../TransactionSummaryBadge';
 
 /**
  * Shared presentational kit for the post-transaction success screens.
@@ -54,15 +56,31 @@ export interface ReceiptRow {
   actionLabel?: string;
 }
 
-/** Resolves the token symbol + formatted amount for a transaction. */
+/**
+ * Resolves the token symbol + formatted amount for a transaction.
+ *
+ * A claim reports EVERY faucet it swept up ("20 A, 10 B"), via the same helper
+ * the in-progress badge uses — this receipt replaces that badge on the same
+ * screen, so deriving the two separately makes the total appear to drop the
+ * moment the transaction succeeds.
+ */
 export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
+  const nativeFaucetId = useMidenFaucetId();
 
-  const tokenMetadata = transaction?.faucetId ? assetsMetadata[transaction.faucetId] : undefined;
-  const tokenSymbol = tokenMetadata?.symbol ?? MIDEN_METADATA.symbol ?? 'MDN';
+  const tokenMetadata = resolveDisplayMetadata(transaction?.faucetId, assetsMetadata, nativeFaucetId);
+  const tokenSymbol = tokenMetadata.symbol;
+  const consumeParts =
+    transaction?.type === 'consume' ? formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId) : [];
+  // Same rule as the in-progress badge this receipt replaces: a faucet whose
+  // decimals were never resolved has no honest scale, so the asset is named
+  // without a quantity instead of being shown at the placeholder's guess.
   const amount =
-    transaction?.amount !== undefined ? formatAmount(transaction.amount, tokenMetadata?.decimals) : undefined;
-  const amountText = amount ? `${amount} ${tokenSymbol}` : undefined;
+    transaction?.amount !== undefined && hasKnownScale(tokenMetadata)
+      ? formatAmount(transaction.amount, tokenMetadata.decimals)
+      : undefined;
+  const amountText =
+    consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
 
   return { tokenMetadata, tokenSymbol, amountText };
 };

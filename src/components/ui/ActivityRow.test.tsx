@@ -10,6 +10,14 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// i18n: echo the key plus its interpolated values, so the overflow count can be
+// asserted as data rather than as whatever copy `andMoreAssets` currently holds.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => (opts ? `${key}:${Object.values(opts).join(',')}` : key)
+  })
+}));
+
 const baseStatus = { label: 'Confirmed', tone: 'confirmed' as const };
 
 const renderRow = (props: Partial<React.ComponentProps<typeof ActivityRow>> = {}) =>
@@ -117,6 +125,93 @@ describe('ActivityRow', () => {
     it('defaults to the neutral amount color when direction is undefined', () => {
       renderRow({ amount: { value: '7' } });
       expect(screen.getByText('7').className).toContain('text-text-primary-token');
+    });
+  });
+
+  // A batch claim reads "+20 A, +10 B" on one line. The line is finite and the
+  // claim is not (anyone can send the account notes), so past a couple of assets
+  // the amount column starves the title beside it and the rest must collapse.
+  describe('batch-claim extra assets', () => {
+    const extraOf = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ key: `faucet-${i}`, value: `+${i + 1}`, symbol: `T${i}` }));
+
+    it('renders each extra asset inline after the primary amount, separated and same-coloured', () => {
+      renderRow({
+        testId: 'row',
+        amount: { value: '+20', symbol: 'AAA', direction: 'positive', extra: extraOf(2) }
+      });
+
+      const amount = screen.getByTestId('row-amount');
+      // One flat line: primary first, then each extra in the given order.
+      expect(amount.textContent).toBe('+20 AAA, +1 T0, +2 T1');
+      // Extras inherit the primary's direction colour — a claim's secondary
+      // assets arrived too, so rendering them neutral would read as "unchanged".
+      expect(screen.getByText('+1').className).toContain('text-status-positive');
+      expect(screen.queryByTestId('row-amount-extra-overflow')).toBeNull();
+    });
+
+    it('addresses each extra by an indexed test id (two faucets can format identically)', () => {
+      // A repeated test id makes `getByTestId` ambiguous, and two faucets CAN
+      // produce the same "10 Unknown" text, so index is the only handle.
+      renderRow({
+        testId: 'row',
+        amount: {
+          value: '+20',
+          symbol: 'AAA',
+          extra: [
+            { key: 'faucet-b', value: '+10', symbol: 'Unknown' },
+            { key: 'faucet-c', value: '+10', symbol: 'Unknown' }
+          ]
+        }
+      });
+
+      expect(screen.getByTestId('row-amount-extra-0').textContent).toBe(', +10 Unknown');
+      expect(screen.getByTestId('row-amount-extra-1').textContent).toBe(', +10 Unknown');
+    });
+
+    it('caps the inline list at two and counts the remainder', () => {
+      renderRow({ testId: 'row', amount: { value: '+20', symbol: 'AAA', extra: extraOf(5) } });
+
+      // First two render; the other three collapse.
+      expect(screen.getByTestId('row-amount-extra-0')).toBeInTheDocument();
+      expect(screen.getByTestId('row-amount-extra-1')).toBeInTheDocument();
+      expect(screen.queryByTestId('row-amount-extra-2')).toBeNull();
+      expect(screen.getByTestId('row-amount-extra-overflow').textContent).toBe(', andMoreAssets:3');
+    });
+
+    it('renders no separator or overflow when there are no extras', () => {
+      renderRow({ testId: 'row', amount: { value: '+20', symbol: 'AAA' } });
+
+      expect(screen.getByTestId('row-amount').textContent).toBe('+20 AAA');
+      expect(screen.queryByTestId('row-amount-extra-0')).toBeNull();
+      expect(screen.queryByTestId('row-amount-extra-overflow')).toBeNull();
+    });
+
+    it('formats each extra value through the shared display formatter', () => {
+      renderRow({
+        testId: 'row',
+        amount: { value: '+20', symbol: 'AAA', extra: [{ key: 'f', value: '+1.23456789', symbol: 'BBB' }] }
+      });
+
+      // ROUND_DOWN to 3 dp, exactly like the primary amount.
+      expect(screen.getByTestId('row-amount-extra-0').textContent).toBe(', +1.234 BBB');
+    });
+
+    // An asset whose decimals never resolved is named without a quantity. The
+    // row must not leave the gap where the number would have been.
+    it('names an extra with no quantity without a stray space', () => {
+      renderRow({
+        testId: 'row',
+        amount: { value: '+20', symbol: 'AAA', extra: [{ key: 'f', value: '', symbol: 'Unknown' }] }
+      });
+
+      expect(screen.getByTestId('row-amount-extra-0').textContent).toBe(', Unknown');
+    });
+
+    it('names a primary with no quantity without a stray space', () => {
+      renderRow({ testId: 'row', amount: { value: '', symbol: 'Unknown' } });
+
+      expect(screen.getByTestId('row-amount').textContent).toBe('Unknown');
     });
   });
 

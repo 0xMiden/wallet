@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { AssetRow } from 'components/AssetRow';
 import { SearchInput } from 'components/ui';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -72,7 +73,8 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                     name: b.metadata.symbol,
                     decimals: b.metadata.decimals,
                     balance: b.balance,
-                    fiatPrice: b.fiatPrice
+                    fiatPrice: b.fiatPrice,
+                    scaleIsKnown: hasKnownScale(b.metadata)
                   })
                 }
               />

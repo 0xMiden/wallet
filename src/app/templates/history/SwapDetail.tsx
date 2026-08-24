@@ -25,6 +25,17 @@ interface SwapDetailProps {
   /** Undefined = unknown, which is not the same statement as zero. */
   requestedAmount?: bigint;
   requestedDecimals?: number;
+  /**
+   * False when the requested faucet never resolved, so `requestedDecimals` is
+   * the unknown-token placeholder's guess.
+   *
+   * Every quantity on this screen — the order's requested size, how much of it
+   * filled, and each settlement note's payout — is scaled by those same
+   * decimals, so one unresolved faucet makes the entire fill history wrong
+   * together. The token is still named throughout; only the numbers are
+   * withheld.
+   */
+  requestedScaleIsKnown: boolean;
   requestedSymbol?: string;
   requestedFaucetId?: string;
   /** Undefined = unknown, which is not the same statement as zero. */
@@ -58,6 +69,8 @@ interface SwapNoteRowProps {
   kind: 'settled' | 'reclaimed' | 'pending';
   transaction?: SwapSettlementTransaction;
   requestedDecimals?: number;
+  /** Only the `settled` row quotes a payout; the others pass neither. */
+  requestedScaleIsKnown?: boolean;
   requestedSymbol?: string;
   requestedFaucetId?: string;
 }
@@ -94,6 +107,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
   kind,
   transaction,
   requestedDecimals,
+  requestedScaleIsKnown,
   requestedSymbol,
   requestedFaucetId
 }: SwapNoteRowProps) {
@@ -108,7 +122,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
   // unrecorded faucet is not a mismatch, but it is not a confirmation either.
   const deliveredRequested = transaction ? deliveredRequestedToken(transaction, requestedFaucetId) : false;
   const receivedAmount =
-    transaction?.amount === undefined || deliveredRequested !== true
+    transaction?.amount === undefined || deliveredRequested !== true || !requestedScaleIsKnown
       ? undefined
       : formatAmount(transaction.amount, requestedDecimals);
 
@@ -239,6 +253,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   entry,
   requestedAmount,
   requestedDecimals,
+  requestedScaleIsKnown,
   requestedSymbol,
   requestedFaucetId,
   filledAmount,
@@ -272,8 +287,10 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const isPartialFill =
     filledAmount !== undefined && requestedAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
   const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
-  const formattedRequested = requestedAmount === undefined ? '—' : formatAmount(requestedAmount, requestedDecimals);
-  const formattedFilled = filledAmount === undefined ? '—' : formatAmount(filledAmount, requestedDecimals);
+  const formattedRequested =
+    requestedAmount === undefined || !requestedScaleIsKnown ? '—' : formatAmount(requestedAmount, requestedDecimals);
+  const formattedFilled =
+    filledAmount === undefined || !requestedScaleIsKnown ? '—' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
@@ -380,6 +397,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                     kind="settled"
                     transaction={transaction}
                     requestedDecimals={requestedDecimals}
+                    requestedScaleIsKnown={requestedScaleIsKnown}
                     requestedSymbol={requestedSymbol}
                     requestedFaucetId={requestedFaucetId}
                   />

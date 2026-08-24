@@ -97,7 +97,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const { t } = useTranslation();
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
-  const canProceed = !!token && isValidAmount && (!isBridge || !!network);
+  // An amount typed here is converted to base units with `token.decimals`. When
+  // those decimals are the unknown-token placeholder's guess, that conversion
+  // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
+  // that may actually count in 10^18, so the transfer that leaves the wallet is
+  // a different quantity from the one on screen. There is no honest way to
+  // denominate a transfer in a unit we cannot read, so the flow stops here
+  // rather than at the confirmation.
+  const scaleIsKnown = token === undefined || token.scaleIsKnown;
+  const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
 
   const tokenSelector = (
     <button
@@ -183,11 +191,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     token && showBalanceHelper ? (
       <>
         <span className="font-heading text-gray text-base font-bold">
-          {t('available')} {formatBalance(token.balance)} {token.name}
+          {/* Same guessed scale as the amount above — quoting a spendable
+              balance from it would be inviting the user to act on a number the
+              wallet cannot stand behind. */}
+          {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)} ${token.name}` : t('unknownTokenScale')}
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
-        {token.fiatPrice > 0 && (
+        {scaleIsKnown && token.fiatPrice > 0 && (
           <span className="font-heading text-gray text-base font-bold">
             {t('approxFiatValue', { value: `$${toAdaptiveFixed(availableFiat)}` })}
           </span>

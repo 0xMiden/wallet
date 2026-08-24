@@ -29,10 +29,8 @@ const SOURCE_OF_TRUTH = path.join(ROOT, 'public/_locales/en/en.json');
  *
  * - `faceId`: the hot-key label on the Rotate Guardian review screen, blank
  *   whenever the device reports Face ID.
- * - `importSeedPhraseError`: the red error line under the seed-phrase import
- *   field, blank on every failed import.
  */
-const KNOWN_MISSING = new Set(['faceId', 'importSeedPhraseError']);
+const KNOWN_MISSING = new Set(['faceId']);
 
 /**
  * A `t('someKey')` call with a literal key. Dynamic keys (`t(variable)`,
