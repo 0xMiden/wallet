@@ -13,10 +13,18 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { encodingVariantsOf } from './egress-guard';
-import { __resetRunForTest, beginFlow, classifyError } from './report-flow';
+import { beginFlow, classifyError } from './report-flow';
+import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryResult } from './types';
+import {
+  TelemetryErrorKind,
+  TelemetryEvent,
+  TelemetryFlow,
+  TelemetryOperation,
+  TelemetryResult,
+  TelemetryStep
+} from './types';
 
 /**
  * The adversarial anti-leak guard, asserted at the two egress boundaries rather
@@ -370,9 +378,128 @@ const EVERY_ERROR_KIND: Record<TelemetryErrorKind, TelemetryErrorKind> = {
   unknown: 'unknown'
 };
 
+/**
+ * The second axis, and the one this file used to have no opinion about at all.
+ *
+ * The sweep below was named for "the entire event type space" while enumerating
+ * only flows, so every `*_settled` envelope crossed the allowlist boundary
+ * unobserved. A mutation that put a raw mainnet address on `props` failed four
+ * tests when unconditional and none at all when wrapped in
+ * `if (payload.phase === 'settled')`. That was the whole settled axis outside the
+ * privacy guarantee, at exactly the moment two more operations were added to it.
+ */
+const EVERY_OPERATION: Record<TelemetryOperation, TelemetryOperation> = {
+  tx_send: 'tx_send',
+  tx_receive: 'tx_receive',
+  tx_swap: 'tx_swap',
+  tx_earn: 'tx_earn',
+  tx_bridge: 'tx_bridge',
+  tx_guardian: 'tx_guardian',
+  tx_dapp: 'tx_dapp',
+  tx_other: 'tx_other',
+  prove: 'prove',
+  service_prover: 'service_prover',
+  service_node: 'service_node',
+  service_network: 'service_network'
+};
+
+/**
+ * Every step, so the closed-union check below has the whole vocabulary to
+ * compare against and a settled event can be swept carrying each one.
+ */
+const EVERY_STEP: Record<TelemetryStep, TelemetryStep> = {
+  select_recipient: 'select_recipient',
+  select_amount: 'select_amount',
+  select_route: 'select_route',
+  review: 'review',
+  submitting: 'submitting',
+  swap_amounts: 'swap_amounts',
+  choose_protection: 'choose_protection',
+  setup_passcode: 'setup_passcode',
+  setup_biometric: 'setup_biometric',
+  set_password: 'set_password',
+  recovery_method: 'recovery_method',
+  choose_guardian: 'choose_guardian',
+  enter_phrase: 'enter_phrase',
+  awaiting_approval: 'awaiting_approval',
+  syncing: 'syncing',
+  executing: 'executing',
+  proving: 'proving',
+  sending: 'sending',
+  confirming: 'confirming',
+  signing: 'signing',
+  prove_delegate: 'prove_delegate',
+  prove_local: 'prove_local',
+  prove_fallback: 'prove_fallback'
+};
+
 const FLOWS: readonly TelemetryFlow[] = Object.values(EVERY_FLOW);
 const RESULTS: readonly TelemetryResult[] = Object.values(EVERY_RESULT);
 const ERROR_KINDS: readonly TelemetryErrorKind[] = Object.values(EVERY_ERROR_KIND);
+const OPERATIONS: readonly TelemetryOperation[] = Object.values(EVERY_OPERATION);
+const STEPS: readonly TelemetryStep[] = Object.values(EVERY_STEP);
+
+/**
+ * Every shape a settled event can take, enumerated rather than chosen.
+ *
+ * The flow axis reaches the wire through the real reporters, so its shapes are
+ * whatever the app produces. The settled axis is constructed by hand, so its
+ * shapes are whatever this function says — and a leak conditioned on a shape it
+ * omits is invisible to every assertion downstream. Three shapes were omitted
+ * once, and all three are things the wallet emits constantly: a successful
+ * `prove_settled` (completed WITH a step), an outage start (errored with NO
+ * errorKind), and a phase writer on a row with no `initiatedAt` (an errorKind
+ * with NO duration). So the four optional dimensions are crossed rather than
+ * sampled, and `step` gets a pass of its own over the full union.
+ */
+function everySettledShape(): TelemetryEvent[] {
+  const verdicts: readonly ('completed' | 'errored')[] = ['completed', 'errored'];
+
+  const crossed = OPERATIONS.flatMap(operation =>
+    verdicts.flatMap(result =>
+      [...ERROR_KINDS, undefined].flatMap(errorKind =>
+        [8.4, undefined].flatMap(durationMs =>
+          (['sending', undefined] as const).map(
+            (step): TelemetryEvent => ({
+              phase: 'settled',
+              operation,
+              runId: 'sweep-run',
+              result,
+              ...(errorKind !== undefined ? { errorKind } : {}),
+              ...(durationMs !== undefined ? { durationMs } : {}),
+              ...(step !== undefined ? { step } : {})
+            })
+          )
+        )
+      )
+    )
+  );
+
+  // Crossing `step` against everything else as well would multiply the sweep by
+  // twenty-four for no extra coverage: nothing downstream branches on WHICH step
+  // it is, only on whether there is one. One pass over the union is what the
+  // closed-union value check needs.
+  const perStep = STEPS.map(
+    (step): TelemetryEvent => ({
+      phase: 'settled',
+      operation: 'tx_send',
+      runId: 'sweep-run',
+      result: 'errored',
+      errorKind: 'unknown',
+      durationMs: 3.3,
+      step
+    })
+  );
+
+  return [...crossed, ...perStep];
+}
+
+/** Put every settled shape on the wire, for assertions that read the wire back. */
+async function sendEveryDeclaredOperation(): Promise<void> {
+  const context = resolveTelemetryContext();
+  for (const event of everySettledShape()) await sendEvent(event, context);
+  await flushEgress();
+}
 
 const LOADING = { locked: false, ready: false, hydrated: false };
 const UNLOCK = { locked: true, ready: true, hydrated: true };
@@ -646,9 +773,18 @@ describe('product-event egress', () => {
   it('carries no string value beyond the closed unions, the version, the flow id and two constants', async () => {
     consentOn();
     await driveEveryInstrumentedFlow();
+    // The settled axis too, which this assertion never reached. It ran only
+    // against the driven flows, so no `*_settled` envelope ever had its prop
+    // VALUES checked against the closed unions — only its keys, and only against
+    // `WIRE_KEYS`. A leak in a settled prop's value was outside the one
+    // assertion written to catch exactly that.
+    await sendEveryDeclaredOperation();
 
-    const eventNames = new Set(FLOWS.flatMap(flow => [`${flow}_started`, `${flow}_ended`]));
-    const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS]);
+    const eventNames = new Set([
+      ...FLOWS.flatMap(flow => [`${flow}_started`, `${flow}_ended`]),
+      ...OPERATIONS.map(operation => `${operation}_settled`)
+    ]);
+    const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS, ...STEPS]);
     const platforms = new Set<string>(['extension', 'ios', 'android']);
 
     const sent = envelopes();
@@ -778,6 +914,8 @@ describe('product-event egress', () => {
         })
       )
     ]);
+
+    events.push(...everySettledShape());
 
     for (const event of events) await sendEvent(event, context);
     await flushEgress();
@@ -918,7 +1056,18 @@ describe('the boundary is the only way out', () => {
       .sort();
 
   it('has one consent-gated sender, reached from one place outside the telemetry module', () => {
-    expect(importers(/\bsendEvent\b/)).toEqual(['lib/miden/back/actions.ts', 'lib/telemetry/sink.ts']);
+    // Three files, one sender. `sink.ts` defines it. `actions.ts` is the
+    // worker's handler for an event a page forwarded. `report-operation.ts` is
+    // the worker reporting on its own work, which has no page to forward from —
+    // and it calls this only in the worker branch, where it already IS the
+    // background. Every one of the three passes through the same consent check
+    // inside `sendEvent`, which is what makes this a boundary rather than a
+    // convention.
+    expect(importers(/\bsendEvent\b/)).toEqual([
+      'lib/miden/back/actions.ts',
+      'lib/telemetry/report-operation.ts',
+      'lib/telemetry/sink.ts'
+    ]);
   });
 
   it('confines the crash-reporting SDK to the module that scrubs before it', () => {

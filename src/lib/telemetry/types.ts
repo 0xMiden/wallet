@@ -28,6 +28,42 @@ export type TelemetryFlow =
   | 'note_handle'
   | 'activity_view';
 
+/**
+ * What a `settled` event is about: one operation the wallet carried out on the
+ * user's behalf, after the screen that asked for it was done.
+ *
+ * A separate union from `TelemetryFlow` because these are not things a person
+ * did — they are things the wallet did, and they succeed or fail long after the
+ * flow that started them reported `completed`. Every send, swap, claim, earn
+ * movement, bridge, and guardian operation becomes one of these, which is what
+ * makes "did it actually land" answerable at all.
+ *
+ * Coarser than the transaction types in `ITransactionType` on purpose. These
+ * names are a reporting vocabulary, and a new row type appearing in the database
+ * should not silently mint a new event name in the dashboard — it maps onto
+ * `other` until somebody decides it deserves its own.
+ */
+export type TelemetryOperation =
+  | 'tx_send'
+  | 'tx_receive'
+  | 'tx_swap'
+  | 'tx_earn'
+  | 'tx_bridge'
+  | 'tx_guardian'
+  | 'tx_dapp'
+  | 'tx_other'
+  // Not a transaction: one prove attempt, whose outcome says whether the
+  // delegated prover is healthy and whether the user paid for a fallback.
+  | 'prove'
+  // Not transactions: an outage of something the wallet depends on. The category
+  // is in the name rather than in a field so a dashboard can chart one service
+  // without unpacking props. Reported twice — `errored` when the outage begins
+  // and `completed` with a duration when it lifts — so an outage the user never
+  // saw the end of still reports that it started.
+  | 'service_prover'
+  | 'service_node'
+  | 'service_network';
+
 export type TelemetryResult = 'completed' | 'cancelled' | 'errored';
 
 /**
@@ -65,7 +101,33 @@ export type TelemetryStep =
   | 'choose_guardian'
   | 'enter_phrase'
   // dApp approval
-  | 'awaiting_approval';
+  | 'awaiting_approval'
+  // Pipeline stages, for a `settled` operation rather than a screen. Where a
+  // transaction died is the difference between "the prover is down" and "the
+  // node rejected it", and it is the single most diagnostic fact a failure
+  // carries. Mapped from the row's own `stage`, which the pipeline already
+  // records for the progress screen — `submitting` above is deliberately the
+  // same name, being the same moment seen from the two sides.
+  | 'syncing'
+  | 'executing'
+  | 'proving'
+  | 'confirming'
+  | 'signing'
+  // The opaque middle, and the reason it needs a name of its own. A non-guardian
+  // transaction is stamped `sending` once at pickup and runs execute, prove and
+  // submit under it, as does a guardian transaction whose leaf ran in the
+  // offscreen document — so a prover failure and a node rejection are genuinely
+  // indistinguishable from the stage there. Folding it into `submitting` was the
+  // tempting reading and the wrong one: it would file every prover outage on the
+  // wallet's commonest transaction as a node problem, which is the single fact
+  // this reporting exists to establish. Cross it with `errorKind` to narrow it.
+  | 'sending'
+  // Which prover produced the proof, for a `prove` operation. `prove_fallback`
+  // is the case worth watching: the delegated prover failed, the local one
+  // picked it up, the transaction succeeded, and the user waited twice.
+  | 'prove_delegate'
+  | 'prove_local'
+  | 'prove_fallback';
 
 /** Broad categories only. Never a message, code, or detail string. */
 export type TelemetryErrorKind =
@@ -124,7 +186,45 @@ export interface FlowEndedEvent {
   step?: TelemetryStep;
 }
 
-export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent;
+/**
+ * One operation the wallet finished, reported after the fact.
+ *
+ * A single event rather than a pair, unlike a flow. A flow is reported twice
+ * because the user can walk away from it, and an unmatched `started` is what
+ * makes abandonment visible. An operation cannot be abandoned — the wallet
+ * either finished it or failed it — so there is nothing for a second event to
+ * disambiguate, and minting a `started` for one would add unmatched events to
+ * the very population the abandonment signal is computed from.
+ *
+ * It carries no `flowId` for the same reason: there is no sibling to pair with.
+ * Linking a settlement back to the flow that started it would mean writing a
+ * telemetry identifier onto the transaction row, and that row is durable storage
+ * — which would turn an in-memory id into a persisted one and break the
+ * guarantee outright. So the two are joined by time and run, or not at all.
+ */
+export interface OperationSettledEvent {
+  phase: 'settled';
+  operation: TelemetryOperation;
+  runId: TelemetryRunId;
+  /** `completed` or `errored`. An operation is never `cancelled` by the user. */
+  result: Exclude<TelemetryResult, 'cancelled'>;
+  errorKind?: TelemetryErrorKind;
+  /**
+   * How long the wallet spent on it, end to end.
+   *
+   * Optional, because for some outcomes there is no such interval and a made-up
+   * one is worse than none. A row reconciled when the user finally taps Retry
+   * has been sitting there for however long the user was away, and reporting
+   * that as the operation's duration would put "time until someone came back" in
+   * the same distribution as "time the send took" — where a handful of them
+   * would own the tail. Absent is readable; zero is not, since zero averages.
+   */
+  durationMs?: number;
+  /** Where it got to: the pipeline stage, or which prover ran. */
+  step?: TelemetryStep;
+}
+
+export type TelemetryEvent = FlowStartedEvent | FlowEndedEvent | OperationSettledEvent;
 
 /** Derived in the background. Callers cannot supply these. */
 export interface TelemetryContext {
@@ -133,9 +233,13 @@ export interface TelemetryContext {
 }
 
 export interface TelemetryWirePayload {
-  phase: 'started' | 'ended';
-  flow: TelemetryFlow;
-  flowId: string;
+  phase: 'started' | 'ended' | 'settled';
+  /** Present on the two flow phases. Absent on `settled`. */
+  flow?: TelemetryFlow;
+  /** Present on `settled`. Absent on the two flow phases. */
+  operation?: TelemetryOperation;
+  /** Pairs the two halves of a flow. A `settled` event has no pair — see above. */
+  flowId?: string;
   runId: TelemetryRunId;
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;

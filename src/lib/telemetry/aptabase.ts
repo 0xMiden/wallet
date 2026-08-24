@@ -1,6 +1,7 @@
 import {
   TelemetryErrorKind,
   TelemetryFlow,
+  TelemetryOperation,
   TelemetryPlatform,
   TelemetryResult,
   TelemetryStep,
@@ -55,15 +56,17 @@ import {
 export const APTABASE_SDK_VERSION = 'miden-wallet-aptabase@1.0.0';
 
 /**
- * `<flow>_<phase>` — for example `send_started`, `unlock_ended`.
+ * `<flow>_<phase>` or `<operation>_settled` — `send_started`, `unlock_ended`,
+ * `tx_send_settled`, `service_prover_settled`.
  *
- * Both halves are closed unions, so the twenty-two names this can produce are
- * fixed at compile time and no free text can reach the event name. It reads
- * well in an Aptabase dashboard, which lists events by name: the two halves of
- * a flow sort next to each other, and every name shares a suffix that groups
- * the starts against the ends.
+ * Every part is a closed union, so the full set of names is fixed at compile
+ * time and no free text can reach the event name. It reads well in an Aptabase
+ * dashboard, which lists events by name: the two halves of a flow sort next to
+ * each other, the shared suffix groups the starts against the ends, and the
+ * wallet's own operations sort together under their `tx_` and `service_`
+ * prefixes rather than mixing in among the things a person did.
  */
-export type AptabaseEventName = `${TelemetryFlow}_${TelemetryWirePayload['phase']}`;
+export type AptabaseEventName = `${TelemetryFlow}_started` | `${TelemetryFlow}_ended` | `${TelemetryOperation}_settled`;
 
 /**
  * Aptabase's `props` is an open object, so the type system cannot do here what
@@ -76,8 +79,12 @@ export interface AptabaseProps {
    * Pairs this event with the other half of its flow. In `props` rather than
    * `sessionId` since the run took that field over — grouping by it inside a
    * session is what turns a list of events back into flows.
+   *
+   * Optional because a `settled` operation has no pair to join to: the wallet
+   * finished the work in one go, and there is deliberately nothing linking it
+   * back to the flow that asked for it.
    */
-  flowId: string;
+  flowId?: string;
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
@@ -119,6 +126,57 @@ export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName'
 export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
 
 /**
+ * Every shape the event name may take. Three lower-case words at most, then the
+ * phase.
+ *
+ * Checked rather than trusted, because this is the one field in the envelope
+ * built by *concatenation* rather than by copying an allowlisted value, and so
+ * the one place a string can reach the wire without having passed a closed
+ * union. Every legitimate caller is typed, but the offscreen document forwards
+ * over `chrome.runtime.sendMessage`, which is `unknown` at the wire and which
+ * any other installed extension may post to — so "typed at every call site" is
+ * not the same as "closed at the boundary".
+ *
+ * A pattern rather than the enumerated union: the union is already written down
+ * three times, and a fourth copy that has to be kept in step by hand is a worse
+ * guarantee than a rule that cannot drift. What matters here is that nothing
+ * arbitrary lands in a dashboard's event list, and a name is either of this
+ * shape or it is not.
+ *
+ * Each word is length-bounded, which an unbounded `[a-z]+` was not. A megabyte
+ * of `a` is still lower-case letters, so it composed a name this pattern would
+ * have accepted and POSTed — leaving the sender check as the only thing in front
+ * of it, which is one control too few for a path that ends in an HTTP request.
+ * The longest real words are `guardian` and `activity` at eight, so 24 is
+ * generous.
+ */
+const EVENT_NAME_PATTERN = /^[a-z]{1,24}(_[a-z]{1,24}){0,2}_(started|ended|settled)$/;
+
+/** The event name this payload would be posted under. */
+function eventNameOf(payload: TelemetryWirePayload): string {
+  return payload.phase === 'settled' ? `${payload.operation}_settled` : `${payload.flow}_${payload.phase}`;
+}
+
+/**
+ * Whether this payload can be named at all.
+ *
+ * The gate the sink applies before anything is queued or posted, so a payload
+ * that cannot produce a well-formed name never reaches the wire and never
+ * reaches the retry queue either. Refusing it outright is the right outcome: an
+ * event whose subject cannot be named carries no information, so there is
+ * nothing to salvage by guessing a substitute — and a guessed name is worse than
+ * no event, because it lands in a dashboard looking like a real one.
+ */
+export function isNameableEvent(payload: TelemetryWirePayload): boolean {
+  // The subject is checked for presence separately, because a missing one
+  // stringifies to `undefined` — which is lower-case letters and would sail
+  // through the pattern as a perfectly well-formed `undefined_settled`.
+  const subject = payload.phase === 'settled' ? payload.operation : payload.flow;
+  if (typeof subject !== 'string' || subject.length === 0) return false;
+  return EVENT_NAME_PATTERN.test(eventNameOf(payload));
+}
+
+/**
  * Map one allowlisted payload onto one Aptabase envelope.
  *
  * Every field is copied by name. This function must never spread the payload,
@@ -127,12 +185,14 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * mode the allowlist exists to prevent and which `yarn ts` can no longer catch
  * on its own once the payload lands in an open object.
  *
- * Each of the ten allowlisted fields appears exactly once in the result —
- * `flow` and `phase` in `eventName`, `runId` in `sessionId`, `appVersion` and
- * `platform` in `systemProps`, and the remaining five in `props`.
+ * Each of the eleven allowlisted fields appears exactly once in the result —
+ * `phase` with either `flow` or `operation` in `eventName`, `runId` in
+ * `sessionId`, `appVersion` and `platform` in `systemProps`, and the remaining
+ * five in `props`.
  */
 export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Date()): AptabaseEnvelope {
-  const props: AptabaseProps = { flowId: payload.flowId };
+  const props: AptabaseProps = {};
+  if (payload.flowId !== undefined) props.flowId = payload.flowId;
   if (payload.result !== undefined) props.result = payload.result;
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
@@ -141,7 +201,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   return {
     timestamp: now.toISOString(),
     sessionId: payload.runId,
-    eventName: `${payload.flow}_${payload.phase}`,
+    eventName: eventNameOf(payload) as AptabaseEventName,
     systemProps: {
       isDebug: process.env.NODE_ENV !== 'production',
       osName: payload.platform,

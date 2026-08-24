@@ -26,17 +26,26 @@ When the setting is on, the App reports the start and the end of a small set of 
 | What | Values |
 |---|---|
 | Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
-| Whether it started or ended | `started` or `ended` |
+| Which kind of work, for work the App did on your behalf | One of: sending, receiving, swapping, earning, bridging, a guardian change, a dApp's transaction, another transaction, proving, or one of three services being unreachable. A category of work, never a recipient, an amount, an asset, a dApp, or an endpoint. See "Work the App does on your behalf" below |
+| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf |
 | How it ended | `completed`, `cancelled`, or `errored` |
 | Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
 | How long it took | A duration in milliseconds |
-| How far you got | The name of the furthest screen the activity reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it |
+| How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
 | App version | For example, `1.15.21` |
 | Platform | `extension`, `ios`, or `android` |
 | A short random number for that one activity | Explained under "Identifiers" below |
 | A short random number for that run of the App | Explained under "Identifiers" below |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
+
+#### Work the App does on your behalf
+
+The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you — a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
+
+Those reports use the same fields as the table above and add nothing that describes you or your money. Nothing about the transaction itself travels with them: not who you sent to, not how much, not which asset, not which dApp, not which endpoint.
+
+They also carry **no activity identifier**, which means we cannot tell which of your activities a piece of work belonged to. That is deliberate rather than an oversight: linking the two would mean writing one of those random values onto the transaction record the App keeps on disk, and a value written to disk outlives the run it was made for — which is exactly the durable identifier this design refuses to hold.
 
 Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
 

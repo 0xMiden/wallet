@@ -129,4 +129,76 @@ describe('serializeEvent', () => {
       expect(['string', 'number']).toContain(typeof value);
     }
   });
+
+  describe('a settled operation', () => {
+    // The whole second axis, which this file had no cases for at all. Two
+    // mutations survived the entire suite because of it: dropping the
+    // `durationMs !== undefined` guard, which posts `durationMs: null` for an
+    // operation that has no honest interval, and dropping the early `return`,
+    // which lets a settled event fall through into the flow branch and pick up a
+    // `flow` and `flowId` the design says it can never have.
+    const settled: TelemetryEvent = {
+      phase: 'settled',
+      operation: 'tx_send',
+      runId: 'r1',
+      result: 'errored',
+      durationMs: 1204.6,
+      errorKind: 'proving',
+      step: 'sending'
+    };
+
+    it('carries the operation, the verdict, the kind and the stage', () => {
+      expect(serializeEvent(settled, context)).toEqual({
+        phase: 'settled',
+        operation: 'tx_send',
+        runId: 'r1',
+        result: 'errored',
+        durationMs: 1205,
+        errorKind: 'proving',
+        step: 'sending',
+        appVersion: '1.15.21',
+        platform: 'extension'
+      });
+    });
+
+    it('omits durationMs entirely when there is no honest interval, rather than sending a zero or a null', () => {
+      // A reconciled row has been sitting there for however long the user was
+      // away, so it sends no duration. An absent key reads as absent; a `null`
+      // — which is what `Math.round(undefined)` becomes through `JSON` — reads
+      // as a number that is not one, and a zero would be averaged.
+      const payload = serializeEvent(
+        { phase: 'settled', operation: 'tx_send', runId: 'r1', result: 'completed' },
+        context
+      );
+
+      expect('durationMs' in payload).toBe(false);
+      expect(payload).toEqual({
+        phase: 'settled',
+        operation: 'tx_send',
+        runId: 'r1',
+        result: 'completed',
+        appVersion: '1.15.21',
+        platform: 'extension'
+      });
+    });
+
+    it('never acquires a flow or a flowId, which is the one thing it must not have', () => {
+      // Pairing an operation to the flow that started it would mean writing a
+      // telemetry id onto the durable transaction row, so the absence is a
+      // design commitment rather than an oversight. Asserted on both shapes,
+      // because the two take different branches out of the serializer.
+      for (const event of [settled, { ...settled, durationMs: undefined }]) {
+        const payload = serializeEvent(event as TelemetryEvent, context);
+        expect('flow' in payload).toBe(false);
+        expect('flowId' in payload).toBe(false);
+      }
+    });
+
+    it('emits only allowlisted keys, on both shapes', () => {
+      for (const event of [settled, { ...settled, durationMs: undefined }]) {
+        const keys = Object.keys(serializeEvent(event as TelemetryEvent, context));
+        expect(keys.filter(key => !WIRE_KEYS.includes(key))).toEqual([]);
+      }
+    });
+  });
 });

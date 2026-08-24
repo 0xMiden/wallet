@@ -24,6 +24,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
+import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -52,7 +53,8 @@ import {
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
-import { markConnectivityIssue } from '../activity/connectivity-state';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
@@ -849,7 +851,17 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
-      provenTx = await executedTx.prove({ prover: localProver });
+      // Reported like every other prove. This is the one that runs on mobile,
+      // where there is no offscreen document and no delegation, so leaving it out
+      // would make mobile the platform whose proves are invisible.
+      const localStartedAt = performance.now();
+      try {
+        provenTx = await executedTx.prove({ prover: localProver });
+        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -864,14 +876,31 @@ const runGuardianPipeline = async (
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      // Reported here as well as in `proveWithFallback`, because this is a second
+      // implementation of the same fallback and shares none of that one's code.
+      // Left out, every guardian operation would contribute nothing to prover
+      // health — and this fallback exists precisely BECAUSE delegated proving was
+      // failing under load, so it is the last path that should be silent about it.
+      const proveStartedAt = performance.now();
       try {
         provenTx = await executedTx.prove({});
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        // The outage the fallback is covering for. `proveWithFallback` marks this
+        // too, and without it a prover failing only on guardian operations would
+        // raise no banner and produce no `service_prover` event.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: fallbackProver });
+        try {
+          provenTx = await executedTx.prove({ prover: fallbackProver });
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     await setStage('submitting');
@@ -1332,6 +1361,21 @@ const generateGuardianTransaction = async (
     }
     throw error;
   }
+
+  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+  // realm holds its own `connectivity-state` module state, so this cannot reach
+  // the offscreen document's — which is why the offscreen leaf marks and clears
+  // its own, right where the prove happens.
+  //
+  // What this clears is the worker-realm mark from the inline leaf's delegated
+  // prove, on a build with the offscreen route off. The requeue path above
+  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+  // one that only the inline leaf can reach at all, since the offscreen leaf
+  // reports no stages and leaves the row at `sending`. Unconditional here rather
+  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+  // and the alternative is a condition that has to be kept in step with the
+  // routing predicate.
+  clearConnectivityIssue('prover');
 
   // The tx id, re-derived from the (possibly offscreen-round-tripped) result
   // rather than a separate handle: the offscreen pipeline returns only the

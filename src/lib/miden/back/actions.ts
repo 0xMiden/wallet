@@ -598,9 +598,20 @@ export async function processDApp(
 export async function handleReportTelemetryEvent(
   req: ReportTelemetryEventRequest
 ): Promise<ReportTelemetryEventResponse> {
-  await sendEvent(req.event, resolveTelemetryContext());
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
   return { type: WalletMessageType.ReportTelemetryEventResponse };
 }
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {

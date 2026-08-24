@@ -3,6 +3,9 @@ import { liveQuery } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
@@ -110,7 +113,63 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // the failed step).
     if (status === ITransactionStatus.Completed) t.stage = 'complete';
   });
+
+  // Both terminal outcomes, from the one place a row can reach either through
+  // this function.
+  //
+  // The success side is the denominator: a failure count alone says nothing,
+  // since ten failed sends is a crisis or a rounding error depending on how many
+  // succeeded.
+  //
+  // The failure side does NOT double-count what `cancelTransaction` already
+  // reports, and the reason is worth stating because it is not obvious. That
+  // function writes its `Failed` with a raw `.modify` rather than calling this
+  // one, so the two sets of failures are disjoint: everything the pipeline fails
+  // deliberately goes through there, and the handful that bypass it — a private
+  // send with no note to deliver, a guardian rotation that could not be applied
+  // — arrive here and would otherwise be the only failures that reported
+  // nothing at all.
+  //
+  // Two more writers exist and both report for themselves, because both are
+  // *transitions between* terminal states and this function's guard refuses
+  // those outright: `completeVerifiedLandedTransaction` promotes Failed →
+  // Completed on node evidence, and `markBridgedSendFailed` demotes Completed →
+  // Failed when the allocator rejects an intent whose note already committed.
+  // Adding a writer that skips this function is therefore also adding a report;
+  // `rg 'status = ITransactionStatus\.(Completed|Failed)'` is the list to check
+  // against, and every hit on it should be one of these five.
+  if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
+    reportOperation({
+      operation: operationOfType(tx.type),
+      result: status === ITransactionStatus.Completed ? 'completed' : 'errored',
+      // How long the user waited from pressing the button to the money having
+      // moved, which is the number worth watching for regressions.
+      durationMs: elapsedMsSince(tx.initiatedAt),
+      // The stage of a failure written this way is whatever the row was in when
+      // it happened, which is exactly the diagnostic the failure carries. A
+      // success has none: `stage` was just stamped `complete` above, which is
+      // not somewhere anything went wrong.
+      ...(status === ITransactionStatus.Failed
+        ? { errorKind: classifyError(failureTextOf(otherValues)), step: stepOfStage(tx.stage) }
+        : {})
+    });
+  }
 };
+
+/**
+ * The failure text a caller passed alongside a `Failed` status, if any.
+ *
+ * These writes carry their reason in `otherValues` rather than as a thrown
+ * error, so this is the only thing available to classify. Read through a narrow
+ * structural check rather than a cast, and handed to `classifyError`, which
+ * returns a closed union — the text is inspected here and goes no further.
+ */
+function failureTextOf(otherValues: object): string | undefined {
+  const values = otherValues as { rawError?: unknown; error?: unknown };
+  if (typeof values.rawError === 'string') return values.rawError;
+  if (typeof values.error === 'string') return values.error;
+  return undefined;
+}
 
 /**
  * Informational stage write. Called at phase boundaries inside
@@ -154,6 +213,7 @@ export const completeVerifiedLandedTransaction = async (
   id: string,
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
+  let reconciled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     if (tx.status !== ITransactionStatus.Failed) return;
     Object.assign(tx, otherValues);
@@ -163,7 +223,27 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    reconciled = tx;
   });
+
+  // The row already reported `errored` when it was failed, and that report was
+  // true at the time — the wallet genuinely could not tell whether the money had
+  // moved. Reporting the success as well leaves both, which is the honest
+  // record: one operation that failed and was later reconciled from node
+  // evidence. Suppressing the failure is not an option, since it was reported
+  // from a realm that may no longer exist, and suppressing this one would leave
+  // the ambiguous post-submit abort — the case this whole function exists for —
+  // permanently counted as a failure and never as a success.
+  //
+  // Deliberately without a duration. The only caller is `requeueFailedTransaction`,
+  // which runs when the user taps Retry — possibly days after `initiatedAt`. That
+  // interval is "how long until somebody came back", and putting it in the field
+  // a reader uses to watch for latency regressions would let a handful of them
+  // own the tail of every send's distribution. There is no honest interval to
+  // report here, so none is.
+  if (reconciled !== undefined) {
+    reportOperation({ operation: operationOfType(reconciled.type), result: 'completed' });
+  }
 };
 
 /**

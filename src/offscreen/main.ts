@@ -27,10 +27,13 @@
 
 import * as sdk from '@miden-sdk/miden-sdk/lazy';
 
+import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
   b64ToBytes,
   bytesToB64,
@@ -46,6 +49,7 @@ import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-cli
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
 
 const TAG = '[offscreen-prover]';
 
@@ -59,6 +63,21 @@ const TAG = '[offscreen-prover]';
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
+
+// Telemetry reported from THIS realm has to be forwarded, and nothing else would
+// do it. `report-operation.ts` sends directly when it is the worker and uses an
+// installed transport when it is a page; this document is neither. It has a
+// `window`, so it takes the page branch, and it never loads the React app, so
+// nothing installs a transport — every event would be dropped on the floor.
+//
+// That matters here specifically because proving happens in this realm whenever
+// the offscreen client is on, which is the default for the extension. Without
+// this, `prove_delegate`, `prove_local`, `prove_fallback` and the prover-outage
+// events never leave the device: exactly the signals that answer "was the remote
+// prover down when this failed".
+setOperationTransport(async event => {
+  await chrome.runtime.sendMessage({ target: SW_TARGET, type: OFFSCREEN_TELEMETRY_EVENT, event });
+});
 
 let initPromise: Promise<void> | null = null;
 
@@ -470,14 +489,45 @@ const DISPATCH: Record<string, DispatchFn> = {
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
     let provenTx;
+    // Reported from here as well as from the two inline copies, because on the
+    // extension THIS is the copy that runs: every guardian leaf type is offscreen
+    // routable and the flag defaults on, so instrumenting only the inline path
+    // left guardian operations contributing nothing to prover health on the build
+    // almost everyone uses.
+    const proveStartedAt = performance.now();
     if (!delegateTransaction) {
-      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      try {
+        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: proveStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       try {
         provenTx = await executedTx.prove({});
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
+        clearConnectivityIssue('prover');
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        // Marked HERE, in the realm that watched the prove fail, and not left to
+        // the worker's catch. That catch gates its own `markConnectivityIssue`
+        // on the row's stage being `proving`, which only the inline leaf ever
+        // stamps: this one reports no stages back at all, so the row is still
+        // frozen at `sending` and the gate cannot fire. On the default build
+        // that gate covers nothing, and a prover that failed only on guardian
+        // operations would produce no `service_prover` event from anywhere.
+        //
+        // Same realm marks and clears, so the outage gets a duration rather
+        // than a start with no end.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
+        try {
+          provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     const submittedTx = await provenTx.submit();

@@ -3,6 +3,9 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { elapsedMsSince, operationOfType } from 'lib/telemetry/transaction-operation';
 
 import { setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
@@ -722,16 +725,41 @@ export const updateEarnWithdrawPhase = async (
   // note is consumed so the history hero reflects what really landed.
   amount?: bigint
 ) => {
+  let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
       return;
     }
+    // Only the move INTO a terminal phase, so the idempotent same-phase patches
+    // this function deliberately allows do not each report an outcome.
+    if (!EARN_WITHDRAW_TERMINAL_PHASES.has(inputs.phase) && EARN_WITHDRAW_TERMINAL_PHASES.has(phase)) settled = tx;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  // Reported from here because there is nowhere else it could be. This row is
+  // `Completed` in the database from birth and its real outcome lives in
+  // `extraInputs.phase`, so it never makes a terminal write through
+  // `updateTransactionStatus` and neither of the reporters wired to that function
+  // can see it. Without this, a withdrawal that failed produced no event at all
+  // — and neither did one that succeeded, so `tx_earn_settled` counted only
+  // deposits. That is the same blind spot this whole feature exists to close,
+  // left open for half of Earn.
+  //
+  // It matters more here than the shape of the row suggests: `earn-withdraw` is
+  // excluded from `REQUEUEABLE_TYPES`, so a failed one cannot be retried through
+  // the normal path and the user's funds simply appear stuck.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(extra?.error), step: 'submitting' } : {})
+    });
+  }
 };
 
 /** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
@@ -746,8 +774,15 @@ export const updateBridgedReceivePhase = async (
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string }
 ) => {
+  let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    // Unlike the earn-withdraw writer there is no monotonic guard here, so the
+    // only thing keeping one bridge from reporting twice is comparing against
+    // the phase already on the row. `ready` and `received` are both terminal —
+    // the note exists and is claimable, then it is claimed — so a row can pass
+    // through both and must report on the first.
+    if (!BRIDGED_RECEIVE_SETTLED_PHASES.has(inputs.phase) && BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)) settled = tx;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (received) {
       tx.amount = received.amount;
@@ -757,7 +792,37 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  // Same reason as the earn-withdraw writer above: this row is `Completed` from
+  // birth and carries its real outcome in `extraInputs.phase`, so it never makes
+  // a terminal write through `updateTransactionStatus` and reported nothing at
+  // all. `tx_bridge_settled` counted only the outbound half, which made bridging
+  // look like it had half the failure surface it has — and an inbound bridge that
+  // fails is money the user cannot see.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(extra?.error), step: 'submitting' } : {})
+    });
+  }
 };
+
+/**
+ * The phases at which an inbound bridge has finished, for reporting purposes.
+ *
+ * `ready` counts as well as `received`: at `ready` the bridge itself has done its
+ * job and the note is on Miden waiting to be claimed, and whether the user then
+ * claims it is a question about the user rather than about the bridge. Reporting
+ * only `received` would make an unclaimed-but-delivered bridge look like a
+ * bridge that never landed.
+ */
+const BRIDGED_RECEIVE_SETTLED_PHASES: ReadonlySet<IBridgedReceivePhase> = new Set<IBridgedReceivePhase>([
+  'ready',
+  'received',
+  'failed'
+]);
 
 /**
  * Patch the EVM-side claim status of a `bridged-send` row. The L1 claim happens
@@ -804,6 +869,7 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
     id,
     error
   });
+  let demoted: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Bridge failed — funds reclaimable';
@@ -814,5 +880,26 @@ export const markBridgedSendFailed = async (id: string, error: string, reclaimHe
       epochStatus: 'failed',
       ...(reclaimHeight != null ? { reclaimHeight } : {})
     };
+    demoted = tx;
   });
+
+  // The mirror of `completeVerifiedLandedTransaction`, and needed for the same
+  // reason. This row already reported `completed` on its way through
+  // `updateTransactionStatus`, because as far as the send pipeline was concerned
+  // it succeeded. Without this the only settled event a rejected bridge ever
+  // produces says it worked — which is worse than reporting nothing, since it
+  // moves a failure into the denominator and makes the bridge look healthier the
+  // more often it fails this way.
+  //
+  // `step: 'submitting'` rather than a mapped stage: the row is stamped
+  // `complete` by now, and what failed is the intent the note was submitted for.
+  if (demoted !== undefined) {
+    reportOperation({
+      operation: operationOfType(demoted.type),
+      result: 'errored',
+      durationMs: elapsedMsSince(demoted.initiatedAt),
+      errorKind: classifyError(error),
+      step: 'submitting'
+    });
+  }
 };

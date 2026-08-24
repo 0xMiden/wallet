@@ -1,0 +1,133 @@
+// Type-only, and written as such rather than relying on erasure: the module-graph
+// assertion in `guarantees.test.ts` treats a bare `import` as a real edge, so a
+// plain import here would show this module reaching into the database layer when
+// nothing of the sort survives the build.
+import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+
+import { TelemetryOperation, TelemetryStep } from './types';
+
+/**
+ * Translate the transaction pipeline's own vocabulary into the reporting one.
+ *
+ * Two vocabularies rather than one, deliberately. `ITransactionType` and
+ * `ITransactionStage` exist to drive the pipeline and the progress screen, and
+ * they change when the pipeline changes — a new row type or a new intermediate
+ * stage is a routine addition there. The reporting names are a published
+ * vocabulary: they appear in an Aptabase dashboard, in the store declarations,
+ * and in the privacy policy's list of what is collected. Mapping between them
+ * here means a pipeline change cannot silently add an event name to a dashboard
+ * or a row to a policy, and the total maps below are what make that a compile
+ * error rather than a discovery.
+ */
+
+/**
+ * Deliberately total: `Record`, not a lookup with a fallback. A new
+ * `ITransactionType` fails `yarn ts` here, which is the point — somebody has to
+ * decide whether it deserves its own name or folds into an existing one.
+ */
+const OPERATION_BY_TYPE: Record<ITransactionType, TelemetryOperation> = {
+  send: 'tx_send',
+  consume: 'tx_receive',
+  swap: 'tx_swap',
+  execute: 'tx_dapp',
+  'bridged-send': 'tx_bridge',
+  'bridged-receive': 'tx_bridge',
+  'earn-deposit': 'tx_earn',
+  'earn-withdraw': 'tx_earn',
+  // One name for every operation on the account's own security, because the
+  // question worth asking of them is the same: is the guardian infrastructure
+  // healthy. Splitting them would make each too rare to read.
+  'switch-guardian': 'tx_guardian',
+  'replace-hot-key': 'tx_guardian',
+  'update-procedure-threshold': 'tx_guardian'
+};
+
+/**
+ * Where a transaction died, coarsened to the distinctions worth acting on.
+ *
+ * The pipeline's stages are finer than the reporting vocabulary because they
+ * drive a progress bar. What a reader needs is which *system* failed, so the
+ * stages fold onto that: everything that talks to the guardian while building a
+ * transaction is `signing`, everything that hands bytes to the network is
+ * `submitting`. `proving` stays on its own because a prover failure is the whole
+ * reason this reporting exists.
+ *
+ * WHEN matters as much as which system, and getting it wrong is the failure mode
+ * this map has had twice. A stage that runs after the transaction is on chain
+ * must not fold onto a name that reads as pre-submit, no matter which system it
+ * talks to — otherwise a transaction that succeeded and then failed to tidy up
+ * is indistinguishable from one that never got built. So the three post-commit
+ * guardian stages fold onto `confirming` rather than `signing`, and `sending`
+ * keeps its own name rather than joining `submitting`.
+ *
+ * `sending` keeps its own name and must not join `submitting`. Only guardian
+ * transactions whose leaf ran inline stamp an explicit `proving`; a non-guardian
+ * row is stamped `sending` once at pickup and runs the whole execute → prove →
+ * submit SDK pipeline under it, and so does a guardian row whose leaf ran in the
+ * offscreen document, which reports no stages back. `PROVING_STAGES` in
+ * `transaction/constants.ts` already treats `sending` as prover-suspect for
+ * exactly this reason. Mapping it to `submitting` would have filed every prover
+ * outage on the commonest transaction type as a node problem — the one
+ * conclusion this reporting exists to make impossible.
+ *
+ * `complete` maps to `undefined`: a row that reached it did not fail anywhere,
+ * so there is no failure location to name.
+ */
+const STEP_BY_STAGE: Record<ITransactionStage, TelemetryStep | undefined> = {
+  syncing: 'syncing',
+  executing: 'executing',
+  proving: 'proving',
+  sending: 'sending',
+  submitting: 'submitting',
+  // Also post-commit: the private-note transport relay, which runs after the
+  // transaction is on chain. Same rule as the guardian stages below.
+  delivering: 'confirming',
+  confirming: 'confirming',
+  'creating-proposal': 'signing',
+  'signing-proposal': 'signing',
+  // Post-submit, all three, and so NOT `signing`. `registering-guardian` is the
+  // guardian re-registration that runs after the transaction committed, and the
+  // two `guardian-sync` stages sit in a block whose own comment says the
+  // transaction is already Completed and the submit already succeeded. Filing
+  // them as `signing` — which the docs define as talking to the guardian while
+  // BUILDING the transaction — would report a transaction that reached the chain
+  // as one that was never built, the same misdirection as folding `sending` into
+  // `submitting` and wrong in the same direction.
+  'registering-guardian': 'confirming',
+  'guardian-syncing': 'confirming',
+  'guardian-synced': 'confirming',
+  complete: undefined
+};
+
+/** The reporting name for a transaction row's type. */
+export function operationOfType(type: ITransactionType): TelemetryOperation {
+  // The `??` is unreachable through the type system and is here for the wire:
+  // rows are read back from IndexedDB, where a row written by an older or newer
+  // build can hold a `type` this build has never heard of.
+  return OPERATION_BY_TYPE[type] ?? 'tx_other';
+}
+
+/** Where a transaction got to, or `undefined` if there is nothing to name. */
+export function stepOfStage(stage: ITransactionStage | undefined): TelemetryStep | undefined {
+  if (stage === undefined) return undefined;
+  return STEP_BY_STAGE[stage];
+}
+
+/**
+ * Milliseconds from a row's `initiatedAt` until now, or `undefined` if the row
+ * never recorded a start.
+ *
+ * Rows store seconds and every telemetry duration is in milliseconds, so the
+ * conversion has to happen somewhere; it happens here so no reader has to know
+ * which events measure in which unit.
+ *
+ * Shared rather than repeated at each reporting site, because the open-coded
+ * version is `Date.now() - tx.initiatedAt * 1000` and on a row with no
+ * `initiatedAt` that is `NaN`. `reportOperation` drops a non-finite duration, so
+ * the difference is invisible today — which is exactly how a copy of the
+ * arithmetic without the guard survives review and then starts mattering.
+ */
+export function elapsedMsSince(initiatedAtSeconds: number | undefined): number | undefined {
+  if (initiatedAtSeconds === undefined) return undefined;
+  return Date.now() - initiatedAtSeconds * 1000;
+}

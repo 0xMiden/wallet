@@ -3,53 +3,8 @@ import { nanoid } from 'nanoid';
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryRunId, TelemetryStep } from './types';
-
-/**
- * How long a run may sit idle before the next event starts a new one.
- *
- * A bound on how much of one person's activity any single id can cover. Half an
- * hour is long enough that stepping away from a half-finished send and coming
- * back still reads as one visit, and short enough that a wallet left open in a
- * background tab overnight does not link tomorrow's activity to today's.
- */
-export const RUN_IDLE_ROTATE_MS = 30 * 60 * 1000;
-
-let runId: TelemetryRunId | null = null;
-let lastEventAt = 0;
-
-/**
- * Mark activity and return the id for the run it belongs to, rotating first if
- * the run has gone stale.
- *
- * Module scope, which in every context the wallet runs in means the lifetime of
- * one page: the extension's popup, its full-page tab and each dApp prompt window
- * are separate runs, and so is each launch of the mobile app. Nothing is written
- * anywhere, so there is no id to survive a reload — which is the property that
- * keeps this ephemeral rather than a durable install identifier.
- *
- * Every write to `lastEventAt` goes through here. A bare write would re-arm the
- * idle clock without ever testing it, so a run that had already outlived the
- * window would be resurrected instead of retired and the bound below would not
- * hold at all.
- */
-function touchRun(): TelemetryRunId {
-  const now = Date.now();
-  // A backward jump — an NTP correction, say — makes the elapsed time negative
-  // and would otherwise suppress rotation indefinitely. Rotating on it errs in
-  // the safe direction, since an extra run only ever splits activity apart.
-  if (runId === null || now < lastEventAt || now - lastEventAt > RUN_IDLE_ROTATE_MS) {
-    runId = nanoid();
-  }
-  lastEventAt = now;
-  return runId;
-}
-
-/** Test-only: forget the current run, as a fresh page load would. */
-export function __resetRunForTest(): void {
-  runId = null;
-  lastEventAt = 0;
-}
+import { touchRun } from './run';
+import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryStep } from './types';
 
 export interface FlowHandle {
   complete(): void;
@@ -136,25 +91,8 @@ export function beginFlow(flow: TelemetryFlow): FlowHandle {
   };
 }
 
-/**
- * Map an error to a broad category. The message is inspected but NEVER
- * returned — the return type is a closed union, so no caught text can reach
- * the wire through this function.
- *
- * The order is deliberate: `timeout` precedes `network` because a timeout
- * message routinely contains both words, and `validation` comes last because
- * `invalid` appears inside many more specific messages.
- */
-export function classifyError(error: unknown): TelemetryErrorKind {
-  if (!(error instanceof Error)) return 'unknown';
-  const message = error.message.toLowerCase();
-
-  if (message.includes('timed out') || message.includes('timeout')) return 'timeout';
-  if (message.includes('failed to fetch') || message.includes('network')) return 'network';
-  if (message.includes('rpc')) return 'rpc';
-  if (message.includes('prov')) return 'proving';
-  if (message.includes('quota') || message.includes('store') || message.includes('indexeddb')) return 'storage';
-  if (message.includes('password') || message.includes('unauthor') || message.includes('biometric')) return 'auth';
-  if (message.includes('invalid') || message.includes('must be') || message.includes('required')) return 'validation';
-  return 'unknown';
-}
+// Re-exported rather than moved outright: `classifyError` is half of the public
+// API of this module — every `fail(classifyError(e))` call site pairs them — and
+// it lives in `./classify` only so the service worker can reach it without
+// loading React through this file's intercom import.
+export { classifyError } from './classify';

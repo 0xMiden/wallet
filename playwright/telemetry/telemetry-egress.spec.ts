@@ -301,14 +301,60 @@ test.describe('Telemetry egress', () => {
       // And inside that one session the flows are still individually legible,
       // because `flowId` pairs them. A single flow id spanning two flow names
       // would fuse unrelated journeys into one funnel entry.
+      //
+      // Flow events only. A settled operation has no `flowId` at all, so
+      // including them would collapse every one of them under a single
+      // `undefined` key and read as exactly the fusion this is checking for.
       const namesByFlowId = new Map<string, Set<string>>();
-      for (const envelope of sinceReload) {
+      for (const envelope of sinceReload.filter(e => !String(e.eventName).endsWith('_settled'))) {
         const id = String(propsOf(envelope).flowId);
         const name = String(envelope.eventName).replace(/_(started|ended)$/, '');
         namesByFlowId.set(id, (namesByFlowId.get(id) ?? new Set()).add(name));
       }
       expect([...namesByFlowId].filter(([, names]) => names.size > 1)).toEqual([]);
       expect(namesByFlowId.size).toBeGreaterThan(1);
+    });
+
+    await test.step('any operation that did settle carries an outcome and no link back to a flow', async () => {
+      // Not driven, and deliberately not. A settled operation is a transaction
+      // reaching a terminal state, which needs a funded account and a live node;
+      // forcing one here would mean either a fixture that transacts for real or
+      // reaching into the bundle to call the reporter, and the second proves
+      // nothing the unit tests do not already prove more directly.
+      // `outcome-telemetry.integration.test.ts` covers the behaviour against the
+      // real database, and `assertEnvelopeShape` above already holds every
+      // settled event that DOES arrive — a connectivity outage during the run
+      // will produce one — to the same contract as the flows.
+      //
+      // What is left worth asserting on a live wire is the shape, if any turned
+      // up. Guarded rather than required, so this does not flake on a run where
+      // the node stayed up — and annotated when nothing arrived, because a `for`
+      // over an empty array is a green step that checked nothing, which is the
+      // one thing worse than a red one.
+      const settled = received()
+        .map(request => JSON.parse(request.body) as Record<string, unknown>)
+        .filter(envelope => String(envelope.eventName).endsWith('_settled'));
+
+      test.info().annotations.push({
+        type: 'settled-operations',
+        description:
+          settled.length === 0
+            ? 'none arrived; this step asserted nothing (expected on a healthy run)'
+            : `${settled.length} checked: ${[...new Set(settled.map(e => String(e.eventName)))].join(', ')}`
+      });
+
+      for (const envelope of settled) {
+        const props = envelope.props as Record<string, unknown>;
+        // An operation always knows how it turned out. It does not always know
+        // how long it took, and that is by design rather than an omission: a row
+        // reconciled when the user finally taps Retry has no honest interval, so
+        // it sends none rather than a zero that would be averaged. Asserting a
+        // number here would encode the opposite of the design and go red the
+        // first time this spec reached a reconciliation.
+        expect(['completed', 'errored']).toContain(props.result);
+        expect(['number', 'undefined']).toContain(typeof props.durationMs);
+        expect(props.flowId).toBeUndefined();
+      }
     });
 
     await test.step('withdrawing consent stops egress', async () => {
@@ -401,16 +447,33 @@ function assertEnvelopeShape(request: SinkRequest): void {
     expect(PROPS_KEYS).toContain(key);
   }
 
-  // Both halves come from closed literal unions in `types.ts`, so anything
+  // Every part comes from a closed literal union in `types.ts`, so anything
   // outside this shape means a free-form string reached the event name.
-  expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended)$/);
-  // The session id is an ephemeral per-run nanoid, and the flow id inside
-  // `props` is a second one. Asserting both shapes is what keeps a persistent
-  // or device-derived identifier from being introduced without a test noticing:
-  // anything derived from a device would not be 21 characters of nanoid.
+  expect(String(envelope.eventName)).toMatch(/^[a-z_]+_(started|ended|settled)$/);
+  // The session id is an ephemeral per-run nanoid. Asserting its shape is what
+  // keeps a persistent or device-derived identifier from being introduced
+  // without a test noticing: anything derived from a device would not be 21
+  // characters of nanoid.
   expect(String(envelope.sessionId)).toMatch(/^[A-Za-z0-9_-]{21}$/);
-  expect(String((envelope.props as Record<string, unknown>).flowId)).toMatch(/^[A-Za-z0-9_-]{21}$/);
-  expect(String(envelope.sessionId)).not.toBe(String((envelope.props as Record<string, unknown>).flowId));
+
+  // A flow carries a second nanoid pairing its two halves. A settled operation
+  // has none, deliberately — pairing one to the flow that started it would mean
+  // writing a telemetry id onto the durable transaction row. So the absence is
+  // as much the assertion as the presence, and this fails if anyone adds that
+  // link.
+  //
+  // Reduced to a word and compared against a word, rather than branching to a
+  // different assertion: an `if` here would mean the settled contract is only
+  // ever checked on a run where an operation happened to settle, and would go
+  // quiet rather than red the day one stops being emitted at all.
+  const flowId = (envelope.props as Record<string, unknown>).flowId;
+  const shape =
+    flowId === undefined ? 'absent' : /^[A-Za-z0-9_-]{21}$/.test(String(flowId)) ? 'nanoid' : `neither: ${flowId}`;
+
+  expect(shape).toBe(String(envelope.eventName).endsWith('_settled') ? 'absent' : 'nanoid');
+  // Holds either way: an absent flow id stringifies to something no 21-character
+  // session id can equal, so this needs no branch of its own.
+  expect(String(envelope.sessionId)).not.toBe(String(flowId));
 }
 
 function assertNoSentinels(requests: readonly SinkRequest[], sentinels: readonly string[]): void {

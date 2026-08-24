@@ -1,6 +1,6 @@
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
-import { aptabaseEndpointFromEnv, buildEnvelope } from './aptabase';
+import { aptabaseEndpointFromEnv, buildEnvelope, isNameableEvent } from './aptabase';
 import { serializeEvent } from './serialize';
 import { TelemetryContext, TelemetryEvent, TelemetryWirePayload } from './types';
 
@@ -54,6 +54,15 @@ export async function sendEvent(event: TelemetryEvent, context: TelemetryContext
     if (!(await isTelemetryEnabledAsync())) return;
 
     const payload = serializeEvent(event, context);
+    // The one thing the allowlist cannot check. Every field the serializer
+    // copies is either a closed union at the type level or discarded, but the
+    // event NAME is built by joining two of them, so a caller that did not
+    // typecheck can put an arbitrary string in a dashboard's event list. Every
+    // legitimate caller is typed; the offscreen document's forward is not,
+    // arriving over `chrome.runtime.sendMessage` as `unknown` from a channel any
+    // installed extension may post to. Refused before the queue as well as
+    // before the request, so a malformed event cannot sit in the retry buffer.
+    if (!isNameableEvent(payload)) return;
     queue.push(payload);
     while (queue.length > QUEUE_CAPACITY) queue.shift();
 
