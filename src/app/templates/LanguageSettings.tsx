@@ -4,6 +4,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
+import { goBack } from 'lib/woozie';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 const LANGUAGES = [
@@ -42,7 +43,11 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
       hapticLight();
       trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
-      onClose?.();
+      // Picking a language finishes the task, so leave. As a drawer this screen
+      // was handed an `onClose`; as a route there is no host to close it, and
+      // without the fallback the selection silently stranded the user here.
+      if (onClose) onClose();
+      else goBack();
     },
     [trackEvent, onClose]
   );

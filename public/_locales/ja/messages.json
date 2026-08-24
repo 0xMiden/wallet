@@ -2368,10 +2368,6 @@
     "message": "ローテーションの見直し",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "新着",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "現在のGuardian",
     "englishSource": "Current Guardian"
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "Guardianはいつでも再ローテーションまたは削除が可能です。その際はリカバリーフレーズを安全に保管してください。これが必要となります。",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "Guardianはいつでも再ローテーションできます。その際はリカバリーフレーズが必要となるため、安全に保管してください。",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "このGuardianの切り替えを承認するには、認証を行ってください。",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "「アクティビティ」で表示",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "アクティビティを表示",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "詳細を見る",

@@ -55,15 +55,19 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
       secondaryFirst
       onClose={onDoneClick}
     >
+      {/* A custom endpoint is shown as its raw host, which can be long enough to
+          push the pair off screen; break it rather than overflow. */}
       {newName && (
-        <div className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-text-muted">
+        <div className="mt-2 flex min-w-0 items-center justify-center gap-1.5 text-sm font-semibold text-text-muted">
           {previousName && (
             <>
-              <span>{previousName}</span>
-              <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
+              <span className="break-all">{previousName}</span>
+              <span className="shrink-0">
+                <Icon name={IconName.ArrowRight} size="xs" fill="currentColor" />
+              </span>
             </>
           )}
-          <span>{newName}</span>
+          <span className="break-all">{newName}</span>
         </div>
       )}
 

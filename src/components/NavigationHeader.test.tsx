@@ -15,8 +15,15 @@ jest.mock('app/icons/v2', () => ({
 // Mock CircleButton so we can assert which icon/handler/props it received
 // without exercising its internals (covered by its own suite).
 jest.mock('./CircleButton', () => ({
-  CircleButton: ({ icon, onClick, className, size }: any) => (
-    <button data-testid="circle-button" data-icon={icon} data-size={size} className={className} onClick={onClick} />
+  CircleButton: ({ icon, onClick, className, size, color }: any) => (
+    <button
+      data-testid="circle-button"
+      data-icon={icon}
+      data-size={size}
+      data-color={color}
+      className={className}
+      onClick={onClick}
+    />
   )
 }));
 
@@ -71,8 +78,11 @@ describe('NavigationHeader', () => {
 
     const button = screen.getByTestId('circle-button');
     expect(button).toHaveAttribute('data-icon', IconName.Close);
-    expect(button).toHaveClass('fill-black');
+    // text-black auto-flips with the theme, and the glyph must follow it:
+    // CircleButton's default fill is a literal `black`, invisible on the dark
+    // app background, so the close affordance disappeared in dark mode.
     expect(button).toHaveClass('text-black');
+    expect(button).toHaveAttribute('data-color', 'currentColor');
 
     fireEvent.click(button);
     expect(onClose).toHaveBeenCalledTimes(1);

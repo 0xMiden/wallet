@@ -2368,10 +2368,6 @@
     "message": "Перегляд черговості",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Нове",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "Поточний список «Guardian»",
     "englishSource": "Current Guardian"
@@ -2381,7 +2377,7 @@
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {
-    "message": "Ви успішно здійснили ротацію своїх токенів «Guardian»!",
+    "message": "Ви успішно здійснили ротацію свого Guardian!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
   "guardianSwitchSuccessInfoTitle": {
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "Ви можете будь-коли знову змінити або видалити свою фразу відновлення (Guardian) — зберігайте її в безпеці, вона необхідна для цього.",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "Ви можете будь-коли знову змінити свого Guardian — зберігайте фразу відновлення в безпеці, вона необхідна для цього.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдіть аутентифікацію, щоб затвердити це перемикання Guardian.",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "Переглянути в розділі «Діяльність»",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Переглянути активність",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Переглянути деталі",

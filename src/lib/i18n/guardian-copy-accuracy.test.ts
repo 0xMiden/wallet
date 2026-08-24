@@ -26,6 +26,15 @@ const message = (key: string): string => {
 const whatItDoes = message('guardianInfoWhatItDoesDescription');
 const switching = message('guardianInfoSwitchingIsEasyDescription');
 
+// The rotation success receipt repeats the switching explainer's promises to a
+// user who has just rotated, so it is bound by the same accuracy guard.
+const SUCCESS_RECEIPT_KEYS = [
+  'guardianSwitchSuccessInfo1',
+  'guardianSwitchSuccessInfo2',
+  'guardianSwitchSuccessInfo3',
+  'guardianSwitchSuccessInfo4'
+] as const;
+
 describe('Guardian explainer copy accuracy (#479)', () => {
   it('does not claim a security-policy / approve-reject engine the product does not have', () => {
     // The inaccurate original: "Approves or rejects transactions based on your
@@ -53,8 +62,22 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect(switching).not.toMatch(/\bremove\b|\bdisable\b|\bdelete\b/i);
   });
 
+  it('does not claim a Guardian-removal capability on the rotation success receipt either', () => {
+    // The receipt shipped with "You can rotate or remove your Guardian again at
+    // any time", reintroducing on a second surface the exact overstatement this
+    // suite removed from the explainer. Several translations then rendered it as
+    // removing the RECOVERY PHRASE, which is worse than merely inaccurate.
+    for (const key of SUCCESS_RECEIPT_KEYS) {
+      expect(message(key)).not.toMatch(/\bremove\b|\bdisable\b|\bdelete\b/i);
+    }
+  });
+
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {
-    for (const key of ['guardianInfoWhatItDoesDescription', 'guardianInfoSwitchingIsEasyDescription']) {
+    for (const key of [
+      'guardianInfoWhatItDoesDescription',
+      'guardianInfoSwitchingIsEasyDescription',
+      ...SUCCESS_RECEIPT_KEYS
+    ]) {
       expect(enJson[key]).toBe(message(key));
     }
   });

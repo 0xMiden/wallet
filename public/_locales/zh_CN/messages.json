@@ -2368,10 +2368,6 @@
     "message": "审查轮换",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "新",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "当前 Guardian",
     "englishSource": "Current Guardian"
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "您可以随时再次轮换或移除您的Guardian——请妥善保管您的恢复短语，这是必须的。",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "您可以随时再次轮换您的Guardian——请妥善保管您的恢复短语，这是必须的。",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "请进行身份验证以批准此 Guardian 切换操作。",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "在“活动”中查看",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "查看活动",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "查看详情",

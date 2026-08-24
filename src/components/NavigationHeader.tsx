@@ -68,11 +68,16 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
           </h1>
         </div>
         {onClose ? (
+          // CircleButton defaults its icon fill to a literal `black`, which is
+          // invisible against the dark app background; currentColor hands the
+          // glyph to text-black instead, which auto-flips with the theme.
           <CircleButton
             aria-label={t('close')}
             icon={IconName.Close}
             onClick={onClose}
-            className="fill-black text-black"
+            className={classNames('shrink-0 text-black', prominent && 'w-10 h-10 bg-gray-25')}
+            size={prominent ? 'sm' : undefined}
+            color="currentColor"
           />
         ) : null}
       </div>

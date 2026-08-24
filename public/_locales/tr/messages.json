@@ -2368,10 +2368,6 @@
     "message": "İnceleme rotasyonu",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Yeni",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "Güncel Guardian",
     "englishSource": "Current Guardian"
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "Guardian'ınızı istediğiniz zaman yeniden döndürebilir veya kaldırabilirsiniz — kurtarma ifadenizi güvenli bir yerde saklayın, bu işlem için gereklidir.",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "Guardian'ınızı istediğiniz zaman yeniden değiştirebilirsiniz — kurtarma ifadenizi güvenli bir yerde saklayın, bu işlem için gereklidir.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Bu Guardian geçişini onaylamak için kimliğinizi doğrulayın.",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "Etkinlikler'de görüntüle",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Etkinliği görüntüle",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Ayrıntıları Görüntüle",

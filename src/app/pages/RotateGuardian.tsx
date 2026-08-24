@@ -2,16 +2,18 @@ import React, { FC, useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
 import { NavigationHeader } from 'components/NavigationHeader';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 const RotateGuardian: FC = () => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const [error, setError] = useState<string | null>(null);
+  const handleBack = useBackWithFallback();
 
   const handleSubmit = useCallback(
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {
@@ -30,7 +32,7 @@ const RotateGuardian: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      <NavigationHeader title={t('rotateGuardian')} onBack={goBack} variant="prominent" titleAlign="left" />
+      <NavigationHeader title={t('rotateGuardian')} onBack={handleBack} variant="prominent" titleAlign="left" />
       <ChooseGuardianScreen
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}

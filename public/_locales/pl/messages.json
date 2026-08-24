@@ -2368,10 +2368,6 @@
     "message": "Przegląd rotacji",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Nowość",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "Aktualny adres Guardian",
     "englishSource": "Current Guardian"
@@ -2381,7 +2377,7 @@
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {
-    "message": "Pomyślnie dokonałeś rotacji swoich tokenów Guardian!",
+    "message": "Pomyślnie dokonałeś rotacji swojego Guardiana!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
   "guardianSwitchSuccessInfoTitle": {
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "W dowolnym momencie możesz ponownie zmienić lub usunąć swoje hasło odzyskiwania (Guardian) — przechowuj je w bezpiecznym miejscu, ponieważ jest ono niezbędne do wykonania tej czynności.",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "W dowolnym momencie możesz ponownie zmienić swojego Guardiana — przechowuj frazę odzyskiwania w bezpiecznym miejscu, ponieważ jest ona do tego niezbędna.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Zaloguj się, aby zatwierdzić tę zmianę Guardian.",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "Wyświetl w sekcji „Działania”",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Wyświetl aktywność",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",

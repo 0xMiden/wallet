@@ -3,6 +3,7 @@ import React, { FC, FormEvent, useCallback, useEffect, useMemo, useRef, useState
 import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianRotationIllustration } from 'app/icons/guardian-rotation-illustration.svg';
 import { Icon, IconName } from 'app/icons/v2';
@@ -19,7 +20,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { navigate, useLocation } from 'lib/woozie';
 
 const RotateGuardianReview: FC = () => {
   const { t } = useTranslation();
@@ -27,6 +28,7 @@ const RotateGuardianReview: FC = () => {
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
   const { unlock } = useMidenContext();
+  const handleBack = useBackWithFallback();
 
   const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
 
@@ -177,7 +179,7 @@ const RotateGuardianReview: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      <NavigationHeader title={t('reviewRotation')} onBack={goBack} variant="prominent" titleAlign="left" />
+      <NavigationHeader title={t('reviewRotation')} onBack={handleBack} variant="prominent" titleAlign="left" />
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8 font-heading">
           <GuardianRotationIllustration className="mx-auto mb-4 mt-1 h-28 w-auto" />

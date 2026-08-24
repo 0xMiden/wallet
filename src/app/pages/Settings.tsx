@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
 import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
 import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
@@ -49,7 +50,7 @@ import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -177,6 +178,10 @@ const TAB_GROUPS: TabGroup[] = [
         pageTitleI18nKey: 'rotateGuardian',
         Icon: SettingsIcon,
         Component: GuardianSettings,
+        // Needed now the row is a routed Link: MenuItem forwards testID to both
+        // the anchor and Link's analytics call, and an absent one became an
+        // empty data-testid plus a ButtonPress event with an empty name.
+        testID: SettingsSelectors.GuardianSettingsButton,
         guardianOnly: true
       }
     ]
@@ -351,14 +356,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   );
 
   const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
+  const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
   const [showSeedWarning, setShowSeedWarning] = useState(false);
 
-  // On mobile, move parked dApp trays out when the seed-warning
-  // overlay takes over the bottom of the screen.
+  // On mobile, move parked dApp trays out while the seed-warning overlay or a
+  // settings sub-page owns the screen. The sub-pages need it for the same
+  // reason the drawers they replaced did: the tray floats above the bottom of
+  // the viewport, which is where these screens pin their primary action.
+  const trayWouldOverlap = showSeedWarning || activeTab !== null;
   useEffect(() => {
     if (!isMobile()) return;
-    if (showSeedWarning) {
+    if (trayWouldOverlap) {
       document.body.setAttribute('data-drawer-open', '');
     } else {
       document.body.removeAttribute('data-drawer-open');
@@ -367,11 +376,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     // is still open, force parked dApp trays back in.
     return () => {
       if (!isMobile()) return;
-      if (showSeedWarning) {
+      if (trayWouldOverlap) {
         document.body.removeAttribute('data-drawer-open');
       }
     };
-  }, [showSeedWarning]);
+  }, [trayWouldOverlap]);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
@@ -402,7 +411,19 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
 
   return (
     <>
-      {!activeTab && (
+      {/* Headers sit OUTSIDE the scroll container below: a sub-page's header
+          carries its only back affordance, and Language or Address Book
+          overflow the popup, which would scroll it away. */}
+      {activeTab ? (
+        !activeTab.hasOwnLayout && (
+          <NavigationHeader
+            title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
+            onBack={handleSubPageBack}
+            variant="prominent"
+            titleAlign="left"
+          />
+        )
+      ) : (
         <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
       )}
 
@@ -411,17 +432,12 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           activeTab.hasOwnLayout ? (
             <activeTab.Component />
           ) : (
-            <>
-              <NavigationHeader
-                title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
-                onBack={goBack}
-                variant="prominent"
-                titleAlign="left"
-              />
-              <div className="px-4 flex-1 flex flex-col min-h-0 font-heading">
-                <activeTab.Component />
-              </div>
-            </>
+            // No `onClose`: the sub-pages that still call it do so immediately
+            // before navigating on, and popping first would race the push. The
+            // one screen whose action means "done here" pops itself.
+            <div className="px-4 flex-1 flex flex-col min-h-0 font-heading">
+              <activeTab.Component />
+            </div>
           )
         ) : (
           // pb-[88px] reserves space at the bottom so the last menu item

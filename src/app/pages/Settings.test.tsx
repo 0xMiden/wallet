@@ -79,7 +79,10 @@ jest.mock('lib/mobile/external-browser', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
-  goBack: jest.fn()
+  goBack: jest.fn(),
+  // Read by useBackWithFallback, which decides whether the sub-page header's
+  // back chevron pops history or falls back to the settings root.
+  useLocation: jest.fn(() => ({ historyPosition: 1 }))
 }));
 
 jest.mock('lib/i18n/core', () => ({

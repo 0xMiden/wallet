@@ -2368,10 +2368,6 @@
     "message": "Review rotation",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "New",
-    "englishSource": "New"
-  },
   "currentGuardianLabel": {
     "message": "Current Guardian",
     "englishSource": "Current Guardian"
@@ -2401,8 +2397,8 @@
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
-    "englishSource": "You can rotate or remove your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
+    "message": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authenticate to approve this Guardian switch.",
@@ -2719,10 +2715,6 @@
   "viewInActivities": {
     "message": "View in Activities",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "View activity",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "View Details",
