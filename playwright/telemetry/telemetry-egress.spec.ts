@@ -444,14 +444,21 @@ function assertEnvelopeShape(request: SinkRequest): void {
 
   // A flow carries a second nanoid pairing its two halves. A settled operation
   // has none, deliberately — pairing one to the flow that started it would mean
-  // writing a telemetry id onto the durable transaction row. So its ABSENCE is
-  // the assertion, and it is the one that fails if anyone adds that link.
+  // writing a telemetry id onto the durable transaction row. So the absence is
+  // as much the assertion as the presence, and this fails if anyone adds that
+  // link.
+  //
+  // Reduced to a word and compared against a word, rather than branching to a
+  // different assertion: an `if` here would mean the settled contract is only
+  // ever checked on a run where an operation happened to settle, and would go
+  // quiet rather than red the day one stops being emitted at all.
   const flowId = (envelope.props as Record<string, unknown>).flowId;
-  if (String(envelope.eventName).endsWith('_settled')) {
-    expect(flowId).toBeUndefined();
-    return;
-  }
-  expect(String(flowId)).toMatch(/^[A-Za-z0-9_-]{21}$/);
+  const shape =
+    flowId === undefined ? 'absent' : /^[A-Za-z0-9_-]{21}$/.test(String(flowId)) ? 'nanoid' : `neither: ${flowId}`;
+
+  expect(shape).toBe(String(envelope.eventName).endsWith('_settled') ? 'absent' : 'nanoid');
+  // Holds either way: an absent flow id stringifies to something no 21-character
+  // session id can equal, so this needs no branch of its own.
   expect(String(envelope.sessionId)).not.toBe(String(flowId));
 }
 
