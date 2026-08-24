@@ -299,8 +299,19 @@ const SIGNER_COMMITMENT = new Uint8Array(32).fill(0xab);
 const SIGNER_COMMITMENT_HEX = 'ab'.repeat(32);
 const FOREIGN_COMMITMENT_HEX = 'cd'.repeat(32);
 
-/** Make the session's account authenticate with SIGNER_COMMITMENT and nothing else. */
+/**
+ * Make the session's account authenticate with SIGNER_COMMITMENT and nothing else.
+ *
+ * The binding is checked against the key the SESSION stored at connect
+ * (`isAuthorizedSigningKey`), so that is what has to carry the commitment here.
+ * It is stored in the base64 form the connect response hands back, which is also
+ * what makes the hex form the tests send authorize: both encodings name the same
+ * commitment, and the check accepts either.
+ */
 const arrangeSignerAccount = () => {
+  _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz'] = [
+    { ...SESSION, publicKey: Buffer.from(SIGNER_COMMITMENT).toString('base64') }
+  ];
   _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
     getPublicKeyCommitments: () => [{ serialize: () => SIGNER_COMMITMENT }]
   });
@@ -989,26 +1000,36 @@ describe('Full confirmation cycles in extension mode', () => {
    * payload, not whose key will sign it.
    */
   describe('requestSign — the key must belong to the account the session authorized', () => {
+    const request = (sourcePublicKey: string) =>
+      ({
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey,
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      }) as never;
+
     const signWith = (sourcePublicKey: string) =>
       driveConfirmation(
-        () =>
-          dapp.requestSign('https://miden.xyz', {
-            type: MidenDAppMessageType.SignRequest,
-            sourcePublicKey,
-            sourceAccountId: 'miden-account-1',
-            payload: 'aGVsbG8=',
-            kind: 'word'
-          } as never),
+        () => dapp.requestSign('https://miden.xyz', request(sourcePublicKey)),
         MidenMessageType.DAppSignConfirmationRequest,
         { confirmed: true }
       );
+
+    /**
+     * The refusal cases call through directly rather than driving a confirmation:
+     * the key binding is checked BEFORE any prompt is raised, so there is no
+     * window for `driveConfirmation` to find and it would fail on the harness
+     * rather than on the assertion.
+     */
+    const signRefused = (sourcePublicKey: string) => dapp.requestSign('https://miden.xyz', request(sourcePublicKey));
 
     it('refuses a commitment the session account does not authenticate with', async () => {
       arrangeSignerAccount();
       const signData = jest.fn(async () => 'stolen-signature');
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
 
-      await expect(signWith(FOREIGN_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      await expect(signRefused(FOREIGN_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
       // Refused, not merely reported: the key is never touched.
       expect(signData).not.toHaveBeenCalled();
     });
@@ -1032,7 +1053,7 @@ describe('Full confirmation cycles in extension mode', () => {
       const signData = jest.fn(async () => 'stolen-signature');
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
 
-      await expect(signWith(sourcePublicKey)).rejects.toThrow();
+      await expect(signRefused(sourcePublicKey)).rejects.toThrow();
       expect(signData).not.toHaveBeenCalled();
     });
 
@@ -1041,7 +1062,7 @@ describe('Full confirmation cycles in extension mode', () => {
       const signData = jest.fn(async () => 'stolen-signature');
       mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
 
-      await expect(signWith(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      await expect(signRefused(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
       expect(signData).not.toHaveBeenCalled();
     });
   });

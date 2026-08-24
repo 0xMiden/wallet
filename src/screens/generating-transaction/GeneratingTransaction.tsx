@@ -9,13 +9,14 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
 import {
+  bridgeProviderOf,
   isRequeueableTransaction,
   isUnverifiableSendRetryError,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   safeGenerateTransactionsLoop as dbTransactionsLoop
 } from 'lib/miden/activity';
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
@@ -42,14 +43,6 @@ import type { GeneratingTransactionPageProps, GeneratingTransactionProps, Transa
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
-
-/**
- * `extraInputs` for a `bridged-send` row, `undefined` for every other type.
- * The retry gate needs `provider` to tell the replayable Agglayer (Slow) route
- * from the non-replayable Epoch (Fast) one.
- */
-const bridgedSendExtras = (tx: ITransaction): IBridgedSendExtraInputs | undefined =>
-  tx.type === 'bridged-send' ? tx.extraInputs : undefined;
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
@@ -129,7 +122,9 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
   // Completed with its failure in extraInputs.phase and has its own
   // withdraw-status screen — so there is no earn branch to handle.
-  const canRetry = !!active && isRequeueableTransaction(active);
+  // A bare row carries no `bridgeProvider` — that field lives on the UI history
+  // entry — so feed it from `extraInputs` or the Epoch (Fast) guard never fires.
+  const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
     async (acknowledgeUnverifiedSend = false) => {

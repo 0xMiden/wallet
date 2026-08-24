@@ -34,10 +34,22 @@ jest.mock('lib/miden/repo', () => ({
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 jest.mock('lib/miden/types', () => ({ NoteTypeEnum: { Public: 'public', Private: 'private' } }));
-jest.mock('./chain', () => ({ MIDEN_MIN_RECLAIM_BLOCKS: 1000, MIDEN_RECLAIM_BUFFER_BLOCKS: 200 }));
+jest.mock('./chain', () => ({
+  MIDEN_MIN_RECLAIM_BLOCKS: 1000,
+  MIDEN_RECLAIM_BUFFER_BLOCKS: 200,
+  getCurrentMidenBlock: jest.fn(async () => 1000)
+}));
 
 // The effective network is localnet here, so every id must come out `mlcl1…`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
+
+// This suite is about ID ENCODING, not note construction. The collateral note is
+// built by `buildEpochCollateralRequestBytes`, which reaches deep into the SDK
+// (assets, note scripts, attachments) and has its own tests — stubbing it keeps
+// these cases from drifting every time the builder gains a dependency.
+jest.mock('./collateral-note', () => ({
+  buildEpochCollateralRequestBytes: jest.fn(async () => new Uint8Array([1, 2, 3]))
+}));
 
 // Minimal SDK stand-in. `AccountId.fromHex(...).toBech32(net)` is kept working so a
 // regression to the hardcoded `NetworkId.testnet()` encoding fails with a readable
@@ -47,14 +59,17 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
     fromHex: (hex: string) => ({ hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` })
   },
   Address: {
+    fromBech32: (addr: string) => ({
+      accountId: () => ({ hex: addr, toString: () => addr, toBech32: (net: string) => `${net}1${addr.slice(2)}` })
+    }),
     fromAccountId: (accountId: { hex: string }) => ({ toBech32: (net: string) => `${net}1${accountId.hex.slice(2)}` })
   },
   NetworkId: { testnet: () => 'mtst', devnet: () => 'mdev', mainnet: () => 'mm', custom: (p: string) => p },
   AccountInterface: { BasicWallet: 'BasicWallet' }
 }));
 
-import { createEarnP2IDNote } from './earn-note';
-import { createBridgeP2IDNote, ifHextoBech32 } from './miden-note';
+import { createEarnP2IDENote } from './earn-note';
+import { createBridgeP2IDENote, ifHextoBech32 } from './miden-note';
 
 const deps = { signTransaction: jest.fn(), guardianProvider: {} } as never;
 
@@ -70,11 +85,15 @@ describe('epoch id encoding (ifHextoBech32)', () => {
   });
 
   it('stores the effective-network faucet + allocator ids on the bridged-send row', async () => {
-    const result = await createBridgeP2IDNote({
+    const result = await createBridgeP2IDENote({
       senderAccountId: 'mlcl1sender',
       faucetId: '0xfaucet',
       amount: '250',
       allocatorId: '0xallocator',
+      // Both SDK-supplied since #726; this suite only asserts id encoding, so
+      // representative values are enough.
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
       destinationAddress: '0xevm',
       destinationNetwork: 8453,
       deps
@@ -90,11 +109,13 @@ describe('epoch id encoding (ifHextoBech32)', () => {
   it('stores the effective-network faucet + allocator ids on the earn-deposit row', async () => {
     // earn-note.ts shares the one helper rather than carrying its own copy, so the
     // same guard has to hold for the Earn leg.
-    const result = await createEarnP2IDNote({
+    const result = await createEarnP2IDENote({
       senderAccountId: 'mlcl1sender',
       faucetId: '0xfaucet',
       amount: '250',
       allocatorId: '0xallocator',
+      recallBlocks: 5_000,
+      bindingAttachmentFelts: [1n, 2n],
       evmRecipient: '0xevm',
       marketUid: 'AAVE:11155111:USDC',
       deps

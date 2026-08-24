@@ -43,11 +43,8 @@ import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
-<<<<<<< HEAD
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
-=======
 import { hapticLight } from 'lib/mobile/haptics';
->>>>>>> bcd59663e (fix(ui): guardian/onboarding/history layout fixes + note type and multi-asset claim display (#755))
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -1111,12 +1108,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           type: entry.txType,
           // Epoch (Fast) bridged sends are not replayable — their Epoch intent is
           // already gone, so a requeue would mint a second orphan collateral note.
-          bridgeProvider: entry.bridgeProvider,
-          // Feed the double-send guard: a send/swap that left the queue but has
-          // no captured transaction id to ask the node about is not safely
-          // replayable — its submit may already have landed.
-          transactionId: entry.externalTxId,
-          processingStartedAt: entry.processingStartedAt
+          bridgeProvider: entry.bridgeProvider
         }));
 
   return (

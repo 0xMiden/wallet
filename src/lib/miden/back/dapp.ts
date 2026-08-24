@@ -88,14 +88,13 @@ import { WalletType } from 'screens/onboarding/types';
 import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 
 import { queueNoteImport } from '../activity';
-import { toNoteTypeString } from '../helpers';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
 import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
-import { isLikelyNetworkError } from '../activity/connectivity-classify';
-import { assertValidRecallBlocks, toPersistedNoteType } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -2375,7 +2374,9 @@ async function formatConsumeTransactionPreview(transaction: MidenConsumeTransact
   ];
   for (const asset of assets) {
     const tokenMetadata = await getTokenMetadata(asset.faucetId);
-    messages.push(`Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))}`);
+    messages.push(
+      `Amount, ${formatAmountSafe(BigInt(asset.amount), 'consume', tokenMetadata?.decimals, hasKnownScale(tokenMetadata))}`
+    );
   }
   messages.push(`Note Type, ${capitalizeFirstLetter(noteType)}`);
   return messages;

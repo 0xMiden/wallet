@@ -889,9 +889,14 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     await expect(requeueFailedTransaction('reaped')).rejects.toThrow(/may already have reached the network/);
   });
 
-  // ...and because the marker expires, the row recovers rather than bricking —
-  // which is what made marking affordable here at all.
-  it('lets it retry again once the window has passed', async () => {
+  // The marker expiring is no longer enough on its own. It retires the precise
+  // reading ("a pipeline was live when we cancelled"), but the coarse one behind
+  // it survives: the row demonstrably left the queue, and for a send that is
+  // never narrowed any further, so a submit still cannot be ruled out from the
+  // row alone. What keeps this from bricking is the acknowledgement below, not
+  // the clock — the user reads their own balance and answers the one question
+  // the wallet cannot.
+  it('still refuses once the window has passed, and requeues when the user acknowledges', async () => {
     await Repo.transactions.add(
       inFlightSend('reaped-later', {
         stage: 'proving',
@@ -905,7 +910,9 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
       r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
     });
 
-    await requeueFailedTransaction('reaped-later');
+    await expect(requeueFailedTransaction('reaped-later')).rejects.toThrow(/may already have reached the network/);
+
+    await requeueFailedTransaction('reaped-later', { acknowledgeUnverifiedSend: true });
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
   });
 });

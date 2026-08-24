@@ -1417,8 +1417,9 @@ describe('generateTransaction — Guardian routing', () => {
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
-    const newSendTransactionRequest = jest.fn(async () => ({ serialize: () => requestBytes }));
-    mockCreateWasmWebClient.mockResolvedValue({ newSendTransactionRequest, terminate: jest.fn() });
+    // Built through the shared helper against the sender's vault, not a transient
+    // raw client — see `ensureGuardianRecallableSendRequestBytes`.
+    mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'bridge-applyfail-proposal', nonce: 8 })),
@@ -1438,7 +1439,11 @@ describe('generateTransaction — Guardian routing', () => {
     const client = Object.assign(makeClientApi(makeResult(), applyFn), {
       sync: jest.fn(async () => ({ blockNum: () => 100 }))
     });
-    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
 
     await generateTransaction(
       transaction,

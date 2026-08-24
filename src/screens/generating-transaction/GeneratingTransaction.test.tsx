@@ -92,7 +92,10 @@ jest.mock('lib/miden/activity', () => ({
   requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
   requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
   isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a),
-  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a)
+  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a),
+  // Real helper: the retry gate reads the provider off the row's `extraInputs`,
+  // and an Epoch (Fast) bridged-send must not be offered a Retry.
+  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row

@@ -89,7 +89,6 @@ import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { NoteTypeEnum } from '../types';
 
 export * from './cancel';
 export * from './complete';
@@ -1477,13 +1476,26 @@ const generateGuardianTransaction = async (
       // and the SW build defaults the flag ON, so a flag-ON-only gap here would blank
       // the step durations on the primary send flow of the primary platform.
       //
-      // Which is also why the submit crossing needs no over-approximation here:
-      // 'submitting' arrives from this leaf like any other stage, and
-      // `stageStampFor` records the crossing off it. Pinning the guard before
-      // dispatch instead would assert a crossing on every pre-submit failure and
-      // — because the flag is sticky and vetoes the cached-request clear in
-      // `requeueTransactionForRetry` — keep stale `requestBytes` alive across
-      // requeues, which is exactly how a wrong callback flag re-fails forever.
+      // The submit crossing rides that same channel — 'submitting' arrives like
+      // any other stage and `stageStampFor` records it — but a replayed stamp is
+      // not a substitute for pinning the guard here, because the failure this
+      // guards against is precisely the one that eats the replay: a realm killed
+      // between `submit()` and the event reaching the SW leaves the row looking
+      // never-broadcast. So pin it before dispatch and accept the
+      // over-approximation, which errs the safe way (a needless rebuild rather
+      // than a second payment).
+      //
+      // Only where there ARE bytes to pin, which is what makes the
+      // over-approximation affordable. The flag is sticky and vetoes the cached-
+      // request clear in `requeueTransactionForRetry`, so stamping a row that
+      // caches nothing would assert a crossing on a row with neither bytes nor a
+      // captured id — the exact shape `requeueFailedTransaction` refuses — and
+      // brick every non-recallable guardian send on its FIRST failure, the
+      // vault-slot rejection included. A guardian send with no recall window
+      // takes `createSendProposal` and caches nothing, so it is left alone.
+      if (transaction.requestBytes !== undefined) {
+        await markMayHaveSubmitted(transaction.id);
+      }
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),

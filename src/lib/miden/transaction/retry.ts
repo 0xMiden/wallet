@@ -1,7 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 
-import { verifySendLanded } from './cancel';
-import { isSubmitOutcomeUnknown } from './constants';
+import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
+import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
 import { completeVerifiedLandedTransaction } from './helper';
 import {
   IBridgeProvider,
@@ -151,6 +151,7 @@ const NODE_VERIFIED_RETRY_TYPES: ITransactionType[] = ['send', 'swap', 'bridged-
  */
 const REBUILT_REQUEST_TYPES: ITransactionType[] = ['send', 'swap'];
 
+/**
  * Stages a Failed row can hold that PROVE nothing was broadcast, so its cached
  * request may be safely rebuilt (see the `requestBytes` clear below).
  *
@@ -287,6 +288,15 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
       });
       return;
     }
+    // Not provably landed. For a row that executed, `'unknown'` means "we could
+    // not confirm", NOT "it did not land" — and for a rebuilt-request type a
+    // resubmit would broadcast a SECOND send. This covers the row that HAS a
+    // captured id the node has no record of, which the acknowledgeable refusal
+    // below deliberately does not: an id proves the submit call was reached, so
+    // there is nothing for the user to rule out from their balance.
+    if (REBUILT_REQUEST_TYPES.includes(tx.type) && tx.transactionId !== undefined && isSubmitOutcomeUnknown(tx)) {
+      throw new Error(TRANSACTION_RETRY_UNSAFE_ERROR);
+    }
   }
 
   // Last line: refuse rather than gamble.
@@ -322,9 +332,7 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     REBUILT_REQUEST_TYPES.includes(tx.type) &&
     tx.requestBytes === undefined &&
     tx.transactionId === undefined &&
-    (tx.mayHaveSubmitted === true ||
-      pipelineMayStillBeRunning(tx.cancelledInFlightAt) ||
-      isSubmitOutcomeUnknown(tx))
+    (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt) || isSubmitOutcomeUnknown(tx))
   ) {
     if (!options.acknowledgeUnverifiedSend) {
       throw new UnverifiableSendRetryError();

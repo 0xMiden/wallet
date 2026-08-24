@@ -486,7 +486,11 @@ export class MidenClientInterface {
    * long enough for queued reads to deadline-kill the realm.
    */
   async drainPrivateNoteTransport(): Promise<void> {
-    await this.client.notes.fetchPrivate({ mode: 'all' });
+    // Cursor-based, NOT a from-zero drain: SDK 0.16 removed the `{ mode: 'all' }`
+    // full-fetch this originally used, so a note the recipient's stored cursor has
+    // already advanced past is not recoverable through this path. The bounded
+    // sender-side re-push (`note-delivery-sweep.ts`) is what covers that case.
+    await this.client.notes.fetchPrivate();
   }
 
   /**

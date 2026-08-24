@@ -6,7 +6,7 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { isRequeueableTransaction, requeueFailedTransaction } from './retry';
+import { UnverifiableSendRetryError, isRequeueableTransaction, requeueFailedTransaction } from './retry';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 const mockTransactionsWhere = jest.fn();
@@ -171,42 +171,60 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     const row = failedRow({ type: 'send', transactionId: undefined, error: reason, rawError: undefined });
     wireRow(row);
 
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/is not retryable/);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
-  it('hides the Retry affordance for any executed send with no captured transaction id', () => {
-    expect(
-      isRequeueableTransaction({
-        status: ITransactionStatus.Failed,
-        type: 'send',
-        transactionId: undefined,
-        processingStartedAt: 1100
-      })
-    ).toBe(false);
+  // Where the refusal lives, and why it moved. It used to be the PREDICATE, so
+  // the Retry button simply never rendered for one of these rows. That is a dead
+  // end: nothing on the row ever changes, so the button never comes back, and a
+  // user who can see from their own balance that the send did not go through has
+  // no way to say so — they re-send by hand, which is the double payment the
+  // guard exists to prevent. So the predicate now answers only "is this a failed
+  // row of a retryable type", the button always renders, and the refusal happens
+  // at the requeue, where it can be acknowledged.
+  it('keeps the Retry affordance for an executed send, and refuses at the requeue instead', async () => {
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'send' })).toBe(true);
+
+    const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
-  it('applies the same guard to a swap (its PSWAP order would be created twice)', () => {
-    expect(
-      isRequeueableTransaction({
-        status: ITransactionStatus.Failed,
-        type: 'swap',
-        transactionId: undefined,
-        processingStartedAt: 1100
-      })
-    ).toBe(false);
+  it('applies the same guard to a swap (its PSWAP order would be created twice)', async () => {
+    const row = failedRow({ type: 'swap', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
-  it('still allows the retry when the row never left the queue (no processingStartedAt)', () => {
+  it('lets the user through once they acknowledge the send did not land', async () => {
+    // The only exit from the refusal, and the reason it is not final: the wallet
+    // cannot tell "failed before submitting" from "submitted and lost the reply",
+    // but the user can read their own balance.
+    const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1', { acknowledgeUnverifiedSend: true });
+
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    // Retracted, not stepped over: a later failure on this row is judged on its
+    // own evidence rather than on a crossing the user has just ruled out.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('still allows the retry when the row never left the queue (no processingStartedAt)', async () => {
     // `cancelStaleQueuedTransactions` / a Cancel pressed while still Queued: the
     // row never executed, so nothing could have been submitted.
-    expect(
-      isRequeueableTransaction({
-        status: ITransactionStatus.Failed,
-        type: 'send',
-        processingStartedAt: undefined
-      })
-    ).toBe(true);
+    const row = failedRow({ type: 'send', transactionId: undefined, processingStartedAt: undefined });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.status).toBe(ITransactionStatus.Queued);
   });
 
   // FUNDS-1: the guard used to be a CLOSED LIST of failure reasons, so a write
@@ -226,16 +244,8 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     });
     wireRow(row);
 
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/is not retryable/);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
     expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(
-      isRequeueableTransaction({
-        status: ITransactionStatus.Failed,
-        type: 'send',
-        transactionId: undefined,
-        processingStartedAt: 1100
-      })
-    ).toBe(false);
   });
 
   it('refuses to requeue a send that failed with an ordinary pipeline error once it left the queue', async () => {
@@ -245,7 +255,7 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     const row = failedRow({ type: 'send', transactionId: undefined, error: 'Error: insufficient funds' });
     wireRow(row);
 
-    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/is not retryable/);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
@@ -268,17 +278,13 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
       isRequeueableTransaction({
         status: ITransactionStatus.Failed,
         type: 'bridged-send',
-        bridgeProvider: 'agglayer',
-        transactionId: undefined,
-        processingStartedAt: 1100
+        bridgeProvider: 'agglayer'
       })
     ).toBe(true);
     expect(
       isRequeueableTransaction({
         status: ITransactionStatus.Failed,
-        type: 'execute',
-        transactionId: undefined,
-        processingStartedAt: 1100
+        type: 'execute'
       })
     ).toBe(true);
   });
