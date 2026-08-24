@@ -280,6 +280,17 @@ export async function createGuardianAccount(
           {
             procedure: 'update_guardian',
             threshold: 2
+          },
+          // `update_procedure_threshold` edits the overrides, so it has to cost
+          // at least as much as the strictest one it can lower. Left at the
+          // account threshold of 1, the hardening above was decorative: either
+          // single signer could drop `update_guardian` back to 1 and then
+          // switch the guardian alone. Enforced by the builder (and by
+          // `AuthMultisig::new` on the Rust side) since multisig-client 0.17,
+          // which rejects the unguarded shape outright.
+          {
+            procedure: 'update_procedure_threshold',
+            threshold: 2
           }
         ]
       },
