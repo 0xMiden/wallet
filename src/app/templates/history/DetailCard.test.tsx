@@ -159,6 +159,21 @@ describe('StatusPill', () => {
     expect(pill(container)).toHaveClass('bg-gray-400');
   });
 
+  it('pairs the fixed grey fill of a cancellation with fixed dark ink, not the flipping ink', () => {
+    // A user cancellation is recorded as a failure (`cancel.ts`), so it is BOTH
+    // Failed and cancelled. Keying the ink off `isFailed` first put the flipping
+    // ink on the fixed grey fill — 3.9:1 in light, 2.7:1 in dark.
+    const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
+
+    expect(label(container)).toHaveTextContent('t:cancelled');
+    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-black');
+    expect(pill(container)).not.toHaveClass('text-black');
+    // ...and it wears the neutral dot rather than the failure ✕, which would name
+    // a second outcome the label does not.
+    expect(pill(container).querySelector('[data-testid="v2-icon"]')).toBeNull();
+    expect(dot(container)).toHaveClass('bg-current');
+  });
+
   it('lets failure outrank a reported settlement rather than labelling it in red', () => {
     // A failed swap never placed its order, so it has no settlement to report.
     // Taking the caller's word for one produced a pill reading "Pending" in

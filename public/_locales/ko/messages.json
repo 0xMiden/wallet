@@ -2393,7 +2393,7 @@
     "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
   },
   "guardianSwitchSuccessInfo3": {
-    "message": "새로운 거래가 완료되려면 귀하의 새로운 Guardian 주소가 접근 가능해야 합니다.",
+    "message": "새로운 거래가 완료되려면 귀하의 새로운 Guardian이 접근 가능해야 합니다.",
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {

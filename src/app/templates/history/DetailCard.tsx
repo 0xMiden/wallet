@@ -109,7 +109,12 @@ export const StatusPill: FC<{
   // well under AA. Dark ink reads ~8:1 on all three fixed fills. The failure red
   // is the one fill that flips with the theme (bright in light, deep in dark), so
   // it takes the flipping ink token to stay legible against both.
-  const fgColor = isFailed ? 'text-black' : 'text-pure-black';
+  //
+  // Ordered like `bgColor`, muted first: a user cancellation is BOTH Failed and
+  // cancelled (`cancel.ts` records the cancel as a failure), so keying the ink off
+  // `isFailed` first paired the flipping ink with the fixed grey fill — 3.9:1 in
+  // light, 2.7:1 in dark, the very failure this ink is here to avoid.
+  const fgColor = isMuted || !isFailed ? 'text-pure-black' : 'text-black';
   const label = isCancelled
     ? t('cancelled')
     : swapSettlement === 'reclaimed'
@@ -127,7 +132,12 @@ export const StatusPill: FC<{
       data-testid={testId}
       className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor, fgColor)}
     >
-      {isCompleted ? (
+      {/* Muted first for the same reason as the colours: a cancellation reads
+          Failed, and a grey "Cancelled" pill wearing the failure ✕ names two
+          outcomes at once. */}
+      {isMuted ? (
+        <div className="w-2 h-2 rounded-full bg-current" />
+      ) : isCompleted ? (
         <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
       ) : isFailed ? (
         <Icon name={IconName.Close} size="xs" fill="currentColor" />

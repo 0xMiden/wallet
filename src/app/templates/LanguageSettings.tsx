@@ -23,11 +23,7 @@ const LANGUAGES = [
   { code: 'ru', label: 'Русский' }
 ];
 
-type LanguageSettingsProps = {
-  onClose?: () => void;
-};
-
-const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
+const LanguageSettings: FC = () => {
   const selectedLocale = getCurrentLocale();
   const { trackEvent } = useAnalytics();
   const goBackToSettings = useBackWithFallback('/settings');
@@ -44,13 +40,12 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
       hapticLight();
       trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
-      // Picking a language finishes the task, so leave. As a drawer this screen
-      // was handed an `onClose`; as a route there is no host to close it, and
-      // without the fallback the selection silently stranded the user here.
-      if (onClose) onClose();
-      else goBackToSettings();
+      // Picking a language finishes the task, so leave. As a drawer this screen was
+      // handed an `onClose` by its host; as a route it owns its own exit, and
+      // without one the selection silently stranded the user here.
+      goBackToSettings();
     },
-    [trackEvent, onClose, goBackToSettings]
+    [trackEvent, goBackToSettings]
   );
 
   return (

@@ -28,9 +28,16 @@ const RotateGuardianReview: FC = () => {
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
   const { unlock } = useMidenContext();
-  const handleBack = useBackWithFallback();
+  // The picker is this screen's only parent, and the screen rebuilds its whole
+  // state from the query string, so a cold load belongs back at the picker rather
+  // than dumped at the wallet home.
+  const handleBack = useBackWithFallback('/rotate-guardian');
 
   const newEndpoint = useMemo(() => new URLSearchParams(search).get('endpoint') ?? '', [search]);
+  // The picker refuses to rotate onto the active guardian, but this screen takes
+  // its target from the query string, so backing into it after the rotation landed
+  // would queue a second switch to the endpoint that is now already current.
+  const endpointUnchanged = newEndpoint === currentEndpoint;
 
   const [authStep, setAuthStep] = useState(false);
   const [password, setPassword] = useState('');
@@ -77,11 +84,9 @@ const RotateGuardianReview: FC = () => {
   const authenticateAndSwitch = useCallback(
     async (credential?: string) => {
       if (!currentAccount || !newEndpoint || submissionRef.current) return;
-      // The picker refuses to rotate onto the active guardian, but this screen
-      // takes its target from the query string, so backing into it after the
-      // rotation landed would queue a second switch to the endpoint that is now
-      // already current. Same guard, same message.
-      if (newEndpoint === currentEndpoint) {
+      // Last line of defence — `handleContinue` rejects this before asking for a
+      // credential, but the password step submits straight through to here.
+      if (endpointUnchanged) {
         setError(t('guardianEndpointUnchanged'));
         return;
       }
@@ -105,11 +110,18 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, currentEndpoint, unlock, t]
+    [currentAccount, newEndpoint, endpointUnchanged, unlock, t]
   );
 
   const handleContinue = useCallback(() => {
     if (!currentAccount || !newEndpoint || submitting || hasHardwareProtector === null) return;
+    // Say so here, on the review screen. Deferring this to `authenticateAndSwitch`
+    // made the user authenticate first and then read "unchanged" as though it were
+    // an auth failure, on a step that could never succeed.
+    if (endpointUnchanged) {
+      setError(t('guardianEndpointUnchanged'));
+      return;
+    }
     if (hasHardwareProtector) {
       void authenticateAndSwitch(undefined);
       return;
@@ -117,7 +129,7 @@ const RotateGuardianReview: FC = () => {
     setPassword('');
     setError(null);
     setAuthStep(true);
-  }, [authenticateAndSwitch, currentAccount, hasHardwareProtector, newEndpoint, submitting]);
+  }, [authenticateAndSwitch, currentAccount, endpointUnchanged, hasHardwareProtector, newEndpoint, submitting, t]);
 
   const handlePasswordSubmit = useCallback(
     (event?: FormEvent) => {

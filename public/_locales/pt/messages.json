@@ -2385,7 +2385,7 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Seu novo endereço Guardian endossa todas as transações a partir de agora — seu endereço antigo Guardian não tem mais nenhuma função.",
+    "message": "Seu novo Guardian coassina todas as transações a partir de agora — seu antigo Guardian não tem mais nenhuma função.",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
   },
   "guardianSwitchSuccessInfo2": {
@@ -2393,11 +2393,11 @@
     "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
   },
   "guardianSwitchSuccessInfo3": {
-    "message": "As novas transações precisam que seu novo endereço Guardian esteja acessível antes de poderem ser concluídas.",
+    "message": "As novas transações precisam que seu novo Guardian esteja acessível antes de poderem ser concluídas.",
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {
-    "message": "Você pode alternar sua “Guardian” novamente a qualquer momento — mantenha sua frase de recuperação em segurança, ela é necessária para fazer isso.",
+    "message": "Você pode alternar seu Guardian novamente a qualquer momento — mantenha sua frase de recuperação em segurança, ela é necessária para fazer isso.",
     "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {

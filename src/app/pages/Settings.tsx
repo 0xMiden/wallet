@@ -73,7 +73,9 @@ type Tab = {
   slug: string;
   titleI18nKey: string;
   pageTitleI18nKey?: string;
-  Component: React.FC<{ onClose?: () => void }>;
+  // Sub-pages are routed, so they own their own exit — none of them takes a host
+  // close handler any more.
+  Component: React.FC;
   testID?: SettingsSelectors;
   hasOwnLayout?: boolean;
   rightText?: string;
@@ -410,7 +412,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
                           key={tab.slug + tab.titleI18nKey}
                           slug={linkTo}
                           titleI18nKey={tab.titleI18nKey}
-                          testID={tab.testID?.toString() || ''}
+                          testID={tab.testID}
                           linksOutsideOfWallet={!!isExternal}
                           rightText={tab.slug === 'language' ? languageLabel : undefined}
                           onClick={handleClick}

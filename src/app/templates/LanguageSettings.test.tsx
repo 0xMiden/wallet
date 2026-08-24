@@ -31,6 +31,19 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// This screen is routed now, so it owns its own exit: `useBackWithFallback` pops
+// history when there is somewhere to pop to and routes to /settings otherwise.
+const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+let mockHistoryPosition = 1;
+
+jest.mock('lib/woozie', () => ({
+  goBack: (...args: unknown[]) => mockGoBack(...args),
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  HistoryAction: { Push: 'push', Replace: 'replace' }
+}));
+
 // `app/icons/v2` pulls in SVG asset imports. Render a marker span that echoes the
 // icon name / fill / size so the "selected row shows a checkmark" branch is
 // directly assertable.
@@ -78,6 +91,7 @@ describe('LanguageSettings', () => {
     jest.clearAllMocks();
     mockUseAnalytics.mockReturnValue({ trackEvent });
     mockGetCurrentLocale.mockReturnValue('en');
+    mockHistoryPosition = 1;
   });
 
   it('renders one button per supported language, in order, with the right labels', () => {
@@ -138,9 +152,8 @@ describe('LanguageSettings', () => {
     expect(screen.getAllByTestId('icon')).toHaveLength(1);
   });
 
-  it('selecting a language fires haptics + analytics, persists the locale, and closes', () => {
-    const onClose = jest.fn();
-    render(<LanguageSettings onClose={onClose} />);
+  it('selecting a language fires haptics + analytics, persists the locale, and leaves', () => {
+    render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('Deutsch'));
 
@@ -150,32 +163,32 @@ describe('LanguageSettings', () => {
       code: 'de'
     });
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Picking a language finishes the task, so the screen has to leave — without
+    // this the selection silently stranded the user on the list.
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
 
     // Ordering: analytics before the locale write.
     expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
-  it('does not throw when a language is selected without an onClose handler', () => {
+  it('routes to the settings root, replacing, when opened cold with no history to pop', () => {
+    mockHistoryPosition = 0;
     render(<LanguageSettings />);
 
-    expect(() => fireEvent.click(screen.getByText('日本語'))).not.toThrow();
+    fireEvent.click(screen.getByText('日本語'));
 
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledWith('ja');
-    expect(trackEvent).toHaveBeenCalledWith(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, {
-      code: 'ja'
-    });
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 
-  it('re-selecting the already-active language still persists and closes', () => {
-    const onClose = jest.fn();
+  it('re-selecting the already-active language still persists and leaves', () => {
     mockGetCurrentLocale.mockReturnValue('en');
-    render(<LanguageSettings onClose={onClose} />);
+    render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('English'));
 
     expect(mockUpdateLocale).toHaveBeenCalledWith('en');
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 });

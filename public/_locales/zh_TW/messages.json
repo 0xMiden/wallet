@@ -2369,11 +2369,11 @@
     "englishSource": "Review rotation"
   },
   "currentGuardianLabel": {
-    "message": "最新Guardian",
+    "message": "目前 Guardian",
     "englishSource": "Current Guardian"
   },
   "newGuardianLabel": {
-    "message": "新版 Guardian",
+    "message": "新的 Guardian",
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {

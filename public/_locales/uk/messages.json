@@ -2369,11 +2369,11 @@
     "englishSource": "Review rotation"
   },
   "currentGuardianLabel": {
-    "message": "Поточний список «Guardian»",
+    "message": "Поточний Guardian",
     "englishSource": "Current Guardian"
   },
   "newGuardianLabel": {
-    "message": "Нова версія Guardian",
+    "message": "Новий Guardian",
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {
@@ -2385,7 +2385,7 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Відтепер ваша нова адреса Guardian підписує кожну транзакцію — ваша стара адреса Guardian більше не відіграє жодної ролі.",
+    "message": "Відтепер ваш новий Guardian підписує кожну транзакцію разом з вами — ваш старий Guardian більше не відіграє жодної ролі.",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
   },
   "guardianSwitchSuccessInfo2": {

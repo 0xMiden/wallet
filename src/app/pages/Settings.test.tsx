@@ -17,6 +17,7 @@ import Settings from './Settings';
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
 const mockWalletState: { currentAccount: MockAccount } = { currentAccount: { type: 'on-chain' } };
 let mockIsMobile = false;
+let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
 
 // ---------------------------------------------------------------------------
@@ -80,9 +81,10 @@ jest.mock('lib/mobile/external-browser', () => ({
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
+  HistoryAction: { Push: 'push', Replace: 'replace' },
   // Read by useBackWithFallback, which decides whether the sub-page header's
   // back chevron pops history or falls back to the settings root.
-  useLocation: jest.fn(() => ({ historyPosition: 1 }))
+  useLocation: jest.fn(() => ({ historyPosition: mockHistoryPosition }))
 }));
 
 jest.mock('lib/i18n/core', () => ({
@@ -218,6 +220,7 @@ function setAccount(account: MockAccount) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockIsMobile = false;
+  mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
   setAccount({ type: 'on-chain' });
@@ -288,8 +291,10 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(privacy).toHaveAttribute('data-external', 'true');
     expect(privacy).toHaveAttribute('data-slug', PRIVACY_POLICY_URL);
-    // testID is undefined for external tabs → the component coerces it to ''.
-    expect(privacy).toHaveAttribute('data-selector', '');
+    // Passed through as undefined rather than coerced to '': Link tracks a
+    // ButtonPress for any testID that is merely `!== undefined`, so the empty
+    // string bought an analytics event with no name.
+    expect(privacy).not.toHaveAttribute('data-selector');
 
     expect(tos).toHaveAttribute('data-external', 'true');
     expect(tos).toHaveAttribute('data-slug', TERMS_OF_USE_URL);
@@ -443,6 +448,19 @@ describe('Settings page — active tab routing', () => {
 
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
+    // A deep link or a reload lands on the sub-page at the first history entry,
+    // where goBack() is a no-op — the chevron has to route instead, and replace so
+    // forward does not walk back into the page just left.
+    mockHistoryPosition = 0;
+    render(<Settings tabSlug="networks" />);
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 
   it('renders the edit-miden-faucet-id tab', () => {

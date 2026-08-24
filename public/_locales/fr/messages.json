@@ -2369,15 +2369,15 @@
     "englishSource": "Review rotation"
   },
   "currentGuardianLabel": {
-    "message": "Guardian actuelle",
+    "message": "Guardian actuel",
     "englishSource": "Current Guardian"
   },
   "newGuardianLabel": {
-    "message": "Nouvelle adresse Guardian",
+    "message": "Nouveau Guardian",
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {
-    "message": "Vous avez réussi à faire tourner vos «Guardian» !",
+    "message": "Vous avez changé votre Guardian avec succès !",
     "englishSource": "You've successfully rotated your Guardian!"
   },
   "guardianSwitchSuccessInfoTitle": {
@@ -2385,7 +2385,7 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Votre nouvelle adresse Guardian cosigne désormais chaque transaction — votre ancienne adresse Guardian n’a plus aucun rôle à jouer.",
+    "message": "Votre nouveau Guardian cosigne désormais chaque transaction — votre ancien Guardian n’a plus aucun rôle à jouer.",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
   },
   "guardianSwitchSuccessInfo2": {
@@ -2393,7 +2393,7 @@
     "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
   },
   "guardianSwitchSuccessInfo3": {
-    "message": "Les nouvelles transactions nécessitent que votre nouvelle adresse Guardian soit accessible avant de pouvoir être finalisées.",
+    "message": "Les nouvelles transactions nécessitent que votre nouveau Guardian soit accessible avant de pouvoir être finalisées.",
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {

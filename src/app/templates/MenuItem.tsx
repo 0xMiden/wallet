@@ -11,7 +11,10 @@ type MenuItemProps = {
   slug?: string;
   titleI18nKey: string;
   onClick?: () => void;
-  testID: string;
+  // Optional, and deliberately not defaulted to '': `Link` tracks a ButtonPress
+  // for any testID that is merely `!== undefined`, so an empty string bought a
+  // `data-testid=""` and an analytics event with no name.
+  testID?: string;
   linksOutsideOfWallet: boolean;
   rightText?: string;
 };

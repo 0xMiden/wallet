@@ -2377,7 +2377,7 @@
     "englishSource": "New Guardian"
   },
   "guardianSwitchSuccessTitle": {
-    "message": "Guardian’ınızı başarıyla döndürdünüz!",
+    "message": "Guardian’ınızı başarıyla değiştirdiniz!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
   "guardianSwitchSuccessInfoTitle": {
@@ -2385,7 +2385,7 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "Yeni Guardian adresiniz bundan sonra her işlemi onaylayacaktır — eski Guardian adresinizin artık herhangi bir rolü yoktur.",
+    "message": "Yeni Guardian’ınız bundan sonra her işlemi sizinle birlikte imzalayacaktır — eski Guardian’ınızın artık herhangi bir rolü yoktur.",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
   },
   "guardianSwitchSuccessInfo2": {
@@ -2393,7 +2393,7 @@
     "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
   },
   "guardianSwitchSuccessInfo3": {
-    "message": "Yeni işlemlerin tamamlanabilmesi için yeni Guardian adresinizin erişilebilir olması gerekir.",
+    "message": "Yeni işlemlerin tamamlanabilmesi için yeni Guardian’ınızın erişilebilir olması gerekir.",
     "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchSuccessInfo4": {

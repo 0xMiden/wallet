@@ -11,10 +11,18 @@ import path from 'path';
 //   - explain what changes (and what stays the same) when the Guardian is switched
 // These guards pin the accuracy fix so it can't silently regress to overpromising.
 
-const EN_DIR = path.join(__dirname, '../../../public/_locales/en');
+const LOCALES_DIR = path.join(__dirname, '../../../public/_locales');
+const EN_DIR = path.join(LOCALES_DIR, 'en');
 
 type Entry = { message: string };
-const messages: Record<string, Entry> = JSON.parse(fs.readFileSync(path.join(EN_DIR, 'messages.json'), 'utf8'));
+const readMessages = (locale: string): Record<string, Entry> =>
+  JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, locale, 'messages.json'), 'utf8'));
+
+const LOCALES = fs
+  .readdirSync(LOCALES_DIR)
+  .filter(entry => fs.existsSync(path.join(LOCALES_DIR, entry, 'messages.json')));
+
+const messages = readMessages('en');
 const enJson: Record<string, string> = JSON.parse(fs.readFileSync(path.join(EN_DIR, 'en.json'), 'utf8'));
 
 const message = (key: string): string => {
@@ -34,6 +42,45 @@ const SUCCESS_RECEIPT_KEYS = [
   'guardianSwitchSuccessInfo3',
   'guardianSwitchSuccessInfo4'
 ] as const;
+
+// The whole receipt surface, labels included — every string that tells the user
+// what their Guardian is or does.
+const GUARDIAN_RECEIPT_KEYS = [
+  'currentGuardianLabel',
+  'newGuardianLabel',
+  'guardianSwitchSuccessTitle',
+  'guardianSwitchSuccessInfoTitle',
+  ...SUCCESS_RECEIPT_KEYS
+] as const;
+
+/**
+ * Per-language wording that misdescribes the Guardian, gathered from real
+ * regressions in these files. Two families:
+ *
+ *  - **Wrong thing.** The Guardian is a co-signer — not an address, page, site,
+ *    list, version, or news feed. Machine translation reached for all of those.
+ *  - **Wrong power.** "Approves"/"confirms"/"endorses" every transaction claims a
+ *    policy engine the wallet does not have; #479 removed exactly that claim from
+ *    the English explainer, and it came straight back in translation.
+ *
+ * English is checked separately (and more strictly) by the tests above.
+ */
+const BANNED_TERMS: Record<string, RegExp> = {
+  de: /\bAdresse Guardian\b|\bGuardian-Adresse\b|\bgenehmigt\b/i,
+  es: /\bdirecci[oó]n Guardian\b|\bp[aá]gina .?Guardian\b|\bsitio Guardian\b|\bapruebe?a?\b/i,
+  fr: /\badresse Guardian\b|\bpage Guardian\b|\bsite Guardian\b|\bapprouve\b|\bfaire tourner\b/i,
+  ja: /最新情報|承認します/,
+  ko: /Guardian 주소|승인합니다/,
+  pl: /\badres Guardian\b|\bstrona Guardian\b|\bzatwierdza\b/i,
+  pt: /\bendere[cç]o Guardian\b|\bp[aá]gina Guardian\b|\bendossa\b|\baprova\b/i,
+  // No `\b` on the Cyrillic alternatives: JS word boundaries are ASCII-only, so
+  // `\bсайт` never matches — the guard silently passed everything.
+  ru: /адрес Guardian|сайт Guardian|будет подтверждать|одобряет/i,
+  tr: /\bGuardian adresi/i,
+  uk: /адреса Guardian|сайт Guardian|список .?Guardian|версія Guardian|підтверджує/i,
+  zh_CN: /地址 Guardian|Guardian 地址|批准/,
+  zh_TW: /地址 Guardian|Guardian 地址|最新Guardian|新版 Guardian|批准/
+};
 
 describe('Guardian explainer copy accuracy (#479)', () => {
   it('does not claim a security-policy / approve-reject engine the product does not have', () => {
@@ -69,6 +116,41 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     // removing the RECOVERY PHRASE, which is worse than merely inaccurate.
     for (const key of SUCCESS_RECEIPT_KEYS) {
       expect(message(key)).not.toMatch(/\bremove\b|\bdisable\b|\bdelete\b/i);
+    }
+  });
+
+  it('ships the whole receipt surface in every locale', () => {
+    for (const locale of LOCALES) {
+      const localeMessages = readMessages(locale);
+      for (const key of GUARDIAN_RECEIPT_KEYS) {
+        expect(localeMessages[key]?.message).toBeTruthy();
+      }
+    }
+  });
+
+  it('does not misdescribe the Guardian in any translation', () => {
+    // The English guards above are blind to the translations, which is where the
+    // damage actually shipped: the receipt has read "your new Guardian ADDRESS",
+    // "New Guardian PAGE", "the latest Guardian NEWS", and — worst — "your new
+    // Guardian will APPROVE every transaction", the capability #479 exists to deny.
+    for (const locale of LOCALES) {
+      const banned = BANNED_TERMS[locale];
+      if (!banned) continue;
+      const localeMessages = readMessages(locale);
+      for (const key of GUARDIAN_RECEIPT_KEYS) {
+        expect(localeMessages[key]?.message ?? '').not.toMatch(banned);
+      }
+    }
+  });
+
+  it('does not claim a Guardian-removal capability in any translation', () => {
+    const removal =
+      /\bremove\b|\bdisable\b|\bdelete\b|\bentfernen\b|\beliminar\b|\bsupprimer\b|\bretirer\b|\busuń|\bremover\b|\bудалить\b|\bвидалити\b|\bkaldır|\bsil\b|削除|삭제|删除|刪除/i;
+    for (const locale of LOCALES) {
+      const localeMessages = readMessages(locale);
+      for (const key of SUCCESS_RECEIPT_KEYS) {
+        expect(localeMessages[key]?.message ?? '').not.toMatch(removal);
+      }
     }
   });
 

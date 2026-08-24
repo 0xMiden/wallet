@@ -2385,7 +2385,7 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "从即日起，您的新地址 Guardian 将对每笔交易进行联署——您旧的地址 Guardian 将不再承担任何职能。",
+    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将不再承担任何职能。",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
   },
   "guardianSwitchSuccessInfo2": {
