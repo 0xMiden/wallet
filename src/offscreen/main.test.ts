@@ -259,6 +259,8 @@ function resetControl() {
     clientRecoverPublicNotesRange: jest.fn(async () => ({ imported: 2, failures: 0 })),
     // Slice 7b: the private-note relay on the offscreen-owned client (void).
     clientSendPrivateNote: jest.fn(async (_note: unknown, _to: string) => {}),
+    clientRelayPrivateNoteById: jest.fn(async (_noteId: string, _to: string) => {}),
+    clientIsOutputNoteConsumed: jest.fn(async (_noteId: string) => false),
     // Slice 6a guardianPipeline: the RAW client transactions API the DISPATCH
     // drives directly (execute→prove→submit→apply on a pre-built request). The
     // default returns a TransactionExecution-like whose result serializes to
@@ -315,6 +317,8 @@ function resetControl() {
       importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
       recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
       sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
+      relayPrivateNoteById: (...a: any[]) => (globalThis as any).__off.clientRelayPrivateNoteById(...a),
+      isOutputNoteConsumed: (...a: any[]) => (globalThis as any).__off.clientIsOutputNoteConsumed(...a),
       // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
       // reads drive directly.
       client: {
@@ -1437,6 +1441,38 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     // A relay — nothing to serialize back.
     expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches relayPrivateNoteById → re-pushes on THIS client with no note bytes to re-hydrate', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ method: 'relayPrivateNoteById', argsB64: [encodeArg('0xnote'), encodeArg('mtst1qrecipient')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // The sweep runs long after the sending session, so it carries ids only — the
+    // note is resolved from THIS realm's store, which is where it was applied.
+    expect(G.__off.deserializeNote).not.toHaveBeenCalled();
+    expect(G.__off.clientRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(resp.resultB64).toBeNull();
+  });
+
+  it('dispatches isOutputNoteConsumed → returns the receipt as bytes', async () => {
+    await loadModule();
+    G.__off.clientIsOutputNoteConsumed.mockResolvedValueOnce(true);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'isOutputNoteConsumed', argsB64: [encodeArg('0xnote')] }), {}, sendResponse);
+    await flush();
+
+    expect(G.__off.clientIsOutputNoteConsumed).toHaveBeenCalledWith('0xnote');
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(true);
+    expect(Buffer.from(resp.resultB64, 'base64').toString()).toBe('true');
   });
 
   it('serializes concurrent slice-3 reads through the same offscreen WASM mutex', async () => {

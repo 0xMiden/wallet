@@ -631,6 +631,34 @@
     "message": "Ocultar o erro completo",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Entrega não confirmada",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Destinatário não notificado",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Esta transação está na blockchain, mas o endereço privado note não pôde ser entregue ao serviço de transporte note. Até que isso ocorra, o destinatário não pode ver nem gastar o valor.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Esta transação está na cadeia, mas a carteira não conseguiu confirmar que a chave privada note chegou ao serviço de transporte note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Mantenha esta carteira aberta e conectada — a entrega é tentada automaticamente por um tempo após o envio, e este aviso desaparece se a transação for bem-sucedida. Se o destinatário ainda não tiver recebido nada após uma hora, não envie novamente; salve o ID da transação abaixo e entre em contato com o suporte, pois o note ainda pode ser recuperado a partir dele.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Entrega confirmada",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "O destinatário recebeu e gastou este “note” privado, portanto, sua entrega está confirmada na cadeia de blocos.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

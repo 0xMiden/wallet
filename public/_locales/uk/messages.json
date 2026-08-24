@@ -631,6 +631,34 @@
     "message": "Приховати повний текст повідомлення про помилку",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Доставка не підтверджена",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Одержувач не отримав повідомлення",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Ця транзакція знаходиться в ланцюжку, але приватний ключ note не вдалося передати транспортній службі note. Доки цього не відбудеться, одержувач не може її побачити чи витратити.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Ця транзакція відбувається в ланцюгу, але гаманець не зміг підтвердити, що приватний ключ note надійшов до транспортної служби note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Тримайте цей гаманець відкритим і підключеним — система автоматично повторюватиме спробу доставки протягом деякого часу після відправлення, і це попередження зникне, якщо операція пройде успішно. Якщо одержувач так і не отримав нічого через годину, не надсилайте ще раз; збережіть ідентифікатор транзакції, вказаний нижче, та зверніться до служби підтримки, оскільки за ним все ще можна відновити «note».",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Доставка підтверджена",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Одержувач отримав і витратив цей приватний note, тому його доставка підтверджена в ланцюгу.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

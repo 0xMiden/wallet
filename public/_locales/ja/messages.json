@@ -631,6 +631,34 @@
     "message": "エラー全文を非表示にする",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "配信未確認",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "受取人に通知されない",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "このトランザクションはオンチェーンで行われていますが、プライベートnoteをnoteトランスポートサービスに引き渡すことができませんでした。引き渡されるまでは、受取人はその資金を確認したり使用したりすることはできません。",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "この取引はオンチェーンで行われていますが、ウォレットは秘密鍵 note が note 転送サービスに到達したことを確認できませんでした。",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "このウォレットを開いたまま接続状態を維持してください。送信後しばらくの間は自動的に再送信が行われ、正常に送信されればこの警告は消えます。1時間経っても受取人に何も届かない場合は、再送信しないでください。下のトランザクションIDを保存し、サポートに連絡してください。このIDからnoteを復元することができます。",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "受領確認済み",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "受取人はこのプライベートnoteを受け取り、すでに使用しているため、その送達はチェーン上で確認されています。",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

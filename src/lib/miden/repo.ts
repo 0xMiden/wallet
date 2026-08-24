@@ -95,6 +95,26 @@ db.version(1.4)
       });
   });
 
+// v1.5 — private-note delivery sweep. Indexes `noteDelivery` so the sweep can ask
+// for the handful of rows that still owe or may owe a delivery instead of scanning
+// the whole history every cycle. No upgrade step: Dexie omits records whose index
+// key is `undefined`, and `undefined` is exactly the "no relay applies" case (public
+// sends, non-relaying types, and every row written before the field existed), so an
+// un-backfilled table already yields the correct — empty — result.
+db.version(1.5).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress'
+  )
+});
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {

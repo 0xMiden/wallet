@@ -28,6 +28,14 @@ import {
   MAX_RETRY_BACKOFF_SEC
 } from './index';
 
+// Only the note-transport predicate is swapped; every other endpoint getter keeps
+// its real behaviour, since the send guard is the sole thing under test here.
+// Defaults to configured so the rest of the file is unaffected.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  isNoteTransportConfigured: () => (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured ?? true
+}));
+
 // Mock functions defined inside factory to avoid hoisting issues with SWC
 const mockTransactionsFilter = jest.fn();
 const mockTransactionsWhere = jest.fn();
@@ -356,6 +364,71 @@ describe('transactions utilities', () => {
         BigInt(1000),
         undefined,
         false
+      );
+
+      expect(mockTransactionsAdd).toHaveBeenCalled();
+      expect(typeof result).toBe('string');
+    });
+
+    it('refuses a PRIVATE send when no note transport is configured, before anything is queued', async () => {
+      // Mainnet has no entry in MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS, so the client
+      // is built with no transport — and `relay_private_note` resolves the transport
+      // API before it writes its retry outbox, so such a send would land on chain,
+      // reach nobody, and leave no retry record. Refusing here is what keeps the
+      // assets in the account: nothing has been queued, proved or submitted yet.
+      (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = false;
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      try {
+        await expect(
+          initiateSendTransaction(
+            'sender-account',
+            'recipient-account',
+            'faucet-id',
+            NoteTypeEnum.Private,
+            BigInt(1000)
+          )
+        ).rejects.toThrow(/no note transport service is configured/i);
+
+        // The decisive assertion: no row was written, so there is nothing for the
+        // processing loop to pick up and spend.
+        expect(mockTransactionsAdd).not.toHaveBeenCalled();
+      } finally {
+        (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = true;
+      }
+    });
+
+    it('still allows a PUBLIC send when no note transport is configured', async () => {
+      // A public send carries its whole note on chain and needs no transport, so a
+      // transport-less network must not block it.
+      (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = false;
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      try {
+        const result = await initiateSendTransaction(
+          'sender-account',
+          'recipient-account',
+          'faucet-id',
+          NoteTypeEnum.Public,
+          BigInt(1000)
+        );
+
+        expect(mockTransactionsAdd).toHaveBeenCalled();
+        expect(typeof result).toBe('string');
+      } finally {
+        (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = true;
+      }
+    });
+
+    it('allows a PRIVATE send when note transport IS configured', async () => {
+      mockTransactionsAdd.mockResolvedValueOnce(undefined);
+
+      const result = await initiateSendTransaction(
+        'sender-account',
+        'recipient-account',
+        'faucet-id',
+        NoteTypeEnum.Private,
+        BigInt(1000)
       );
 
       expect(mockTransactionsAdd).toHaveBeenCalled();

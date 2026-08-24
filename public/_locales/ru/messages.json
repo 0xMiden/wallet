@@ -631,6 +631,34 @@
     "message": "Скрыть полный текст ошибки",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Доставка не подтверждена",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Получатель не уведомлён",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Эта транзакция находится в цепочке, но частный ключ note не удалось передать транспортной службе note. Пока это не произойдёт, получатель не сможет увидеть или потратить эти средства.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Эта транзакция находится в цепочке, но кошелек не смог подтвердить, что закрытый ключ note поступил в транспортную службу note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Оставьте этот кошелёк открытым и подключённым — после отправки система автоматически повторяет попытку доставки в течение некоторого времени, и это предупреждение исчезнет, если доставка пройдёт успешно. Если получатель по-прежнему ничего не получил через час, не отправляйте снова; сохраните ID транзакции, указанный ниже, и обратитесь в службу поддержки, так как с его помощью всё ещё можно восстановить токены «note».",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Доставка подтверждена",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Получатель получил и потратил этот частный токен note, поэтому его доставка подтверждена в цепочке.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"

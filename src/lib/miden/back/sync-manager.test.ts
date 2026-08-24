@@ -138,6 +138,15 @@ jest.mock('./transaction-processor', () => ({
   startTransactionProcessing: jest.fn(async () => {})
 }));
 
+// The private-note delivery sweep rides on every sync tick. Mocked here (it owns a
+// dedicated test file) because the real one queries Dexie, which this suite does not
+// stand up — an unsettled query would hang `runSync` and, since `doSync` dedupes on
+// the in-flight promise, silently turn every later sync in this file into a no-op.
+const mockSweepNoteDeliveries = jest.fn(() => Promise.resolve());
+jest.mock('../transaction/note-delivery-sweep', () => ({
+  sweepNoteDeliveries: () => mockSweepNoteDeliveries()
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import { WalletMessageType } from 'lib/shared/types';
@@ -441,6 +450,29 @@ describe('setupSyncManager', () => {
       'miden-sync',
       expect.objectContaining({ periodInMinutes: expect.any(Number) })
     );
+  });
+});
+
+describe('private-note delivery sweep wiring', () => {
+  it('runs the sweep on a sync tick', async () => {
+    // The sweep lives here rather than in the transaction loop because that loop
+    // only runs while a transaction is being processed, and the sweep's whole job is
+    // to act minutes to hours after a send finished — when an idle wallet would
+    // otherwise never run it.
+    mockSweepNoteDeliveries.mockClear();
+    await doSync();
+    expect(mockSweepNoteDeliveries).toHaveBeenCalled();
+  });
+
+  it('does not let a failing sweep break the sync', async () => {
+    // Delivery is maintenance behind transactions that already landed, so a
+    // transport problem must not fail a sync or trip its circuit breaker.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockSweepNoteDeliveries.mockRejectedValueOnce(new Error('transport unreachable'));
+    mockClearReachabilityIssues.mockClear();
+
+    await expect(doSync()).resolves.toBeUndefined();
+    expect(mockClearReachabilityIssues).toHaveBeenCalled();
   });
 });
 
