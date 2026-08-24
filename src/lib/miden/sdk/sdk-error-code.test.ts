@@ -3,7 +3,7 @@ import { extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
 /**
  * The verbatim `Display` text miden-client produces for
  * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
- * shipped `@miden-sdk/miden-sdk@0.16.0-rc.2` wasm (both wordings appear there;
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.3` wasm (both wordings appear there;
  * the second is the one raised through the `apply_transaction_update` path).
  */
 const REAL_APPLY_AFTER_SUBMIT_MESSAGES = [

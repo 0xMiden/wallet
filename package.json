@@ -5,10 +5,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.16.0-rc.1",
+  "midenClientCliVersion": "0.16.0-rc.2",
   "midenClientCliGit": {
     "url": "https://github.com/0xMiden/miden-client",
-    "rev": "efebb6a7cf9ccda1ec0c068beac916832a7c2ee0"
+    "rev": "4872b090a3827474858f2ad30a395ca1af3b98c0"
   },
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
@@ -137,8 +137,8 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.35",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.16.0-rc.2",
-    "@miden-sdk/react": "0.16.0-rc.2",
+    "@miden-sdk/miden-sdk": "0.16.0-rc.3",
+    "@miden-sdk/react": "0.16.0-rc.3",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
@@ -336,8 +336,8 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.16.0-rc.2",
-    "@miden-sdk/react": "0.16.0-rc.2",
+    "@miden-sdk/miden-sdk": "0.16.0-rc.3",
+    "@miden-sdk/react": "0.16.0-rc.3",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -362,7 +362,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.16.0-rc.2"
+    "**/@miden-sdk/miden-sdk": "0.16.0-rc.3"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
