@@ -504,7 +504,7 @@
   "guardianSettings": "Guardian Settings",
   "currentLabel": "Current",
   "newGuardianEndpoint": "New Guardian Endpoint",
-  "guardianEndpointUnchanged": "That's already your current guardian.",
+  "guardianEndpointUnchanged": "That's already your current Guardian.",
   "rotateGuardian": "Rotate Guardian",
   "keys": "Keys",
   "customGuardian": "Custom Guardian",

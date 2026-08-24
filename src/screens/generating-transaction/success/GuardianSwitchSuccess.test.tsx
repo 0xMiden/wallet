@@ -66,6 +66,7 @@ jest.mock('./TransactionSuccessLayout', () => ({
     return (
       <div data-testid="layout">
         <span data-testid="title">{props.title}</span>
+        <div data-testid="hero">{props.hero}</div>
         <button data-testid="primary" onClick={props.primaryAction.onClick}>
           {props.primaryAction.label}
         </button>
@@ -83,7 +84,12 @@ jest.mock('./TransactionSuccessLayout', () => ({
 
 const navigateMock = jest.requireMock('lib/woozie').navigate as jest.Mock;
 
-const switchGuardianTx = (overrides: Partial<ITransaction> = {}): ITransaction =>
+// `extraInputs` is deliberately widened to `unknown`: the component's whole
+// reason for having a type guard is rows that don't match the declared shape,
+// and those cases can't be expressed through `Partial<ITransaction>`.
+type TxOverrides = Partial<Omit<ITransaction, 'extraInputs'>> & { extraInputs?: unknown };
+
+const switchGuardianTx = (overrides: TxOverrides = {}): ITransaction =>
   ({
     id: 'tx-guardian-1',
     type: 'switch-guardian',
@@ -147,14 +153,46 @@ describe('GuardianSwitchSuccess', () => {
     expect(screen.queryByTestId('transition-icon')).not.toBeInTheDocument();
   });
 
-  it('renders no transition line at all when extraInputs is missing or malformed', () => {
-    // The guard rejects anything without a string newGuardianEndpoint, so a
-    // legacy or corrupt row degrades to the primer rather than throwing.
-    render(<GuardianSwitchSuccess transaction={switchGuardianTx({ extraInputs: {} })} onDoneClick={() => {}} />);
+  // The guard rejects anything without a string newGuardianEndpoint, so a legacy
+  // or corrupt row degrades to the primer rather than throwing or printing
+  // "Unknown". Each of these reaches the guard through a different branch, and
+  // only the `{}` case was covered before.
+  it.each([
+    ['absent', undefined],
+    ['an empty object', {}],
+    ['null', null],
+    ['a non-object', 'https://guardian-testnet.kodax.com'],
+    ['a non-string endpoint', { newGuardianEndpoint: 42 }],
+    // The previous endpoint alone is not enough: there is no "new" side to name,
+    // so the transition would read as a rotation to nowhere.
+    ['previous-only', { previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT }]
+  ])('renders no transition line when extraInputs is %s', (_label, extraInputs) => {
+    render(<GuardianSwitchSuccess transaction={switchGuardianTx({ extraInputs })} onDoneClick={() => {}} />);
 
     expect(body()).not.toHaveTextContent('Koda');
+    expect(body()).not.toHaveTextContent('OpenZeppelin');
     expect(body()).not.toHaveTextContent('Unknown');
+    expect(screen.queryByTestId('transition-icon')).not.toBeInTheDocument();
+    // The receipt itself still stands up.
     expect(screen.getByTestId('title')).toHaveTextContent("You've successfully rotated your Guardian!");
+    expect(screen.getByTestId('hero-art')).toBeInTheDocument();
+  });
+
+  it('renders the receipt art, the divider and the full "what changes now" primer', () => {
+    // A rotation moves no funds, so this receipt has no amount rows — the hero
+    // and the primer are the entire body, and each part can otherwise be deleted
+    // without a single test noticing.
+    render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
+
+    expect(screen.getByTestId('hero-art')).toBeInTheDocument();
+    expect(screen.getByTestId('divider')).toBeInTheDocument();
+    expect(body()).toHaveTextContent('guardianSwitchSuccessInfoTitle');
+
+    const bullets = body().querySelectorAll('li');
+    expect(bullets).toHaveLength(4);
+    ['1', '2', '3', '4'].forEach((n, index) => {
+      expect(bullets[index]).toHaveTextContent(`guardianSwitchSuccessInfo${n}`);
+    });
   });
 
   it('dismisses via onDoneClick from both Done and the header close, with the CTA order inverted', () => {

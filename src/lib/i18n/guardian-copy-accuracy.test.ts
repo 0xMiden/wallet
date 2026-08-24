@@ -50,37 +50,109 @@ const GUARDIAN_RECEIPT_KEYS = [
   'newGuardianLabel',
   'guardianSwitchSuccessTitle',
   'guardianSwitchSuccessInfoTitle',
+  // The review screen's only error copy, now that the same-endpoint guard runs
+  // there rather than after the credential prompt.
+  'guardianEndpointUnchanged',
   ...SUCCESS_RECEIPT_KEYS
 ] as const;
 
 /**
- * Per-language wording that misdescribes the Guardian, gathered from real
- * regressions in these files. Two families:
+ * Per-language wording that misdescribes the Guardian. Two families:
  *
  *  - **Wrong thing.** The Guardian is a co-signer — not an address, page, site,
- *    list, version, or news feed. Machine translation reached for all of those.
+ *    app, list, version, or news feed. Machine translation reached for all of
+ *    those. "Address" is the dangerous one, because the receipt's own second
+ *    bullet promises the wallet ADDRESS did not change.
  *  - **Wrong power.** "Approves"/"confirms"/"endorses" every transaction claims a
  *    policy engine the wallet does not have; #479 removed exactly that claim from
  *    the English explainer, and it came straight back in translation.
  *
- * English is checked separately (and more strictly) by the tests above.
+ * Written as stems with optional function words rather than whole words, because
+ * the inflected forms are what MT actually produces: `adresu Guardian` (Polish
+ * genitive), `endereço DO Guardian`, `Guardian’ın adresi`, `Guardianアドレス` with
+ * no space. Note `\b` is ASCII-only in JS, so it must not be used against
+ * Cyrillic or CJK — `/\bсайт/` can never match.
+ *
+ * Where a noun is legitimate elsewhere in the same string (every locale's second
+ * bullet says "your WALLET address"), the pattern requires Guardian adjacency
+ * rather than banning the noun outright.
  */
 const BANNED_TERMS: Record<string, RegExp> = {
-  de: /\bAdresse Guardian\b|\bGuardian-Adresse\b|\bgenehmigt\b/i,
-  es: /\bdirecci[oó]n Guardian\b|\bp[aá]gina .?Guardian\b|\bsitio Guardian\b|\bapruebe?a?\b/i,
-  fr: /\badresse Guardian\b|\bpage Guardian\b|\bsite Guardian\b|\bapprouve\b|\bfaire tourner\b/i,
-  ja: /最新情報|承認します/,
-  ko: /Guardian 주소|승인합니다/,
-  pl: /\badres Guardian\b|\bstrona Guardian\b|\bzatwierdza\b/i,
-  pt: /\bendere[cç]o Guardian\b|\bp[aá]gina Guardian\b|\bendossa\b|\baprova\b/i,
-  // No `\b` on the Cyrillic alternatives: JS word boundaries are ASCII-only, so
-  // `\bсайт` never matches — the guard silently passed everything.
-  ru: /адрес Guardian|сайт Guardian|будет подтверждать|одобряет/i,
-  tr: /\bGuardian adresi/i,
-  uk: /адреса Guardian|сайт Guardian|список .?Guardian|версія Guardian|підтверджує/i,
-  zh_CN: /地址 Guardian|Guardian 地址|批准/,
-  zh_TW: /地址 Guardian|Guardian 地址|最新Guardian|新版 Guardian|批准/
+  en: /Guardian (address|page|site|app)|approves|policy/i,
+  en_GB: /Guardian (address|page|site|app)|approves|policy/i,
+  // `\S*` rather than `\w*` for the inflected tail: `\w` is ASCII-only, so it
+  // matches neither the Turkish `ı` in `Guardian’ın adresi` nor the `а` in
+  // `адреса Guardian`, and the alternative silently never fires.
+  de: /Adress\S* Guardian|Guardian[-\s]?Adress|genehmig|billigt/i,
+  es: /direcci[oó]n (del |de la )?Guardian|p[aá]gina .{0,3}Guardian|sitio (del )?Guardian|aplicaci[oó]n .{0,3}Guardian|aprob|aprueb|avala/i,
+  fr: /adresse (du |de la )?Guardian|page (du )?Guardian|site (du )?Guardian|approuv|avalise|faire tourner|Guardiane/i,
+  ja: /最新情報|承認|Guardian\s?(アドレス|ページ|サイト)/,
+  ko: /Guardian\s?주소|승인/,
+  pl: /adres\S* Guardian|stron\S* Guardian|witryn\S* Guardian|zatwierdza|akceptuje ka/i,
+  pt: /endere[cç]o (do |da )?Guardian|p[aá]gina (do )?Guardian|endoss|aprov/i,
+  ru: /адрес\S* Guardian|Guardian[-\s]адрес|сайт Guardian|подтвержда|одобря/i,
+  tr: /Guardian\S*\s*adres|adresi Guardian|onayl/i,
+  uk: /адрес\S* Guardian|Guardian[-\s]адрес|сайт Guardian|список .{0,2}Guardian|верс\S+ Guardian|підтверджу|схвалю/i,
+  zh_CN: /Guardian\s?地址|地址\s?Guardian|批准|核准/,
+  zh_TW: /Guardian\s?(地址|帳戶)|地址\s?Guardian|最新\s?Guardian|新版\s?Guardian|批准|核准/
 };
+
+/**
+ * Real strings these files have shipped, one per locale that has a pattern. The
+ * sweep below asserts each is caught, because a banned-term guard that matches
+ * nothing is indistinguishable from no guard at all — and this one has already
+ * silently passed everything once, when `\b` was left in front of Cyrillic.
+ */
+const KNOWN_BAD: Array<[string, string]> = [
+  ['en', 'Your new Guardian address approves every transaction'],
+  ['en_GB', 'Your new Guardian page is reachable'],
+  ['de', 'Ihre neue Adresse Guardian ist erreichbar'],
+  ['es', 'Nueva página «Guardian»'],
+  ['es', 'Tu nueva dirección del Guardian firmará'],
+  ['fr', 'Vous avez réussi à faire tourner vos «Guardian» !'],
+  ['fr', 'Votre nouvelle adresse du Guardian cosigne'],
+  ['ja', 'Guardianの最新情報'],
+  ['ja', 'Guardianアドレスが到達可能'],
+  ['ko', '귀하의 새로운 Guardian 주소가 접근 가능해야'],
+  ['ko', 'Guardian주소를 승인합니다'],
+  ['pl', 'Nowa strona Guardian'],
+  ['pl', 'przejść na inny adresu Guardian'],
+  ['pt', 'mudar para um endereço do Guardian diferente'],
+  ['ru', 'Новый сайт Guardian'],
+  ['ru', 'Ваш новый адрес Guardian подтверждает каждую транзакцию'],
+  ['tr', 'Yeni Guardian adresiniz her işlemi onaylayacaktır'],
+  ['tr', 'farklı bir Guardian’ın adresine geçebilirsiniz'],
+  ['uk', 'Поточний список «Guardian»'],
+  ['uk', 'Нова версія Guardian'],
+  ['uk', 'ваша нова адреса Guardian підписує'],
+  ['zh_CN', '您的新地址 Guardian 将对每笔交易进行联署'],
+  ['zh_CN', '新Guardian地址'],
+  ['zh_TW', '最新Guardian'],
+  ['zh_TW', '切換至不同的 Guardian 帳戶']
+];
+
+// Removal verbs, as stems for the same reason: `\busuń` misses the Polish
+// infinitive `usunąć`, `\bsil\b` dies on the Turkish suffix in `silinebilir`, and
+// the Cyrillic and CJK alternatives can carry no `\b` at all.
+const REMOVAL_TERMS =
+  /\bremove|\bdisable|\bdelete|entfern|l[oö]sch|elimin|quitar|supprim|enlev|usun|usuw|remov|apagar|excluir|удал|видал|kaldır|silin|\bsil\b|çıkar|削除|解除|제거|삭제|移除|删除|刪除/i;
+
+const KNOWN_BAD_REMOVAL = [
+  'You can rotate or remove your Guardian again at any time',
+  'Sie können Ihren Guardian jederzeit entfernt',
+  'Puedes eliminar tu Guardian',
+  'Vous pouvez supprimer votre Guardian',
+  'Możesz usunąć swojego Guardiana',
+  'Você pode remover seu Guardian',
+  'Вы можете удалить своего Guardian',
+  'Ви можете видалити свого Guardian',
+  "Guardian'ınızı kaldırabilirsiniz",
+  'Guardian’ınız silinebilir',
+  'Guardianを削除できます',
+  'Guardian을 제거할 수 있습니다',
+  '您可以移除您的 Guardian',
+  '您可以刪除您的 Guardian'
+];
 
 describe('Guardian explainer copy accuracy (#479)', () => {
   it('does not claim a security-policy / approve-reject engine the product does not have', () => {
@@ -144,13 +216,31 @@ describe('Guardian explainer copy accuracy (#479)', () => {
   });
 
   it('does not claim a Guardian-removal capability in any translation', () => {
-    const removal =
-      /\bremove\b|\bdisable\b|\bdelete\b|\bentfernen\b|\beliminar\b|\bsupprimer\b|\bretirer\b|\busuń|\bremover\b|\bудалить\b|\bвидалити\b|\bkaldır|\bsil\b|削除|삭제|删除|刪除/i;
     for (const locale of LOCALES) {
       const localeMessages = readMessages(locale);
       for (const key of SUCCESS_RECEIPT_KEYS) {
-        expect(localeMessages[key]?.message ?? '').not.toMatch(removal);
+        expect(localeMessages[key]?.message ?? '').not.toMatch(REMOVAL_TERMS);
       }
+    }
+  });
+
+  it('has guards that actually fire — every known-bad string this copy has shipped is caught', () => {
+    // Without this, a typo or an ASCII `\b` in front of a Cyrillic alternative
+    // turns a guard into decoration and nothing tells you.
+    for (const [locale, bad] of KNOWN_BAD) {
+      const banned = BANNED_TERMS[locale];
+      expect(banned).toBeDefined();
+      expect(bad).toMatch(banned!);
+    }
+    for (const bad of KNOWN_BAD_REMOVAL) {
+      expect(bad).toMatch(REMOVAL_TERMS);
+    }
+  });
+
+  it('guards every locale that ships the receipt', () => {
+    // A locale with no pattern is a locale nobody is checking.
+    for (const locale of LOCALES) {
+      expect(BANNED_TERMS[locale]).toBeDefined();
     }
   });
 

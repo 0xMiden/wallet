@@ -156,18 +156,19 @@ describe('StatusPill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="reclaimed" />);
 
     expect(label(container)).toHaveTextContent('t:reclaimed');
-    expect(pill(container)).toHaveClass('bg-gray-400');
+    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
   });
 
-  it('pairs the fixed grey fill of a cancellation with fixed dark ink, not the flipping ink', () => {
+  it('inks a cancellation for its own grey fill rather than inheriting the failure pill\u2019s', () => {
     // A user cancellation is recorded as a failure (`cancel.ts`), so it is BOTH
-    // Failed and cancelled. Keying the ink off `isFailed` first put the flipping
-    // ink on the fixed grey fill — 3.9:1 in light, 2.7:1 in dark.
+    // Failed and cancelled — the ink ternary has to branch on muted first or this
+    // pill gets the failure pill's ink. grey #737373 is the one fill that wants
+    // white (4.74:1; black is 4.43:1, under AA).
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
 
     expect(label(container)).toHaveTextContent('t:cancelled');
-    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-black');
-    expect(pill(container)).not.toHaveClass('text-black');
+    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
+    expect(pill(container)).not.toHaveClass('text-pure-black');
     // ...and it wears the neutral dot rather than the failure ✕, which would name
     // a second outcome the label does not.
     expect(pill(container).querySelector('[data-testid="v2-icon"]')).toBeNull();
@@ -188,10 +189,10 @@ describe('StatusPill', () => {
   it('renders the failed variant as a solid negative pill whose ink flips with the theme', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    // The failure red is the one fill that flips with the theme, so its ink has
-    // to flip too — `text-black` rather than the fixed `text-pure-black`.
-    expect(pill(container)).toHaveClass('bg-status-negative', 'text-black');
-    expect(pill(container)).not.toHaveClass('text-pure-black');
+    // status-negative is the one fill that flips with the theme (light #ff5500,
+    // dark #c51a0a) and neither ink clears AA on both, so this is the one pill
+    // that carries a dark: variant: 6.55:1 light, 5.96:1 dark.
+    expect(pill(container)).toHaveClass('bg-status-negative', 'text-pure-black', 'dark:text-pure-white');
 
     const icon = pill(container).querySelector('[data-testid="v2-icon"]');
     expect(icon).toHaveAttribute('data-name', 'close');

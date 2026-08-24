@@ -23,8 +23,10 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+let mockCurrentEndpoint = 'https://old.example';
+
 jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
-  useCurrentGuardianEndpoint: () => ({ endpoint: 'https://old.example', refresh: jest.fn() })
+  useCurrentGuardianEndpoint: () => ({ endpoint: mockCurrentEndpoint, refresh: jest.fn() })
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -177,12 +179,15 @@ jest.mock('lib/store', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: () => ({ search: '?endpoint=https%3A%2F%2Fnew.example' }),
-  navigate: (...args: unknown[]) => mockNavigate(...args)
+  useLocation: () => ({ search: '?endpoint=https%3A%2F%2Fnew.example', historyPosition: 1 }),
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  goBack: jest.fn(),
+  HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCurrentEndpoint = 'https://old.example';
   mockIsMobile.mockReturnValue(false);
   mockIsExtension.mockReturnValue(true);
   mockHasHardwareProtector.mockResolvedValue(false);
@@ -322,6 +327,45 @@ it('uses PasscodeEntry for mobile credential authentication', async () => {
 
   await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith('123456'));
   expect(mockInitiateSwitch).toHaveBeenCalledTimes(1);
+});
+
+// The screen takes its target from the query string, so backing into it after the
+// rotation landed asks it to switch to the Guardian that is now already current.
+// The picker refuses that; so must this page — and it has to say so BEFORE asking
+// for a credential, or the message reads as an auth failure on a step that could
+// never have succeeded.
+it('refuses a switch to the endpoint that is already current, before asking for anything', async () => {
+  mockCurrentEndpoint = 'https://new.example';
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+  // No credential step, and nothing queued.
+  expect(document.querySelector('#rotate-guardian-password')).toBeNull();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
+  expect(mockNavigate).not.toHaveBeenCalled();
+});
+
+it('still refuses it from the password step, which submits straight past the first check', async () => {
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+  fireEvent.click(confirm);
+
+  const password = document.querySelector<HTMLInputElement>('#rotate-guardian-password');
+  if (!password) throw new Error('Password field did not render');
+  // The rotation lands in another tab while this one sits on the credential step.
+  mockCurrentEndpoint = 'https://new.example';
+  fireEvent.change(password, { target: { value: 'correct-password' } });
+  fireEvent.click(screen.getByTestId('rotate-guardian-auth-submit'));
+
+  expect(await screen.findByText('guardianEndpointUnchanged')).toBeInTheDocument();
+  expect(mockUnlock).not.toHaveBeenCalled();
+  expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
 
 it('fails closed when hardware-protector detection fails', async () => {

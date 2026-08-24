@@ -46,11 +46,7 @@ const MenuItem: FC<MenuItemProps> = ({ slug, titleI18nKey, onClick, testID, link
     <div>
       {linksOutsideOfWallet ? (
         <a href={slug} target="_blank" rel="noreferrer" onClick={handleExternalClick}>
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </a>
       ) : onClick && !slug ? (
         <button
@@ -62,21 +58,13 @@ const MenuItem: FC<MenuItemProps> = ({ slug, titleI18nKey, onClick, testID, link
           data-testid={testID}
           className="w-full text-left"
         >
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </button>
       ) : (
         // `testID` only feeds analytics inside Link — the anchor itself needs the
         // spread `data-testid` for the settings e2e helpers to find routed rows.
         <Link to={slug || '#'} onClick={onClick} testID={testID} data-testid={testID}>
-          <ClickableContent
-            titleI18nKey={titleI18nKey}
-            linksOutsideOfWallet={linksOutsideOfWallet}
-            rightText={rightText}
-          />
+          <ClickableContent titleI18nKey={titleI18nKey} rightText={rightText} />
         </Link>
       )}
     </div>

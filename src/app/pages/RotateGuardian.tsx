@@ -13,7 +13,9 @@ const RotateGuardian: FC = () => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const [error, setError] = useState<string | null>(null);
-  const handleBack = useBackWithFallback();
+  // Both entry points into the picker are Settings pages (Guardian Settings and
+  // Keys), so a cold load belongs back in Settings rather than at the wallet home.
+  const handleBack = useBackWithFallback('/settings');
 
   const handleSubmit = useCallback(
     ({ guardianEndpoint }: { guardianId: string; guardianEndpoint: string }) => {

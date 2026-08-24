@@ -7,7 +7,7 @@ import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
-import LanguageSettings from './LanguageSettings';
+import LanguageSettings, { LANGUAGES } from './LanguageSettings';
 
 // `lib/analytics` boots gRPC / storage plumbing via `useAnalytics`. Mock the
 // three symbols LanguageSettings imports so `trackEvent` is an observable spy
@@ -65,24 +65,6 @@ const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 const mockUpdateLocale = updateLocale as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
-
-// Mirror of the component's language list — the single source of assertions for
-// row count / labels / codes.
-const LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'es', label: 'Español' },
-  { code: 'fr', label: 'Français' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'zh_CN', label: '简体中文' },
-  { code: 'zh_TW', label: '繁體中文' },
-  { code: 'ja', label: '日本語' },
-  { code: 'ko', label: '한국어' },
-  { code: 'pl', label: 'Polski' },
-  { code: 'uk', label: 'Українська' },
-  { code: 'tr', label: 'Türk' },
-  { code: 'pt', label: 'Português' },
-  { code: 'ru', label: 'Русский' }
-];
 
 describe('LanguageSettings', () => {
   const trackEvent = jest.fn();

@@ -2317,7 +2317,7 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Das ist bereits Ihr aktuelles „guardian“.",
+    "message": "Das ist bereits Ihr aktueller Guardian.",
     "englishSource": "That's already your current guardian."
   },
   "rotateGuardian": {

@@ -362,6 +362,18 @@ describe('Settings page — root menu (non-guardian)', () => {
 });
 
 describe('Settings page — guardian account', () => {
+  it('links the guardian settings entry to its routed page', () => {
+    setAccount({ type: 'guardian' });
+    render(<Settings tabSlug={null} />);
+
+    const row = screen.getByTestId('menuitem-guardianSettings');
+    // Was a drawer opened by an onClick; now a route, so it has to carry a slug
+    // (and a selector, without which the ButtonPress fires unnamed).
+    expect(row).toHaveAttribute('data-slug', '/settings/guardian-settings');
+    expect(row).toHaveAttribute('data-selector', 'Settings/GuardianSettingsButton');
+    expect(row).toHaveAttribute('data-external', 'false');
+  });
+
   it('shows the guardian settings entry for guardian accounts', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);

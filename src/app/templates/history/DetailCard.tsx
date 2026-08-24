@@ -105,16 +105,24 @@ export const StatusPill: FC<{
       : isFailed
         ? 'bg-status-negative'
         : 'bg-tx-sent';
-  // These fills are mid-tone, so white 12px text on them lands around 2.4:1 —
-  // well under AA. Dark ink reads ~8:1 on all three fixed fills. The failure red
-  // is the one fill that flips with the theme (bright in light, deep in dark), so
-  // it takes the flipping ink token to stay legible against both.
-  //
-  // Ordered like `bgColor`, muted first: a user cancellation is BOTH Failed and
-  // cancelled (`cancel.ts` records the cancel as a failure), so keying the ink off
-  // `isFailed` first paired the flipping ink with the fixed grey fill — 3.9:1 in
-  // light, 2.7:1 in dark, the very failure this ink is here to avoid.
-  const fgColor = isMuted || !isFailed ? 'text-pure-black' : 'text-black';
+  // Ink is picked per fill, in the same order as `bgColor`, because no single ink
+  // clears AA on all four — each fill is mid-tone in a different direction, and a
+  // user cancellation is BOTH Failed and cancelled (`cancel.ts` records a cancel
+  // as a failure), so any mismatch in the ordering pairs an ink with the wrong
+  // fill. Ratios for 12px semibold text, which AA scores at 4.5:1:
+  //   grey #737373        → white 4.74 (black would be 4.43, under)
+  //   tx-received #99ac94 → black 8.68 (white 2.42)
+  //   tx-sent #91acc1     → black 8.88 (white 2.37)
+  //   status-negative     → the one fill that flips with the theme: black on the
+  //                         light #ff5500 is 6.55, white on the deep dark #c51a0a
+  //                         is 5.96. Fixed-palette tokens, so `dark:` is allowed.
+  const fgColor = isMuted
+    ? 'text-pure-white'
+    : isCompleted
+      ? 'text-pure-black'
+      : isFailed
+        ? 'text-pure-black dark:text-pure-white'
+        : 'text-pure-black';
   const label = isCancelled
     ? t('cancelled')
     : swapSettlement === 'reclaimed'

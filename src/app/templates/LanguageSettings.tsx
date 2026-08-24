@@ -7,7 +7,12 @@ import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
-const LANGUAGES = [
+/**
+ * Exported so tests assert against the shipped list rather than a copy of it —
+ * a duplicated fixture silently stops covering a language the moment one is
+ * added here.
+ */
+export const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Español' },
   { code: 'fr', label: 'Français' },
