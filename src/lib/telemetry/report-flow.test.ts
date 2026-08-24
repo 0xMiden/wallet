@@ -1,8 +1,9 @@
 import { request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
-import { __resetRunForTest, beginFlow, classifyError, RUN_IDLE_ROTATE_MS } from './report-flow';
-import { FlowEndedEvent, TelemetryEvent } from './types';
+import { beginFlow, classifyError } from './report-flow';
+import { __resetRunForTest, RUN_IDLE_ROTATE_MS } from './run';
+import { FlowEndedEvent, FlowStartedEvent, TelemetryEvent } from './types';
 
 jest.mock('lib/miden/front', () => ({ request: jest.fn() }));
 
@@ -32,9 +33,12 @@ const sentEvents = (): TelemetryEvent[] =>
     .mocked(request)
     .mock.calls.flatMap(([req]) => (req.type === WalletMessageType.ReportTelemetryEventRequest ? [req.event] : []));
 
-const eventAt = (index: number): TelemetryEvent => {
+const eventAt = (index: number): FlowStartedEvent | FlowEndedEvent => {
   const event = sentEvents()[index];
   if (event === undefined) throw new Error(`expected a telemetry event at index ${index}`);
+  // `beginFlow` only ever emits the two flow phases; a `settled` event here
+  // would mean the operation reporter had been wired into this path by mistake.
+  if (event.phase === 'settled') throw new Error(`expected a flow event at index ${index}, got a settled operation`);
   return event;
 };
 
@@ -285,8 +289,21 @@ describe('classifyError', () => {
     expect(classifyError(new Error(message))).toBe(expected);
   });
 
-  it('classifies a non-Error as unknown', () => {
-    expect(classifyError('a bare string')).toBe('unknown');
+  it('classifies a bare string, which is how the transaction pipeline stores a failure', () => {
+    // A row records its reason as text and is classified much later, by which
+    // point the `Error` it came from is gone. Before this, every transaction
+    // failure classified as `unknown` — the field was present and useless.
+    expect(classifyError('Remote prover timed out')).toBe('timeout');
+    expect(classifyError('failed to fetch')).toBe('network');
+  });
+
+  it('classifies anything that is neither an Error nor a string as unknown', () => {
+    // Not coerced with `String(value)`: stringifying an arbitrary throw is
+    // exactly how free-form text would get somewhere near the wire, and the
+    // classifier is the last place that should be improvising.
+    expect(classifyError({ message: 'invalid recipient mtst1abc' })).toBe('unknown');
+    expect(classifyError(undefined)).toBe('unknown');
+    expect(classifyError(4200)).toBe('unknown');
   });
 
   it('never returns the original message', () => {

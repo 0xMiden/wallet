@@ -3,6 +3,9 @@ import { liveQuery } from 'dexie';
 
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
@@ -110,7 +113,55 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     // the failed step).
     if (status === ITransactionStatus.Completed) t.stage = 'complete';
   });
+
+  // Both terminal outcomes, from the one place a row can reach either through
+  // this function.
+  //
+  // The success side is the denominator: a failure count alone says nothing,
+  // since ten failed sends is a crisis or a rounding error depending on how many
+  // succeeded.
+  //
+  // The failure side does NOT double-count what `cancelTransaction` already
+  // reports, and the reason is worth stating because it is not obvious. That
+  // function writes its `Failed` with a raw `.modify` rather than calling this
+  // one, so the two sets of failures are disjoint: everything the pipeline fails
+  // deliberately goes through there, and the handful that bypass it — a private
+  // send with no note to deliver, a guardian rotation that could not be applied
+  // — arrive here and would otherwise be the only failures that reported
+  // nothing at all.
+  if (status === ITransactionStatus.Completed || status === ITransactionStatus.Failed) {
+    reportOperation({
+      operation: operationOfType(tx.type),
+      result: status === ITransactionStatus.Completed ? 'completed' : 'errored',
+      // `initiatedAt` is in seconds. This is how long the user waited from
+      // pressing the button to the money having moved, which is the number
+      // worth watching for regressions.
+      durationMs: Date.now() - tx.initiatedAt * 1000,
+      // The stage of a failure written this way is whatever the row was in when
+      // it happened, which is exactly the diagnostic the failure carries. A
+      // success has none: `stage` was just stamped `complete` above, which is
+      // not somewhere anything went wrong.
+      ...(status === ITransactionStatus.Failed
+        ? { errorKind: classifyError(failureTextOf(otherValues)), step: stepOfStage(tx.stage) }
+        : {})
+    });
+  }
 };
+
+/**
+ * The failure text a caller passed alongside a `Failed` status, if any.
+ *
+ * These writes carry their reason in `otherValues` rather than as a thrown
+ * error, so this is the only thing available to classify. Read through a narrow
+ * structural check rather than a cast, and handed to `classifyError`, which
+ * returns a closed union — the text is inspected here and goes no further.
+ */
+function failureTextOf(otherValues: object): string | undefined {
+  const values = otherValues as { rawError?: unknown; error?: unknown };
+  if (typeof values.rawError === 'string') return values.rawError;
+  if (typeof values.error === 'string') return values.error;
+  return undefined;
+}
 
 /**
  * Informational stage write. Called at phase boundaries inside

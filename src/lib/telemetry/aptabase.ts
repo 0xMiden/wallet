@@ -1,6 +1,7 @@
 import {
   TelemetryErrorKind,
   TelemetryFlow,
+  TelemetryOperation,
   TelemetryPlatform,
   TelemetryResult,
   TelemetryStep,
@@ -55,15 +56,17 @@ import {
 export const APTABASE_SDK_VERSION = 'miden-wallet-aptabase@1.0.0';
 
 /**
- * `<flow>_<phase>` — for example `send_started`, `unlock_ended`.
+ * `<flow>_<phase>` or `<operation>_settled` — `send_started`, `unlock_ended`,
+ * `tx_send_settled`, `service_prover_settled`.
  *
- * Both halves are closed unions, so the twenty-two names this can produce are
- * fixed at compile time and no free text can reach the event name. It reads
- * well in an Aptabase dashboard, which lists events by name: the two halves of
- * a flow sort next to each other, and every name shares a suffix that groups
- * the starts against the ends.
+ * Every part is a closed union, so the full set of names is fixed at compile
+ * time and no free text can reach the event name. It reads well in an Aptabase
+ * dashboard, which lists events by name: the two halves of a flow sort next to
+ * each other, the shared suffix groups the starts against the ends, and the
+ * wallet's own operations sort together under their `tx_` and `service_`
+ * prefixes rather than mixing in among the things a person did.
  */
-export type AptabaseEventName = `${TelemetryFlow}_${TelemetryWirePayload['phase']}`;
+export type AptabaseEventName = `${TelemetryFlow}_started` | `${TelemetryFlow}_ended` | `${TelemetryOperation}_settled`;
 
 /**
  * Aptabase's `props` is an open object, so the type system cannot do here what
@@ -76,8 +79,12 @@ export interface AptabaseProps {
    * Pairs this event with the other half of its flow. In `props` rather than
    * `sessionId` since the run took that field over — grouping by it inside a
    * session is what turns a list of events back into flows.
+   *
+   * Optional because a `settled` operation has no pair to join to: the wallet
+   * finished the work in one go, and there is deliberately nothing linking it
+   * back to the flow that asked for it.
    */
-  flowId: string;
+  flowId?: string;
   result?: TelemetryResult;
   errorKind?: TelemetryErrorKind;
   durationMs?: number;
@@ -119,6 +126,19 @@ export const APTABASE_SYSTEM_PROP_KEYS: readonly string[] = ['isDebug', 'osName'
 export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
 
 /**
+ * The event name, from whichever of the two subjects this payload carries.
+ *
+ * `serializeEvent` sets exactly one of `flow` and `operation`, and the phase
+ * says which. Falling back to `tx_other_settled` rather than throwing keeps a
+ * malformed payload from failing the operation it was reporting on — telemetry
+ * losing its own name is a smaller problem than telemetry breaking a send.
+ */
+function eventNameOf(payload: TelemetryWirePayload): AptabaseEventName {
+  if (payload.phase === 'settled') return `${payload.operation ?? 'tx_other'}_settled`;
+  return `${payload.flow ?? 'open'}_${payload.phase}`;
+}
+
+/**
  * Map one allowlisted payload onto one Aptabase envelope.
  *
  * Every field is copied by name. This function must never spread the payload,
@@ -127,12 +147,14 @@ export const APTABASE_PROP_KEYS: readonly string[] = ['flowId', 'result', 'error
  * mode the allowlist exists to prevent and which `yarn ts` can no longer catch
  * on its own once the payload lands in an open object.
  *
- * Each of the ten allowlisted fields appears exactly once in the result —
- * `flow` and `phase` in `eventName`, `runId` in `sessionId`, `appVersion` and
- * `platform` in `systemProps`, and the remaining five in `props`.
+ * Each of the eleven allowlisted fields appears exactly once in the result —
+ * `phase` with either `flow` or `operation` in `eventName`, `runId` in
+ * `sessionId`, `appVersion` and `platform` in `systemProps`, and the remaining
+ * five in `props`.
  */
 export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Date()): AptabaseEnvelope {
-  const props: AptabaseProps = { flowId: payload.flowId };
+  const props: AptabaseProps = {};
+  if (payload.flowId !== undefined) props.flowId = payload.flowId;
   if (payload.result !== undefined) props.result = payload.result;
   if (payload.errorKind !== undefined) props.errorKind = payload.errorKind;
   if (payload.durationMs !== undefined) props.durationMs = payload.durationMs;
@@ -141,7 +163,7 @@ export function buildEnvelope(payload: TelemetryWirePayload, now: Date = new Dat
   return {
     timestamp: now.toISOString(),
     sessionId: payload.runId,
-    eventName: `${payload.flow}_${payload.phase}`,
+    eventName: eventNameOf(payload),
     systemProps: {
       isDebug: process.env.NODE_ENV !== 'production',
       osName: payload.platform,

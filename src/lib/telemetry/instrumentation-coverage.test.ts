@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
-import { TelemetryFlow, TelemetryStep } from './types';
+import { TelemetryFlow, TelemetryOperation, TelemetryStep } from './types';
 
 /**
  * Declaring a flow is not instrumenting it.
@@ -30,10 +30,22 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
+/**
+ * The mapping module counts as a call site.
+ *
+ * `lib/telemetry/` is otherwise excluded so the unions' own declarations cannot
+ * satisfy a search for themselves. `transaction-operation.ts` is the exception
+ * because it is wiring, not declaration: it is where a transaction row's type
+ * and stage become an operation and a step, exactly as the onboarding step table
+ * is where a screen becomes a step. Excluding it would leave every pipeline step
+ * looking uninstrumented while being the only reason any of them are reported.
+ */
+const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
+
 /** Non-test sources, excluding the telemetry module's own plumbing. */
 const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
   .map(path => ({ path: relative(SRC, path).split(sep).join('/'), text: readFileSync(path, 'utf8') }))
-  .filter(file => !file.path.startsWith('lib/telemetry/'));
+  .filter(file => !file.path.startsWith('lib/telemetry/') || file.path === WIRING_INSIDE_TELEMETRY);
 
 const filesMatching = (pattern: RegExp): string[] => CALL_SITES.filter(f => pattern.test(f.text)).map(f => f.path);
 
@@ -75,7 +87,30 @@ const EVERY_STEP: Record<TelemetryStep, TelemetryStep> = {
   recovery_method: 'recovery_method',
   choose_guardian: 'choose_guardian',
   enter_phrase: 'enter_phrase',
-  awaiting_approval: 'awaiting_approval'
+  awaiting_approval: 'awaiting_approval',
+  syncing: 'syncing',
+  executing: 'executing',
+  proving: 'proving',
+  confirming: 'confirming',
+  signing: 'signing',
+  prove_delegate: 'prove_delegate',
+  prove_local: 'prove_local',
+  prove_fallback: 'prove_fallback'
+};
+
+const EVERY_OPERATION: Record<TelemetryOperation, TelemetryOperation> = {
+  tx_send: 'tx_send',
+  tx_receive: 'tx_receive',
+  tx_swap: 'tx_swap',
+  tx_earn: 'tx_earn',
+  tx_bridge: 'tx_bridge',
+  tx_guardian: 'tx_guardian',
+  tx_dapp: 'tx_dapp',
+  tx_other: 'tx_other',
+  prove: 'prove',
+  service_prover: 'service_prover',
+  service_node: 'service_node',
+  service_network: 'service_network'
 };
 
 describe('every declared flow is actually begun somewhere', () => {
@@ -90,6 +125,45 @@ describe('every declared flow is actually begun somewhere', () => {
     ).map(f => f.path);
 
     expect(started.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `tx_other` is the one name nothing may map onto.
+ *
+ * It is the landing place for a transaction type read back from IndexedDB that
+ * this build has never heard of — a row written by a newer version, or by one
+ * whose type was later renamed. Requiring a call site for it would mean writing
+ * one, which would defeat the point: the map in `transaction-operation.ts` is
+ * total, so anything reaching `tx_other` did so at runtime and by surprise.
+ */
+const UNREACHABLE_BY_DESIGN: readonly TelemetryOperation[] = ['tx_other'];
+
+describe('every declared operation is actually reported somewhere', () => {
+  const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
+    operation => !UNREACHABLE_BY_DESIGN.includes(operation)
+  );
+
+  it.each(reachable)('%s has a call site that reports it', operation => {
+    // Either passed to `reportOperation` as a literal, or sitting as the value
+    // of a mapping entry — the transaction operations are reached through the
+    // total maps in `transaction-operation.ts` rather than named at each call.
+    const reported = filesMatching(
+      new RegExp(String.raw`reportOperation\(\{[^}]*'${operation}'|:\s*'${operation}'`, 's')
+    );
+
+    expect(reported.length).toBeGreaterThan(0);
+  });
+
+  it('reports an outcome for every kind of transaction the pipeline can produce', () => {
+    // `tx_other` is the deliberate exception: it exists as the landing place for
+    // a row type this build has never seen, so nothing maps onto it on purpose.
+    const mapped = readFileSync(resolve(SRC, WIRING_INSIDE_TELEMETRY), 'utf8');
+    const unmapped = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
+      operation => operation.startsWith('tx_') && operation !== 'tx_other' && !mapped.includes(`'${operation}'`)
+    );
+
+    expect(unmapped).toEqual([]);
   });
 });
 

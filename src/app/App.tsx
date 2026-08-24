@@ -18,14 +18,16 @@ import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
-import { MidenProvider } from 'lib/miden/front';
+import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
+import { WalletMessageType } from 'lib/shared/types';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 // Deep import: the barrel deliberately does not re-export `crash`, so that
 // `@sentry/browser` stays out of the many chunks that only want `beginFlow`.
 import { initCrashReporting } from 'lib/telemetry/crash';
+import { setOperationTransport } from 'lib/telemetry/report-operation';
 import { DialogsProvider } from 'lib/ui/dialog';
 import { AppKitProvider } from 'lib/walletconnect/appkit';
 import * as Woozie from 'lib/woozie';
@@ -47,6 +49,12 @@ const App: FC<AppProps> = ({ env }) => {
     // removed analytics scaffold is data held with no basis, so it goes whether
     // or not the user ever consents to anything.
     clearLegacyAnalyticsStorage();
+    // How an operation reported from a page reaches the wire. Installed rather
+    // than imported by the reporter, which also runs inside the service worker
+    // and must not pull this message client into the worker's bundle. Ungated:
+    // the transport only carries an event to the worker, which applies the same
+    // consent check every other event passes through.
+    setOperationTransport(event => request({ type: WalletMessageType.ReportTelemetryEventRequest, event }).then());
     // Consent-gated: with no client constructed, there is nothing to leak from
     // if a later check is ever missed. `captureCrash` re-reads consent before
     // every send, so this is the outer of two gates, not the only one.

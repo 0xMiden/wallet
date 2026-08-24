@@ -807,8 +807,15 @@ const IDENTIFIER_CALLS: readonly Api[] = [
   { label: 'crypto.getRandomValues()', pattern: /\bgetRandomValues\s*\(/ }
 ];
 
-/** The one module allowed to mint one, and the id it mints dies with the flow. */
-const FLOW_ID_MINTER = 'src/lib/telemetry/report-flow.ts';
+/**
+ * The only two modules allowed to mint one, and what each mints.
+ *
+ * `report-flow.ts` mints the per-flow id, which lives in a closure and dies when
+ * the flow settles. `run.ts` mints the per-run id, which lives in module scope
+ * and dies with the realm that loaded it. Neither is written anywhere, and the
+ * point of naming exactly two is that a third would have to justify itself here.
+ */
+const ID_MINTERS: readonly string[] = ['src/lib/telemetry/report-flow.ts', 'src/lib/telemetry/run.ts'];
 
 /**
  * Everything that could produce an OS version, a locale, or a device model.
@@ -891,7 +898,7 @@ describe('no persistent identifier', () => {
     ).toEqual([]);
   });
 
-  it('mints an identifier in exactly one telemetry module, and only the ephemeral per-flow id', () => {
+  it('mints identifiers in exactly two telemetry modules, and only the two ephemeral ones', () => {
     const minting = new Set([
       ...telemetryFiles()
         .filter(file => specifiersOf(file.text).some(spec => IDENTIFIER_PACKAGES.includes(packageOf(spec.value))))
@@ -899,17 +906,17 @@ describe('no persistent identifier', () => {
       ...IDENTIFIER_CALLS.flatMap(({ pattern }) => matches(telemetryFiles(), pattern).map(hit => hit.file))
     ]);
 
-    // Positive control first: without it, deleting `report-flow`'s import of
-    // nanoid would empty the set and satisfy the real assertion below.
-    expect([...minting]).toContain(FLOW_ID_MINTER);
-    minting.delete(FLOW_ID_MINTER);
+    // Positive control first: without it, deleting both imports of nanoid would
+    // empty the set and satisfy the real assertion below.
+    expect([...minting].sort()).toEqual(expect.arrayContaining([...ID_MINTERS].sort()));
+    for (const minter of ID_MINTERS) minting.delete(minter);
 
     expect(
       [...minting]
         .sort()
         .map(
           file =>
-            `${file} mints an identifier. Only ${FLOW_ID_MINTER} may, and the id it mints exists to pair one flow's started and ended events, lives in a closure, and is never persisted or reused.`
+            `${file} mints an identifier. Only ${ID_MINTERS.join(' and ')} may: one mints the per-flow id that pairs a started with its ended and lives in a closure, the other the per-run id that dies with the realm. Neither is persisted or reused.`
         )
     ).toEqual([]);
   });
@@ -1091,12 +1098,24 @@ describe('the background service worker never imports the telemetry barrel', () 
     // from our allowlisted payload to Aptabase's envelope, plus the endpoint
     // resolver. It reaches nothing at all — no network call, no storage, no
     // React — which is what makes it loadable in a worker.
+    //
+    // The last four are the operation reporter and what it needs. The
+    // transaction pipeline runs in the worker on the extension, so the module
+    // that reports what a transaction did has to load there — which is the whole
+    // reason `report-operation.ts` takes its page transport by injection and
+    // why `classify.ts` and `run.ts` exist apart from `report-flow.ts` rather
+    // than inside it. If `lib/miden/front` or React ever appears in this graph,
+    // the assertion above about the barrel is what will say so.
     expect([...backgroundGraph().modules].filter(module => module.startsWith('src/lib/telemetry/')).sort()).toEqual([
       'src/lib/telemetry/aptabase.ts',
+      'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
+      'src/lib/telemetry/report-operation.ts',
+      'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
+      'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts'
     ]);
   });

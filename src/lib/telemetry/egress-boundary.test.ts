@@ -13,7 +13,8 @@ import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry'
 import { resolveTelemetryContext } from './context';
 import { captureCrash, initCrashReporting, stopCrashReporting } from './crash';
 import { encodingVariantsOf } from './egress-guard';
-import { __resetRunForTest, beginFlow, classifyError } from './report-flow';
+import { beginFlow, classifyError } from './report-flow';
+import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
 import { TelemetryErrorKind, TelemetryEvent, TelemetryFlow, TelemetryResult } from './types';
@@ -918,7 +919,18 @@ describe('the boundary is the only way out', () => {
       .sort();
 
   it('has one consent-gated sender, reached from one place outside the telemetry module', () => {
-    expect(importers(/\bsendEvent\b/)).toEqual(['lib/miden/back/actions.ts', 'lib/telemetry/sink.ts']);
+    // Three files, one sender. `sink.ts` defines it. `actions.ts` is the
+    // worker's handler for an event a page forwarded. `report-operation.ts` is
+    // the worker reporting on its own work, which has no page to forward from —
+    // and it calls this only in the worker branch, where it already IS the
+    // background. Every one of the three passes through the same consent check
+    // inside `sendEvent`, which is what makes this a boundary rather than a
+    // convention.
+    expect(importers(/\bsendEvent\b/)).toEqual([
+      'lib/miden/back/actions.ts',
+      'lib/telemetry/report-operation.ts',
+      'lib/telemetry/sink.ts'
+    ]);
   });
 
   it('confines the crash-reporting SDK to the module that scrubs before it', () => {

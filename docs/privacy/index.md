@@ -26,7 +26,7 @@ When the setting is on, the App reports the start and the end of a small set of 
 | What | Values |
 |---|---|
 | Which activity | One of: opening the app, unlocking, creating a wallet, importing a wallet, recovering a wallet, returning to the app, funding, sharing your receive address, sending, swapping, earning, connecting a dApp, approving a dApp request, changing your guardian, handling an incoming note, viewing activity |
-| Whether it started or ended | `started` or `ended` |
+| Whether it started or ended | `started` or `ended`, or `settled` for work the App did on your behalf — see below |
 | How it ended | `completed`, `cancelled`, or `errored` |
 | Broad error category, if it failed | One of: network, rpc, proving, validation, storage, auth, timeout, unknown |
 | How long it took | A duration in milliseconds |
@@ -37,6 +37,10 @@ When the setting is on, the App reports the start and the end of a small set of 
 | A short random number for that run of the App | Explained under "Identifiers" below |
 
 That is the complete list. There is no other field, and the error category is chosen from the eight names above — the underlying error message is read to pick a category and is never sent.
+
+The App also reports whether the work it does on your behalf actually succeeded. When you send, swap, claim, earn, bridge, or change your guardian, the App has to prove and submit a transaction after you have finished asking for it, and that part can fail for reasons that have nothing to do with you — a prover or a node being down or unreachable. Without this, a failure affecting everyone would be invisible to us, because by then the activity above has already been reported as finished.
+
+Each of those reports says which **kind** of work it was — sending, receiving, swapping, earning, bridging, a guardian change, a dApp request, proving, or one of our services being unreachable — whether it succeeded or failed, how long it took, the same broad error category as above if it failed, and how far it got: the stage it was at, such as proving or submitting. Nothing about the transaction itself. Not who you sent to, not how much, not which asset, not which dApp, not which endpoint. No new kind of information is collected — these use the same fields listed in the table above.
 
 Three more things travel with each message as part of the technical envelope our analytics provider defines: the time the message was sent, a flag saying whether the App was a development build or a released one, and a fixed name and version number for the piece of our own code that sent it (`miden-wallet-aptabase@1.0.0` — the same string for everyone). None of them varies with who you are or what device you use.
 

@@ -42,8 +42,28 @@
  */
 
 import { putToStorage } from 'lib/miden/front/storage';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { TelemetryOperation } from 'lib/telemetry/types';
 
 export type ConnectivityCategory = 'network' | 'node' | 'prover' | 'resolving';
+
+/**
+ * Which categories are worth reporting, and under what name.
+ *
+ * `resolving` is absent on purpose: it is a transient pseudo-state meaning "a
+ * probe is in flight", not an outage, and reporting it would double every real
+ * outage with a meaningless sibling.
+ *
+ * This is the only place the wallet learns that something it depends on is down.
+ * The set/clear rules already dedupe — both functions no-op when the category is
+ * already in the target state — so reporting from here gives one event per
+ * outage rather than one per retry, which a call-site hook could not.
+ */
+const OUTAGE_OPERATION: Partial<Record<ConnectivityCategory, TelemetryOperation>> = {
+  prover: 'service_prover',
+  node: 'service_node',
+  network: 'service_network'
+};
 
 export interface CategoryState {
   active: boolean;
@@ -118,6 +138,7 @@ export function markConnectivityIssue(category: ConnectivityCategory): void {
   const existing = current[category];
   if (existing.active) return;
   current = { ...current, [category]: { active: true, since: Date.now() } };
+  reportOutage(category, 'errored', 0);
   notify();
 }
 
@@ -125,8 +146,29 @@ export function markConnectivityIssue(category: ConnectivityCategory): void {
 export function clearConnectivityIssue(category: ConnectivityCategory): void {
   const existing = current[category];
   if (!existing.active) return;
+  reportOutage(category, 'completed', outageMs(existing));
   current = { ...current, [category]: { active: false, since: null } };
   notify();
+}
+
+/** How long the outage lasted, from the `since` the state machine already kept. */
+function outageMs(state: CategoryState): number {
+  return state.since === null ? 0 : Date.now() - state.since;
+}
+
+/**
+ * Report an outage beginning or lifting.
+ *
+ * Two events rather than a paired flow, because an outage the user never saw the
+ * end of still matters — arguably more. The `errored` event says a dependency
+ * went down; the `completed` one says it came back and how long it took. An
+ * outage that never recovers reports only the first, which reads correctly as an
+ * unresolved outage rather than vanishing.
+ */
+function reportOutage(category: ConnectivityCategory, result: 'completed' | 'errored', durationMs: number): void {
+  const operation = OUTAGE_OPERATION[category];
+  if (operation === undefined) return;
+  reportOperation({ operation, result, durationMs });
 }
 
 /**

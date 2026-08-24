@@ -40,6 +40,8 @@ import {
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
 // Deep path, not the `lib/telemetry` barrel: the barrel re-exports
 // `report-flow`, which imports `lib/miden/front` and drags React into the
 // service-worker bundle. `guarantees.test.ts` asserts this.
@@ -1445,6 +1447,14 @@ export async function proveWithFallback<T>(
     );
     // #466: always-on structured timing so an occasional 20s+ prove is visible.
     attempt.record({ path: pathLabel, durationMs, fellBack: false });
+    // Both literals named rather than picked by a ternary, so the source scan in
+    // `instrumentation-coverage.test.ts` can see that each is actually reported.
+    // That test exists because a step nothing emits typechecks perfectly.
+    reportOperation(
+      shouldDelegate
+        ? { operation: 'prove', result: 'completed', durationMs, step: 'prove_delegate' }
+        : { operation: 'prove', result: 'completed', durationMs, step: 'prove_local' }
+    );
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -1481,6 +1491,16 @@ export async function proveWithFallback<T>(
           fellBack: true,
           remoteDurationMs
         });
+        // Reported as `completed`, because it was — and that is exactly why it
+        // needs reporting. A fallback is invisible in every other signal: the
+        // transaction lands, nothing fails, and the only trace is a user who
+        // waited twice. The `prove_fallback` step is the whole fact.
+        reportOperation({
+          operation: 'prove',
+          result: 'completed',
+          durationMs: performance.now() - startedAt,
+          step: 'prove_fallback'
+        });
         return result;
       } catch (fallbackErr) {
         // Both remote and local proving failed — a 20s+ that ends in failure is
@@ -1492,9 +1512,27 @@ export async function proveWithFallback<T>(
           remoteDurationMs,
           failed: true
         });
+        reportOperation({
+          operation: 'prove',
+          result: 'errored',
+          durationMs: performance.now() - startedAt,
+          errorKind: classifyError(fallbackErr),
+          step: 'prove_fallback'
+        });
         throw fallbackErr;
       }
     }
+    // The non-delegated path failed and there is nothing to fall back to. Kept
+    // out of the branch above so a local-only prover failure — the whole of
+    // mobile, and any desktop build with delegation off — is not silently the
+    // one prove outcome that goes unreported.
+    reportOperation({
+      operation: 'prove',
+      result: 'errored',
+      durationMs: performance.now() - startedAt,
+      errorKind: classifyError(err),
+      step: 'prove_local'
+    });
     throw err;
   } finally {
     attempt.end();

@@ -3,6 +3,9 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
   formatRawTransactionError,
@@ -73,7 +76,36 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
   if (isGenuineFailure) notifyBackgroundTransactionFailed();
+
+  // Gated on the same distinction as the notification, and for the same reason:
+  // a user-initiated cancel and a startup sweep are not failures, and counting
+  // them as such would put a floor under the error rate that no amount of fixing
+  // could lower. The stage is why this is the right place to report from — by
+  // here the row has recorded where it died, which is the difference between
+  // "the prover is down" and "the node rejected it".
+  if (isGenuineFailure) {
+    reportOperation({
+      operation: operationOfType(transaction.type),
+      result: 'errored',
+      durationMs: elapsedMsSince(existing?.initiatedAt),
+      errorKind: classifyError(rawError),
+      step: stepOfStage(failedStage)
+    });
+  }
 };
+
+/**
+ * Milliseconds from a row's `initiatedAt` until now.
+ *
+ * Rows store seconds, not milliseconds, and every duration elsewhere in
+ * telemetry is in milliseconds — converting at the boundary keeps a reader from
+ * having to know which events measure in which unit. A row with no start time
+ * reports `0`, which `reportOperation` treats as "no useful duration".
+ */
+function elapsedMsSince(initiatedAtSeconds: number | undefined): number {
+  if (initiatedAtSeconds === undefined) return 0;
+  return Date.now() - initiatedAtSeconds * 1000;
+}
 
 /**
  * Fail a row from OUTSIDE its pipeline, noting that the pipeline is still

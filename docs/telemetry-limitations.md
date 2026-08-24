@@ -310,20 +310,55 @@ Two consequences specific to the extension's popup:
 
 ### Two known biases in the `submitting` bucket
 
-- **Leaving while a transaction is being proved reports it cancelled.** Proving
-  takes seconds. If the user swipes away or backs out of review during it, the
-  route gate settles the flow as cancelled at `step: submitting`, and the later
-  success no-ops against an already-settled handle. The transaction still goes
-  through. So completions are undercounted in this bucket specifically.
+- **A flow reaching `submitting` says the transaction was accepted, not that it
+  landed.** The flow settles when the row is enqueued, which is before anything
+  is proved or submitted. So `send_ended` with `result: completed` means the user
+  finished asking; whether the money moved is a separate event,
+  `tx_send_settled`, and the two are not joined. See "operations" below.
 - **Backing out of review and returning counts as two flows.** The review screen
   settles on exit and the amount screen begins a fresh flow on the way back, so
   one journey that hesitated arrives as a cancelled flow at `step: review`
   followed by a second flow. True for send and for earn.
 
+### Operations: what the wallet did, as opposed to what the user did
+
+A flow ends when the user is done asking. What happens next — proving,
+submission, the node accepting or refusing it — happens with no screen open, and
+before this existed it was reported nowhere at all. A remote prover outage that
+failed every transaction for everyone would have produced no product event
+(there was no flow open to fail) and no crash report (the pipeline catches its
+own errors and renders failure UX rather than letting one reach a global
+handler).
+
+These arrive as a single `<operation>_settled` event, with `result` and
+`durationMs`, plus a `step` naming where a failure happened.
+
+| Event | What it means |
+|---|---|
+| `tx_send_settled`, `tx_swap_settled`, `tx_receive_settled`, `tx_earn_settled`, `tx_bridge_settled`, `tx_guardian_settled`, `tx_dapp_settled` | One transaction reached a terminal state. `result: errored` with `step: proving` is a prover problem; with `step: submitting` or `confirming`, a node problem. |
+| `prove_settled` | One prove attempt. `step: prove_delegate` or `prove_local` for a normal one; `step: prove_fallback` means the delegated prover failed and the local one finished the job — the transaction succeeded and the user waited twice. |
+| `service_prover_settled`, `service_node_settled`, `service_network_settled` | A dependency went down (`result: errored`) or came back (`result: completed`, with `durationMs` as the outage length). |
+
+Three things to know before reading them:
+
+- **They carry no `flowId`,** so an operation cannot be joined to the flow that
+  started it. Doing so would mean writing a telemetry identifier onto the
+  transaction row, and that row is durable storage — it would turn an in-memory
+  id into a persisted one. They share a `sessionId` only when the same realm
+  reported both.
+- **A background settlement often has a session of its own.** On the extension
+  the transaction pipeline runs in the service worker, which holds its own run
+  id; a transaction settling after the popup closed belongs to no visit, and is
+  not made to look like one.
+- **`prove_settled` with `result: completed` is not always good news.** Filter on
+  `step: prove_fallback` — those all succeeded, and every one of them is a user
+  who waited for a prover that was not answering.
+
 ### What a completed swap looks like
 
-Four events, in two flows, under **one session** with a real duration, if the
-user opened the app to do it:
+Four flow events, in two flows, under **one session** with a real duration, if
+the user opened the app to do it — plus the operations the wallet then performed,
+which may arrive under a different session:
 
 | Event | props |
 |---|---|
@@ -331,6 +366,8 @@ user opened the app to do it:
 | `open_ended` | `flowId: A`, `result: completed`, `durationMs` |
 | `swap_started` | `flowId: B` |
 | `swap_ended` | `flowId: B`, `result: completed`, `durationMs`, `step: submitting` |
+| `prove_settled` | `result: completed`, `step: prove_delegate`, `durationMs` |
+| `tx_swap_settled` | `result: completed`, `durationMs` |
 
 The `open` pair is there because the app shell mounted; the swap pair is there
 because the user went to `/swap` and submitted. Both share one `sessionId`,
