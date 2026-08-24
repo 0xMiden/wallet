@@ -272,6 +272,35 @@ export const TRANSACTION_STAGES = [
 
 export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 
+/**
+ * Whether a private note's body has reached the transport layer.
+ *
+ * Separate from `status` because they answer different questions and can disagree
+ * in the way that matters most. `status` tracks the TRANSACTION, which is on chain
+ * and irreversible; this tracks DELIVERY, which is the only thing that makes a
+ * private note reachable at all — the chain carries a commitment, not the note. A
+ * send can be legitimately Completed (the assets have left the account, so Failed
+ * would be untrue and would offer a Retry that spends again) while its note
+ * reached nobody.
+ *
+ * Absent means the question does not apply or predates this field: a public send
+ * needs no relay, and rows written by an older build never recorded one.
+ *
+ *   - `pending`     — a relay is OWED. Written BEFORE the relay is attempted,
+ *                     together with the evidence needed to reason about it later,
+ *                     so an interruption mid-relay leaves a record rather than
+ *                     nothing. This is the state the wallet previously had no way
+ *                     to represent, which is why an interrupted relay was
+ *                     indistinguishable from a successful one.
+ *   - `relayed`     — the transport accepted the note.
+ *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
+ *                     permanent (the SDK's own outbox may still retry it, and that
+ *                     retry replays the ORIGINAL block hint, so it stays correct
+ *                     however late it runs) — but it may equally mean nothing was
+ *                     ever queued, so it is surfaced rather than assumed benign.
+ */
+export type INoteDeliveryState = 'pending' | 'relayed' | 'undelivered';
+
 export interface ITransaction {
   id: string;
   type: ITransactionType;
@@ -326,6 +355,20 @@ export interface ITransaction {
    * `MAX_QUEUED_AGE` remains the terminal cap.
    */
   nextEligibleAt?: number;
+  /**
+   * Delivery state of this row's private output note — see
+   * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
+   *
+   * This is the wallet's OWN record that a relay is owed. It previously had none:
+   * durability was delegated entirely to the SDK's retry outbox, which Rust writes
+   * from inside the relay call and only after it has resolved the transport API.
+   * Every failure upstream of that write therefore queued nothing while throwing
+   * exactly like a mid-transport timeout that DID queue — and under 0.16 there is a
+   * new member of that class, since `notes.sendPrivateOutput` first resolves the
+   * note by id from the calling client's store and rejects with `No output note
+   * found for the given id` if it is not there as an applied output note.
+   */
+  noteDelivery?: INoteDeliveryState;
 }
 
 export interface ISuccessTransactionOutput {

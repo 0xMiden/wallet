@@ -297,6 +297,71 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  describe('private-note delivery warning', () => {
+    it('warns on a COMPLETED send whose private note was never delivered', async () => {
+      // The status pill answers a different question from this card: the
+      // transaction really did land, which is why the row is Completed and must
+      // stay that way (Failed would offer a Retry that spends again). The note not
+      // reaching the transport is the part the user has to be told about, since a
+      // private note is unreachable without its relayed body.
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        status: STATUS_COMPLETED,
+        noteDelivery: 'undelivered'
+      });
+
+      await renderAndLoad();
+
+      const warning = screen.getByTestId('history-note-delivery-warning');
+      expect(warning).toBeInTheDocument();
+      // `t` is stubbed to echo the key here, so assert on the key: the point is
+      // WHICH copy is chosen, not its wording.
+      expect(warning.textContent).toBe('noteDeliveryUndeliveredBody');
+      // Recovery guidance accompanies the warning — a warning with no action is
+      // just a dead end for the one user who most needs a next step.
+      expect(screen.getByText('noteDeliveryRecoveryHint')).toBeInTheDocument();
+    });
+
+    it('warns on a row still recording a PENDING delivery', async () => {
+      // 'pending' means the wallet recorded that a relay was owed and never
+      // recorded an outcome — the process died mid-relay. No more reassuring than
+      // an outright failure, so it is surfaced too.
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        status: STATUS_COMPLETED,
+        noteDelivery: 'pending'
+      });
+
+      await renderAndLoad();
+
+      const warning = screen.getByTestId('history-note-delivery-warning');
+      // Distinct copy from the undelivered case: "we don't know" is not "it failed".
+      expect(warning.textContent).toBe('noteDeliveryPendingBody');
+    });
+
+    it('shows no warning when the note was relayed', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        status: STATUS_COMPLETED,
+        noteDelivery: 'relayed'
+      });
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-note-delivery-warning')).not.toBeInTheDocument();
+    });
+
+    it('shows no warning for a public send or a row predating the field', async () => {
+      // Absent means the question does not apply (public sends carry the whole note
+      // on chain) or the row was written by an older build. Neither is a warning.
+      mockGetTransactionById.mockResolvedValue({ ...baseSendTx, status: STATUS_COMPLETED });
+
+      await renderAndLoad();
+
+      expect(screen.queryByTestId('history-note-delivery-warning')).not.toBeInTheDocument();
+    });
+  });
+
   describe('Guardian switch details', () => {
     it('renders the From/To hero, status, generic details, and no wallet destination rows', async () => {
       mockGetTransactionById.mockResolvedValue({

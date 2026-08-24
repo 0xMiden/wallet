@@ -1636,8 +1636,24 @@ export const generateTransactionsLoop = async (
         // through to cancel there — a separate, pre-existing gap.) This generic path
         // covers non-guardian send/consume, whose note states the next sync reconciles
         // via ConsumedExternal.
+        //
+        // A PRIVATE send reaching here has strictly worse consequences than "the next
+        // sync reconciles it", and they are invisible from the row alone. The apply
+        // threw, so `completeSendTransaction` never ran — and that is the only code
+        // that hands a private note to the transport. The transaction is on chain and
+        // its note was never relayed to anyone, which no amount of syncing repairs:
+        // sync reconciles what the CHAIN knows, and the chain holds a commitment, not
+        // the note body the recipient needs. Marking this Completed with a bare
+        // "Completed" is therefore the same silent loss this field exists to expose.
+        //
+        // There is nothing to retry from here — the apply threw before a
+        // `TransactionResult` could be captured, so the note bytes are gone with the
+        // call frame — which is exactly why it has to be surfaced rather than
+        // absorbed.
+        const isPrivateSend = tx.type === 'send' && tx.noteType === NoteTypeEnum.Private;
         await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-          displayMessage: 'Completed',
+          displayMessage: isPrivateSend ? 'Completed — the private note could not be delivered' : 'Completed',
+          ...(isPrivateSend ? { noteDelivery: 'undelivered' as const } : {}),
           completedAt: Math.floor(Date.now() / 1000)
         });
       }

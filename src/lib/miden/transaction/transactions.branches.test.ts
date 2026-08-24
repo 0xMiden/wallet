@@ -9,7 +9,7 @@
  * error subscription).
  */
 
-import { ITransactionStatus, SendTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
   completeSendTransaction,
@@ -291,12 +291,17 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks Completed when private-note transport fails — SDK outbox handles retry', async () => {
-    // Transport-level failures are no longer surfaced to the wallet: the
-    // SDK persists the relay payload to its durable outbox before calling
-    // transport (miden-client#2127) and retries on every subsequent
-    // sync_state. The wallet just marks Completed; eventual delivery is
-    // the SDK's responsibility.
+  it('records undelivered and qualifies the message when the private-note relay fails', async () => {
+    // The row stays Completed — the assets have left the account, so Failed would be
+    // untrue and would offer a Retry that spends a second time — but it must not
+    // read as an unqualified success.
+    //
+    // This previously asserted a bare 'Sent' on the premise that "the SDK persists
+    // the relay payload to its durable outbox before calling transport, so eventual
+    // delivery is the SDK's responsibility". Rust writes that outbox entry INSIDE
+    // the relay, after resolving the transport API, so every failure upstream of
+    // that point queues nothing — and the wallet cannot tell which side of it a
+    // rejection came from. So the pessimistic state is recorded.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -307,15 +312,68 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      // The landed tx id is still recorded: the transaction is on chain regardless.
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records relayed and reports a clean Sent when the relay succeeds', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
       expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks Completed when the WASM client lock cannot be acquired during a private send', async () => {
-    // Lock acquisition failures are also non-fatal: the on-chain tx is the
-    // source of truth and the SDK's outbox + sync_state will reconcile.
+  it('records the relay as OWED before attempting it, with the landed tx id and note', async () => {
+    // The ordering is the fix, not an implementation detail: the SDK's outbox is
+    // written from inside the relay, so between submit and that write there was no
+    // durable statement anywhere that a note was owed. An interruption in that
+    // window was indistinguishable from a delivered note. Observed from inside the
+    // relay call, which is the only place the intermediate state is visible.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    let rowDuringRelay: ITransaction | undefined;
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = { ...txStore[0]! };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(rowDuringRelay!.noteDelivery).toBe('pending');
+      expect(rowDuringRelay!.status).not.toBe(ITransactionStatus.Completed);
+      // Enough evidence to reason about the note afterwards without the result bytes.
+      expect(rowDuringRelay!.transactionId).toBeTruthy();
+      expect(rowDuringRelay!.outputNoteIds).toEqual(['note-out-1']);
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
+    // A lock failure on this path means the relay never ran, so the note was never
+    // handed to anyone. This previously asserted a bare 'Sent' on the grounds that
+    // "lock acquisition failures are non-fatal: the on-chain tx is the source of
+    // truth and the SDK's outbox + sync_state will reconcile" — but with no relay
+    // there is no outbox entry to reconcile FROM, so that reported the exact silent
+    // loss being hunted.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -330,10 +388,79 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.displayMessage).toBe('Sent');
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
+    }
+  });
+
+  it('leaves noteDelivery unset on a public send and never relays', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'public';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      metadata: () => ({ noteType: () => 'public' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // Not 'relayed' and not 'undelivered' — the question does not apply, and a
+      // public send must not surface a delivery warning.
+      expect(txStore[0]!.noteDelivery).toBeUndefined();
+      expect(txStore[0]!.displayMessage).toBe('Sent');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('relays when the row says public but the note metadata says private', async () => {
+    // The row's noteType is a wallet-side string; the note's metadata is what the
+    // transaction actually put on chain. When they disagree the note wins, because
+    // skipping the relay for a genuinely private note strands it with no trace,
+    // while relaying a public one only wastes a request.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      // The note's own metadata is the authority the row is checked against.
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the full note is unavailable for a landed private send', async () => {
+    // Failed, but the transaction LANDED — so a private note exists on chain that
+    // was never relayed. "Failed" and "undelivered" are different claims and only
+    // the second says value is sitting somewhere unreachable.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    try {
+      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
     }
   });
 

@@ -343,6 +343,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         errorMessage: tx.error,
         rawErrorMessage: tx.rawError,
         isCancelled: isUserCancelledTransaction(tx.error),
+        noteDelivery: tx.noteDelivery,
         bridgeProvider: bridge?.provider,
         bridgeDestinationAddress: bridge?.destinationAddress,
         bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -1033,6 +1034,46 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         />
                       </DetailRow>
                     )}
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
+            {/*
+              Private-note delivery warning.
+              A send can be legitimately Completed — the assets have left the account —
+              while its note never reached the transport layer, and a private note is
+              unreachable without that relayed body. Nothing else on this page can say
+              so: the status pill reads the TRANSACTION, which really did land. Without
+              this card the only trace was a console line.
+
+              Shown for 'pending' as well as 'undelivered'. A row still reading
+              'pending' means the wallet recorded the debt and never recorded an
+              outcome — the process died mid-relay — which is no more reassuring than
+              an outright failure.
+            */}
+            {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard
+                    title={
+                      entry.noteDelivery === 'undelivered'
+                        ? t('noteDeliveryUndeliveredTitle')
+                        : t('noteDeliveryPendingTitle')
+                    }
+                  >
+                    <p
+                      data-testid="history-note-delivery-warning"
+                      className="px-4 py-3 text-sm font-medium text-status-negative wrap-break-word select-text"
+                    >
+                      {entry.noteDelivery === 'undelivered'
+                        ? t('noteDeliveryUndeliveredBody')
+                        : t('noteDeliveryPendingBody')}
+                    </p>
+                    <p className="px-4 pb-3 text-xs font-medium text-text-muted wrap-break-word select-text">
+                      {t('noteDeliveryRecoveryHint')}
+                    </p>
                   </DetailCard>
                 </div>
               </div>

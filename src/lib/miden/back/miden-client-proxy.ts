@@ -109,6 +109,30 @@ const SYNC_DEADLINE_MS = 45_000;
 const WRITE_DEADLINE_MS = 90_000;
 
 /**
+ * Per-op deadline (ms) for the private-note transport relay.
+ *
+ * Sized as a WRITE, not a read, because of what a lost relay costs. The relay is a
+ * network round-trip to the transport service carrying the only copy of a private
+ * note's body the recipient can ever receive; the transaction has already landed
+ * when it runs, so an abort here does not undo a spend — it strands one. It
+ * previously carried `READ_DEADLINE_MS` (15s) on the reasoning that a transport
+ * call does no prove or sign, which is true of the WORK but not of the STAKES.
+ *
+ * 45s, matching `SYNC_DEADLINE_MS`: the closest peer, being the other op whose
+ * budget is dominated by a remote service rather than local WASM. Well below the
+ * 90s write ceiling, since no proving happens here.
+ *
+ * The deadline VALUE is the smaller half of the fix. The relay also dispatches as a
+ * `criticalOp`, which is what moves the budget to execution start (`markOpStarted`)
+ * so queue-wait behind other ops is off-budget, and what stops a coincident cheap
+ * read's deadline from tearing the realm down mid-relay. Under the old arrangement
+ * a busy realm could burn the entire 15s in the queue and abort the relay before it
+ * had made a single request — the reported `OperationAbortedError`, whose error is
+ * indistinguishable from a transport failure that DID reach the outbox.
+ */
+const RELAY_DEADLINE_MS = 45_000;
+
+/**
  * Dispatch-time BACKSTOP deadline (ms) for a whole-op offscreen WRITE (issue #260
  * flip-prep, defense-in-depth).
  *
@@ -885,11 +909,30 @@ export const midenClientProxy = {
    *   it. Every relay today is for an output note of a transaction the SAME realm
    *   just executed, proved, submitted and applied; a note this realm did not apply
    *   (an imported one, or one whose client DB `lib/miden/reset.ts` has since
-   *   cleared) does not satisfy that precondition. It is a transport relay — no
-   *   prove / sign, NOT a `criticalOp` — carrying the short read deadline; a wedge is
-   *   reclaimed by that deadline, and the SDK persists the relay payload to its
-   *   durable outbox BEFORE transport, so a kill is safe (the outbox retries on the
-   *   next sync). The offscreen side discards the void result.
+   *   cleared) does not satisfy that precondition. The offscreen side discards the
+   *   void result.
+   *
+   * Dispatched as a `criticalOp` on a write-class deadline
+   * ({@link RELAY_DEADLINE_MS}), despite doing no prove or sign. That looks like a
+   * category error and is not: `criticalOp` marks ops that must not be torn down
+   * mid-flight because they are moving value, and this one is the only step that
+   * makes a landed private note reachable at all. Two concrete consequences, both
+   * load-bearing:
+   *
+   *   - The budget arms at EXECUTION START (`markOpStarted`) instead of dispatch, so
+   *     time spent queued behind other ops on the single offscreen WASM mutex is
+   *     off-budget. Under the previous non-critical 15s read deadline a busy realm
+   *     could spend the whole budget waiting for the mutex and abort the relay
+   *     before it issued a single request.
+   *   - A coincident cheap READ's deadline DOWNGRADES to a reject-without-kill
+   *     rather than tearing down the realm this relay is running in.
+   *
+   * The old comment justified the short deadline by arguing a kill was safe because
+   * "the SDK persists the relay payload to its durable outbox BEFORE transport".
+   * That is the wrong way round: Rust writes the outbox entry INSIDE the relay,
+   * after resolving the transport API, so an abort during the window this deadline
+   * governs — including one that lands before `sendPrivateOutput` has even resolved
+   * the note — queues nothing at all.
    */
   async sendPrivateNote(note: Note, recipientAccountId: string): Promise<void> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
@@ -899,7 +942,13 @@ export const midenClientProxy = {
       });
       return;
     }
-    await this.call('sendPrivateNote', [note.serialize(), recipientAccountId], { deadlineMs: READ_DEADLINE_MS });
+    const op_id = newOpId();
+    incrementCriticalOp();
+    try {
+      await dispatchOp(op_id, 'sendPrivateNote', [note.serialize(), recipientAccountId], RELAY_DEADLINE_MS, true);
+    } finally {
+      decrementCriticalOp();
+    }
   },
 
   /**

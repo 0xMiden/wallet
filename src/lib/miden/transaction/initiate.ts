@@ -5,6 +5,7 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import * as Repo from 'lib/miden/repo';
+import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -33,7 +34,7 @@ import {
 import { toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { ConsumableNote, NoteType as NoteTypeString } from '../types';
+import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -302,6 +303,24 @@ export const initiateSwapTransaction = async (
   return dbTransaction.id;
 };
 
+/**
+ * Queue a send.
+ *
+ * Refuses a PRIVATE send outright when no note-transport endpoint is configured
+ * for the effective network, rather than queueing one that cannot possibly be
+ * delivered. Throwing here is the whole point: this runs BEFORE anything is
+ * queued, proved or submitted, so the user keeps their assets and sees an error
+ * they can act on. Allowing it through inverts that — `relay_private_note`
+ * resolves the transport API before it writes its retry outbox, so the send would
+ * land on chain, reach nobody, and leave no retry record. Every private send on
+ * such a network would be an unrecoverable loss reported as "Sent".
+ *
+ * This is not hypothetical: `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has no mainnet
+ * entry, and mainnet is a selectable network.
+ *
+ * Public sends are unaffected — the chain carries the whole note, so they need no
+ * transport at all and must keep working on a transport-less network.
+ */
 export const initiateSendTransaction = async (
   senderAccountId: string,
   recipientAccountId: string,
@@ -311,6 +330,12 @@ export const initiateSendTransaction = async (
   recallBlocks?: number,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  if (noteType === NoteTypeEnum.Private && !isNoteTransportConfigured()) {
+    throw new Error(
+      'Private sends are unavailable on this network: no note transport service is configured, so the recipient could never receive the note. Send publicly instead.'
+    );
+  }
+
   const dbTransaction = new SendTransaction(
     senderAccountId,
     amount,

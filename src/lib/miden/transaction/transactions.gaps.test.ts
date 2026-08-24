@@ -248,6 +248,212 @@ describe('completeCustomTransaction outer init-error path', () => {
   });
 });
 
+describe('apply-after-submit on a private send', () => {
+  // "Submit landed, local apply threw." The row must stay Completed — the
+  // transaction is on chain and re-queueing it would spend again — but for a
+  // PRIVATE send that verdict hides a second fact the row cannot otherwise express:
+  // the apply threw before `completeSendTransaction` ran, and that is the only code
+  // that hands the note to the transport. So the note was never relayed, and no
+  // amount of syncing fixes it — sync reconciles what the chain knows, and the chain
+  // holds a commitment, not the note body the recipient needs.
+  const applyAfterSubmitError = () =>
+    new Error(
+      "Transaction 0xabc was accepted into the node's mempool at block 42 but the local store update failed. Sync to reconcile."
+    );
+
+  const installLocks = () => {
+    const nav = (globalThis as any).navigator || {};
+    Object.defineProperty(nav, 'locks', {
+      value: { request: jest.fn((_n: string, _o: any, cb: any) => Promise.resolve(cb({}))) },
+      writable: true,
+      configurable: true
+    });
+  };
+
+  const runLoopWithFailingSend = async () => {
+    installLocks();
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      sendTransaction: jest.fn(async () => {
+        throw applyAfterSubmitError();
+      })
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    try {
+      await safeGenerateTransactionsLoop(jest.fn(), false, {} as any);
+    } finally {
+      sdk.getMidenClient = origGetClient;
+      warnSpy.mockRestore();
+    }
+  };
+
+  it('marks a private send Completed but records the note as undelivered', async () => {
+    txStore.push({
+      id: 'tx-apply-priv',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.Queued,
+      // Fresh: a 1970 timestamp trips the stale-queued reaper before the write runs.
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend();
+
+    // Completed, because the transaction really did land — Failed would offer a
+    // Retry that spends a second time.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    // ...but not as an unqualified success.
+    expect(txStore[0]!.noteDelivery).toBe('undelivered');
+    expect(txStore[0]!.displayMessage).toBe('Completed — the private note could not be delivered');
+  });
+
+  it('leaves a PUBLIC send reporting a clean Completed', async () => {
+    // A public send carries its whole note on chain, so there was never a relay to
+    // miss and a delivery warning here would be pure noise.
+    txStore.push({
+      id: 'tx-apply-pub',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend();
+
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+    expect(txStore[0]!.displayMessage).toBe('Completed');
+  });
+});
+
+describe('completeCustomTransaction private-note delivery', () => {
+  const makeResultWith = (notes: unknown[]) =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'landed-hash' }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    }) as any;
+
+  const privateNote = (marker: string) => ({
+    metadata: () => ({ noteType: () => 'private' }),
+    intoFull: () => ({ __note: marker })
+  });
+
+  beforeEach(() => {
+    mockSendPrivateNote.mockClear();
+    mockWaitForCommit.mockClear();
+    _gh.__noteTypeForTest = 'private';
+  });
+
+  it('waits for the commit ONCE for a transaction carrying several private notes', async () => {
+    // The wait used to sit inside the per-note loop, so note N+1's relay waited out
+    // note N's commit — a full commit interval of extra exposure per note, in which a
+    // realm teardown loses the remaining relays — and re-asked the same question about
+    // the same transaction id each time.
+    txStore.push({
+      id: 'tx-multi',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+    await completeCustomTransaction(
+      txStore[0]!,
+      makeResultWith([privateNote('a'), privateNote('b'), privateNote('c')])
+    );
+
+    expect(mockSendPrivateNote).toHaveBeenCalledTimes(3);
+    expect(mockWaitForCommit).toHaveBeenCalledTimes(1);
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
+  it('still relays the remaining notes after one fails, and records the pessimistic aggregate', async () => {
+    // Each note is separately owed, so one rejection must not skip the others. And a
+    // single undelivered note among several still means value is unreachable, so the
+    // row must not read as fully delivered.
+    txStore.push({
+      id: 'tx-partial',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a'), privateNote('b')]));
+
+      expect(mockSendPrivateNote).toHaveBeenCalledTimes(2);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('records undelivered when a private note cannot be converted into a relayable note', async () => {
+    // Previously this was a bare `continue` with a console line: a private note that
+    // existed on chain and was never handed to anyone, on a row reporting success.
+    txStore.push({
+      id: 'tx-nofull',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(
+        txStore[0]!,
+        makeResultWith([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+      );
+
+      expect(mockSendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.transactionId).toBe('landed-hash');
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it('leaves noteDelivery unset when the transaction produced no private notes', async () => {
+    _gh.__noteTypeForTest = 'public';
+    txStore.push({
+      id: 'tx-public-only',
+      type: 'execute',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+
+    await completeCustomTransaction(txStore[0]!, makeResultWith([privateNote('a')]));
+
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
+    expect(mockWaitForCommit).not.toHaveBeenCalled();
+    expect(txStore[0]!.noteDelivery).toBeUndefined();
+  });
+});
+
 describe('extractFullNote intoFull-undefined branch', () => {
   it('logs and returns undefined when intoFull() returns undefined for the first output note', async () => {
     txStore.push({

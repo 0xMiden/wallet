@@ -5,7 +5,13 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { type SignCallbackReason } from './sign-callback';
-import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
+import {
+  INoteDeliveryState,
+  ITransaction,
+  ITransactionStage,
+  ITransactionStatus,
+  TransactionOutput
+} from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
 
 /**
@@ -184,6 +190,41 @@ export const setTransactionStage = async (
       if (!tx.stageTimestamps) tx.stageTimestamps = {};
       if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
     }
+  });
+};
+
+/**
+ * Record the delivery state of this row's private output note, plus the evidence
+ * needed to reason about it after the fact.
+ *
+ * The point is ordering. The SDK's retry outbox is written from inside the Rust
+ * relay and only after it resolves the transport API, so any failure upstream of
+ * that write leaves nothing queued anywhere — and the wallet, having written
+ * nothing of its own until the terminal status, could not tell an interrupted
+ * relay from a delivered one. Stamping `'pending'` with the landed transaction id
+ * and note id BEFORE the attempt is what makes those two distinguishable.
+ *
+ * Deliberately NOT guarded on terminal status, unlike {@link setTransactionStage}.
+ * That guard is right for a stage, which is display state describing the attempt
+ * currently running; it is wrong here, because this is EVIDENCE about what the
+ * pipeline did, and the case that most needs recording is exactly the one the
+ * guard would drop. Nothing aborts a running pipeline when its row is failed from
+ * outside — the Cancel button and the stuck-row reaper both mark the row and walk
+ * away, so the relay still runs. Under the guard that relay's outcome went
+ * unrecorded, leaving a Failed row with no delivery evidence and no landed-tx id:
+ * the worst of both, since a later retry then cannot tell the send already
+ * happened. `status` is the thing that must not move here, and this never touches
+ * it.
+ */
+export const recordNoteDelivery = async (
+  id: string,
+  noteDelivery: INoteDeliveryState,
+  evidence?: { transactionId?: string; outputNoteIds?: string[] }
+) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.noteDelivery = noteDelivery;
+    if (evidence?.transactionId) tx.transactionId = evidence.transactionId;
+    if (evidence?.outputNoteIds?.length) tx.outputNoteIds = evidence.outputNoteIds;
   });
 };
 

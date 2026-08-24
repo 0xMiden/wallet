@@ -4,6 +4,7 @@ import {
   IBridgedReceivePhase,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
+  INoteDeliveryState,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
@@ -27,6 +28,14 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /**
+   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
+   * chain may still not be spendable by its recipient, since a private note is
+   * unreachable without its relayed body. Absent for public sends and for rows
+   * written before the field existed.
+   */
+  noteDelivery?: INoteDeliveryState;
   /**
    * `tx.processingStartedAt` — stamped atomically with the Queued →
    * GeneratingTransaction transition. The detail page's Retry gate reads it as
