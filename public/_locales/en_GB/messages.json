@@ -2325,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "That's already your current guardian.",
-    "englishSource": "That's already your current guardian."
+    "message": "That's already your current Guardian.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "A Guardian switch is already in progress. Wait for it to finish before starting another.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Rotate Guardian",
@@ -2368,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Updated!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2380,9 +2380,37 @@
     "message": "Review rotation",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "New",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Current Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "New Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "You've successfully rotated your Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "What changes now",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "New transactions need your new Guardian to be reachable before they can complete.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authenticate to approve this Guardian switch.",
@@ -2699,10 +2727,6 @@
   "viewInActivities": {
     "message": "View in Activities",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "View activity",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "View Details",

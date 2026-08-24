@@ -2041,7 +2041,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "您可隨時使用恢復短語切換至不同的 Guardian 帳戶。僅共同簽署人會變更；您的帳戶與資金將保持不變。",
+    "message": "您可隨時使用恢復短語切換至不同的 Guardian。僅共同簽署人會變更；您的帳戶與資金將保持不變。",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2325,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "這正是您當前的 guardian。",
-    "englishSource": "That's already your current guardian."
+    "message": "這正是您當前的 Guardian。",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Guardian 切換已在進行中。請等待完成後再開始新的切換。",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "輪替 Guardian",
@@ -2368,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian 已更新！",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "線上",
     "englishSource": "Online"
@@ -2380,9 +2380,37 @@
     "message": "審查輪替",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "新",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "目前 Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "新的 Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "您已成功輪換您的 Guardian！",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "現有變更內容",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "從即日起，您的全新 Guardian 將共同簽署每筆交易——您舊有的 Guardian 將不再扮演任何角色。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "您的錢包地址、資金及交易紀錄均維持不變。輪替過程中並未移動任何資產。",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "新交易必須確保您的新 Guardian 可被存取，才能完成。",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "您隨時可以再次輪替您的「Guardian」——請妥善保管您的恢復短語，這是進行此操作的必要條件。",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "請進行驗證以批准此 Guardian 切換。",
@@ -2401,7 +2429,7 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "您的舊版 Guardian 無法阻止此事",
+    "message": "您的舊 Guardian 無法阻止此事",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
@@ -2699,10 +2727,6 @@
   "viewInActivities": {
     "message": "在「活動」中檢視",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "檢視活動",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "查看詳情",

@@ -32,7 +32,7 @@ const About: FC = () => {
         ]
           /* eslint-enable i18next/no-literal-string */
           .map(({ key, link }) => {
-            return <MenuItem key={key} slug={link} titleI18nKey={key} testID={''} linksOutsideOfWallet={true} />;
+            return <MenuItem key={key} slug={link} titleI18nKey={key} linksOutsideOfWallet={true} />;
           })}
       </div>
     </div>

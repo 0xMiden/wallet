@@ -2041,7 +2041,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Вы можете в любой момент перейти на другой адрес Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
+    "message": "Вы можете в любой момент перейти на другой Guardian, используя свою фразу восстановления. Меняется только соавтор; ваш аккаунт и средства остаются прежними.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2325,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Это и есть ваш текущий «guardian».",
-    "englishSource": "That's already your current guardian."
+    "message": "Это и есть ваш текущий «Guardian».",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Смена «Guardian» уже выполняется. Дождитесь её завершения, прежде чем начинать новую.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Поворот стража",
@@ -2368,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Обновлено!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2380,9 +2380,37 @@
     "message": "График проверок",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Новое",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Текущий Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Новый Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Вы успешно произвели ротацию своего Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Что меняется сейчас",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не играет никакой роли.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Адрес вашего кошелька, средства и история остаются без изменений. Во время ротации ничего не перемещалось.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Для завершения новых транзакций необходимо, чтобы ваш новый Guardian был доступен.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Вы можете в любой момент снова сменить своего Guardian — храните фразу восстановления в безопасности, она необходима для этого.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдите аутентификацию, чтобы одобрить переключение Guardian.",
@@ -2405,7 +2433,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый адрес «Guardian» получает лишь уведомление.",
+    "message": "Ротация утверждается вашими двумя ключами, хранящимися на устройстве. Старый «Guardian» получает лишь уведомление.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2699,10 +2727,6 @@
   "viewInActivities": {
     "message": "Просмотр в разделе «Деятельность»",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Просмотреть активность",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Посмотреть подробности",

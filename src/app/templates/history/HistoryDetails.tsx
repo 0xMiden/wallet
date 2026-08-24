@@ -10,7 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { NavigationHeader } from 'components/NavigationHeader';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
@@ -1121,15 +1121,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   return (
     <PageLayout hideToolbar>
+      {/* A swap receipt is reachable from the swap flow itself, so it keeps the
+          close-to-home affordance the previous ScreenHeader carried. */}
+      <NavigationHeader
+        title={t('transaction')}
+        onBack={goBack}
+        variant="prominent"
+        titleAlign="left"
+        onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
+      />
       <div className="flex flex-1 flex-col min-h-0 px-4">
-        <ScreenHeader
-          title={t('transaction')}
-          backLabel={t('back')}
-          onBack={goBack}
-          closeLabel={t('close')}
-          onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
-        />
-
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>

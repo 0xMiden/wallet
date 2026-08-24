@@ -2325,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Це вже і є ваш поточний «guardian».",
-    "englishSource": "That's already your current guardian."
+    "message": "Це вже ваш поточний «Guardian».",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Зміна «Guardian» уже виконується. Дочекайтеся її завершення, перш ніж розпочинати нову.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Оновлення Guardian",
@@ -2368,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Оновлено!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Онлайн",
     "englishSource": "Online"
@@ -2380,9 +2380,37 @@
     "message": "Перегляд черговості",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Нове",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Поточний Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Новий Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Ви успішно здійснили ротацію свого Guardian!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Що змінилося зараз",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Відтепер ваш новий Guardian підписує кожну транзакцію разом з вами — ваш старий Guardian більше не відіграє жодної ролі.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Адреса вашого гаманця, кошти та історія залишаються незмінними. Під час ротації нічого не переміщувалося.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Для завершення нових транзакцій необхідно, щоб ваш новий Guardian був доступним.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Ви можете будь-коли знову змінити свого Guardian — зберігайте фразу відновлення в безпеці, вона необхідна для цього.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Пройдіть аутентифікацію, щоб затвердити це перемикання Guardian.",
@@ -2699,10 +2727,6 @@
   "viewInActivities": {
     "message": "Переглянути в розділі «Діяльність»",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Переглянути активність",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Переглянути деталі",

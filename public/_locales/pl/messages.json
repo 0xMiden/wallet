@@ -2041,7 +2041,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "W dowolnym momencie możesz przejść na inny adres Guardian, korzystając ze swojej frazy odzyskiwania. Zmienia się jedynie osoba współpodpisująca; Twoje konto i środki pozostają bez zmian.",
+    "message": "W dowolnym momencie możesz przejść na innego Guardiana, korzystając ze swojej frazy odzyskiwania. Zmienia się jedynie osoba współpodpisująca; Twoje konto i środki pozostają bez zmian.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2325,8 +2325,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "To już jest wasza obecna strona guardian.",
-    "englishSource": "That's already your current guardian."
+    "message": "To już jest twój obecny Guardian.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Zmiana Guardiana jest już w toku. Poczekaj na jej zakończenie, zanim rozpoczniesz kolejną.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Rotacja Guardian",
@@ -2368,10 +2372,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Zaktualizowano!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2380,9 +2380,37 @@
     "message": "Przegląd rotacji",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Nowość",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Aktualny Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Nowy Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Pomyślnie dokonałeś rotacji swojego Guardiana!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Co się teraz zmienia",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Od tej pory każda transakcja będzie współpodpisywana przez Twojego nowego Guardiana — Twój stary Guardian nie pełni już żadnej roli.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Adres Twojego portfela, środki i historia pozostają niezmienione. Podczas rotacji nic nie zostało przeniesione.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Aby nowe transakcje mogły zostać zrealizowane, Twój nowy Guardian musi być dostępny.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "W dowolnym momencie możesz ponownie zmienić swojego Guardiana — przechowuj frazę odzyskiwania w bezpiecznym miejscu, ponieważ jest ona do tego niezbędna.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Zaloguj się, aby zatwierdzić tę zmianę Guardian.",
@@ -2401,11 +2429,11 @@
     "englishSource": "Recovery phrase (cold)"
   },
   "oldGuardianCantBlockTitle": {
-    "message": "Twój stary adres Guardian nie może tego zablokować",
+    "message": "Twój stary Guardian nie może tego zablokować",
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stara adresowa kopia (Guardian) otrzymuje jedynie powiadomienie.",
+    "message": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stary Guardian otrzymuje jedynie powiadomienie.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2699,10 +2727,6 @@
   "viewInActivities": {
     "message": "Wyświetl w sekcji „Działania”",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Wyświetl aktywność",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Zobacz szczegóły",
