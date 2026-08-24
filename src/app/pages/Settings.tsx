@@ -48,6 +48,7 @@ import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -364,23 +365,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   // settings sub-page owns the screen. The sub-pages need it for the same
   // reason the drawers they replaced did: the tray floats above the bottom of
   // the viewport, which is where these screens pin their primary action.
-  const trayWouldOverlap = showSeedWarning || activeTab !== null;
-  useEffect(() => {
-    if (!isMobile()) return;
-    if (trayWouldOverlap) {
-      document.body.setAttribute('data-drawer-open', '');
-    } else {
-      document.body.removeAttribute('data-drawer-open');
-    }
-    // Unmount cleanup: if the Settings page unmounts while the overlay
-    // is still open, force parked dApp trays back in.
-    return () => {
-      if (!isMobile()) return;
-      if (trayWouldOverlap) {
-        document.body.removeAttribute('data-drawer-open');
-      }
-    };
-  }, [trayWouldOverlap]);
+  //
+  // Through the shared hook rather than the body attribute directly: the flag is
+  // reference-counted, and RevealSecret and every CustomModal are also holders.
+  // Setting it here by hand meant a modal closing over a settings sub-page (the
+  // confirm in Address Book, say) dropped the count to zero and cleared the flag
+  // while this page still wanted it.
+  useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above

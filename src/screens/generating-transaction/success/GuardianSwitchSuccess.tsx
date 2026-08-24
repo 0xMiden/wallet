@@ -14,7 +14,8 @@ import { SuccessDivider, TransactionSuccessLayout, TransactionSuccessProps } fro
 const isSwitchGuardianExtraInputs = (value: unknown): value is ISwitchGuardianExtraInputs =>
   !!value &&
   typeof value === 'object' &&
-  typeof (value as Partial<ISwitchGuardianExtraInputs>).newGuardianEndpoint === 'string';
+  'newGuardianEndpoint' in value &&
+  typeof value.newGuardianEndpoint === 'string';
 
 /**
  * Success receipt for a completed switch-guardian transaction: robot + shield

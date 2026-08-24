@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-import { goBack, navigate, useLocation } from 'lib/woozie';
+import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 /**
  * Back handler for a screen that draws its own header instead of relying on
@@ -19,7 +19,10 @@ export const useBackWithFallback = (fallbackPath = '/') => {
     if (historyPosition > 0) {
       goBack();
     } else {
-      navigate(fallbackPath);
+      // Replace, not push: going "back" must not leave an entry that sends the
+      // user forward into the screen they just left. Both existing back owners
+      // (PageLayout's toolbar handler and MobileBackBridge) replace here.
+      navigate(fallbackPath, HistoryAction.Replace);
     }
   }, [historyPosition, fallbackPath]);
 };

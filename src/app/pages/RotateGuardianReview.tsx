@@ -77,6 +77,14 @@ const RotateGuardianReview: FC = () => {
   const authenticateAndSwitch = useCallback(
     async (credential?: string) => {
       if (!currentAccount || !newEndpoint || submissionRef.current) return;
+      // The picker refuses to rotate onto the active guardian, but this screen
+      // takes its target from the query string, so backing into it after the
+      // rotation landed would queue a second switch to the endpoint that is now
+      // already current. Same guard, same message.
+      if (newEndpoint === currentEndpoint) {
+        setError(t('guardianEndpointUnchanged'));
+        return;
+      }
       submissionRef.current = true;
       setSubmitting(true);
       setError(null);
@@ -97,7 +105,7 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, unlock]
+    [currentAccount, newEndpoint, currentEndpoint, unlock, t]
   );
 
   const handleContinue = useCallback(() => {

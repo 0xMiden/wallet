@@ -10,8 +10,9 @@ let historyPosition = 0;
 
 jest.mock('lib/woozie', () => ({
   goBack: () => goBackMock(),
-  navigate: (path: string) => navigateMock(path),
-  useLocation: () => ({ historyPosition })
+  navigate: (path: string, action?: string) => navigateMock(path, action),
+  useLocation: () => ({ historyPosition }),
+  HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
 // The hook returns a callback, so drive it through a click rather than reaching
@@ -44,15 +45,16 @@ describe('useBackWithFallback', () => {
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
-  it('navigates to the fallback when the screen was opened cold', () => {
+  it('replaces with the fallback when the screen was opened cold', () => {
     // `history.go(-1)` is a no-op at position 0 — a deep link, a reload or a
-    // Replace navigation — which left the header chevron inert.
+    // Replace navigation — which left the header chevron inert. It has to
+    // REPLACE: pushing would leave an entry that walks straight back in.
     historyPosition = 0;
     render(<WithFallback fallback="/settings" />);
 
     clickBack();
 
-    expect(navigateMock).toHaveBeenCalledWith('/settings');
+    expect(navigateMock).toHaveBeenCalledWith('/settings', 'replace');
     expect(goBackMock).not.toHaveBeenCalled();
   });
 
@@ -62,6 +64,6 @@ describe('useBackWithFallback', () => {
 
     clickBack();
 
-    expect(navigateMock).toHaveBeenCalledWith('/');
+    expect(navigateMock).toHaveBeenCalledWith('/', 'replace');
   });
 });

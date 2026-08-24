@@ -1,10 +1,10 @@
 import React, { FC, useCallback, useMemo } from 'react';
 
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
-import { goBack } from 'lib/woozie';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
 const LANGUAGES = [
@@ -30,6 +30,7 @@ type LanguageSettingsProps = {
 const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
   const selectedLocale = getCurrentLocale();
   const { trackEvent } = useAnalytics();
+  const goBackToSettings = useBackWithFallback('/settings');
 
   const currentCode = useMemo(() => {
     const exact = LANGUAGES.find(({ code }) => code === selectedLocale);
@@ -47,9 +48,9 @@ const LanguageSettings: FC<LanguageSettingsProps> = ({ onClose }) => {
       // was handed an `onClose`; as a route there is no host to close it, and
       // without the fallback the selection silently stranded the user here.
       if (onClose) onClose();
-      else goBack();
+      else goBackToSettings();
     },
-    [trackEvent, onClose]
+    [trackEvent, onClose, goBackToSettings]
   );
 
   return (

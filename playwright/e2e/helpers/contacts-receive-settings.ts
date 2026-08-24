@@ -15,13 +15,13 @@
  *
  * ── Traps this module encodes, each of which costs a debugging cycle ──────────
  *
- *  1. `navigateTo('/settings/address-book')` SILENTLY DOES NOTHING USEFUL.
- *     `Settings.tsx`'s `activeTab` lookup is `allTabs.find(t => t.slug === tabSlug
- *     && !t.isDrawer)`, and both address-book and general-settings are
- *     `isDrawer: true` — so a direct hash nav falls back to the Settings ROOT
- *     list and the spec then times out on drawer content that was never asked
- *     for. These tabs are only reachable by CLICKING their menu row.
- *     (`wallet-page.ts:805-817` documents the same trap for guardian-settings.)
+ *  1. `navigateTo('/settings/address-book')` DOES now resolve. These tabs used
+ *     to be bottom-sheet drawers, excluded from `Settings.tsx`'s `activeTab`
+ *     lookup by a `!t.isDrawer` filter, so a direct hash nav silently fell back
+ *     to the Settings ROOT list and the spec timed out on drawer content nobody
+ *     had asked for. They are routed full-screen pages now and the filter is
+ *     gone. The helpers below still drive them by CLICKING the menu row, which
+ *     is what a user does and exercises the row wiring as well as the page.
  *
  *  2. `AddressBook/AddNewContact` is a PHANTOM selector. It is written as
  *     `testID` on `FormSubmitButton`, but `FormSubmitButton` destructures
