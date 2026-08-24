@@ -61,7 +61,10 @@ const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
  * is. Which is fine — as long as the search for one is confined to the tables
  * that actually feed a reporter, and not to every object literal in the tree.
  */
-const STEP_TABLES: readonly string[] = [WIRING_INSIDE_TELEMETRY, 'app/pages/Welcome.tsx'];
+const STEP_TABLES: readonly { path: string; accessor: string }[] = [
+  { path: WIRING_INSIDE_TELEMETRY, accessor: 'stepOfStage' },
+  { path: 'app/pages/Welcome.tsx', accessor: 'ONBOARDING_TELEMETRY_STEPS' }
+];
 
 /** Non-test sources, excluding the telemetry module's own plumbing. */
 const CALL_SITES: readonly { path: string; text: string }[] = sourceFiles(SRC)
@@ -245,6 +248,17 @@ const textOf = (path: string): string => CALL_SITES.find(file => file.path === p
 const isConsumedByAReporter = (accessor: string): boolean =>
   CALL_SITES.some(file => file.text.includes(accessor) && /\breportOperation\(/.test(file.text));
 
+/**
+ * The same question for the step axis.
+ *
+ * Two shapes of consumer, because the two tables are read differently:
+ * `ONBOARDING_TELEMETRY_STEPS` is looked up and handed to `.step(...)` on the
+ * next line, and `stepOfStage` is called as the value of a `step:` key inside a
+ * reporter's argument.
+ */
+const isConsumedByAStepReporter = (accessor: string): boolean =>
+  CALL_SITES.some(file => file.text.includes(accessor) && /\.step\(|\bstep:\s/.test(file.text));
+
 describe('every declared operation is actually reported somewhere', () => {
   const reachable = (Object.keys(EVERY_OPERATION) as TelemetryOperation[]).filter(
     operation => !UNREACHABLE_BY_DESIGN.includes(operation)
@@ -311,13 +325,21 @@ describe('every declared step is actually reported somewhere', () => {
     // does not depend on predicting them. A test that passes on the strength of
     // an unrelated string is worse than no test, because it reads as coverage.
     const named = new RegExp(String.raw`(\.step\(|Step\()[^)]*'${step}'|step:\s*'${step}'`);
-    const inTable = new RegExp(String.raw`:\s*'${step}'`);
-    const reported = instrumentedFilesMatching(
-      named,
-      path => STEP_TABLES.includes(path) && inTable.test(CALL_SITES.find(file => file.path === path)?.text ?? '')
-    );
+    const reported = instrumentedFilesMatching(named);
 
-    expect(reported.length).toBeGreaterThan(0);
+    // A table entry counts only where the table is READ, exactly as on the
+    // operations axis. This is the same gap in the same file, one axis over:
+    // replacing the body of `Welcome.tsx`'s reporting effect with
+    // `void ONBOARDING_TELEMETRY_STEPS;` deletes the only consumer of the
+    // onboarding table — and with it the whole first-run drop-off funnel, seven
+    // of the twenty-three steps — while leaving every entry, and this guard,
+    // exactly where they were.
+    const inTable = new RegExp(String.raw`:\s*'${step}'`);
+    const viaTable = STEP_TABLES.filter(
+      table => inTable.test(textOf(table.path)) && isConsumedByAStepReporter(table.accessor)
+    ).map(table => table.path);
+
+    expect([...reported, ...viaTable].length).toBeGreaterThan(0);
   });
 });
 
