@@ -51,7 +51,7 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
+import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
@@ -213,16 +213,39 @@ export type RecoveryRangeResult = {
  * real hint but correct.
  */
 /**
+ * Whether the client this callback belongs to is still live. Shared by
+ * reference between `MidenClientInterface` and the keystore callbacks it hands
+ * the SDK, because those callbacks are built inside `create()` before the
+ * instance exists.
+ */
+interface ClientLiveness {
+  disposed: boolean;
+}
+
+/**
  * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
  * #775): the sign fires from inside the SDK mid-execute, while the caller's
  * `withWasmClientLock` hold is live, and can wait as long as the user takes to
  * authenticate. Wall-clock spent signing must not count against the watchdog
  * ceiling.
+ *
+ * Skipped once this client is disposed, which is the corpse case. Recovery
+ * disposes the client before releasing the mutex, so a sign firing from a
+ * disposed client belongs to an evicted flow whose lock now belongs to somebody
+ * else — and since the pause cannot be attributed to a hold (the callback is
+ * built per client, not per hold, so it can only ever pause "whoever holds the
+ * mutex"), pausing here would silence the innocent new holder's watchdog for as
+ * long as the corpse's prompt sits unanswered, re-wedging the lock with the
+ * backstop switched off.
  */
 function wrapSignWithWatchdogPause(
-  sign: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>
+  sign: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>,
+  liveness: ClientLiveness
 ): (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array> {
-  return (publicKey, signingInputs) => withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
+  return (publicKey, signingInputs) =>
+    liveness.disposed
+      ? sign(publicKey, signingInputs)
+      : withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
 }
 
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
@@ -249,9 +272,10 @@ export class MidenClientInterface {
   client: MidenClient;
   network: string;
 
-  private constructor(client: MidenClient, network: string) {
+  private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
     this.client = client;
     this.network = network;
+    this.liveness = liveness;
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
@@ -264,6 +288,9 @@ export class MidenClientInterface {
     }
 
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
+    // Shared with the instance below so `free()` can switch the sign wrapper's
+    // watchdog pause off — see wrapSignWithWatchdogPause.
+    const liveness: ClientLiveness = { disposed: false };
 
     const midenClient = await MidenClient.create({
       rpcUrl: getEffectiveRpcUrl(),
@@ -278,7 +305,9 @@ export class MidenClientInterface {
             // watchdog for its duration so a slow sign is never mistaken for
             // a wedge (issue #775; mirrors the offscreen write deadline's
             // sign pause in miden-client-proxy.ts).
-            sign: options.signCallback ? wrapSignWithWatchdogPause(options.signCallback) : options.signCallback!
+            sign: options.signCallback
+              ? wrapSignWithWatchdogPause(options.signCallback, liveness)
+              : options.signCallback!
           }
         : undefined,
       proverUrl: getEffectiveProverUrl(),
@@ -307,7 +336,7 @@ export class MidenClientInterface {
       useWorker: options.useWorker ?? !isMobile()
     });
 
-    return new MidenClientInterface(midenClient, network);
+    return new MidenClientInterface(midenClient, network, liveness);
   }
 
   static fromClient(client: MidenClient, network: string) {
@@ -315,12 +344,21 @@ export class MidenClientInterface {
   }
 
   free() {
-    this.disposed = true;
+    this.liveness.disposed = true;
     this.client.terminate();
   }
 
-  /** Set by `free()` — see `yieldLockUnlessDisposed`. */
-  private disposed = false;
+  /**
+   * Flipped by `free()` — see `yieldLockUnlessDisposed` and
+   * `wrapSignWithWatchdogPause`. An object rather than a boolean field because
+   * the keystore callbacks handed to the SDK are built before the instance
+   * exists and need to observe the same flag.
+   */
+  private readonly liveness: ClientLiveness;
+
+  private get disposed(): boolean {
+    return this.liveness.disposed;
+  }
 
   /**
    * `yieldWasmClientLock`, unless this client has been disposed (issue #775).
@@ -1134,7 +1172,7 @@ export class MidenClientInterface {
         TransactionRequest.deserialize(requestBytes)
       );
       await onStage?.('proving');
-      const proven = await executed.prove(prover ? { prover } : {});
+      const proven = await attempt.pauseWatchdogForLocalProve(() => executed.prove(prover ? { prover } : {}));
       await onStage?.('submitting');
       // Point of no return: everything below can put this transfer on chain, so a
       // failure past here must NOT be retried with the local prover — the retry
@@ -1261,11 +1299,15 @@ export class MidenClientInterface {
       // deadline is its most common failure.
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
       try {
-        const { result } = await this.client.transactions.consume({
-          account: accountId,
-          notes: targetNoteIds,
-          prover
-        });
+        // Opaque whole-op write: it proves internally, so the pause can only be
+        // scoped to the whole call (issue #775).
+        const { result } = await attempt.pauseWatchdogForLocalProve(() =>
+          this.client.transactions.consume({
+            account: accountId,
+            notes: targetNoteIds,
+            prover
+          })
+        );
         recordProveTiming('consumeNoteId SDK consume returned');
         return result;
       } catch (error) {
@@ -1330,7 +1372,11 @@ export class MidenClientInterface {
       // delegated→local prove fallback; a duplicated swap note is unrecoverable,
       // a failed swap is not.
       attempt.markSubmitting();
-      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
+      // Opaque whole-op write: proves internally, so the pause covers the whole
+      // call (issue #775).
+      const { result } = await attempt.pauseWatchdogForLocalProve(() =>
+        this.client.transactions.submit(canonicalId, request, { prover })
+      );
       return result;
     }, transaction.delegateTransaction);
   }
@@ -1362,7 +1408,7 @@ export class MidenClientInterface {
         accountId,
         TransactionRequest.deserialize(requestBytes)
       );
-      const proven = await executed.prove(prover ? { prover } : {});
+      const proven = await attempt.pauseWatchdogForLocalProve(() => executed.prove(prover ? { prover } : {}));
       attempt.markSubmitting();
       const submitted = await proven.submit();
       await submitted.apply();
@@ -1574,6 +1620,21 @@ export interface ProveAttempt {
    * the callback — a retry could otherwise broadcast the transaction twice.
    */
   markSubmitting(): void;
+  /**
+   * Bracket this attempt's PROVE with a WASM-lock watchdog pause when the
+   * attempt is running the local prover, and run it unchanged otherwise (issue
+   * #775). Local proving is deliberately unbounded — it is the fallback for when
+   * delegated proving is down, so capping it would leave nothing to fall back to
+   * — while a delegated prove has its own deadline and stays on the clock.
+   *
+   * Callers must wrap the prove as tightly as their write allows: the seam if
+   * they own one (`executed.prove(...)`), otherwise the opaque SDK call that
+   * proves internally (`transactions.consume` / `transactions.submit`). Pausing
+   * the whole callback where a seam exists would disable the watchdog across
+   * execute → prove → submit → apply, i.e. across exactly the operation #775
+   * wedges.
+   */
+  pauseWatchdogForLocalProve<T>(op: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -1632,21 +1693,26 @@ export async function proveWithFallback<T>(
   // Flipped by the callback right before its first irreversible write. Read in
   // the catch below to decide whether a retry is safe — see the docstring.
   let submitReached = false;
+  // Whether the attempt currently running uses the local prover, i.e. whether
+  // `pauseWatchdogForLocalProve` should pause (issue #775). Set immediately
+  // before each `fn(...)` below, so the flag always describes the live attempt.
+  let localProveAttempt = false;
+  // This write's own lock hold, captured before any await so it is provably ours.
+  // If this flow is evicted mid-write and keeps running, the hold goes stale and
+  // its pauses degrade to plain calls rather than silencing the watchdog of
+  // whichever holder recovery promoted in its place.
+  const hold = getCurrentWasmLockHold();
   const attempt: ProveAttempt = {
     markSubmitting: () => {
       submitReached = true;
-    }
+    },
+    pauseWatchdogForLocalProve: op => (localProveAttempt ? withWasmLockWatchdogPaused(op, hold) : op())
   };
 
   const startedAt = performance.now();
   try {
-    // A local prove attempt pauses the lock watchdog: local proving is
-    // deliberately unbounded (it is the fallback when delegated proving is
-    // down — capping it would leave nothing to fall back to). The delegated
-    // attempt stays on the clock. Issue #775.
-    const result = !shouldDelegate
-      ? await withWasmLockWatchdogPaused(() => fn(localProverFactory(), attempt))
-      : await fn(undefined, attempt);
+    localProveAttempt = !shouldDelegate;
+    const result = !shouldDelegate ? await fn(localProverFactory(), attempt) : await fn(undefined, attempt);
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
     const durationMs = performance.now() - startedAt;
     recordProveTiming(
@@ -1681,7 +1747,8 @@ export async function proveWithFallback<T>(
       const fallbackStartedAt = performance.now();
       const fallbackPath = isMobile() ? 'native-mobile' : 'local';
       try {
-        const result = await withWasmLockWatchdogPaused(() => fn(localProverFactory(), attempt));
+        localProveAttempt = true;
+        const result = await fn(localProverFactory(), attempt);
         recordProveTiming(
           `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
         );

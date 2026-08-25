@@ -699,10 +699,20 @@ export const generateTransaction = async (
       // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key / register
       // a duplicate delta); MAX_QUEUED_AGE remains the terminal cap. The prover
       // connectivity banner explains the wait and auto-clears on the next success.
+      //
+      // A lock-recovery eviction is excluded (issue #775). The stage gate's
+      // safety argument is that 'proving' precedes submit, which holds for an
+      // error that STOPPED the pipeline — but an eviction only rejects the
+      // caller: the abandoned pipeline runs on, and can still stamp 'submitting'
+      // and submit. A delegated prove is deliberately not watchdog-paused, so it
+      // sits squarely inside the window an eviction lands in, and requeueing
+      // there would broadcast the transfer a second time. Falls through to the
+      // funds-safe terminal path instead.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
+        !isWasmClientPoisonedError(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -1036,7 +1046,7 @@ const runGuardianPipeline = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
-  return withWasmClientLock(async () => {
+  return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
     await setStage('executing');
     const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
@@ -1055,7 +1065,7 @@ const runGuardianPipeline = async (
         : TransactionProver.newLocalProver();
       // Local proving is deliberately unbounded — pause the lock watchdog for
       // its duration, exactly like proveWithFallback's local attempts (#775).
-      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }));
+      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -1077,7 +1087,7 @@ const runGuardianPipeline = async (
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }));
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
     await setStage('submitting');

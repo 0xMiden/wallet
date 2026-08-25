@@ -10,6 +10,9 @@
  * different mutex than the one the interface pauses.
  */
 
+/** The keystore `sign` shape `MidenClientInterface.create` wires into the SDK. */
+type WiredSign = (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
+
 /**
  * Attach a rejection expectation NOW — so the eviction's rejection always has
  * a handler — while letting the test drive timers before awaiting the outcome.
@@ -78,7 +81,10 @@ describe('miden-client-interface watchdog pauses', () => {
 
   it('pauses the watchdog for the duration of a keystore sign round-trip', async () => {
     const fakeClient = { terminate: jest.fn() };
-    const createMock = jest.fn(async () => fakeClient);
+    // Typed parameter so the assertion below can reach the wired keystore
+    // callback without a cast — a bare `jest.fn(async () => …)` records calls as
+    // an empty tuple, so `mock.calls[0][0]` does not type-check.
+    const createMock = jest.fn(async (_options?: { keystore?: { sign?: WiredSign } }) => fakeClient);
     installSdkMocks(createMock);
     const { MidenClientInterface } = await import('./miden-client-interface');
     const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
@@ -89,7 +95,8 @@ describe('miden-client-interface watchdog pauses', () => {
     });
     const rawSign = jest.fn(() => signGate.then(() => new Uint8Array([1])));
     await MidenClientInterface.create({ signCallback: rawSign });
-    const wiredSign = createMock.mock.calls[0][0].keystore.sign;
+    const wiredSign = createMock.mock.calls[0]?.[0]?.keystore?.sign;
+    if (!wiredSign) throw new Error('create() was not called with a wired keystore sign callback');
 
     const op = withWasmClientLock(async () => {
       await wiredSign(new Uint8Array([2]), new Uint8Array([3]));
@@ -123,9 +130,12 @@ describe('miden-client-interface watchdog pauses', () => {
     const seenProvers: unknown[] = [];
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async prover => {
+      await proveWithFallback(async (prover, attempt) => {
         seenProvers.push(prover);
-        await proveGate;
+        // The callback brackets its own prove — see `ProveAttempt`. The pause is
+        // deliberately NOT applied to the whole callback: that would disable the
+        // watchdog across execute → prove → submit → apply.
+        await attempt.pauseWatchdogForLocalProve(() => proveGate);
         return 'proved';
       }, false);
       await new Promise<never>(() => {});
@@ -158,10 +168,10 @@ describe('miden-client-interface watchdog pauses', () => {
     const seenProvers: unknown[] = [];
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async prover => {
+      await proveWithFallback(async (prover, attempt) => {
         seenProvers.push(prover);
         if (prover === undefined) throw new Error('remote prover unavailable');
-        await proveGate;
+        await attempt.pauseWatchdogForLocalProve(() => proveGate);
         return 'proved';
       }, true);
       await new Promise<never>(() => {});
@@ -176,6 +186,32 @@ describe('miden-client-interface watchdog pauses', () => {
     expect(seenProvers).toEqual([undefined, 'local']);
 
     releaseProve();
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(isWasmClientBusy()).toBe(false);
+    await opRejects;
+  });
+
+  it('leaves the rest of a local-prover write ON the clock — the pause covers the prove, not the callback', async () => {
+    // The pause used to wrap the whole `proveWithFallback` callback, which for a
+    // send is execute → prove → submit → apply. That disabled the watchdog
+    // across the entire write on the default local path — precisely the
+    // operation issue #775 wedges. The callback must therefore keep being
+    // watched everywhere outside the prove it brackets.
+    installSdkMocks(jest.fn());
+    const { proveWithFallback } = await import('./miden-client-interface');
+    const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
+
+    const op = withWasmClientLock(async () => {
+      await proveWithFallback(async (_prover, attempt) => {
+        await attempt.pauseWatchdogForLocalProve(async () => 'proved');
+        // Stands in for the submit/apply tail, which is not unbounded and so
+        // must not be shielded.
+        await new Promise<never>(() => {});
+      }, false);
+    });
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
     await jest.advanceTimersByTimeAsync(0);
     await jest.advanceTimersByTimeAsync(300_000);
     expect(isWasmClientBusy()).toBe(false);

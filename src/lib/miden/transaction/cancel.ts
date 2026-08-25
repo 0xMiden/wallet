@@ -148,11 +148,44 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * ordinary failure, including the vault-slot rejection this release fixes, is not
  * an aborted op and still rebuilds.
  */
+/**
+ * Stages a row can be in where NO write has been built yet, so an abandoned
+ * pipeline provably cannot submit (issue #775).
+ *
+ * `generateTransaction`'s first act is a locked `syncState()`, taken while the
+ * row still reads 'syncing' — 'sending' is only stamped once that sync returns.
+ * That sync has no JS-level timeout, which makes it one of the likeliest places
+ * for a watchdog eviction to land, and it is unambiguously pre-write.
+ *
+ * Deliberately a one-element list rather than a general "is this before submit"
+ * test. `mayHaveSubmitted` is permanent and `requeueFailedTransaction` refuses
+ * on it, so a wrong "cleared" is a double payment while a wrong "recorded" is
+ * only a refused Retry. Every stage whose pre-write property is not provable
+ * from the stage alone therefore keeps recording.
+ */
+const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
+
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
   // A lock-recovery eviction (issue #775) is treated like an offscreen
   // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
-  // submit — so the crossing must be recorded, never cleared.
-  if (tx.type === 'send' && (isOperationAbortedError(error) || isWasmClientPoisonedError(error))) {
+  // submit — so the crossing must be recorded, never cleared. EXCEPT where the
+  // row never got as far as building a write: recording there would permanently
+  // refuse Retry on a send that demonstrably never touched the chain, which is
+  // the cost a false-positive eviction would otherwise impose.
+  //
+  // The stage comes from the COMMITTED row, not from `tx`: callers pass the
+  // snapshot they picked the transaction up with, which still carries the stage
+  // it held at pickup rather than the one the failure happened in.
+  let abandonedPreWrite = false;
+  if (isWasmClientPoisonedError(error)) {
+    const committed = await Repo.transactions.where({ id: tx.id }).first();
+    abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '');
+  }
+  if (
+    tx.type === 'send' &&
+    !abandonedPreWrite &&
+    (isOperationAbortedError(error) || isWasmClientPoisonedError(error))
+  ) {
     await markMayHaveSubmitted(tx.id);
   } else {
     await clearCancelledInFlight(tx.id);

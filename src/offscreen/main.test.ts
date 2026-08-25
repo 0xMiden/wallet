@@ -120,6 +120,12 @@ jest.mock('lib/miden/sdk/miden-client', () => {
       await acquire();
     }
   };
+  // Issue #775: the real module hands each hold an identity so a yield/pause can
+  // prove it still owns the lock. This mutex has a single anonymous hold, so a
+  // constant token is enough — what matters is that the offscreen dispatches can
+  // capture and pass something, and that the realm-poisoned hook exists for
+  // main.ts to register its client disposer on.
+  const hold = { mock: 'wasm-lock-hold' };
   // Test hook: true while the shared lock is held (used to assert the commit-wait
   // yielded it during the sleep).
   const isWasmClientBusy = (): boolean => locked;
@@ -128,7 +134,13 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     withWasmClientLock,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
-    isWasmClientBusy
+    isWasmClientBusy,
+    getCurrentWasmLockHold: () => hold,
+    onWasmClientPoisoned: (listener: () => void) => {
+      g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
+      g.__off.poisonedListeners.push(listener);
+      return () => {};
+    }
   };
 });
 

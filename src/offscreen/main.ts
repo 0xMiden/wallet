@@ -46,6 +46,7 @@ import {
   b64ToBytes,
   bytesToB64,
   decodeArg,
+  errorNameOf,
   type OffscreenCallRequest,
   type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
@@ -56,10 +57,17 @@ import {
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { withWasmClientLock, withWasmLockWatchdogPaused, yieldWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  getCurrentWasmLockHold,
+  onWasmClientPoisoned,
+  withWasmClientLock,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock
+} from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -645,6 +653,11 @@ const DISPATCH: Record<string, DispatchFn> = {
   // boundaries itself too. Fire-and-forget (see `postStageEvent`): a lost stamp
   // costs a blank duration, never the transaction.
   guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
+    // This op's own lock hold, captured before any await so it is provably ours
+    // (issue #775). Passing it to the watchdog pauses below means that if this
+    // op is ever evicted and keeps running, its pause cannot silence the
+    // watchdog of whichever holder took the lock after it.
+    const hold = getCurrentWasmLockHold();
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent('executing');
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
@@ -654,16 +667,18 @@ const DISPATCH: Record<string, DispatchFn> = {
       // Local proving is deliberately unbounded — pause this realm's lock
       // watchdog for its duration, like proveWithFallback's local attempts
       // (#775). The delegated attempt stays on the clock.
-      provenTx = await withWasmLockWatchdogPaused(() =>
-        executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() })
+      provenTx = await withWasmLockWatchdogPaused(
+        () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+        hold
       );
     } else {
       try {
         provenTx = await executedTx.prove({});
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-        provenTx = await withWasmLockWatchdogPaused(() =>
-          executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() })
+        provenTx = await withWasmLockWatchdogPaused(
+          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+          hold
         );
       }
     }
@@ -703,6 +718,13 @@ const DISPATCH: Record<string, DispatchFn> = {
     // the sign stub reads this op's id. Local capture makes it immune to the
     // interloper also overwriting `reassertCurrentOpId`.
     const reassertOpId = reassertCurrentOpId;
+    // This op's own lock hold, captured before the first yield so it is provably
+    // ours (issue #775). Without it, a yield performed after this op had been
+    // evicted would release whichever holder owns the mutex NOW — popping a
+    // waiter into a concurrent WASM call alongside that live holder, then
+    // leaving the mutex owned by nobody when this loop reacquired. The loop is
+    // not cancelled by the eviction, so it would do that on every poll.
+    const hold = getCurrentWasmLockHold();
     const timeout = 60_000;
     const interval = 5_000;
     const start = Date.now();
@@ -725,7 +747,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
       // Release the offscreen WASM mutex for the WASM-free inter-poll sleep only, so
       // other ops run during it; `yieldWasmClientLock` reacquires before we resume.
-      await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)));
+      await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)), hold);
       // An interloper op that ran during the sleep cleared `currentOpId`; restore it.
       reassertOpId();
     }
@@ -734,6 +756,29 @@ const DISPATCH: Record<string, DispatchFn> = {
 
 // The offscreen-owned client singleton, created lazily on first OFFSCREEN_CALL.
 let clientPromise: Promise<MidenClientInterface> | null = null;
+
+/**
+ * Drop this realm's client when lock recovery declares it poisoned (issue #775).
+ *
+ * Recovery's own `disposeAllInstances()` reaches only `midenClientSingleton`,
+ * and this document deliberately does NOT use it — the client here is built with
+ * `signCallback` + `useWorker:false` and cached in `clientPromise` above. Without
+ * this hook recovery would release the mutex and then hand the next
+ * OFFSCREEN_CALL the very client that just trapped, so the freeze would clear
+ * and every following op would fail instead. That matters most in this realm,
+ * because this is where the writes and proves run.
+ *
+ * Clearing the slot is all that is needed — deliberately no `free()`, for the
+ * reason `reloadEndpointOverrides` documents below: a dispatch that yielded the
+ * mutex resumes on its captured reference, and freeing under it would fail an op
+ * that may still be healthy. The displaced client goes with the realm when the
+ * document closes.
+ */
+onWasmClientPoisoned(() => {
+  if (!clientPromise) return;
+  console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
+  clientPromise = null;
+});
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
     // Created with two Slice-5 overrides vs. the SW's plain singleton:
@@ -880,7 +925,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       ok: false,
       op_id: msg?.op_id,
       error: String((err as { message?: string })?.message ?? err),
-      errorCode: extractSdkErrorCode(err)
+      errorCode: extractSdkErrorCode(err),
+      // The error CLASS, for the classifications that key off it rather than off
+      // a code — today `WasmClientPoisonedError` from this realm's own lock
+      // recovery (issue #775). Without it the SW rebuilds a bare `Error` and
+      // treats an abandoned-but-possibly-still-submitting op as an ordinary
+      // failure.
+      errorName: errorNameOf(err),
+      errorReason: isWasmClientPoisonedError(err) ? err.reason : undefined
     });
   }
 }

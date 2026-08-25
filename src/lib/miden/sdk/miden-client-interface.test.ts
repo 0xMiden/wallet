@@ -1480,7 +1480,8 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
 
       return { consumeCacheHit, hasInFlightMatching, awaitMatching, proveViaOffscreen };
@@ -1604,7 +1605,8 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -1696,7 +1698,8 @@ describe('MidenClientInterface', () => {
       const yieldMock = jest.fn(async (op: () => Promise<unknown>) => op());
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: yieldMock,
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
@@ -1912,7 +1915,8 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1956,7 +1960,8 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -2032,7 +2037,8 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('./miden-client', () => ({
         yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
-        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),

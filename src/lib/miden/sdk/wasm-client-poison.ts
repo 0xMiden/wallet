@@ -41,10 +41,18 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
  * match `isLockedError`'s locked-vault patterns, or a poisoned write would be
  * requeued forever instead of failing loudly.
  */
-export class WasmClientPoisonedError extends Error {
-  readonly reason: 'watchdog' | 'realm-error';
+/** Which mechanism evicted the holder. See {@link WasmClientPoisonedError}. */
+export type WasmClientPoisonReason = 'watchdog' | 'realm-error';
 
-  constructor(reason: 'watchdog' | 'realm-error', cause?: unknown) {
+/** Narrow an untrusted string (e.g. off the offscreen wire) to a known reason. */
+export function isWasmClientPoisonReason(value: unknown): value is WasmClientPoisonReason {
+  return value === 'watchdog' || value === 'realm-error';
+}
+
+export class WasmClientPoisonedError extends Error {
+  readonly reason: WasmClientPoisonReason;
+
+  constructor(reason: WasmClientPoisonReason, cause?: unknown) {
     const detail =
       reason === 'watchdog'
         ? `held the WASM client lock past the ${WASM_LOCK_WATCHDOG_MS}ms watchdog ceiling`

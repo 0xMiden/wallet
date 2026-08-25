@@ -136,7 +136,46 @@ interface LockHolder {
   aborted: Promise<never>;
 }
 
+/**
+ * Opaque identity for one `withWasmClientLock` hold, handed to the operation so
+ * it can prove ownership later (issue #775).
+ *
+ * Needed because eviction ABANDONS an operation rather than cancelling it: an
+ * evicted flow keeps running, and the lock it still believes it holds now
+ * belongs to somebody else. `yieldWasmClientLock` and
+ * `withWasmLockWatchdogPaused` used to infer ownership from the module-global
+ * `currentHolder` at the moment they were called, which cannot tell "I am the
+ * holder" from "somebody else is" — so a corpse could release an innocent
+ * holder's mutex into a concurrent WASM call, or silence its watchdog. Passing
+ * the hold makes the two cases distinguishable.
+ *
+ * Treat the value as opaque; only reference equality is meaningful.
+ */
+export type WasmLockHold = LockHolder;
+
 let currentHolder: LockHolder | null = null;
+
+/**
+ * The hold that currently owns the mutex, or `null` when it is free.
+ *
+ * Safe to call at the very START of a locked operation's body — no `await` has
+ * elapsed since the hold was created, so the value IS this flow's own hold.
+ * Capturing it later is meaningless: by then an eviction may have handed the
+ * slot to somebody else, which is the whole ambiguity {@link WasmLockHold}
+ * exists to resolve.
+ */
+export function getCurrentWasmLockHold(): WasmLockHold | null {
+  return currentHolder;
+}
+
+/**
+ * Is `hold` still the live owner of the mutex? A `null`/omitted hold means the
+ * caller did not supply an identity, so we fall back to the pre-#775 behaviour
+ * of trusting whatever holds the lock.
+ */
+function holdIsCurrent(hold: WasmLockHold | null | undefined): boolean {
+  return hold == null || hold === currentHolder;
+}
 
 /**
  * Does an uncaught realm error look like a WebAssembly trap? The main-realm
@@ -153,11 +192,27 @@ function looksLikeWasmTrap(event: ErrorEvent): boolean {
   const message = typeof event.message === 'string' ? event.message : '';
   // No bare "wasm" match here: on mobile the whole React app shares the realm,
   // and an unrelated error merely mentioning wasm must not evict a holder.
-  if (/\bRuntimeError\b|\bunreachable\b|memory access out of bounds/i.test(message)) {
+  //
+  // Each alternative is a full trap phrase, never a lone English word. An
+  // earlier revision matched `\bunreachable\b`, which fires on this codebase's
+  // own connectivity wording — "node unreachable", "network unreachable",
+  // "prover unreachable", "guardian unreachable" — and bought nothing, since
+  // engines render the trap as `RuntimeError: unreachable`, already covered by
+  // the first alternative. A false positive here is expensive: it evicts a
+  // healthy holder and disposes a live client.
+  if (
+    /\bRuntimeError\b|unreachable executed|Unreachable code should not be executed|memory access out of bounds|divide by zero|integer overflow/i.test(
+      message
+    )
+  ) {
     return true;
   }
+  // A genuine `.wasm` module URL only — anchored, because `\b` is satisfied by a
+  // following dot and so matched wasm-glue JS (`*.wasm.js`) and sourcemaps
+  // (`*.wasm.map`), letting any ordinary TypeError thrown from glue code evict a
+  // holder.
   const filename = typeof event.filename === 'string' ? event.filename : '';
-  return /\.wasm\b/i.test(filename);
+  return /\.wasm(?:$|[?#])/i.test(filename);
 }
 
 /**
@@ -179,6 +234,39 @@ function inRecoveryCooldown(): boolean {
 
 /** Holders currently suspended inside a `yieldWasmClientLock` window. */
 let yieldedHolderCount = 0;
+
+/**
+ * Realm-local listeners run after recovery has disposed the client singletons
+ * (issue #775).
+ *
+ * `midenClientSingleton` is not the only place a realm keeps a client: the
+ * offscreen document builds its own via `MidenClientInterface.create()` and
+ * caches it in a module-local, so `disposeAllInstances()` reaches nothing there
+ * and the next call would be handed the same trapped client — defeating
+ * recovery in the one realm where the recorded #775 trap happened. A realm with
+ * its own client registers here to drop it.
+ *
+ * Listeners must be synchronous and must not throw; a throwing listener would
+ * otherwise abort recovery before the mutex is released, re-creating the wedge.
+ */
+type WasmClientPoisonedListener = () => void;
+const poisonedListeners = new Set<WasmClientPoisonedListener>();
+
+/** Register a realm-local disposer; returns an unsubscribe for tests. */
+export function onWasmClientPoisoned(listener: WasmClientPoisonedListener): () => void {
+  poisonedListeners.add(listener);
+  return () => poisonedListeners.delete(listener);
+}
+
+function notifyWasmClientPoisoned(): void {
+  for (const listener of poisonedListeners) {
+    try {
+      listener();
+    } catch (err) {
+      console.warn('[miden-client] a poisoned-client listener threw (continuing):', err);
+    }
+  }
+}
 
 function onRealmError(event: ErrorEvent): void {
   if (!looksLikeWasmTrap(event)) return;
@@ -202,6 +290,7 @@ function onRealmError(event: ErrorEvent): void {
     console.error('[miden-client] WASM trap with no lock holder — disposing client singletons:', cause);
     lastRecoveryAt = Date.now();
     midenClientSingleton.disposeAllInstances();
+    notifyWasmClientPoisoned();
   }
 }
 
@@ -239,6 +328,13 @@ function beginHold(): LockHolder {
     abort = reject;
   });
   const holder: LockHolder = { killed: false, pauseCount: 0, watchdogTimer: null, abort, aborted };
+  // A non-null holder here means the mutex admitted two owners at once — the
+  // invariant this type documents is broken, and the WASM client is about to be
+  // double-borrowed. Unobservable before, so say so loudly rather than
+  // silently overwriting the evidence.
+  if (currentHolder) {
+    console.error('[miden-client] BUG: taking the WASM lock while another holder is still registered');
+  }
   armWatchdog(holder);
   currentHolder = holder;
   return holder;
@@ -282,18 +378,24 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // takes this same lock and would deadlock), then release so the queue
   // drains onto a freshly constructed client.
   midenClientSingleton.disposeAllInstances();
+  notifyWasmClientPoisoned();
   wasmClientMutex.release();
 }
 
 /**
  * Execute an operation with the WASM client mutex held.
  * This ensures only one WASM client operation runs at a time across the entire app.
+ *
+ * The operation receives its own {@link WasmLockHold}. Passing that hold to
+ * `yieldWasmClientLock` / `withWasmLockWatchdogPaused` is what lets those
+ * distinguish this flow from an evicted corpse (issue #775) — a flow that
+ * ignores the argument keeps the older, ownership-blind behaviour.
  */
-export async function withWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
+export async function withWasmClientLock<T>(operation: (hold: WasmLockHold) => Promise<T>): Promise<T> {
   await wasmClientMutex.acquire();
   const holder = beginHold();
   try {
-    return await Promise.race([operation(), holder.aborted]);
+    return await Promise.race([operation(holder), holder.aborted]);
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();
@@ -341,12 +443,12 @@ export function isWasmClientBusy(): boolean {
  * transaction between the guard and the read.
  */
 export async function tryWithWasmClientLock<T>(
-  operation: () => Promise<T>
+  operation: (hold: WasmLockHold) => Promise<T>
 ): Promise<{ ran: true; value: T } | { ran: false }> {
   if (!wasmClientMutex.tryAcquire()) return { ran: false };
   const holder = beginHold();
   try {
-    return { ran: true, value: await Promise.race([operation(), holder.aborted]) };
+    return { ran: true, value: await Promise.race([operation(holder), holder.aborted]) };
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();
@@ -364,23 +466,33 @@ export async function tryWithWasmClientLock<T>(
  * down — capping it would leave nothing to fall back to).
  *
  * Depth-counted so brackets nest, and holder-scoped: the holder is captured at
- * entry so the close can never touch a different holder. No-op when the lock
- * is not held. Pausing only silences the watchdog — a realm trap still evicts
- * a paused holder immediately.
+ * entry so the close can never touch a different holder. Pausing only silences
+ * the watchdog — a realm trap still evicts a paused holder immediately.
+ *
+ * The CALLER MUST OWN THE LOCK, and should pass its `hold` to prove it. Without
+ * one this pauses whoever happens to hold the mutex, which is wrong in the case
+ * that matters: an evicted corpse reaching a sign callback or a local prove
+ * would silence the watchdog of the innocent holder that recovery just promoted
+ * — removing the backstop from the one flow still guarding the client. With a
+ * stale hold the bracket degrades to a plain call.
  */
-export async function withWasmLockWatchdogPaused<T>(operation: () => Promise<T>): Promise<T> {
+export async function withWasmLockWatchdogPaused<T>(
+  operation: () => Promise<T>,
+  hold?: WasmLockHold | null
+): Promise<T> {
   const holder = currentHolder;
-  if (holder && !holder.killed) {
-    holder.pauseCount++;
-    if (holder.watchdogTimer) {
-      clearTimeout(holder.watchdogTimer);
-      holder.watchdogTimer = null;
-    }
+  if (!holder || holder.killed || !holdIsCurrent(hold)) {
+    return operation();
+  }
+  holder.pauseCount++;
+  if (holder.watchdogTimer) {
+    clearTimeout(holder.watchdogTimer);
+    holder.watchdogTimer = null;
   }
   try {
     return await operation();
   } finally {
-    if (holder && !holder.killed) {
+    if (!holder.killed) {
       holder.pauseCount--;
       if (holder.pauseCount === 0 && holder === currentHolder) {
         armWatchdog(holder);
@@ -405,19 +517,23 @@ export async function withWasmLockWatchdogPaused<T>(operation: () => Promise<T>)
  * call, MidenClient method, etc.). It's only safe to use for I/O-bound
  * waits on workloads that don't share state with the SW's WASM instance.
  */
-export async function yieldWasmClientLock<T>(operation: () => Promise<T>): Promise<T> {
+export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?: WasmLockHold | null): Promise<T> {
   // While yielded this flow does not hold the lock, so it must not be watched
   // (the offscreen prove it waits on is legitimately unbounded) and must not
   // be the realm-error eviction target — another holder may take the lock in
   // the meantime and gets its own watchdog (issue #775).
   const holder = currentHolder;
-  if (!holder) {
-    // No current holder means this flow does not own the mutex — either a
-    // contract violation or, after a recovery, an evicted holder's abandoned
-    // operation still running. Releasing here would pop a waiter into a
-    // concurrent WASM call, and the reacquire would leak a permanently-held
-    // lock (the exact wedge #775 fixes). Run the operation without touching
-    // the mutex.
+  if (!holder || !holdIsCurrent(hold)) {
+    // Either the mutex is free, or `hold` proves this flow is no longer its
+    // owner — an evicted holder's abandoned operation still running, whose lock
+    // now belongs to somebody else. Releasing in either case would pop a waiter
+    // into a concurrent WASM call (with a live holder still running, exactly the
+    // "recursive use of an object" crash the mutex prevents), and the reacquire
+    // would leak a permanently-held lock — the wedge #775 fixes. Run the
+    // operation without touching the mutex.
+    //
+    // Callers that pass no `hold` can only be checked against the free case,
+    // which is why the identity argument exists.
     return operation();
   }
   if (holder.watchdogTimer) {
@@ -471,6 +587,16 @@ class MidenClientSingleton {
   private initializingPromiseWithOptions: Promise<MidenClientInterface> | null = null;
 
   /**
+   * Bumped by every dispose. A creation that was already in flight captures the
+   * value at its start and refuses to install its client if it no longer
+   * matches — otherwise it would write a client built before the dispose into
+   * the slot the dispose just cleared, handing later callers exactly the stale
+   * instance the dispose existed to get rid of (issue #775: recovery disposes
+   * from a timer / error listener, so a `getMidenClient()` is likely in flight).
+   */
+  private generation = 0;
+
+  /**
    * Get or create the singleton MidenClientInterface instance.
    * This instance does not specify any options and is never disposed.
    * On mobile, if instanceWithOptions already exists, return that to avoid
@@ -492,9 +618,19 @@ class MidenClientSingleton {
       return this.initializingPromise;
     }
 
-    this.initializingPromise = (async () => {
+    const startedAt = this.generation;
+    const creating: Promise<MidenClientInterface> = (async () => {
       try {
         const client = await MidenClientInterface.create();
+        // Lost a race with a dispose: this client predates it, so it must not
+        // land in the slot. Free it rather than leaking its WASM instance, and
+        // still hand it back to THIS caller, whose await began before the
+        // dispose — it fails on its next call, which is the same outcome the
+        // dispose gave every other in-flight user of that client.
+        if (startedAt !== this.generation) {
+          this.freeGuarded(client);
+          return client;
+        }
         this.instance = client;
         return client;
       } finally {
@@ -504,11 +640,17 @@ class MidenClientSingleton {
         // a permanently-rejected promise until a full reload / SW restart. Before
         // this, a startup blip left every caller getting the same rejection
         // forever (resilience gap 7).
-        this.initializingPromise = null;
+        //
+        // Guarded on generation: a dispose that landed mid-creation already
+        // cleared the slot, and a later caller may have installed ITS OWN
+        // creation there — which this must not clear, or a third caller would
+        // start yet another concurrent create.
+        if (startedAt === this.generation) this.initializingPromise = null;
       }
     })();
+    this.initializingPromise = creating;
 
-    return this.initializingPromise;
+    return creating;
   }
 
   /**
@@ -525,26 +667,44 @@ class MidenClientSingleton {
       return this.initializingPromiseWithOptions;
     }
 
-    this.initializingPromiseWithOptions = (async () => {
+    const startedAt = this.generation;
+    const creating: Promise<MidenClientInterface> = (async () => {
       try {
         const client = await MidenClientInterface.create(options);
+        // See getInstance: a client built before a dispose must not be
+        // installed afterwards. This slot matters more, because it is the first
+        // await of every signed (guardian) write.
+        if (startedAt !== this.generation) {
+          this.freeGuarded(client);
+          return client;
+        }
         this.instanceWithOptions = client;
         return client;
       } finally {
         // Self-heal a transient startup failure instead of poisoning the
-        // memoized promise (resilience gap 7 — see getInstance above).
-        this.initializingPromiseWithOptions = null;
+        // memoized promise (resilience gap 7 — see getInstance above), without
+        // clearing a successor a mid-creation dispose let somebody else install.
+        if (startedAt === this.generation) this.initializingPromiseWithOptions = null;
       }
     })();
+    this.initializingPromiseWithOptions = creating;
 
-    return this.initializingPromiseWithOptions;
+    return creating;
   }
 
   disposeInstanceWithOptions(): void {
+    this.generation++;
+    // Cleared UNCONDITIONALLY, outside the instance guard. A with-options
+    // creation that is still in flight leaves `instanceWithOptions` null, so the
+    // guard below never runs — and the pending promise would then be returned
+    // as-is by the next `getInstanceWithOptions()`, which is either a client
+    // built against the pre-dispose state or, if that creation is the one that
+    // trapped, a promise that never settles: every later signed write would
+    // await it forever, and recovery could not clear it (issue #775).
+    this.initializingPromiseWithOptions = null;
     if (this.instanceWithOptions) {
       this.freeGuarded(this.instanceWithOptions);
       this.instanceWithOptions = null;
-      this.initializingPromiseWithOptions = null;
     }
   }
 
@@ -570,6 +730,7 @@ class MidenClientSingleton {
    * singleton — see `resetMidenClient`.
    */
   disposeAllInstances(): void {
+    this.generation++;
     if (this.instance) {
       this.freeGuarded(this.instance);
       this.instance = null;

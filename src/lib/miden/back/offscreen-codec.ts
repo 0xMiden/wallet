@@ -117,10 +117,23 @@ export interface OffscreenCallRequest {
  * `undefined` on the wire (doc closed/reaped) is treated by the SW as an
  * {@link OperationAbortedError}, and is therefore intentionally NOT part of this
  * type.
+ *
+ * `errorName` carries the offscreen error's `name` so the SW can rebuild an
+ * error of the same TYPE rather than a bare `Error` (issue #775). Only a message
+ * and an `errorCode` used to cross, which is enough for the code-driven
+ * classifications but not for the ones that key off the error class: a
+ * `WasmClientPoisonedError` raised by this realm's own lock recovery arrived SW
+ * side as an ordinary failure, so `tryCompleteKilledConsume` skipped its node
+ * adjudication and `cancelTransactionAfterPipelineStopped` cleared the
+ * may-have-submitted crossing instead of recording it — letting Retry rebuild a
+ * send whose abandoned offscreen op could still submit. Same reasoning as
+ * {@link finishOpError}'s: the SW must not see a kill as a plain error.
+ * `errorReason` carries that error's own discriminant alongside it, so the
+ * rebuilt error names the mechanism that actually fired rather than guessing.
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
-  | { ok: false; op_id: string; error: string; errorCode?: string };
+  | { ok: false; op_id: string; error: string; errorCode?: string; errorName?: string; errorReason?: string };
 
 /**
  * SW → offscreen endpoint-override reload request. Carries no payload: the
@@ -282,6 +295,23 @@ export function decodeArg(encoded: string): unknown {
   if (tag === 'b:') return b64ToBytes(body);
   if (tag === 's:') return JSON.parse(body);
   throw new Error(`decodeArg: unrecognized argument tag in "${encoded.slice(0, 8)}…"`);
+}
+
+/**
+ * The DISTINGUISHING `name` of a thrown value, for
+ * `OffscreenCallResponse.errorName` — see that field for why the class has to
+ * cross at all.
+ *
+ * A plain `'Error'` reports `undefined`: it says nothing the SW can act on, and
+ * omitting it keeps the reply envelope byte-identical to what an ordinary
+ * failure produced before this field existed. Only a named subclass is worth
+ * putting on the wire.
+ */
+export function errorNameOf(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const name = Reflect.get(error, 'name');
+  if (typeof name !== 'string' || name.length === 0 || name === 'Error') return undefined;
+  return name;
 }
 
 /**

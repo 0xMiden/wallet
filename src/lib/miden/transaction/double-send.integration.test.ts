@@ -603,6 +603,39 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged-poison')).mayHaveSubmitted).toBe(true);
   });
 
+  it('does NOT record a crossing for an eviction during the pre-write sync — that send provably never built one', async () => {
+    // Issue #775. `generateTransaction`'s first act is a locked `syncState()`,
+    // taken while the row still reads 'syncing' — an untimed call, so one of the
+    // likeliest places for a watchdog eviction to land. `mayHaveSubmitted` is
+    // permanent and Retry refuses on it, so recording it here would brick the
+    // user's retry on a send that demonstrably never touched the chain.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('poison-presync', { stage: 'syncing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('poison-presync'), new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('poison-presync')).mayHaveSubmitted).toBeFalsy();
+  });
+
+  it('reads the stage from the COMMITTED row, not the caller snapshot, when deciding', async () => {
+    // Callers pass the row they picked the transaction up with, which still
+    // carries the stage it held at pickup rather than the one the failure
+    // happened in. A stale 'syncing' snapshot must not clear a crossing for a
+    // row that has since reached 'sending'.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('poison-stale-snapshot', { stage: 'syncing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+    const staleSnapshot = await read('poison-stale-snapshot');
+    await Repo.transactions.where({ id: 'poison-stale-snapshot' }).modify(row => {
+      row.stage = 'sending';
+    });
+
+    await cancelTransactionAfterPipelineStopped(staleSnapshot, new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('poison-stale-snapshot')).mayHaveSubmitted).toBe(true);
+  });
+
   it('refuses the retry rather than minting a second payment', async () => {
     const tx = inFlightSend('wedged-retry', { stage: 'sending', requestBytes: undefined });
     await Repo.transactions.add(tx);

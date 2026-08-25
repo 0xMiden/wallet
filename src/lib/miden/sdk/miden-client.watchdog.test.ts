@@ -11,6 +11,7 @@ import {
   isWasmClientBusy,
   tryWithWasmClientLock,
   WasmClientPoisonedError,
+  WasmLockHold,
   withWasmClientLock,
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
@@ -227,6 +228,70 @@ describe('realm error fast path', () => {
     await expect(first).resolves.toBeUndefined();
   });
 
+  it.each([
+    ['this codebase says "unreachable" for connectivity, not for traps', 'Uncaught Error: node unreachable'],
+    ['a guardian outage reads the same way', 'Uncaught Error: guardian unreachable'],
+    ['so does the prover banner', 'Uncaught Error: prover unreachable']
+  ])('ignores a benign error whose message merely contains "unreachable" — %s', async (_why, message) => {
+    // The predicate used to match the bare word `unreachable`, which fires on
+    // this app's own connectivity wording — and on mobile the whole React app
+    // shares this realm. A false positive is expensive: it evicts a healthy
+    // holder and disposes a live client mid-transaction. It also bought nothing,
+    // since engines render the real trap as `RuntimeError: unreachable`, which
+    // the RuntimeError arm already matches.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseGate = resolve;
+    });
+    const first = withWasmClientLock(() => gate);
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(new ErrorEvent('error', { error: new Error(message), message }));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(true);
+    releaseGate();
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it('ignores an ordinary error thrown from a wasm-GLUE file, which is not a .wasm module', async () => {
+    // `/\.wasm\b/` matched `foo.wasm.js` and `foo.wasm.map` — the `\b` is
+    // satisfied by the following dot — so any TypeError out of generated glue
+    // code evicted a holder.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseGate = resolve;
+    });
+    const first = withWasmClientLock(() => gate);
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(
+      new ErrorEvent('error', {
+        message: 'Uncaught TypeError: x is not a function',
+        filename: 'https://wallet/assets/miden_client_web.wasm.js'
+      })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(true);
+    releaseGate();
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it('still detects a .wasm module URL carrying a query string or fragment', async () => {
+    const first = withWasmClientLock(() => new Promise<never>(() => {}));
+    const firstRejects = expectRejection(first, { name: 'WasmClientPoisonedError', reason: 'realm-error' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(
+      new ErrorEvent('error', { message: 'Script error.', filename: 'https://wallet/client.wasm?v=3' })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(false);
+    await firstRejects;
+  });
+
   it('evicts a holder even while its watchdog is paused — the incident shape: a trap milliseconds into a local prove', async () => {
     const first = withWasmClientLock(async () => {
       await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
@@ -382,6 +447,106 @@ describe('watchdog pause and yield', () => {
     await opRejects;
   });
 
+  it('an evicted flow yielding with its own hold does NOT release the lock the next holder now owns', async () => {
+    // The wedge this closes: eviction abandons an operation rather than
+    // cancelling it, so the evicted flow keeps running and reaches its next
+    // `yieldWasmClientLock`. Inferring ownership from "somebody holds the mutex"
+    // cannot tell that flow from the real owner, so it released the INNOCENT
+    // holder's lock — popping a waiter into a concurrent WASM call beside a live
+    // holder, then leaving the mutex owned by nobody once it reacquired. The
+    // real instance of this is the offscreen commit-wait loop, which yields on
+    // every poll for a full 60s after being evicted.
+    let releaseCorpseYield!: () => void;
+    const corpseGate = new Promise<void>(resolve => {
+      releaseCorpseYield = resolve;
+    });
+    let corpseHold: WasmLockHold | null = null;
+    let corpseYieldReturned = false;
+
+    const evicted = withWasmClientLock(async hold => {
+      corpseHold = hold;
+      // Wedge past the ceiling so this holder is evicted while still alive.
+      await new Promise<never>(() => {});
+    });
+    const evictedRejects = expectRejection(evicted, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(300_000);
+    await evictedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+
+    // A healthy holder takes the freed lock.
+    let releaseSuccessor!: () => void;
+    const successorGate = new Promise<void>(resolve => {
+      releaseSuccessor = resolve;
+    });
+    const successor = withWasmClientLock(() => successorGate);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(isWasmClientBusy()).toBe(true);
+
+    // Nobody must be able to start while the successor holds the lock.
+    let interloperRan = false;
+    const interloper = withWasmClientLock(async () => {
+      interloperRan = true;
+    });
+
+    // Now the corpse yields, passing the hold it captured before it was evicted.
+    const corpseYield = yieldWasmClientLock(async () => {
+      await corpseGate;
+      return 'corpse-done';
+    }, corpseHold).then(v => {
+      corpseYieldReturned = true;
+      return v;
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+    // The successor still owns the mutex and the queued op has NOT been let in.
+    expect(isWasmClientBusy()).toBe(true);
+    expect(interloperRan).toBe(false);
+
+    releaseCorpseYield();
+    await expect(corpseYield).resolves.toBe('corpse-done');
+    expect(corpseYieldReturned).toBe(true);
+    // The corpse's yield never took the mutex, so it must not have queued for it
+    // either — the successor is still the owner.
+    expect(isWasmClientBusy()).toBe(true);
+    expect(interloperRan).toBe(false);
+
+    releaseSuccessor();
+    await successor;
+    await interloper;
+    expect(interloperRan).toBe(true);
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('an evicted flow pausing with its own hold does NOT silence the watchdog of the next holder', async () => {
+    // Same root cause as the yield case: a corpse reaching a sign callback or a
+    // local prove would otherwise clear the watchdog of the holder recovery just
+    // promoted — removing the backstop from the one flow still guarding the
+    // client, for as long as the corpse's own wait lasts.
+    let corpseHold: WasmLockHold | null = null;
+    const evicted = withWasmClientLock(async hold => {
+      corpseHold = hold;
+      await new Promise<never>(() => {});
+    });
+    const evictedRejects = expectRejection(evicted, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await evictedRejects;
+
+    const successor = withWasmClientLock(() => new Promise<never>(() => {}));
+    const successorRejects = expectRejection(successor, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The corpse opens a pause that never closes, quoting its stale hold.
+    void yieldWasmClientLock(async () => {}, corpseHold);
+    void withWasmLockWatchdogPaused(() => new Promise<never>(() => {}), corpseHold);
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The successor's own ceiling still fires.
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(isWasmClientBusy()).toBe(false);
+    await successorRejects;
+  });
+
   it('a tryWithWasmClientLock holder is recoverable, and the mutex stays sane after the abandoned op settles late', async () => {
     let settleLate!: () => void;
     const late = new Promise<void>(resolve => {
@@ -428,6 +593,7 @@ describe('poisoned client recovery', () => {
     yieldWasmClientLock: typeof yieldWasmClientLock;
     getMidenClient: (options?: unknown) => Promise<unknown>;
     resetMidenClient: () => Promise<void>;
+    onWasmClientPoisoned: (listener: () => void) => () => void;
   }
 
   const loadIsolated = async (freeImpl?: () => void) => {
@@ -501,6 +667,46 @@ describe('poisoned client recovery', () => {
     const clientAfter = await mod.getMidenClient();
     expect(create).toHaveBeenCalledTimes(2);
     expect(clientAfter).not.toBe(clientBefore);
+  });
+
+  it('notifies realms that keep their own client, which the singleton dispose cannot reach', async () => {
+    // The offscreen document builds its client with `MidenClientInterface.create`
+    // and caches it in a module-local, so `disposeAllInstances()` reaches nothing
+    // there — recovery would release the mutex and then hand the next call the
+    // same trapped client. That is the realm where the recorded #775 trap
+    // happened, so the hook is what makes recovery mean anything there.
+    const { mod } = await loadIsolated();
+    await mod.getMidenClient();
+    const realmDisposer = jest.fn();
+    mod.onWasmClientPoisoned(realmDisposer);
+
+    const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+
+    expect(realmDisposer).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing realm disposer cannot abort recovery — the mutex is still released', async () => {
+    const { mod } = await loadIsolated();
+    await mod.getMidenClient();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mod.onWasmClientPoisoned(() => {
+      throw new Error('realm disposer blew up');
+    });
+
+    const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
+    let nextRan = false;
+    const next = mod.withWasmClientLock(async () => {
+      nextRan = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+    await next;
+    expect(nextRan).toBe(true);
   });
 
   it('does not dispose on a trap while a holder is suspended mid-yield', async () => {
