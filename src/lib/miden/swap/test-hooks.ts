@@ -3,6 +3,7 @@ import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
 
 import { _setSwapTokensForTest, type SwapToken } from './tokens';
 
@@ -166,7 +167,14 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
         const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
           account: a.accountId,
           note: importedId,
-          fillAmount: BigInt(a.fillAmount)
+          fillAmount: BigInt(a.fillAmount),
+          // Omitting `prover` takes the SDK's default remote prover, whose gRPC
+          // deadline is ~10s — shorter than a fill proof takes on a 2-core CI
+          // runner, so the fill dies with `DeadlineExceeded`. `remoteProver()`
+          // carries `DELEGATED_PROVE_TIMEOUT_MS` instead. Build a fresh one per
+          // call: the SDK consumes a prover, and a reused one silently reverts
+          // to the default.
+          prover: remoteProver()
         });
         return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId: importedId };
       }
@@ -222,7 +230,9 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
       const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
         account: a.accountId,
         note: noteId,
-        fillAmount: BigInt(a.fillAmount)
+        fillAmount: BigInt(a.fillAmount),
+        // Fresh explicit prover, same reason as the deterministic-handoff path above.
+        prover: remoteProver()
       });
       return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId };
     } catch (e) {

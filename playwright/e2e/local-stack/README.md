@@ -20,11 +20,11 @@ those files currently say; when they disagree, the files win.
 > built against, so the node is **compiled and run from source** — miden-client's
 > `scripts/start-test-node.sh` at `NODE_SRC_REF`. There is deliberately no `NODE_IMAGE_TAG`.
 
-> **Guardian is expected red on this branch.** No `@openzeppelin/miden-multisig-client` release
-> targets Miden 0.16 (the newest, `0.16.2`, still declares `@miden-sdk/miden-sdk: ^0.15.8`), so
-> guardian account creation fails at runtime on MASM procedure-root mismatch. The guardian E2E
-> jobs are quarantined (`if: false` in `pr-e2e-guardian-lifecycle.yml`) until OZ ships a
-> protocol-0.16 client — tracked in #522. See the long note in `versions.env`.
+> **Keep `GUARDIAN_IMAGE_TAG` in lockstep with the client.** The guardian server image and
+> `@openzeppelin/miden-multisig-client` in `package.json` have to agree on the MASM procedure
+> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.1` is the first
+> guardian release built against Miden 0.16. Bumping one without the other still installs and
+> starts cleanly; it fails at runtime on procedure-root mismatch.
 
 ## Prerequisites
 

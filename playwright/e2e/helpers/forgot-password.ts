@@ -9,15 +9,13 @@
  *   ForgotPassword host        `onboarding-welcome`→ `#import-link`
  *     └ ImportSeedPhrase       `import-seed-phrase`
  *     └ CreatePassword         `create-password-input`
+ *     └ ImportRecoveryMethod   `import-recovery-method`
  *     └ Confirmation           `onboarding-confirmation`
  *
  * `ChromeWalletPage.recoverGuardianFromSeed(seed, { viaUI: true })` looks close
  * enough to reuse and is NOT: it starts from a fresh Welcome
  * (`openImportSeedPhraseScreen`, i.e. `page.goto(fullpage)`), which skips the
- * locked-Unlock entry point entirely, and it then blocks on
- * `guardian-detected` / `recovery-method-continue`. `ForgotPassword.tsx` renders
- * `OnboardingFlow` without `OnboardingStep.ImportSelectRecoveryMethod`, so those
- * testids never appear on this route and that helper would hang.
+ * locked-Unlock entry point entirely.
  *
  * Lives in its own module (not in `wallet-page.ts`) per the harness rule that
  * parallel work must not converge on that file.
@@ -180,6 +178,22 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
   await page.getByTestId('create-password-input').fill(opts.password);
   await page.getByTestId('create-password-verify-input').fill(opts.password);
   await page.getByTestId('create-password-submit').click({ timeout: 15_000 });
+
+  // `ForgotPassword.tsx` now routes an Import through `ImportSelectRecoveryMethod`
+  // before Confirmation (the guardian flow revamp). That screen probes for the
+  // seed's guardian: when one is found it is preselected, and when none is — which
+  // is precisely what the "recovery that fails" leg drives, with a seed that has no
+  // guardian account — it stays put asking the user to pick one, with the endpoint
+  // field prefilled. Either way Continue is the way forward, so take it when the
+  // screen is up rather than assuming which surface we landed on.
+  const confirmation = page.getByTestId('onboarding-confirmation');
+  const recoveryMethod = page.getByTestId('import-recovery-method');
+  await expect(confirmation.or(recoveryMethod)).toBeVisible({ timeout: 30_000 });
+  if (await recoveryMethod.isVisible()) {
+    // Continue only enables once probing settles on a valid endpoint, so its
+    // ceiling is the "guardian probe never resolved" diagnostic.
+    await page.getByTestId('recovery-method-continue').click({ timeout: 30_000 });
+  }
 
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
   // This click is the destructive one: register() runs clearClientStorage() and

@@ -11,10 +11,8 @@ import {
   createGuardianAccount,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
-  GUARDIAN_SLOT_NAMES,
   guardianProviderFromEndpoint,
   insertGuardianAccountMonotonically,
-  MULTISIG_SLOT_NAMES,
   resolveGuardianEndpoint
 } from './account';
 
@@ -141,6 +139,11 @@ const multisigClientConfig: {
 };
 const ecdsaSignerCtor = jest.fn();
 
+// The two account readers go through AccountInspector, the package's supported
+// layout-insulated accessor — see the comment above them in ./account.
+const mockGetSignerCommitments = jest.fn();
+const mockGetGuardianCommitment = jest.fn();
+
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   MultisigClient: jest.fn().mockImplementation(() => ({
     create: (...a: unknown[]) => multisigClientConfig.create(...a),
@@ -148,6 +151,10 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
       getPubkey: (...a: unknown[]) => multisigClientConfig.getPubkey(...a)
     }
   })),
+  AccountInspector: {
+    getSignerPublicKeyCommitments: (...a: unknown[]) => mockGetSignerCommitments(...a),
+    getGuardianPublicKeyCommitment: (...a: unknown[]) => mockGetGuardianCommitment(...a)
+  },
   EcdsaSigner: jest.fn().mockImplementation((sk: unknown) => {
     ecdsaSignerCtor(sk);
     return { sk };
@@ -159,28 +166,19 @@ describe('getSignerDetailsFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  // Mock account whose storage().getMapItem resolves a signer commitment by the
-  // index encoded in the key word (the Word mock above sets `{ idx }`). This
-  // mirrors the real by-key read; positional order is irrelevant.
-  const makeAccount = (signersByIndex: Record<number, string>) => ({
-    storage: () => ({
-      getMapItem: jest.fn((_slot: string, key: { idx: number }) => {
-        const hex = signersByIndex[key.idx];
-        return hex === undefined ? undefined : { toHex: () => hex };
-      })
-    })
-  });
+  // The inspector returns commitments ordered by signer index.
+  const withSigners = (commitments: string[]) => mockGetSignerCommitments.mockReturnValue(commitments);
 
   it('reads the hot signer commitment from index 0', async () => {
-    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
+    withSigners(['0xcommit-hot', '0xcommit-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'commit-hot' });
+    expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'commit-hot' });
   });
 
   it('reads the cold signer commitment from index 1 on a 3-key account', async () => {
-    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
+    withSigners(['0xcommit-hot', '0xcommit-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-cold' });
+    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-cold' });
   });
 
   it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
@@ -188,45 +186,54 @@ describe('getSignerDetailsFromAccount', () => {
     // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
     // absent) rather than throwing, which would brick activation of a migrated
     // account.
-    const account = makeAccount({ 0: '0xcommit-legacy-cold' });
+    withSigners(['0xcommit-legacy-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
+    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
   });
 
-  it('reads commitments by signer-index key, independent of storage iteration order', async () => {
-    // Regression guard for the SMT-order bug: getMapItem(signerMapKey(i)) resolves
-    // hot=0 / cold=1 correctly regardless of getMapEntries iteration order. A
-    // positional read would bind the wrong signer for ~half of accounts.
-    const account = makeAccount({ 0: '0xhotC', 1: '0xcoldC' });
+  it('resolves signers through AccountInspector rather than a hard-coded slot name', async () => {
+    // Regression guard for the 0.17 breakage: the wallet re-declared the storage
+    // slot names locally, the component moved namespace upstream, and every read
+    // silently returned nothing. Going through the inspector is what keeps this
+    // working across contract versions, so assert the delegation itself.
+    withSigners(['0xhotC', '0xcoldC']);
+    const account = { marker: 'account' };
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'hotC' });
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'coldC' });
+    await getSignerDetailsFromAccount(account as never);
+
+    expect(mockGetSignerCommitments).toHaveBeenCalledWith(account);
   });
 
-  it('throws when there is no signer at index 0', async () => {
-    const account = makeAccount({});
+  it('throws when the inspector reports no signers', async () => {
+    withSigners([]);
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
+      'No signer commitment found in account storage'
+    );
+  });
+
+  it('throws when the inspector rejects the account (wrong contract version)', async () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('account has no threshold_config storage slot');
+    });
+
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
       'No signer commitment found in account storage'
     );
   });
 
   it('treats an empty-word entry (0x / all-zeros) as no signer', async () => {
-    const account = makeAccount({ 0: '0x' });
+    withSigners(['0x']);
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
       'No signer commitment found in account storage'
     );
   });
 
   it('accepts a commitment hex without a 0x prefix', async () => {
-    const account = makeAccount({ 0: 'beefcafe' });
+    withSigners(['beefcafe']);
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'beefcafe' });
-  });
-
-  it('exposes the multisig storage slot names', () => {
-    expect(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS).toBe('openzeppelin::multisig::signer_public_keys');
+    expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'beefcafe' });
   });
 });
 
@@ -235,53 +242,43 @@ describe('getGuardianCommitmentFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  // The guardian public_key slot is a SEPARATE storage map from the multisig
-  // signer slots read by getSignerDetailsFromAccount — the mock keys the fake
-  // getMapItem by slot name so a cross-slot read would return the wrong (or
-  // no) value.
-  const makeAccount = (bySlot: Record<string, string | undefined>) => ({
-    storage: () => ({
-      getMapItem: jest.fn((slot: string) => {
-        const hex = bySlot[slot];
-        return hex === undefined ? undefined : { toHex: () => hex };
-      })
-    })
+  it('reads the guardian commitment through the guardian accessor', () => {
+    mockGetGuardianCommitment.mockReturnValue('0xdeadbeef');
+
+    expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
-  it('reads the guardian commitment from the guardian public_key slot', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0xdeadbeef' });
+  it('returns undefined when the account has no guardian key entry', () => {
+    // The inspector throws rather than returning empty; callers treat a
+    // guardian-less account as "no commitment", not as an error.
+    mockGetGuardianCommitment.mockImplementation(() => {
+      throw new Error('guardian key entry is missing');
+    });
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
-  });
-
-  it('returns undefined when the guardian public_key slot has no entry', () => {
-    const account = makeAccount({});
-
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+    expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
   });
 
   it('returns undefined for the empty (all-zero) word', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0x' + '0'.repeat(64) });
+    mockGetGuardianCommitment.mockReturnValue('0x' + '0'.repeat(64));
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+    expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
   });
 
   it('accepts a guardian commitment hex without a 0x prefix', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: 'deadbeef' });
+    mockGetGuardianCommitment.mockReturnValue('deadbeef');
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
+    expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
-  it('does not read from the multisig signer_public_keys slot', () => {
-    const account = makeAccount({ [MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS]: '0xcommit-hot' });
+  it('does not read the multisig signer commitments', () => {
+    // The guardian key lives in its own storage slot; reading the signer
+    // accessor here would return a device key and silently mis-report the
+    // account's guardian.
+    mockGetGuardianCommitment.mockReturnValue('0xdeadbeef');
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
-  });
+    getGuardianCommitmentFromAccount({} as never);
 
-  it('exposes the guardian storage slot names', () => {
-    expect(GUARDIAN_SLOT_NAMES.PUBLIC_KEY).toBe('openzeppelin::guardian::public_key');
-    expect(GUARDIAN_SLOT_NAMES.SELECTOR).toBe('openzeppelin::guardian::selector');
-    expect(GUARDIAN_SLOT_NAMES.SCHEME_ID).toBe('openzeppelin::guardian::scheme_id');
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
   });
 });
 
@@ -354,7 +351,6 @@ describe('createGuardianAccount', () => {
         signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
         guardianCommitment: 'g-commit',
         guardianPublicKey: 'g-pubkey',
-        guardianEnabled: true,
         storageMode: 'private',
         signatureScheme: 'ecdsa',
         seed

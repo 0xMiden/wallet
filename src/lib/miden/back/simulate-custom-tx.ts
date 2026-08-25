@@ -139,9 +139,13 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
         try {
           // The high-level `MidenClient` overload needs the RPC endpoint explicitly
-          // (multisig-client 0.16 / SDK 0.15.8); the raw-WasmWebClient overload is
+          // (multisig-client 0.17 / SDK 0.16); the raw-WasmWebClient overload is
           // the one that can omit it.
-          const summary = await executeForSummary(client.client, accountIdHex, request, getEffectiveRpcUrl());
+          //
+          // The anchor this also returns is only useful to a party that has to
+          // reproduce the summary later — a cosigner or executor. This is a local
+          // dry run that displays the summary and discards it, so it is dropped.
+          const { summary } = await executeForSummary(client.client, accountIdHex, request, getEffectiveRpcUrl());
           return { summaryBytes: u8ToB64(summary.serialize()) };
         } catch (e) {
           if (!isAlreadyAuthorizedError(e)) throw e;

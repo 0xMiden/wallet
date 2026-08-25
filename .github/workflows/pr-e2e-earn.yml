@@ -18,6 +18,14 @@ jobs:
   # required-check name.
   earn-e2e:
     name: earn-e2e (chrome)
+    # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
+    # That was measured twice. On this runner two consumes completed end to end in
+    # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
+    # 2 threads off-CI proves a consume in ~6s, 20x under the 120s delegated-prove
+    # ceiling. The "4 prove requests, no completion line" reading that once lived
+    # here was wrong: at this log level the prover emits only the
+    # `Generated execution traces` INFO line, and it emitted one for each request
+    # INCLUDING the two that succeeded.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -35,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: yarn }
+        with: { node-version: 22 }
       # Pinned exact (NOT @stable): a required gate must not drift with upstream
       # rustc -- a newer stable can reject the pinned older CLI crate and go red
       # on unrelated PRs. Bump this deliberately (and the cache key below).
@@ -59,7 +67,18 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
+          # Only the note-transport pins from versions.env: that file also holds
+          # NODE_SRC_REF (the node has its own cache, keyed on it directly) and
+          # GUARDIAN_IMAGE_TAG (a Docker tag, which cannot affect a Rust build).
+          # Hashing the whole file meant bumping either one threw away ~8 min of
+          # cargo work — the same defect this key was already narrowed once to
+          # fix when it hashed all of package.json.
+          nts_src=$(grep -E '^NOTE_TRANSPORT_(REPO|REF)=' playwright/e2e/local-stack/versions.env)
+          # Guard: an empty match would hash to a constant, silently pinning the
+          # key and letting a note-transport bump reuse a stale binary.
+          [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
+          nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v2-rust1.96.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -131,6 +150,10 @@ jobs:
         # read off the log / tracked over time. Diagnostic only -- never fails.
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      - name: Dump local node logs on failure
+        if: failure()
+        uses: ./.github/actions/dump-local-node-logs
+
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack

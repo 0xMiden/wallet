@@ -5,6 +5,7 @@ import {
   MultisigClient,
   GuardianHttpClient,
   buildUpdateSignersTransactionRequest,
+  chainAnchorToBase64,
   executeForSummary,
   type ProposalMetadata,
   type TransactionProposal,
@@ -215,7 +216,6 @@ export class MultisigService {
         accountRefToSdk(recipientId).toString(),
         accountRefToSdk(faucetId).toString(),
         amount,
-        undefined,
         { noteType }
       )
     );
@@ -496,7 +496,7 @@ export class MultisigService {
     // WASM client is single-threaded, so resolving the client outside the lock
     // (or splitting the build/execute into two lock windows) leaves a gap where
     // another holder can run and trigger "recursive use ... unsafe aliasing".
-    const { summaryBase64, saltHex } = await withWasmClientLock(async () => {
+    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async () => {
       const webClient = (await getMidenClient()).client;
       const { request, salt } = await buildUpdateSignersTransactionRequest(
         webClient,
@@ -504,14 +504,25 @@ export class MultisigService {
         targetSignerCommitments,
         { signatureScheme: 'ecdsa', midenRpcEndpoint: getEffectiveRpcUrl() }
       );
-      const summary = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
-      return { summaryBase64: u8ToB64(summary.serialize()), saltHex: salt.toHex() };
+      // Since protocol 0.16 the signed summary binds the reference block
+      // commitment, so it only reproduces when re-executed at that same block.
+      // The anchor names that block; without shipping it on the proposal, a
+      // cosigner or the executor re-executes at whatever height it happens to
+      // be synced to and derives a different summary, so the collected
+      // signatures no longer verify.
+      const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
+      return {
+        summaryBase64: u8ToB64(summary.serialize()),
+        saltHex: salt.toHex(),
+        chainAnchor: chainAnchorToBase64(anchor)
+      };
     });
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
       targetThreshold,
       targetSignerCommitments,
       saltHex,
+      chainAnchor,
       requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
       description: 'Replace device (hot) signer'
     };

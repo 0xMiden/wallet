@@ -50,7 +50,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -194,7 +193,7 @@ jobs:
           ls -l /dev/kvm
 
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: yarn }
+        with: { node-version: 22 }
 
       - uses: actions/setup-java@v4
         with:
