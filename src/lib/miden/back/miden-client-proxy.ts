@@ -171,8 +171,18 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * pre-submit (the multi-second WASM steps), which is fully safe (nothing on
  * chain); a mid-submit fire is left to node adjudication + `syncState` reconcile
  * (design §4), the same risk profile as today's eviction, now time-bounded.
+ *
+ * Overridable by the build ONLY so the E2E stack can raise it (#718). Every
+ * shipping bundle leaves it at 90s — the override exists because the local E2E
+ * stack packs a node, sequencer, ntx-builder, prover, guardian, note-transport
+ * and two Chrome instances onto a 2-core runner, where a consume takes minutes
+ * and is killed here as a wedge it is not. Measured against devnet on ordinary
+ * hardware, the same 0.16 consume path claims three notes inside a 41s spec, so
+ * this is a property of that runner and not of 0.16 proving. Raising the shipping
+ * default on the strength of a CI timing would trade a visible CI failure for an
+ * invisible production hang, which is the one thing this knob exists to prevent.
  */
-const WRITE_DEADLINE_MS = 90_000;
+const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
 
 /**
  * Per-op deadline (ms) for the private-note transport relay.
