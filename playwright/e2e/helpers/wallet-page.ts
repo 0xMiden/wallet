@@ -28,8 +28,13 @@ const SYNC_WAIT_MS = 3_500;
  * claim), and multiplying would scale a 420s outlier to something no spec timeout
  * allows. Applies to `localhost` only, so every other network keeps the number its
  * spec asked for.
+ *
+ * Kept well under the suites' job timeouts on purpose. A floor only ever binds on
+ * a claim that is NOT draining, so raising it spends its whole value on failing
+ * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
+ * cost the very diagnostics a failing run exists to produce.
  */
-const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 420_000 : 0;
+const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
 
 /** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);

@@ -142,6 +142,10 @@ jobs:
         # read off the log / tracked over time. Diagnostic only -- never fails.
         if: always()
         run: node scripts/report-flaky-e2e.mjs test-results/results.json
+      - name: Dump local node logs on failure
+        if: failure()
+        uses: ./.github/actions/dump-local-node-logs
+
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack

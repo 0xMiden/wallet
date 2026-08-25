@@ -207,6 +207,10 @@ jobs:
           echo "=== dmesg OOM signals (decisive: present => OOM-kill, absent => non-OOM crash) ==="
           sudo dmesg 2>/dev/null | grep -iE "killed process|out of memory|oom-kill|oom_reaper|Out of memory: Kill" | tail -40 \
             || echo "(no OOM-kill in dmesg -- the browser death was NOT an out-of-memory kill)"
+      - name: Dump local node logs on failure
+        if: failure()
+        uses: ./.github/actions/dump-local-node-logs
+
       - name: Dump stack logs on failure
         if: failure()
         working-directory: playwright/e2e/local-stack
