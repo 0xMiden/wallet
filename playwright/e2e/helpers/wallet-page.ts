@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -1883,7 +1884,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(
         `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
+      // The gate above is (b) — a consume that never committed — often enough that
+      // it is worth asking the offscreen document what that consume is doing before
+      // reloading and enqueuing another one. Streams to stdout so a stalled claim is
+      // diagnosable from the live job log instead of from artifacts after the run.
       if (stuckSameCountIters >= 3) {
+        await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
