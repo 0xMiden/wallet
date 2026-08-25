@@ -1526,7 +1526,20 @@ const generateGuardianTransaction = async (
       );
     }
   } catch (error) {
-    console.error('Error during Guardian transaction submission or execution', { error });
+    // The message goes in the FORMAT STRING, not only in the object. Chrome
+    // truncates strings nested inside a logged object's preview (~100 chars),
+    // and a guardian write's whole diagnostic value is the executor's reason,
+    // which sits at the END of a long chain: "Offscreen call 'guardianPipeline'
+    // failed: failed to execute transaction: transaction execution failed:
+    // <reason>". Logged only as `{ error }` it is cut mid-prefix — a CI failure
+    // here reported nothing past "transaction executi…", which is the part every
+    // guardian failure shares. The object stays for the stack.
+    console.error(
+      `Error during Guardian transaction submission or execution: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { error }
+    );
     try {
       await service.abandonCandidate(proposalResult.nonce);
     } catch (abandonError) {
