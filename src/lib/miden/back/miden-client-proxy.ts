@@ -171,8 +171,20 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * pre-submit (the multi-second WASM steps), which is fully safe (nothing on
  * chain); a mid-submit fire is left to node adjudication + `syncState` reconcile
  * (design §4), the same risk profile as today's eviction, now time-bounded.
+ *
+ * Raised from 90s once the Guardian E2E suites came out of quarantine and showed
+ * it false-killing healthy work: a Guardian consume is a MULTISIG write, so its
+ * execute proves an auth procedure that verifies several signatures, and the
+ * numbers above (a single-sig `execute ~1s + prove ~3-10s`) do not describe it.
+ * Every failure was a clean kill at the deadline rather than a stall — the op was
+ * making progress and was cut off. That is the one outcome this knob is documented
+ * to avoid, and the cost of it is a stranded claim the user has to retry.
+ *
+ * A wedge is still bounded well below the 30-min `MAX_WAIT_BEFORE_CANCEL` reaper,
+ * and this remains under the 5-min `CRITICAL_DISPATCH_BACKSTOP_MS`, so a
+ * dropped-start op is still reclaimed by the backstop rather than by this.
  */
-const WRITE_DEADLINE_MS = 90_000;
+const WRITE_DEADLINE_MS = 180_000;
 
 /**
  * Per-op deadline (ms) for the private-note transport relay.
@@ -186,7 +198,7 @@ const WRITE_DEADLINE_MS = 90_000;
  *
  * 45s, matching `SYNC_DEADLINE_MS`: the closest peer, being the other op whose
  * budget is dominated by a remote service rather than local WASM. Well below the
- * 90s write ceiling, since no proving happens here.
+ * write ceiling, since no proving happens here.
  *
  * The deadline VALUE is the smaller half of the fix. The relay also dispatches as a
  * `criticalOp`, which is what moves the budget to execution start (`markOpStarted`)
@@ -213,14 +225,19 @@ const RELAY_DEADLINE_MS = 45_000;
  * CANNOT false-kill a write merely queued behind slow ops — the exact bug arm-on-start
  * fixed — yet is bounded so a dropped-start op is eventually reclaimed instead of
  * hanging forever. The worst-case contiguous mutex-hold by other ops is a full
- * `syncState` (~45s) plus a write (~90s) ≈ 135s; the commit-wait, though its own
+ * `syncState` (~45s) plus a write (~180s) ≈ 225s; the commit-wait, though its own
  * ceiling is now 150s, YIELDS the mutex during its inter-poll sleeps (follow-up #1),
  * so a queued write runs DURING those sleeps rather than waiting the whole poll — it
- * does not dominate queue-wait. 5min keeps ample headroom above 135s.
- * Normal path: dispatch → backstop(5min) → start → real(~90s). Dropped start:
- * dispatch → backstop(5min) fires → op killed (bounded, not hung).
+ * does not dominate queue-wait. 10min keeps ample headroom above 225s.
+ * Normal path: dispatch → backstop(10min) → start → real(~180s). Dropped start:
+ * dispatch → backstop(10min) fires → op killed (bounded, not hung).
+ *
+ * Raised with `WRITE_DEADLINE_MS`: this bound is only meaningful while it stays
+ * clear of the worst-case queue-wait it is deliberately set above, and doubling a
+ * write's ceiling doubles that wait. At 5min the margin over 225s was thinner than
+ * the one this was originally chosen to keep.
  */
-const CRITICAL_DISPATCH_BACKSTOP_MS = 300_000;
+const CRITICAL_DISPATCH_BACKSTOP_MS = 600_000;
 
 /**
  * Per-op deadline (ms) for `waitForTransactionCommit`. This op BLOCKS inside the
