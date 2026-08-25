@@ -33,7 +33,7 @@ jobs:
   # re-register) — if a failure shows those, triage it, don't assume flake.
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
-    # Undersized for the local stack — see the rationale in pr-e2e-earn.yml.
+    # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
     runs-on: ubuntu-latest
     # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
     # are heavier than the Tier-2 happy-path spec; sized like the other

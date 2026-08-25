@@ -172,15 +172,19 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * chain); a mid-submit fire is left to node adjudication + `syncState` reconcile
  * (design §4), the same risk profile as today's eviction, now time-bounded.
  *
- * Overridable by the build ONLY so the E2E stack can raise it (#718). Every
- * shipping bundle leaves it at 90s — the override exists because the local E2E
- * stack packs a node, sequencer, ntx-builder, prover, guardian, note-transport
- * and two Chrome instances onto a 2-core runner, where a consume takes minutes
- * and is killed here as a wedge it is not. Measured against devnet on ordinary
- * hardware, the same 0.16 consume path claims three notes inside a 41s spec, so
- * this is a property of that runner and not of 0.16 proving. Raising the shipping
- * default on the strength of a CI timing would trade a visible CI failure for an
- * invisible production hang, which is the one thing this knob exists to prevent.
+ * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
+ * shipping bundle leaves it at 90s: raising the shipping default on the strength
+ * of a CI timing would trade a visible CI failure for an invisible production
+ * hang, which is the one thing this knob exists to prevent.
+ *
+ * The E2E override must stay BELOW the Playwright per-test timeout (300s,
+ * playwright.e2e.config.ts), or this deadline can never fire inside a test and
+ * the wedge-reclaim built for exactly that case is dead code there — the spec
+ * always dies first, turning a bounded, logged abort into an unexplained 300s
+ * timeout with no Failed row. An earlier 600s override did precisely that.
+ * Sizing it does NOT need runner headroom: the two consumes that completed on
+ * that same 2-core runner took 12.1s and 9.9s end to end, so the healthy worst
+ * case is seconds, not minutes.
  */
 const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
 

@@ -19,7 +19,7 @@ jobs:
   # the spec's beforeAll) and the local guardian co-signer (--profile guardian).
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
-    # Undersized for the local stack — see the rationale in pr-e2e-earn.yml.
+    # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

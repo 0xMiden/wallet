@@ -18,16 +18,14 @@ jobs:
   # required-check name.
   earn-e2e:
     name: earn-e2e (chrome)
-    # UNDERSIZED, and it is why this suite is red (#718). The job runs a whole
-    # chain (validator + sequencer + ntx-builder), a serial native prover and two
-    # Chrome instances on 2 vCPUs. The prover is starved badly enough that a
-    # single transaction proof never finishes: a failing run logged 4 prove
-    # requests in 20 minutes, none with a completion line, against ~2s for the
-    # same proof on an idle machine. Claims never settle, so every spec times out.
-    # A larger runner is the fix, but this org has no Linux larger runner:
-    # `ubuntu-latest-4-cores` sat queued 11m (vs a 4s pickup here) because nothing
-    # carries that label. Provision one, then switch the five local-stack jobs
-    # (earn, local, swap, guardian-lifecycle, bridge-guardian).
+    # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
+    # That was measured twice. On this runner two consumes completed end to end in
+    # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
+    # 2 threads off-CI proves a consume in ~6s, 20x under the 120s delegated-prove
+    # ceiling. The "4 prove requests, no completion line" reading that once lived
+    # here was wrong: at this log level the prover emits only the
+    # `Generated execution traces` INFO line, and it emitted one for each request
+    # INCLUDING the two that succeeded.
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
