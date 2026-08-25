@@ -3,11 +3,7 @@
 // a partial `jest.mock` factory, and importing from there would resolve this to
 // `undefined` in those registries — where the call throws into `recordProveTelemetry`'s
 // best-effort catch and silently records NOTHING. See `offscreen-realm.ts`.
-import {
-  OFFSCREEN_PROVE_MARKER,
-  SW_TARGET,
-  type OffscreenProveMarkerEvent
-} from 'lib/miden/back/offscreen-codec';
+import { OFFSCREEN_PROVE_MARKER, SW_TARGET, type OffscreenProveMarkerEvent } from 'lib/miden/back/offscreen-codec';
 import { isInOffscreenDocument } from 'lib/miden/back/offscreen-realm';
 import { isMobile } from 'lib/platform';
 
