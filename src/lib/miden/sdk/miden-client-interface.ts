@@ -1233,14 +1233,20 @@ export class MidenClientInterface {
       // local store update failed) is excluded from the retry by
       // `proveWithFallback`'s `isApplyAfterSubmitError` gate, so that row still
       // classifies as landed. Keeping the retry matters because consume is the
-      // wallet's highest-frequency write (auto-claim) and the remote prover's ~10s
-      // deadline is its most common failure.
+      // wallet's highest-frequency write (auto-claim) and a remote prove that misses
+      // its deadline is its most common failure — historically the SDK's own ~10s
+      // one, which the explicit prover below replaces.
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
       try {
+        // Delegating means `prover === undefined`, which makes the SDK build its own
+        // remote prover from `proverUrl` — with the ~10s default gRPC deadline, since
+        // `createClient` takes no timeout option. Name ours instead so the deadline is
+        // `DELEGATED_PROVE_TIMEOUT_MS`; see `remoteProver`. Control flow below still
+        // keys off the ORIGINAL `prover` so "delegated" keeps its meaning.
         const consuming = this.client.transactions.consume({
           account: accountId,
           notes: targetNoteIds,
-          prover
+          prover: prover ?? remoteProver()
         });
         // Bound the DELEGATED call only. This write is opaque — the SDK executes, proves
         // and submits inside it — so unlike the guardian pipeline there is no seam to put
@@ -1318,7 +1324,11 @@ export class MidenClientInterface {
       // delegated→local prove fallback; a duplicated swap note is unrecoverable,
       // a failed swap is not.
       attempt.markSubmitting();
-      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
+      // Explicit prover on the delegated path for the same reason as the consume
+      // above: the SDK's own remote prover carries a ~10s gRPC deadline.
+      const { result } = await this.client.transactions.submit(canonicalId, request, {
+        prover: prover ?? remoteProver()
+      });
       return result;
     }, transaction.delegateTransaction);
   }
@@ -1680,7 +1690,17 @@ export function remoteProver(): TransactionProver | undefined {
   const endpoint = getEffectiveProverUrl();
   if (!endpoint) return undefined;
   try {
-    return TransactionProver.newRemoteProver(endpoint);
+    // Name the gRPC deadline. Unset, the SDK applies its own ~10s default, which a
+    // 0.16 consume on a loaded 2-core CI runner routinely exceeds: measured healthy
+    // consumes there took 9.9s and 12.1s, straddling it, which is why the failure
+    // looked non-deterministic. Exceeding it fails the prove with
+    // `DeadlineExceeded: Request timed out`, and the caller then re-proves on the
+    // deliberately unbounded LOCAL prover while holding the offscreen WASM mutex —
+    // turning a proof that was seconds from finishing into a wedged claim (#718).
+    // Aligned with `DELEGATED_PROVE_TIMEOUT_MS` so the transport deadline and our
+    // own ceiling agree, leaving `withDelegatedProveTimeout` as the outer bound
+    // against a prover that stops answering entirely.
+    return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
   } catch {
     // Never break a prove over prover construction — the caller falls back to the
     // SDK default, i.e. exactly the previous behaviour.
