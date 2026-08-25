@@ -990,6 +990,50 @@ const ensureGuardianRecallableSendRequestBytes = async (
 };
 
 /**
+ * Client-side ceiling on a DELEGATED prove, after which we stop waiting for the remote
+ * prover and prove locally instead.
+ *
+ * Generous on purpose: this is a backstop against a prover that has stopped answering,
+ * NOT a latency target. It has to sit well above a legitimately slow multisig proof on a
+ * loaded machine, because expiring early costs the user the remote wait AND a full local
+ * re-prove.
+ */
+const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
+
+/**
+ * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without the delegated prove
+ * answering.
+ *
+ * The remote prove is a bare await on a gRPC call that carries no deadline of its own, so
+ * a prover which accepts the request and then never responds parks this await forever —
+ * while the enclosing `withWasmClientLock` is STILL HELD. Every subsequent write then
+ * queues behind a transaction that can never finish, which is what turned a single slow
+ * proof into an unbounded claim stall (#718): the local E2E prover aborts a proof past
+ * its own `--timeout` and simply stops talking, and the wallet waited on it indefinitely.
+ *
+ * Timing out only abandons the RESPONSE — the request itself cannot be cancelled — but
+ * nothing downstream reads it, and a prove strictly precedes `submit()`, so falling back
+ * to a local prove here can never broadcast the transaction twice.
+ */
+const withDelegatedProveTimeout = <T>(promise: Promise<T>): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Delegated prove timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms`)),
+      DELEGATED_PROVE_TIMEOUT_MS
+    );
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+
+/**
  * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
  * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
  * slice 6a).
@@ -1059,13 +1103,15 @@ const runGuardianPipeline = async (
       // claim timeout), because the guardian pipeline drives the raw client
       // directly and had none of the local fallback the non-guardian path gets
       // for free from `proveWithFallback`. Give it that resilience: on remote
-      // failure, re-prove the SAME executed tx locally. Re-proving is safe
+      // failure — or on a remote that never answers at all, which is a stall the
+      // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
+      // SAME executed tx locally. Re-proving is safe
       // because `proveTransaction` borrows the executed result (only the prover
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
       try {
-        provenTx = await executedTx.prove({});
+        provenTx = await withDelegatedProveTimeout(executedTx.prove({}));
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()

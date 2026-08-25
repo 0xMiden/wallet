@@ -55,6 +55,24 @@ runs:
         sed -i 's|sequencer --rpc.listen "$RPC"|sequencer --rpc.listen "0.0.0.0:57291"|' "$f"
     - name: Build + start node
       shell: bash
+      # MIDEN_PROVER_TIMEOUT / MIDEN_PROVER_CAPACITY are read by miden-remote-prover's
+      # own clap args, so they reach it through start-test-node.sh without patching the
+      # script. Both defaults (60s, 1) are sized for a dedicated prover host and are
+      # wrong here: this runner has 2 cores shared by validator + sequencer +
+      # ntx-builder + prover + two Chrome instances, and the ntx-builder points at the
+      # SAME prover (tx-prover.url), so the wallet contends with network-transaction
+      # proving for it.
+      #   timeout: a transaction proof that exceeds it is ABORTED server-side. At 60s a
+      #     wallet consume under that load routinely lost, and the wallet's delegated
+      #     prove has no client-side deadline of its own, so the write then hung
+      #     indefinitely holding the offscreen WASM mutex — every later claim queued
+      #     behind it and syncState timed out. That is the whole #718 claim stall.
+      #   capacity: max IN-FLIGHT requests including the one being proved (the prover is
+      #     serial), i.e. 1 means an ntx-builder proof in progress leaves no room for the
+      #     wallet's. Give the two producers their own slots plus headroom.
+      env:
+        MIDEN_PROVER_TIMEOUT: 10m
+        MIDEN_PROVER_CAPACITY: '4'
       run: |
         cd "${{ runner.temp }}/miden-client"
         ./scripts/start-test-node.sh --background
