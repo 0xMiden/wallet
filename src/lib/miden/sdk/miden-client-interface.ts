@@ -51,7 +51,7 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { yieldWasmClientLock } from './miden-client';
+import { withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
@@ -212,6 +212,19 @@ export type RecoveryRangeResult = {
  * `Note` carries no block information; scanning from genesis is slower than a
  * real hint but correct.
  */
+/**
+ * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
+ * #775): the sign fires from inside the SDK mid-execute, while the caller's
+ * `withWasmClientLock` hold is live, and can wait as long as the user takes to
+ * authenticate. Wall-clock spent signing must not count against the watchdog
+ * ceiling.
+ */
+function wrapSignWithWatchdogPause(
+  sign: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>
+): (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array> {
+  return (publicKey, signingInputs) => withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
+}
+
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
@@ -260,7 +273,12 @@ export class MidenClientInterface {
         ? {
             getKey: options.getKeyCallback!,
             insertKey: options.insertKeyCallback!,
-            sign: options.signCallback!
+            // A sign round-trip can block indefinitely on the user (Face ID,
+            // an unlock prompt) while the WASM lock is held — pause the lock
+            // watchdog for its duration so a slow sign is never mistaken for
+            // a wedge (issue #775; mirrors the offscreen write deadline's
+            // sign pause in miden-client-proxy.ts).
+            sign: options.signCallback ? wrapSignWithWatchdogPause(options.signCallback) : options.signCallback!
           }
         : undefined,
       proverUrl: getEffectiveProverUrl(),
@@ -297,7 +315,25 @@ export class MidenClientInterface {
   }
 
   free() {
+    this.disposed = true;
     this.client.terminate();
+  }
+
+  /** Set by `free()` — see `yieldLockUnlessDisposed`. */
+  private disposed = false;
+
+  /**
+   * `yieldWasmClientLock`, unless this client has been disposed (issue #775).
+   * Lock recovery always disposes the client BEFORE releasing the mutex, so a
+   * disposed `this` marks the running flow as an evicted corpse — the lock it
+   * thinks it holds now belongs to someone else, and yielding would release
+   * that innocent holder's lock into a concurrent WASM call. Run the operation
+   * without touching the mutex instead; the flow fails loudly at its next call
+   * against the terminated client.
+   */
+  private yieldLockUnlessDisposed<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.disposed) return operation();
+    return yieldWasmClientLock(operation);
   }
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
@@ -1160,7 +1196,7 @@ export class MidenClientInterface {
     // terminate the offscreen doc to interrupt this prove if the user's
     // form params change before it finishes. Non-speculative proves bump
     // a counter that blocks the abort path — they must run to completion.
-    const { provenBytes, durationMs } = await yieldWasmClientLock(() =>
+    const { provenBytes, durationMs } = await this.yieldLockUnlessDisposed(() =>
       proveViaOffscreen(txResultBytes, null, { speculative: true })
     );
     console.log(`[speculation] pre-proved tx in ${durationMs.toFixed(0)}ms`);
@@ -1403,7 +1439,7 @@ export class MidenClientInterface {
         let hit = mgr?.consumeCacheHit(cacheParams);
         if (!hit && mgr?.hasInFlightMatching(cacheParams)) {
           const tWait = performance.now();
-          await yieldWasmClientLock(() => mgr.awaitMatching(cacheParams));
+          await this.yieldLockUnlessDisposed(() => mgr.awaitMatching(cacheParams));
           hit = mgr.consumeCacheHit(cacheParams);
           console.log(
             `[mt-offscreen-prove] awaited in-flight speculation ${(performance.now() - tWait).toFixed(0)}ms hit=${!!hit}`
@@ -1455,7 +1491,9 @@ export class MidenClientInterface {
       // _withInnerWebClient lock is already released here (we left the
       // first block), so background sync can run.
       await onStage?.('proving');
-      const { provenBytes, durationMs } = await yieldWasmClientLock(() => proveViaOffscreen(txResultBytes, null));
+      const { provenBytes, durationMs } = await this.yieldLockUnlessDisposed(() =>
+        proveViaOffscreen(txResultBytes, null)
+      );
       recordProveTiming(
         `proveLocallyViaOffscreen proveViaOffscreen returned in ${durationMs.toFixed(0)}ms (lock reacquired); submitting + applying`
       );
@@ -1602,7 +1640,13 @@ export async function proveWithFallback<T>(
 
   const startedAt = performance.now();
   try {
-    const result = !shouldDelegate ? await fn(localProverFactory(), attempt) : await fn(undefined, attempt);
+    // A local prove attempt pauses the lock watchdog: local proving is
+    // deliberately unbounded (it is the fallback when delegated proving is
+    // down — capping it would leave nothing to fall back to). The delegated
+    // attempt stays on the clock. Issue #775.
+    const result = !shouldDelegate
+      ? await withWasmLockWatchdogPaused(() => fn(localProverFactory(), attempt))
+      : await fn(undefined, attempt);
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
     const durationMs = performance.now() - startedAt;
     recordProveTiming(
@@ -1637,7 +1681,7 @@ export async function proveWithFallback<T>(
       const fallbackStartedAt = performance.now();
       const fallbackPath = isMobile() ? 'native-mobile' : 'local';
       try {
-        const result = await fn(localProverFactory(), attempt);
+        const result = await withWasmLockWatchdogPaused(() => fn(localProverFactory(), attempt));
         recordProveTiming(
           `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
         );

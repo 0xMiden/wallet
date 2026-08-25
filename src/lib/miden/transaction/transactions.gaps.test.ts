@@ -107,7 +107,8 @@ jest.mock('../sdk/miden-client', () => ({
     waitForTransactionCommit: mockWaitForCommit,
     sendPrivateNote: mockSendPrivateNote
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
 }));
 
 jest.mock('../activity/notes', () => ({
@@ -984,15 +985,16 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       ...extra
     });
 
-  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError)
-  // and the subsequent node read returns `noteState` (or throws when it is null).
-  const patchClient = (noteState: string | null) => {
+  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError
+  // by default, or the given kill error) and the subsequent node read returns
+  // `noteState` (or throws when it is null).
+  const patchClient = (noteState: string | null, killError?: Error) => {
     const sdk = require('../sdk/miden-client');
     const orig = sdk.getMidenClient;
     sdk.getMidenClient = async () => ({
       syncState: jest.fn(async () => {}),
       consumeNoteId: jest.fn(async () => {
-        throw new OperationAbortedError('op-kill', 'deadline');
+        throw killError ?? new OperationAbortedError('op-kill', 'deadline');
       }),
       getInputNoteDetails: jest.fn(async () => {
         if (noteState === null) throw new Error('node unreachable');
@@ -1011,6 +1013,25 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       const result = await generateTransactionsLoop(dummySign, false, stubProvider);
       expect(result).toBe(false);
       const row = txStore.find(r => r.id === 'nk-landed')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  it('a lock-recovery (WasmClientPoisonedError) kill rides the same node adjudication: LOCAL-consumed → Completed', async () => {
+    // Issue #775: a watchdog/trap eviction abandons the pipeline exactly like an
+    // offscreen deadline kill does — the outcome is unknown, so the killed
+    // consume must be node-verified, not blindly Failed while the note IS
+    // consumed on chain.
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    pushConsume('nk-poison');
+    const restore = patchClient('ConsumedAuthenticatedLocal', new WasmClientPoisonedError('watchdog'));
+    try {
+      const result = await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(result).toBe(false);
+      const row = txStore.find(r => r.id === 'nk-poison')!;
       expect(row.status).toBe(ITransactionStatus.Completed);
       expect(row.displayMessage).toBe('Received');
     } finally {

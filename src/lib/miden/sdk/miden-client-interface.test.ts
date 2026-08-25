@@ -1479,7 +1479,8 @@ describe('MidenClientInterface', () => {
         })
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
       }));
 
       return { consumeCacheHit, hasInFlightMatching, awaitMatching, proveViaOffscreen };
@@ -1602,7 +1603,8 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => ({ consumeCacheHit, hasInFlightMatching, awaitMatching })
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
       }));
       const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -1669,6 +1671,49 @@ describe('MidenClientInterface', () => {
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
       expect(inner.applyTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the mutex yield once the client is disposed — an evicted corpse must not release a lock it no longer owns', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined),
+        newSendTransactionRequest: jest.fn(async () => ({}))
+      };
+      const stubs = buildOffscreenStubs({ cacheHit: null, hasInFlightMatching: false });
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+      // Lock recovery (issue #775) disposes the client BEFORE releasing the
+      // mutex, so `disposed` marks this flow as evicted; yielding would hand
+      // back a lock that now belongs to the next holder.
+      const yieldMock = jest.fn(async (op: () => Promise<unknown>) => op());
+      jest.doMock('./miden-client', () => ({
+        yieldWasmClientLock: yieldMock,
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      client.free();
+
+      await client.sendTransaction({
+        accountId: 'sender',
+        secondaryAccountId: 'recip',
+        faucetId: 'faucet',
+        noteType: 'public' as any,
+        amount: BigInt(100),
+        extraInputs: {}
+      } as any);
+
+      expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
+      expect(yieldMock).not.toHaveBeenCalled();
     });
 
     it('cache miss with reclaimAfter set: skips speculation cache (no cacheParams)', async () => {
@@ -1866,7 +1911,8 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1909,7 +1955,8 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
@@ -1984,7 +2031,8 @@ describe('MidenClientInterface', () => {
         getSpeculationManager: () => null
       }));
       jest.doMock('./miden-client', () => ({
-        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op()
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op()
       }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),

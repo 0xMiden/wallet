@@ -95,6 +95,7 @@ jest.mock('lib/miden/guardian', () => ({
 }));
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
+const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
 // Match the relative path used by transactions.ts so the mock intercepts.
@@ -104,6 +105,7 @@ const mockCreateWasmWebClient = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+  withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
 
@@ -1699,6 +1701,9 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.transactions.prove).toHaveBeenNthCalledWith(2, result, { prover: 'local-prover' });
     expect(TransactionProver.newLocalProver).toHaveBeenCalledTimes(1);
     expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
+    // The local fallback prove is unbounded by design, so it must run under a
+    // lock-watchdog pause (#775).
+    expect(mockWithWasmLockWatchdogPaused).toHaveBeenCalledTimes(1);
     // The fallback recovered the tx, so the candidate is NOT abandoned and the
     // row lands Completed rather than Failed.
     expect(abandonCandidate).not.toHaveBeenCalled();

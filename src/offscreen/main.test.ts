@@ -126,6 +126,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
     isWasmClientBusy
   };

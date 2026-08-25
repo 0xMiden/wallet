@@ -589,6 +589,20 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged')).mayHaveSubmitted).toBe(true);
   });
 
+  it('records a lock-recovery eviction (WasmClientPoisonedError) as a real crossing too — the pipeline was abandoned, not stopped', async () => {
+    // Issue #775: a watchdog eviction rejects the caller but cannot cancel the
+    // operation, which may still reach submit. Clearing the in-flight marker
+    // here would let Retry mint a second payment while the abandoned pipeline
+    // completes the first.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('wedged-poison', { stage: 'sending', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('wedged-poison'), new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('wedged-poison')).mayHaveSubmitted).toBe(true);
+  });
+
   it('refuses the retry rather than minting a second payment', async () => {
     const tx = inFlightSend('wedged-retry', { stage: 'sending', requestBytes: undefined });
     await Repo.transactions.add(tx);

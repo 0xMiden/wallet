@@ -22,6 +22,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -148,7 +149,10 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * an aborted op and still rebuilds.
  */
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
-  if (tx.type === 'send' && isOperationAbortedError(error)) {
+  // A lock-recovery eviction (issue #775) is treated like an offscreen
+  // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
+  // submit — so the crossing must be recorded, never cleared.
+  if (tx.type === 'send' && (isOperationAbortedError(error) || isWasmClientPoisonedError(error))) {
     await markMayHaveSubmitted(tx.id);
   } else {
     await clearCancelledInFlight(tx.id);

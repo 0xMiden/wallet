@@ -85,10 +85,11 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -427,7 +428,10 @@ async function reconcileStructuralApplyFailure(
  * follow-up (#3b) handles them, and this helper leaves that send-style path untouched.
  */
 async function tryCompleteKilledConsume(transaction: Transaction, error: unknown): Promise<boolean> {
-  if (!isOperationAbortedError(error)) return false;
+  // A lock-recovery eviction (issue #775) is the same shape as an offscreen
+  // deadline kill: the consume was killed from outside with its outcome
+  // unknown, so it gets the same node adjudication instead of a blind Failed.
+  if (!isOperationAbortedError(error) && !isWasmClientPoisonedError(error)) return false;
   if (transaction.type !== 'consume') return false;
   const consumeTx = transaction as ConsumeTransaction;
   if (!consumeTx.noteId) return false;
@@ -1049,7 +1053,9 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
-      provenTx = await executedTx.prove({ prover: localProver });
+      // Local proving is deliberately unbounded — pause the lock watchdog for
+      // its duration, exactly like proveWithFallback's local attempts (#775).
+      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }));
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -1071,7 +1077,7 @@ const runGuardianPipeline = async (
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: fallbackProver });
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }));
       }
     }
     await setStage('submitting');

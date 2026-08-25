@@ -56,7 +56,7 @@ import {
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { withWasmClientLock, withWasmLockWatchdogPaused, yieldWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
@@ -651,13 +651,20 @@ const DISPATCH: Record<string, DispatchFn> = {
     postStageEvent('proving');
     let provenTx;
     if (!delegateTransaction) {
-      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      // Local proving is deliberately unbounded — pause this realm's lock
+      // watchdog for its duration, like proveWithFallback's local attempts
+      // (#775). The delegated attempt stays on the clock.
+      provenTx = await withWasmLockWatchdogPaused(() =>
+        executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() })
+      );
     } else {
       try {
         provenTx = await executedTx.prove({});
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
-        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        provenTx = await withWasmLockWatchdogPaused(() =>
+          executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() })
+        );
       }
     }
     postStageEvent('submitting');
