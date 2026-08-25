@@ -120,6 +120,12 @@ test.describe('Stress - random send/claim', () => {
     // render, so the change takes effect on the next send without a
     // reload. Both wallets are flipped because the stress driver sends
     // from BOTH directions.
+    //
+    // Opt-in only, and on the 0.16 SDK line it will HANG rather than fail: local
+    // WASM proving traps on a thread spawn that wasm cannot service, and the trap
+    // leaves the prove's promise unsettled forever. See the quarantine note on
+    // `send-public-local-prove.spec.ts`. CI never sets this flag, so the stress job
+    // is unaffected — but don't set it locally against 0.16 expecting results.
     if (process.env.STRESS_LOCAL_PROVING === 'true') {
       await steps.step('force_local_proving', async () => {
         await walletA.setDelegateProofEnabled(false);

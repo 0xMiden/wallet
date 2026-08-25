@@ -31,7 +31,28 @@ const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
  * to `'true'` on the Chrome extension build (see vite.background.config.ts
  * and vite.extension.config.ts) so no extra build env is needed.
  */
-test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
+// QUARANTINED: local WASM proving cannot complete on the 0.16 SDK line, so this
+// spec can never pass here no matter how the timeouts are set.
+//
+// `miden-processor`'s `execute_and_build_trace_sync` overlaps hasher-chiplet trace
+// building onto a second thread via `std::thread::scope`, gated only on
+// `#[cfg(feature = "std")]`. wasm32 HAS `std` but cannot spawn threads, so the spawn
+// returns `Unsupported` and the wasm traps ~2ms into the prove. Because it traps
+// inside a `wasm-bindgen` future the JS promise is never rejected — it simply never
+// settles — so the prove neither completes nor errors and holds the offscreen WASM
+// mutex until the write deadline reclaims the realm. Arrived via miden-vm#3407
+// (miden-vm v0.28.0), reaching the SDK at @miden-sdk/miden-sdk 0.16.0-rc.2.
+//
+// Only the LOCAL prove path is affected. Delegated proving — the default on every
+// platform, and what every other e2e spec exercises — is unaffected, because that
+// proof is produced natively by the remote prover. Mobile is likewise unaffected: it
+// routes local proves to the native Rust prover (see `transaction/index.ts`).
+//
+// Un-skip once the SDK ships a `miden-processor` carrying the wasm gate; the fix is
+// to exclude wasm from the threaded path and fall back to the sequential
+// `execute_trace_inputs_sync` + `build_trace` that this function is already
+// documented as being equivalent to.
+test.describe.skip('Public Note Send — local proving (offscreen-doc path)', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('wallet A sends tokens publicly to wallet B with local proving forced', async ({
