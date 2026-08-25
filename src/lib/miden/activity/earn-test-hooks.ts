@@ -22,6 +22,14 @@ import * as Repo from 'lib/miden/repo';
 interface LatestEarnDeposit {
   id: string;
   status: ITransactionStatus;
+  /**
+   * The pipeline stage last stamped on the row. `status` alone cannot say where a
+   * row that never leaves `GeneratingTransaction` actually stopped, and the write
+   * runs in the offscreen document — a realm with no console the harness can
+   * attach to. The stage stamps DO cross back (`OFFSCREEN_STAGE_EVENT`), so this
+   * is the one field that names the call a stalled deposit is still inside (#718).
+   */
+  stage?: ITransaction['stage'];
   epochStatus?: IEarnDepositExtraInputs['epochStatus'];
   displayMessage?: string;
 }
@@ -45,6 +53,7 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
   return {
     id: row.id,
     status: row.status,
+    stage: row.stage,
     epochStatus: inputs?.epochStatus,
     displayMessage: row.displayMessage
   };

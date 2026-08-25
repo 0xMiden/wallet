@@ -20,6 +20,7 @@ import {
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
+  OFFSCREEN_PROVE_MARKER,
   OFFSCREEN_SIGN_REQUEST,
   OFFSCREEN_STAGE_EVENT,
   SW_TARGET,
@@ -180,6 +181,36 @@ const isConnectivityCategory = (value: unknown): value is ConnectivityCategory =
  * falls straight through. No-op when `chrome.runtime.onMessage` is unavailable
  * (non-extension bundles), where the offscreen flag is hardcoded off anyway.
  */
+/** Storage key holding the offscreen realm's `[prove-timing]` trail. Mirrors
+ * `proveMarkerStorageKey('offscreen')` in `lib/miden/sdk/prove-telemetry`, and is
+ * read by the E2E harness's prove-telemetry probe. */
+const OFFSCREEN_PROVE_MARKER_KEY = 'miden_prove_markers_offscreen';
+/** Bound matching the recording realm's own ring, so the key cannot grow without limit. */
+const OFFSCREEN_PROVE_MARKER_CAPACITY = 200;
+
+/** Serializes the read-append-write cycles so a burst of markers cannot have two
+ * of them interleave and drop each other's additions. */
+let proveMarkerQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Append one offscreen marker to the SW-owned trail.
+ *
+ * Best-effort throughout — this is diagnostics arriving from the prove path, and it
+ * must never be able to fail a write.
+ */
+function appendOffscreenProveMarker(ts: number, line: string): void {
+  proveMarkerQueue = proveMarkerQueue
+    .then(async () => {
+      const local = chrome?.storage?.local;
+      if (!local?.get || !local?.set) return;
+      const raw = (await local.get(OFFSCREEN_PROVE_MARKER_KEY))?.[OFFSCREEN_PROVE_MARKER_KEY];
+      const existing = Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+      const next = [...existing, `${ts}|${line}`].slice(-OFFSCREEN_PROVE_MARKER_CAPACITY);
+      await local.set({ [OFFSCREEN_PROVE_MARKER_KEY]: next });
+    })
+    .catch(() => {});
+}
+
 function registerOffscreenSignHandler(): void {
   if (offscreenSignHandlerRegistered) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
@@ -197,6 +228,8 @@ function registerOffscreenSignHandler(): void {
           stage?: ITransactionStage;
           category?: ConnectivityCategory;
           active?: boolean;
+          ts?: number;
+          line?: string;
         }
       | undefined;
     if (m?.target !== SW_TARGET) return false;
@@ -233,6 +266,14 @@ function registerOffscreenSignHandler(): void {
       if (isConnectivityCategory(m.category) && typeof m.active === 'boolean') {
         applyConnectivityReport(m.category, m.active);
       }
+      return false;
+    }
+    // E2E-only prove breadcrumb from the offscreen realm (#718). Same single-writer
+    // reasoning as the connectivity report above, for the same reason: that realm has
+    // no `chrome.storage`. Appending here is what makes a stalled write legible — the
+    // last marker to arrive names the call the realm is still inside.
+    if (m.type === OFFSCREEN_PROVE_MARKER) {
+      if (typeof m.ts === 'number' && typeof m.line === 'string') appendOffscreenProveMarker(m.ts, m.line);
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;

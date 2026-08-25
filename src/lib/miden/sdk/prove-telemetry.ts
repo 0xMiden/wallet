@@ -3,6 +3,11 @@
 // a partial `jest.mock` factory, and importing from there would resolve this to
 // `undefined` in those registries — where the call throws into `recordProveTelemetry`'s
 // best-effort catch and silently records NOTHING. See `offscreen-realm.ts`.
+import {
+  OFFSCREEN_PROVE_MARKER,
+  SW_TARGET,
+  type OffscreenProveMarkerEvent
+} from 'lib/miden/back/offscreen-codec';
 import { isInOffscreenDocument } from 'lib/miden/back/offscreen-realm';
 import { isMobile } from 'lib/platform';
 
@@ -81,6 +86,76 @@ export interface ProveTelemetryEntry {
 }
 
 const ring: ProveTelemetryEntry[] = [];
+
+/**
+ * E2E-only breadcrumb trail of the `[prove-timing]` markers (#718).
+ *
+ * {@link recordProveTelemetry} above records a prove once it SETTLES, which is
+ * exactly the wrong shape for diagnosing a write that never returns: the hang
+ * leaves no entry at all. These markers are the complement — each one is written
+ * as it happens, so the LAST marker names the call the realm is still inside.
+ *
+ * Per-realm key, unlike the merged telemetry ring. Nothing here needs the
+ * cross-realm union (each realm's trail is read separately and is only meaningful
+ * in its own order), and avoiding the read-merge-write cycle means a marker is a
+ * single `set` dispatched synchronously on the spot — before the caller enters
+ * the blocking WASM call the marker is announcing. A queued write would sit in a
+ * microtask that a synchronous call never yields to, losing precisely the marker
+ * that matters.
+ */
+const MARKER_CAPACITY = 200;
+const markers: string[] = [];
+
+/** Storage key holding one realm's marker trail. */
+export function proveMarkerStorageKey(realm: ProveTelemetryRealm): string {
+  return `miden_prove_markers_${realm}`;
+}
+
+/**
+ * Append one `[prove-timing]` marker to this realm's trail.
+ *
+ * Called only from the E2E-gated `recordProveTiming`, so this is inert in
+ * production builds. Never throws — instrumentation must not be able to fail a
+ * prove.
+ */
+export function recordProveMarker(line: string): void {
+  try {
+    const ts = Date.now();
+    markers.push(`${ts}|${line}`);
+    while (markers.length > MARKER_CAPACITY) markers.shift();
+
+    // The offscreen document has no `chrome.storage` of its own — the profile of a
+    // failed run shows only SW-written keys — so it REPORTS to the single writer
+    // exactly as connectivity does (#260), and the SW appends to the key below.
+    if (isInOffscreenDocument()) {
+      const event: OffscreenProveMarkerEvent = { target: SW_TARGET, type: OFFSCREEN_PROVE_MARKER, ts, line };
+      // Two-layer swallow, matching `postConnectivityEvent`: the inner one absorbs a
+      // rejection (no SW receiver), the outer a synchronous throw (torn-down port).
+      // Both matter because this sits on the prove path, where a throw would be read
+      // as a prove failure.
+      void Promise.resolve(chrome.runtime.sendMessage(event)).catch(() => {});
+      return;
+    }
+
+    const storage = telemetryStorage();
+    if (!storage?.set) return;
+    // `Promise.resolve` normalises the callback-style `set` some runtimes still
+    // return `undefined` from, so the rejection handler always attaches.
+    void Promise.resolve(storage.set({ [proveMarkerStorageKey('inline')]: [...markers] })).catch(() => {});
+  } catch {
+    // best-effort — see the class doc.
+  }
+}
+
+/** Test-only: this realm's marker trail. */
+export function __getProveMarkersForTest(): string[] {
+  return [...markers];
+}
+
+/** Test-only: clear the marker trail. */
+export function __resetProveMarkersForTest(): void {
+  markers.length = 0;
+}
 
 export interface ProveSample {
   path: ProveTelemetryEntry['path'];

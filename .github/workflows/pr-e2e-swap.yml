@@ -19,7 +19,9 @@ jobs:
   # required-check name.
   swap-e2e:
     name: swap-e2e (chrome)
-    runs-on: ubuntu-latest
+    # 4 cores — see the rationale in pr-e2e-earn.yml: the local stack's serial
+    # prover cannot finish a proof on 2 vCPUs shared with the chain and Chrome.
+    runs-on: ubuntu-latest-4-cores
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
     # The suite is real-network and intermittently flaky under CI load, so it runs
     # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min

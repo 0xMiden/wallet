@@ -18,7 +18,13 @@ jobs:
   # required-check name.
   earn-e2e:
     name: earn-e2e (chrome)
-    runs-on: ubuntu-latest
+    # 4 cores, not the default 2. This job runs a whole chain (validator +
+    # sequencer + ntx-builder), a serial native prover and two Chrome instances
+    # on one box. On 2 vCPUs the prover is starved badly enough that a single
+    # transaction proof does not finish: a failing run logged 4 prove requests in
+    # 20 minutes, none with a completion line, while the same proof takes ~2s on
+    # an idle machine. Claims then never settle and every spec times out (#718).
+    runs-on: ubuntu-latest-4-cores
     timeout-minutes: 60
     env:
       E2E_NETWORK: localhost

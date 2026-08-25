@@ -86,7 +86,7 @@ import {
   walletAccountIdToSdk
 } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
+import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
 
@@ -1070,7 +1070,15 @@ const runGuardianPipeline = async (
         // Safe to bound here in the strongest sense available: this pipeline drives
         // execute/prove/submit itself, so the deadline provably expires BEFORE any
         // submit and the local re-prove cannot broadcast twice.
-        provenTx = await withDelegatedProveTimeout(executedTx.prove({}), 'Delegated guardian prove');
+        // Explicit remote prover rather than `prove({})`: the empty form selects the
+        // SDK's default-prover fallback, which "requires an initialized client" and so
+        // never dispatches from a prover-only realm — the write then hangs until the
+        // deadline below rather than proving in seconds (#718).
+        const delegatedProver = remoteProver();
+        provenTx = await withDelegatedProveTimeout(
+          executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+          'Delegated guardian prove'
+        );
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()

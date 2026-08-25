@@ -19,7 +19,9 @@ jobs:
   # the spec's beforeAll) and the local guardian co-signer (--profile guardian).
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
-    runs-on: ubuntu-latest
+    # 4 cores — see the rationale in pr-e2e-earn.yml: the local stack's serial
+    # prover cannot finish a proof on 2 vCPUs shared with the chain and Chrome.
+    runs-on: ubuntu-latest-4-cores
     timeout-minutes: 60
     env:
       E2E_NETWORK: localhost

@@ -50,6 +50,8 @@ const DEPOSIT_AMOUNT = '10';
 interface EarnDepositView {
   id: string;
   status: number;
+  /** Pipeline stage last stamped on the row — names where a stalled deposit stopped. */
+  stage?: string;
   epochStatus?: string;
   displayMessage?: string;
 }
@@ -184,6 +186,7 @@ test.describe('earn: deposit happy path', () => {
     //    callback and driven to Completed by the SW send pipeline. The deposit UI
     //    never hands the txId to the DOM, so read it from the SW hook.
     let txId = '';
+    let lastStage = '';
     await expect
       .poll(
         async () => {
@@ -193,6 +196,16 @@ test.describe('earn: deposit happy path', () => {
             ).__TEST_LATEST_EARN_DEPOSIT__()
           )) as EarnDepositView | null;
           txId = row?.id ?? '';
+          // Report every stage TRANSITION to stdout. A deposit that never completes
+          // otherwise fails with nothing but "expected 2, received 1", which does not
+          // say whether it stalled executing, proving or submitting — and the realm
+          // that would have said so has no console the harness can read (#718).
+          const stage = row?.stage ?? 'none';
+          if (stage !== lastStage) {
+            lastStage = stage;
+            // eslint-disable-next-line no-console
+            console.log(`[earn-deposit] status=${row?.status ?? 'null'} stage=${stage}`);
+          }
           return row?.status ?? null;
         },
         { timeout: 180_000, intervals: [3000] }
