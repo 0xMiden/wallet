@@ -1,4 +1,5 @@
 import { ITransactionStage } from '../db/types';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -47,6 +48,17 @@ export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled fo
 export const TRANSACTION_RETRY_UNSAFE_ERROR =
   'This transaction may already have been submitted, so it cannot be retried automatically. ' +
   'Check your activity once it syncs, and start a new one only if it never arrived.';
+
+/**
+ * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
+ * the operation rather than cancelling it, so the pipeline may still be running
+ * and may still submit. Every stage-based message below would claim more than
+ * that — a 'proving' eviction would otherwise render as "No funds moved", which
+ * is a promise the wallet cannot keep here.
+ */
+export const TRANSACTION_ENGINE_RECOVERED_ERROR =
+  'The wallet had to recover its transaction engine, so this transaction was left in an unknown state. ' +
+  'Check your activity once it syncs before trying again.';
 
 /**
  * True when a Failed row's `submit()` outcome cannot be ruled out from local
@@ -122,6 +134,13 @@ export function resolveTransactionErrorMessage(
   delegateTransaction?: boolean
 ): string {
   const raw = formatRawTransactionError(error);
+  // A lock-recovery eviction is checked FIRST because every mapping below reads
+  // the stage, and the stage is exactly what an eviction makes unreliable: it
+  // says where the pipeline was when its caller was rejected, not where the
+  // still-running pipeline got to (issue #775).
+  if (isWasmClientPoisonedError(error)) {
+    return TRANSACTION_ENGINE_RECOVERED_ERROR;
+  }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote
   // timeout: the automatic remote→native fallback can turn a genuine mismatch

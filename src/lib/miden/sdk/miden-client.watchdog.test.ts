@@ -70,6 +70,83 @@ describe('wasm lock watchdog', () => {
     await second;
   });
 
+  it('a paused hold is relaxed, not unwatched: it survives the normal ceiling and is evicted at the paused one', async () => {
+    // Stopping the clock outright made the backstop optional exactly where a
+    // trap is most likely, and on the realms whose traps the listener cannot see
+    // (the SDK method worker swallows one into a never-settling request) that
+    // left the wedge permanent — the pre-#775 failure mode, reached through the
+    // fix's own escape hatch.
+    const wedged = withWasmClientLock(async () => {
+      await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    let successorRan = false;
+    const successor = withWasmClientLock(async () => {
+      successorRan = true;
+    });
+
+    // Well past the normal ceiling: a genuinely slow sign or local prove must
+    // still be waiting, untouched.
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(successorRan).toBe(false);
+    expect(isWasmClientBusy()).toBe(true);
+
+    // Past the paused ceiling: the wedge is bounded after all.
+    await jest.advanceTimersByTimeAsync(1_300_000);
+    await wedgedRejects;
+    await successor;
+    expect(successorRan).toBe(true);
+  });
+
+  it('closing a pause puts the hold back on the NORMAL ceiling', async () => {
+    let releasePause!: () => void;
+    const pauseGate = new Promise<void>(resolve => {
+      releasePause = resolve;
+    });
+    const wedged = withWasmClientLock(async () => {
+      await withWasmLockWatchdogPaused(() => pauseGate);
+      await new Promise<never>(() => {});
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    releasePause();
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The post-pause remainder gets the 5-minute ceiling, not the 30-minute one.
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a nested pause does not push the paused ceiling out on every open', async () => {
+    // Re-arming per bracket would let a flow that opens brackets in a loop keep
+    // resetting the bound, restoring the old stop-the-clock behaviour.
+    let openInner!: () => void;
+    const innerGate = new Promise<void>(resolve => {
+      openInner = resolve;
+    });
+    const wedged = withWasmClientLock(async () => {
+      await withWasmLockWatchdogPaused(async () => {
+        await innerGate;
+        await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
+      });
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    // Spend most of the paused ceiling inside the OUTER bracket, then open the
+    // inner one.
+    await jest.advanceTimersByTimeAsync(1_200_000);
+    openInner();
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The inner bracket must not have restarted the 1.8M ceiling.
+    await jest.advanceTimersByTimeAsync(600_001);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
   it('never double-releases: a waiter woken by recovery is not overlapped by a later acquirer', async () => {
     const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
@@ -110,6 +187,35 @@ describe('wasm lock watchdog', () => {
     expect(isLockedError(new WasmClientPoisonedError('realm-error', new WebAssembly.RuntimeError('unreachable')))).toBe(
       false
     );
+  });
+
+  it.each([
+    ["the SDK's own wording", 'Client not initialized'],
+    ['a vault-shaped trap text', 'wallet is locked'],
+    ['and the third pattern too', 'vault is unavailable']
+  ])('keeps a locked-vault phrase in the CAUSE out of its own message — %s', (_why, causeText) => {
+    // The realm listener hands the trap through as `cause`, and a trap's text is
+    // not ours. `isLockedError` reads the error's own message and means DEFER:
+    // leave the row Queued and retry after unlock. That is safe only because a
+    // locked vault is strictly pre-submit — the one thing an eviction is not, so
+    // a match here would requeue a send whose abandoned pipeline can still pay.
+    const poisoned = new WasmClientPoisonedError('realm-error', new WebAssembly.RuntimeError(causeText));
+
+    expect(poisoned.message).not.toContain(causeText);
+    expect(isLockedError(poisoned)).toBe(false);
+    // The trap is still recoverable for a human, just not through the message.
+    expect(poisoned.cause).toBeInstanceOf(WebAssembly.RuntimeError);
+    expect((poisoned.cause as Error).message).toBe(causeText);
+  });
+
+  it('names the cause class in its message, and refuses an unrecognized name', () => {
+    expect(new WasmClientPoisonedError('realm-error', new WebAssembly.RuntimeError('unreachable')).message).toContain(
+      'RuntimeError'
+    );
+    const odd = new Error('boom');
+    odd.name = 'wallet is locked';
+    expect(new WasmClientPoisonedError('realm-error', odd).message).toContain('unrecognized error name');
+    expect(isLockedError(new WasmClientPoisonedError('realm-error', odd))).toBe(false);
   });
 });
 
@@ -247,6 +353,60 @@ describe('realm error fast path', () => {
     await jest.advanceTimersByTimeAsync(0);
 
     window.dispatchEvent(new ErrorEvent('error', { error: new Error(message), message }));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(true);
+    releaseGate();
+    await expect(first).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ["JavaScriptCore's out-of-bounds wording", 'Out of bounds memory access'],
+    ["JavaScriptCore's divide-by-zero wording", 'Division by zero'],
+    ["V8's out-of-bounds wording", 'memory access out of bounds'],
+    ["V8's divide-by-zero wording", 'divide by zero']
+  ])("detects a trap in either engine's phrasing — %s", async (_why, message) => {
+    // Trap text is not portable, and iOS (JavaScriptCore) is where the recorded
+    // #775 freeze happened — matching only V8's phrasing left that platform with
+    // no fast path at all.
+    const first = withWasmClientLock(() => new Promise<never>(() => {}));
+    const firstRejects = expectRejection(first, { name: 'WasmClientPoisonedError', reason: 'realm-error' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(new ErrorEvent('error', { message: `Uncaught RuntimeError-less: ${message}` }));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(false);
+    await firstRejects;
+  });
+
+  it('detects a trap delivered as an unhandled REJECTION, not an error event', async () => {
+    // A trap that rejects its call is unhandled whenever the awaiting flow is
+    // already gone, and JavaScriptCore favours this shape. The listener used to
+    // watch 'error' only, so on those deliveries recovery waited for the
+    // watchdog instead of firing in milliseconds.
+    const first = withWasmClientLock(() => new Promise<never>(() => {}));
+    const firstRejects = expectRejection(first, { name: 'WasmClientPoisonedError', reason: 'realm-error' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(
+      Object.assign(new Event('unhandledrejection'), { reason: new WebAssembly.RuntimeError('unreachable') })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(isWasmClientBusy()).toBe(false);
+    await firstRejects;
+  });
+
+  it('ignores an ordinary unhandled rejection — the realm is shared with the whole app', async () => {
+    let releaseGate!: () => void;
+    const gate = new Promise<void>(resolve => {
+      releaseGate = resolve;
+    });
+    const first = withWasmClientLock(() => gate);
+    await jest.advanceTimersByTimeAsync(0);
+
+    window.dispatchEvent(Object.assign(new Event('unhandledrejection'), { reason: new Error('node unreachable') }));
     await jest.advanceTimersByTimeAsync(0);
 
     expect(isWasmClientBusy()).toBe(true);

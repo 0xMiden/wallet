@@ -13,6 +13,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Feature flag: is the offscreen WASM client active? Read as a module constant
@@ -72,6 +73,14 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
  * locked message, so this precise match is sufficient.
  */
 export function isLockedError(err: unknown): boolean {
+  // A lock-recovery eviction is never a locked vault, whatever its text says
+  // (issue #775). "Locked" means DEFER: leave the row Queued for the next cycle.
+  // That is safe only because a locked vault is strictly pre-submit — and an
+  // eviction is the one failure where that does not hold, since the abandoned
+  // pipeline runs on and can still submit. Belt-and-braces with the closed-set
+  // message in `WasmClientPoisonedError`: this is the classifier whose false
+  // positive turns into a second payment, so it checks the TYPE too.
+  if (isWasmClientPoisonedError(err)) return false;
   if (err && typeof err === 'object' && (err as { reason?: unknown }).reason === 'locked') {
     return true;
   }

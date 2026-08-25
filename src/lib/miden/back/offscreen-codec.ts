@@ -309,7 +309,16 @@ export function decodeArg(encoded: string): unknown {
  */
 export function errorNameOf(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
-  const name = Reflect.get(error, 'name');
+  // The read is guarded because this runs inside the offscreen catch that builds
+  // the reply: `name` can be an accessor on a foreign object, and a throw here
+  // would escape before `sendResponse`, leaving the SW waiting on its deadline
+  // instead of getting the failure it is owed.
+  let name: unknown;
+  try {
+    name = Reflect.get(error, 'name');
+  } catch {
+    return undefined;
+  }
   if (typeof name !== 'string' || name.length === 0 || name === 'Error') return undefined;
   return name;
 }

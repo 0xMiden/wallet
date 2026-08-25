@@ -286,6 +286,36 @@ function newSignId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * Per-client liveness for the sign stub (issue #775).
+ *
+ * `currentOpId` is a module global, so clearing it at eviction only covers the
+ * window before a SUCCESSOR op sets its own — after that, an abandoned
+ * dispatch's mid-execute sign would read the successor's id and look perfectly
+ * well-formed. The corpse and the successor cannot be told apart by the id;
+ * they CAN be told apart by the client, because recovery rebuilds it. So each
+ * created client gets its own sign closure over its own liveness token, and
+ * poisoning marks that token: the corpse's sign then fails on its own identity
+ * no matter whose id is ambient.
+ */
+type SignLiveness = { poisoned: boolean };
+
+/** Liveness of the client currently in `clientPromise` — the one to mark on poison. */
+let currentSignLiveness: SignLiveness | null = null;
+
+const makeOffscreenSignViaSW =
+  (liveness: SignLiveness) =>
+  async (publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> => {
+    if (liveness.poisoned) {
+      // This client was displaced by lock recovery, so whoever is calling is an
+      // abandoned dispatch (issue #775). Its signature would be attributed to
+      // whichever op holds the lock NOW — pausing that op's write deadline and
+      // letting this failure land in the successor's `locked` slot.
+      throw new Error('offscreen sign: this client was poisoned by WASM lock recovery');
+    }
+    return offscreenSignViaSW(publicKey, signingInputs);
+  };
+
 async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> {
   const op_id = currentOpId;
   if (!op_id) {
@@ -768,16 +798,41 @@ let clientPromise: Promise<MidenClientInterface> | null = null;
  * and every following op would fail instead. That matters most in this realm,
  * because this is where the writes and proves run.
  *
- * Clearing the slot is all that is needed — deliberately no `free()`, for the
- * reason `reloadEndpointOverrides` documents below: a dispatch that yielded the
- * mutex resumes on its captured reference, and freeing under it would fail an op
- * that may still be healthy. The displaced client goes with the realm when the
- * document closes.
+ * Clearing the slot is all that is needed to keep future callers off it —
+ * deliberately no `free()`, for the reason `reloadEndpointOverrides` documents
+ * below: a dispatch that yielded the mutex resumes on its captured reference,
+ * and terminating under it would fail an op that may still be healthy. The
+ * displaced client goes with the realm when the document closes.
+ *
+ * It is however MARKED poisoned, which is not the same thing. The client's own
+ * corpse guards key off that flag: `yieldLockUnlessDisposed` (so an evicted
+ * dispatch cannot release the successor's mutex) and the keystore sign wrapper
+ * (so an evicted dispatch reaching a sign cannot pause the successor's
+ * watchdog). Those guards are the reason an eviction in this realm is
+ * survivable, and dropping the reference alone would leave them switched off
+ * for exactly the flows that were in flight — the ones that need them.
+ *
+ * The prove-only client goes too: `OFFSCREEN_PROVE` runs on its own raw
+ * `WebClient` in this same WASM instance, so a trap that aborts the module
+ * aborts that one as well, and it is memoized with no other reset path.
  */
 onWasmClientPoisoned(() => {
-  if (!clientPromise) return;
-  console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
+  const poisoned = clientPromise;
+  const hadProver = prover !== null;
+  prover = null;
   clientPromise = null;
+  // Synchronous, unlike `markPoisoned` below: the sign closure is created with
+  // the client (not resolved from it), so the guard is armed before control ever
+  // returns to an abandoned dispatch.
+  if (currentSignLiveness) currentSignLiveness.poisoned = true;
+  currentSignLiveness = null;
+  if (!poisoned && !hadProver) return;
+  console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
+  // Marking needs the resolved instance, so it lands a microtask later than the
+  // synchronous drop above. A create still in flight resolves to a client built
+  // on the poisoned module, which is equally untrustworthy; a rejected one has
+  // nothing to mark.
+  void poisoned?.then(client => client.markPoisoned()).catch(() => {});
 });
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
@@ -806,10 +861,14 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     // Guarded on identity so a late rejection can only clear ITS OWN slot: a reload
     // that lands while this create is in flight already replaced the slot, and
     // blindly nulling would discard that healthy successor too.
+    // One liveness token per created client, so poisoning can switch off THIS
+    // client's sign without touching a successor's (issue #775).
+    const liveness: SignLiveness = { poisoned: false };
+    currentSignLiveness = liveness;
     const created: Promise<MidenClientInterface> = ensureEndpointOverrides()
       .then(() =>
         MidenClientInterface.create({
-          signCallback: offscreenSignViaSW,
+          signCallback: makeOffscreenSignViaSW(liveness),
           useWorker: false
         })
       )
@@ -867,7 +926,6 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
-    const client = await getOrCreateClient();
     const args = msg.argsB64.map(decodeArg);
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
@@ -877,6 +935,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
     const resultBytes = await withWasmClientLock(async () => {
+      // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
+      // would pin this op to the client that was current when it arrived — and
+      // the ops most likely to be queued are the ones waiting behind the holder
+      // that just trapped, so every one of them would run on the poisoned client
+      // the poison hook had already dropped (issue #775). Same reasoning as the
+      // ambient op_id below: what matters is the state at EXECUTION start.
+      const client = await getOrCreateClient();
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
@@ -911,6 +976,18 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
+    // A lock-recovery eviction rejects the WAITER while the dispatch runs on, so
+    // the `finally` that clears the ambient id never ran and this op's id is
+    // still installed (issue #775). The next op overwrites it with its own, and
+    // the abandoned dispatch's sign would then be tagged with the SUCCESSOR's
+    // op_id — pausing that op's write deadline, and letting a corpse's sign
+    // failure write a `locked` reason into the successor's slot, which the SW
+    // re-tags onto the successor's own error. Clear it while it is still
+    // provably ours; a corpse sign then fails loudly on the no-ambient-id guard.
+    if (currentOpId === msg?.op_id) {
+      currentOpId = null;
+      reassertCurrentOpId = () => {};
+    }
     // Preserve the SDK's stable error code when it sets one (issue #260,
     // funds-critical). The offscreen client runs `useWorker:false`, so a failed
     // write throws the RAW main-thread JsError — extract the code with the SAME

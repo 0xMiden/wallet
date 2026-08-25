@@ -349,6 +349,21 @@ export class MidenClientInterface {
   }
 
   /**
+   * Mark this client as no longer trustworthy WITHOUT terminating it (issue
+   * #775). For a realm that keeps its own client and deliberately does not
+   * `free()` a displaced one — the offscreen document, where a dispatch that
+   * yielded the mutex resumes on its captured reference — so that the
+   * corpse-detecting guards (`yieldLockUnlessDisposed`,
+   * `wrapSignWithWatchdogPause`) still fire on the client recovery just
+   * declared poisoned. Without this, dropping the module-local reference hides
+   * the client from future callers but leaves every flow already holding it
+   * looking like a healthy owner.
+   */
+  markPoisoned() {
+    this.liveness.disposed = true;
+  }
+
+  /**
    * Flipped by `free()` — see `yieldLockUnlessDisposed` and
    * `wrapSignWithWatchdogPause`. An object rather than a boolean field because
    * the keystore callbacks handed to the SDK are built before the instance

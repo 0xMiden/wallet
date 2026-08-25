@@ -2,7 +2,7 @@
 // forms a cycle (via `speculation-manager`), and the re-exported poison
 // bindings below must already be initialized when the cycle re-enters this
 // module — see `wasm-client-poison.ts`.
-import { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from './wasm-client-poison';
+import { WASM_LOCK_PAUSED_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from './wasm-client-poison';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -186,10 +186,21 @@ function holdIsCurrent(hold: WasmLockHold | null | undefined): boolean {
  * window) must not evict a healthy holder.
  */
 function looksLikeWasmTrap(event: ErrorEvent): boolean {
-  if (typeof WebAssembly !== 'undefined' && event.error instanceof WebAssembly.RuntimeError) {
+  return isTrapShaped(event.error, event.message, event.filename);
+}
+
+/**
+ * The predicate itself, over the three things a delivery mechanism can give us.
+ * Split out because a trap does not always arrive as an `ErrorEvent`: an
+ * unhandled REJECTION carries only a reason, with no message or filename of its
+ * own.
+ */
+function isTrapShaped(error: unknown, rawMessage?: unknown, rawFilename?: unknown): boolean {
+  if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) {
     return true;
   }
-  const message = typeof event.message === 'string' ? event.message : '';
+  const message =
+    typeof rawMessage === 'string' && rawMessage.length > 0 ? rawMessage : error instanceof Error ? error.message : '';
   // No bare "wasm" match here: on mobile the whole React app shares the realm,
   // and an unrelated error merely mentioning wasm must not evict a holder.
   //
@@ -200,8 +211,14 @@ function looksLikeWasmTrap(event: ErrorEvent): boolean {
   // engines render the trap as `RuntimeError: unreachable`, already covered by
   // the first alternative. A false positive here is expensive: it evicts a
   // healthy holder and disposes a live client.
+  //
+  // Both engines' wordings are listed, because the trap text is NOT portable and
+  // iOS is where the recorded #775 freeze happened: V8 says "memory access out
+  // of bounds" and "divide by zero", JavaScriptCore says "Out of bounds memory
+  // access" and "Division by zero". Matching only one engine's phrasing leaves
+  // the other platform with no fast path at all.
   if (
-    /\bRuntimeError\b|unreachable executed|Unreachable code should not be executed|memory access out of bounds|divide by zero|integer overflow/i.test(
+    /\bRuntimeError\b|unreachable executed|Unreachable code should not be executed|memory access out of bounds|out of bounds memory access|divide by zero|division by zero|integer overflow/i.test(
       message
     )
   ) {
@@ -211,7 +228,7 @@ function looksLikeWasmTrap(event: ErrorEvent): boolean {
   // following dot and so matched wasm-glue JS (`*.wasm.js`) and sourcemaps
   // (`*.wasm.map`), letting any ordinary TypeError thrown from glue code evict a
   // holder.
-  const filename = typeof event.filename === 'string' ? event.filename : '';
+  const filename = typeof rawFilename === 'string' ? rawFilename : '';
   return /\.wasm(?:$|[?#])/i.test(filename);
 }
 
@@ -270,7 +287,24 @@ function notifyWasmClientPoisoned(): void {
 
 function onRealmError(event: ErrorEvent): void {
   if (!looksLikeWasmTrap(event)) return;
-  const cause = event.error ?? new Error(event.message || 'unknown WASM trap');
+  recoverFromTrap(event.error ?? new Error(event.message || 'unknown WASM trap'));
+}
+
+/**
+ * A trap that reached the realm as a REJECTION rather than an uncaught error.
+ * The abandoned-future case #775 is named for settles nothing at all, so it can
+ * only ever arrive as an `error` — but a trap that DOES reject its call is
+ * unhandled whenever the caller is a flow that has already been evicted (its
+ * awaiter is gone), and on JavaScriptCore this is the shape the trap arrives in.
+ * Same predicate, so the same narrowness argument applies: a rejection carries
+ * no filename, and its reason must independently look like a trap.
+ */
+function onRealmRejection(event: PromiseRejectionEvent): void {
+  if (!isTrapShaped(event.reason)) return;
+  recoverFromTrap(event.reason);
+}
+
+function recoverFromTrap(cause: unknown): void {
   if (inRecoveryCooldown()) {
     console.error('[miden-client] WASM trap within recovery cooldown — ignoring (likely an evicted corpse):', cause);
     return;
@@ -295,31 +329,47 @@ function onRealmError(event: ErrorEvent): void {
 }
 
 /**
- * Register the trap listener on this realm (issue #775). A trap surfaces as an
- * uncaught error on the realm — NOT as an `unhandledrejection`, because the
- * abandoned future's promise never settles. This module is instantiated once
- * per realm, so installing here covers every realm that owns a client (service
- * worker, offscreen document, mobile/desktop main window, extension UI pages)
- * with no per-realm wiring.
+ * Register the trap listeners on this realm (issue #775). The abandoned-future
+ * case surfaces as an uncaught `error`, since its promise never settles; a trap
+ * that does reject its call surfaces as an `unhandledrejection` whenever the
+ * awaiting flow is gone, which is also the shape JavaScriptCore tends to
+ * deliver. Both go through the same narrow predicate. This module is
+ * instantiated once per realm, so installing here covers every realm that owns
+ * a client (service worker, offscreen document, mobile/desktop main window,
+ * extension UI pages) with no per-realm wiring.
  *
- * Caveat: where the client runs inside the SDK's method worker (extension SW),
- * a worker trap reaches this realm listener only if it propagates unhandled
- * through the Worker object; if the SDK swallows it, the watchdog is the
- * backstop. On mobile — where the recorded #775 freeze happened — the client
- * runs on this realm's main thread and the fast path always sees the trap.
+ * Caveat: where the client runs inside the SDK's method worker (desktop, and
+ * any UI page that builds its own client — the extension SW has no `Worker` and
+ * falls back in-realm), a worker trap reaches neither listener: the SDK attaches
+ * no `error`/`messageerror` handler to the worker, and an abandoned future posts
+ * no message back, so the parent's request simply never settles. There the
+ * watchdog is the ONLY recovery, which is why a paused watchdog is relaxed
+ * rather than stopped (see `WASM_LOCK_PAUSED_WATCHDOG_MS`). On mobile — where
+ * the recorded #775 freeze happened — the client runs on this realm's main
+ * thread and the fast path sees the trap.
  */
 let realmErrorListenerInstalled = false;
 function ensureRealmErrorListener(): void {
   if (realmErrorListenerInstalled) return;
   if (typeof globalThis.addEventListener !== 'function') return;
   globalThis.addEventListener('error', onRealmError);
+  globalThis.addEventListener('unhandledrejection', onRealmRejection);
   realmErrorListenerInstalled = true;
 }
 
-function armWatchdog(holder: LockHolder): void {
+/**
+ * (Re-)arm this holder's watchdog at the ceiling its current pause state calls
+ * for: the normal one while it is running, the long one while a pause bracket
+ * is open. Always clears any timer already on the holder, so it is safe to call
+ * from every transition (hold start, pause open/close, yield resume) without
+ * leaking a timer or stacking two.
+ */
+function armWatchdogFor(holder: LockHolder): void {
+  if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
+  const ceiling = holder.pauseCount > 0 ? WASM_LOCK_PAUSED_WATCHDOG_MS : WASM_LOCK_WATCHDOG_MS;
   holder.watchdogTimer = setTimeout(() => {
     recoverFromWedgedHolder(holder, 'watchdog');
-  }, WASM_LOCK_WATCHDOG_MS);
+  }, ceiling);
 }
 
 function beginHold(): LockHolder {
@@ -335,7 +385,7 @@ function beginHold(): LockHolder {
   if (currentHolder) {
     console.error('[miden-client] BUG: taking the WASM lock while another holder is still registered');
   }
-  armWatchdog(holder);
+  armWatchdogFor(holder);
   currentHolder = holder;
   return holder;
 }
@@ -457,13 +507,20 @@ export async function tryWithWasmClientLock<T>(
 }
 
 /**
- * Run `operation` with the current lock holder's watchdog paused (issue #775).
- * Mirrors `pauseDeadline`/`resumeDeadline` in `miden-client-proxy.ts`: pause
- * stops the clock entirely, and the close of the bracket re-arms the FULL
- * ceiling from scratch — no elapsed-time accounting. For the two legitimately
- * unbounded waits inside a hold: a keystore sign round-trip (blocks on user
- * authentication) and a local prove (the fallback when delegated proving is
- * down — capping it would leave nothing to fall back to).
+ * Run `operation` with the current lock holder's watchdog relaxed to
+ * `WASM_LOCK_PAUSED_WATCHDOG_MS` (issue #775). Mirrors
+ * `pauseDeadline`/`resumeDeadline` in `miden-client-proxy.ts` in that the close
+ * of the bracket re-arms the FULL normal ceiling from scratch, with no
+ * elapsed-time accounting. For the two legitimately unbounded waits inside a
+ * hold: a keystore sign round-trip (blocks on user authentication) and a local
+ * prove (the fallback when delegated proving is down — capping it at the normal
+ * ceiling would leave nothing to fall back to).
+ *
+ * "Relaxed", not "stopped": these waits are also where a trap is most likely,
+ * and on the realms where the listener cannot see one (the SDK method worker
+ * swallows it; JavaScriptCore may deliver it as a rejection) a stopped clock
+ * left the wedge unrecoverable — the pre-#775 failure mode, reached through the
+ * fix's own escape hatch. See `WASM_LOCK_PAUSED_WATCHDOG_MS` for the bound.
  *
  * Depth-counted so brackets nest, and holder-scoped: the holder is captured at
  * entry so the close can never touch a different holder. Pausing only silences
@@ -485,9 +542,11 @@ export async function withWasmLockWatchdogPaused<T>(
     return operation();
   }
   holder.pauseCount++;
-  if (holder.watchdogTimer) {
-    clearTimeout(holder.watchdogTimer);
-    holder.watchdogTimer = null;
+  // Only the OUTERMOST bracket swaps the ceiling; a nested one must not restart
+  // the relaxed timer, or a flow that opens brackets in a loop would keep
+  // pushing the bound out and get the old stop-the-clock behaviour back.
+  if (holder.pauseCount === 1) {
+    armWatchdogFor(holder);
   }
   try {
     return await operation();
@@ -495,7 +554,7 @@ export async function withWasmLockWatchdogPaused<T>(
     if (!holder.killed) {
       holder.pauseCount--;
       if (holder.pauseCount === 0 && holder === currentHolder) {
-        armWatchdog(holder);
+        armWatchdogFor(holder);
       }
     }
   }
@@ -551,9 +610,10 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     /* c8 ignore else -- a suspended holder is never the eviction target today */
     if (!holder.killed) {
       currentHolder = holder;
-      if (holder.pauseCount === 0) {
-        armWatchdog(holder);
-      }
+      // Back on the clock — at the relaxed ceiling if the resumed flow is still
+      // inside a pause bracket (a yield nested in a pause), the normal one
+      // otherwise.
+      armWatchdogFor(holder);
     } else {
       // Defensive: a holder cannot currently be killed while suspended, but if
       // that ever becomes possible this flow must not resume as owner — hand
