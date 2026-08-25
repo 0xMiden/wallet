@@ -53,6 +53,36 @@ runs:
         # bridge-networked guardian containers can reach it via host.docker.internal.
         sed -i 's/^PROVER_PORT=50051$/PROVER_PORT=50052/' "$f"
         sed -i 's|sequencer --rpc.listen "$RPC"|sequencer --rpc.listen "0.0.0.0:57291"|' "$f"
+    - name: Patch block cadence
+      shell: bash
+      # start-test-node.sh HARDCODES the sequencer's `--block.interval 3s
+      # --batch.interval 1s`. MIDEN_NODE_BLOCK_INTERVAL was written when this stack
+      # ran under docker-compose.local.yml, which passed it through; the native
+      # script reads no such variable, so setting it configured NOTHING and the
+      # "fast blocks" leg has been running at 3s the whole time.
+      #
+      # That is worse than a slow leg, because a spec cannot see it. `recall.ts`
+      # sizes a recall window in BLOCKS from this same variable — the only cadence
+      # the process can claim to know — so at 500ms it asks for 360 blocks believing
+      # they take 180s, and against a real 3s cadence they take 18 minutes. The spec
+      # then fails as "the note never became reclaimable", which reads like a product
+      # bug in recall and is nothing of the sort.
+      #
+      # Only patch when the caller asked for a cadence: unset means the leg wants the
+      # script's own 3s, which is exactly what `recallBlocksForWindow` assumes for the
+      # empty case, so the two already agree.
+      run: |
+        [ -n "${MIDEN_NODE_BLOCK_INTERVAL:-}" ] || { echo "No cadence requested; leaving the script's 3s/1s default."; exit 0; }
+        f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
+        line='--block.interval 3s --batch.interval 1s'
+        # Verified, not best-effort: a silently-missed sed is the exact failure above,
+        # and it would come back the moment upstream reformats this line.
+        grep -qF -- "$line" "$f" || {
+          echo "::error::start-test-node.sh no longer contains '$line' — the block-cadence patch matched nothing. Update it, or the node runs at a cadence the specs do not expect."
+          exit 1
+        }
+        sed -i "s|$line|--block.interval ${MIDEN_NODE_BLOCK_INTERVAL} --batch.interval ${MIDEN_NODE_BATCH_INTERVAL:-${MIDEN_NODE_BLOCK_INTERVAL}}|" "$f"
+        grep -n -- '--block.interval' "$f"
     - name: Build + start node
       shell: bash
       # MIDEN_PROVER_TIMEOUT / MIDEN_PROVER_CAPACITY are read by miden-remote-prover's
