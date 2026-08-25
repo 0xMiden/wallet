@@ -41,9 +41,9 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
     steps,
     timeline
   }) => {
-    // Local proving (offscreen-doc WASM) runs the sender's claim AND send proofs
-    // in-browser on devnet — far slower than delegated proving, so the default
-    // 5-min per-test budget isn't enough for this path.
+    // Local proving (offscreen-doc WASM) runs the send proof in-browser — far
+    // slower than delegated proving, so the default 5-min per-test budget isn't
+    // enough for this path.
     test.setTimeout(600_000);
 
     let addressA: string;
@@ -55,13 +55,6 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
       const b = await walletB.createNewWallet();
       addressA = a.address;
       addressB = b.address;
-    });
-
-    await steps.step('force_local_proving_on_wallet_a', async () => {
-      // Only the sending side needs the override; the receiver claims
-      // (a separate code path), and the failure mode being reproduced is
-      // on the sender's send flow.
-      await walletA.setDelegateProofEnabled(false);
     });
 
     await steps.step('deploy_and_fund', async () => {
@@ -105,6 +98,22 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+    });
+
+    await steps.step('force_local_proving_on_wallet_a', async () => {
+      // Armed HERE, after funding, so the ONLY locally-proved transaction in this
+      // spec is the send under test. Only wallet A gets the override at all: the
+      // failure mode being reproduced is the sender's send flow, and B's claim is
+      // a separate code path.
+      //
+      // Arming it before `deploy_and_fund` (where it used to live) also made the
+      // funding CLAIM prove locally. That was never asserted — it is prologue — and
+      // on the 0.16 SDK it stopped being affordable: a locally-proved consume on the
+      // 2-vCPU CI runner outran the offscreen write deadline, so the spec died in
+      // its prologue without ever reaching the send. Local proving is ~1.5x more
+      // expensive on 0.16 than 0.15 at equal trace length, and a saturated runner
+      // multiplies that again.
+      await walletA.setDelegateProofEnabled(false);
     });
 
     await steps.step(

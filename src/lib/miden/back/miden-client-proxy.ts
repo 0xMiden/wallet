@@ -177,14 +177,27 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * of a CI timing would trade a visible CI failure for an invisible production
  * hang, which is the one thing this knob exists to prevent.
  *
- * The E2E override must stay BELOW the Playwright per-test timeout (300s,
- * playwright.e2e.config.ts), or this deadline can never fire inside a test and
+ * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
+ *
+ *   slowest legitimate write  <  override  <  Playwright per-test timeout (300s,
+ *                                             playwright.e2e.config.ts)
+ *
+ * Below the per-test timeout, or this deadline can never fire inside a test and
  * the wedge-reclaim built for exactly that case is dead code there — the spec
  * always dies first, turning a bounded, logged abort into an unexplained 300s
  * timeout with no Failed row. An earlier 600s override did precisely that.
- * Sizing it does NOT need runner headroom: the two consumes that completed on
- * that same 2-core runner took 12.1s and 9.9s end to end, so the healthy worst
- * case is seconds, not minutes.
+ *
+ * Above the slowest legitimate write, which is NOT a delegated one: delegated
+ * proving carries its own `DELEGATED_PROVE_TIMEOUT_MS` ceiling, so it cannot run
+ * long here. It is LOCAL proving, which is deliberately unbounded (it is the
+ * fallback — capping it would leave nothing to fall back to). A locally-proved
+ * consume on the 2-vCPU CI runner was still going when a 180s override killed it,
+ * which is what makes 180s too low: 0.16 proving costs ~1.5x its 0.15 equivalent
+ * at equal trace length, and a saturated runner multiplies that again.
+ *
+ * 240s sits inside that window with the margin split. It leaves the healthy case
+ * untouched either way — delegated consumes that completed on the same 2-core
+ * runner took 12.1s and 9.9s end to end.
  */
 const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
 
