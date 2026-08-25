@@ -18,9 +18,12 @@ test.describe('Multi-Note Claiming - guardian account', () => {
     steps,
     timeline
   }) => {
-    // Guardian co-signing adds a round trip per transaction, and this journey
-    // claims three notes on top of two account creations.
-    test.setTimeout(600_000);
+    // Guardian co-signing adds a round trip per transaction, and each consume is a
+    // multisig write whose proof verifies several signatures — so this journey
+    // claims three deliberately slow notes on top of two account creations. Sized
+    // above the guardian axis's own claim budget so a stuck claim fails there,
+    // naming the claim, rather than here as a bare test timeout.
+    test.setTimeout(1_200_000);
 
     await runMultiNoteClaimJourney(
       { walletA, walletB, midenCli, steps, timeline, axis: guardianAxis(getEnvironmentConfig().guardianUrl) },

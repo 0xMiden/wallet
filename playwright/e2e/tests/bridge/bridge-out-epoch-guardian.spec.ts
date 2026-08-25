@@ -77,7 +77,12 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
     test.setTimeout(720_000);
 
     await walletA.createGuardianWallet(GUARDIAN_URL);
-    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    // Well above the helper's default: claiming the funding note on a Guardian
+    // account is a MULTISIG consume, whose proof verifies several signatures and
+    // so takes substantially longer than the single-signature consume the default
+    // was sized for. Too small a budget abandons a consume that is still running
+    // and reports it as a note that never claimed.
+    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6, balanceTimeoutMs: 420_000 }, timeline);
 
     // Arm smallocator PR #38 binding validation on POST /compact: the fake reads
     // the submitted collateral note's attachment felts from the wallet SW (the
