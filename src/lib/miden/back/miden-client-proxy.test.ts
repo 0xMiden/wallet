@@ -1615,7 +1615,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identi
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('consumeNoteId');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
-    expect(env.deadline_ms).toBe(180_000);
+    expect(env.deadline_ms).toBe(90_000);
     // The DTO carries only the 4 fields the op reads — NOT the BigInt-bearing tx.
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
     expect(sentDto).toEqual({
@@ -2190,7 +2190,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('sendTransaction');
-    expect(env.deadline_ms).toBe(180_000);
+    expect(env.deadline_ms).toBe(90_000);
     // The DTO carries only the fields sendTransaction reads — with the BigInt
     // amount shipped as a decimal STRING (never the BigInt-bearing tx).
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
@@ -2478,7 +2478,7 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('swapTransaction');
-    expect(env.deadline_ms).toBe(180_000);
+    expect(env.deadline_ms).toBe(90_000);
     // Offered amount AND requested amount both cross as decimal strings; the
     // display-only expirySeconds/autoConsume are NOT part of the DTO.
     const sentDto = JSON.parse(env.argsB64[0].slice(2));
@@ -2573,7 +2573,7 @@ describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + 
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('newTransaction');
-    expect(env.deadline_ms).toBe(180_000);
+    expect(env.deadline_ms).toBe(90_000);
     // accountId (JSON) + requestBytes (RAW bytes, not JSON) + delegateTransaction (JSON).
     expect(env.argsB64[0]).toBe('s:"mtst1qacc"');
     expect(env.argsB64[1].startsWith('b:')).toBe(true);
@@ -2765,7 +2765,7 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('guardianPipeline');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
-    expect(env.deadline_ms).toBe(180_000);
+    expect(env.deadline_ms).toBe(90_000);
     // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool)].
     expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
     expect(env.argsB64[2]).toBe('s:false');

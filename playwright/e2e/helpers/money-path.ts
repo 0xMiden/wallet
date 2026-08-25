@@ -30,17 +30,6 @@ export const TOKEN_DECIMALS = 8;
 export interface AccountAxis {
   /** Appears in step names and timeline messages so a failure names its leg. */
   readonly label: string;
-  /**
-   * Budget for draining a pending list on this leg.
-   *
-   * Not cosmetic: consuming a note on a Guardian account is a MULTISIG write, so
-   * proving it verifies several signatures and takes substantially longer than the
-   * single-signature consume these journeys were originally sized against. A
-   * budget that fits the offchain leg gives up on the guardian leg while its
-   * consume is still legitimately running — the pending count never reaches zero
-   * and the failure reads as a stuck claim rather than a slow one.
-   */
-  readonly claimMs: number;
   create(wallet: GuardianAwareWalletPage): Promise<{ address: string }>;
 }
 
@@ -52,7 +41,6 @@ export interface AccountAxis {
  */
 export const offChainAxis: AccountAxis = {
   label: 'offchain',
-  claimMs: 180_000,
   create: async wallet => wallet.createNewWallet()
 };
 
@@ -60,12 +48,6 @@ export const offChainAxis: AccountAxis = {
 export function guardianAxis(guardianUrl: string): AccountAxis {
   return {
     label: 'guardian',
-    // Deliberately generous rather than tuned: this bounds how long a leg waits
-    // before reporting a stuck claim, and the cost of it being too small is a
-    // false failure on a consume that was about to succeed. It sits under the
-    // journey's own `test.setTimeout`, so a genuinely stuck claim still fails
-    // here — naming the claim — rather than as a bare test timeout.
-    claimMs: 420_000,
     create: async wallet => wallet.createGuardianWallet(guardianUrl)
   };
 }
@@ -203,7 +185,7 @@ export async function runMultiNoteClaimJourney(ctx: JourneyContext, mintsBaseUni
   await steps.step(
     'claim_all_notes',
     async () => {
-      await walletA.claimAllNotes(axis.claimMs);
+      await walletA.claimAllNotes(180_000);
 
       // Every note consumed, none left behind: the vault holds the exact sum AND
       // nothing is still pending. Either half alone is satisfiable by a partial

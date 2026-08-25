@@ -169,11 +169,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
         decimals: TOKEN_DECIMALS
       });
 
-      // Well above the default: this wallet is a Guardian account, so the consume
-      // is a MULTISIG write whose proof verifies several signatures and takes
-      // substantially longer than the single-signature one the default was sized
-      // for. Too small a budget gives up on a consume that is still running.
-      await walletA.claimAllNotes(420_000);
+      await walletA.claimAllNotes(120_000);
 
       // Pin the EXACT spendable balance in setup, so a claim that silently
       // no-oped fails here rather than masquerading later as a recovery that
