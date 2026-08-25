@@ -155,8 +155,20 @@ test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
           message: `Awaiting exactly ${SEND_BASE_UNITS} base units of ${TOKEN} delivered to B`,
           data: { symbol: TOKEN, expectedBaseUnits: SEND_BASE_UNITS.toString(), wallet: 'B' }
         });
+        // Longer than every other delivery wait in the suite, and deliberately
+        // longer than the offscreen write deadline (240s under the E2E build, see
+        // `WRITE_DEADLINE_MS`). Delivery here is gated on a LOCAL WASM prove, which
+        // is unbounded by design and costs minutes on the 2-vCPU runner — on 0.16
+        // more than it did on 0.15. At the previous 180s this step timed out while
+        // that prove was still legitimately running, which is a bare "the note never
+        // arrived" with nothing to act on.
+        //
+        // The ordering is the point, not the number: a budget UNDER the write
+        // deadline means the spec always dies first and the deadline can never
+        // report, so a genuine wedge is indistinguishable from a slow prove. Above
+        // it, a wedge surfaces as `aborted (deadline)` naming the stuck op.
         await waitForPendingNoteTotal(walletB.page, TOKEN, transferBefore!.toPending + SEND_BASE_UNITS, {
-          timeoutMs: 180_000,
+          timeoutMs: 300_000,
           decimals: TOKEN_DECIMALS
         });
 
