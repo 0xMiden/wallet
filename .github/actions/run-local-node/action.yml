@@ -75,7 +75,25 @@ runs:
         MIDEN_PROVER_CAPACITY: '4'
       run: |
         cd "${{ runner.temp }}/miden-client"
-        ./scripts/start-test-node.sh --background
+        # Retried because bring-up has a startup race we do not own. The script
+        # launches the ntx-builder without waiting for the sequencer's RPC to
+        # listen, and the sequencer's first start rebuilds its account, nullifier
+        # and state-forest trees from SQLite before it binds. On a slow runner that
+        # rebuild outlasts the ntx-builder's connect, which then exits:
+        #   failed to initialize ntx builder ... tcp connect error 127.0.0.1:57291
+        #   Connection refused (os error 111)
+        # and takes the whole job down in setup, before a single spec runs. Our own
+        # "Wait for node RPC" step cannot cover this — it runs after the script has
+        # already given up. A second attempt starts against warm SQLite-derived
+        # RocksDB state, so the sequencer binds promptly.
+        for attempt in 1 2 3; do
+          if ./scripts/start-test-node.sh --background; then exit 0; fi
+          echo "::warning::node bring-up attempt $attempt failed; retrying in 10s"
+          pkill -f 'miden-(validator|node|ntx-builder|remote-prover)' 2>/dev/null || true
+          sleep 10
+        done
+        echo "::error::node bring-up failed after 3 attempts"
+        exit 1
     - name: Save node build
       if: steps.node_cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
