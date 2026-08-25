@@ -848,6 +848,50 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.consume).toHaveBeenCalled();
   });
 
+  it('consumeNoteId: a delegated consume whose remote prover never answers falls back locally (#718)', async () => {
+    // The opaque SDK write has no seam between prove and submit, so a remote prover that
+    // goes quiet mid-proof used to park this call forever with the client lock held, and
+    // every later claim queued behind it. The whole-op retry is safe for consume alone:
+    // it re-consumes the SAME notes, so an attempt that did reach the chain is rejected
+    // on the spent nullifier. Only the DELEGATED call is bounded — see the call site.
+    jest.useFakeTimers();
+    const fakeMidenClient = buildFakeMidenClient();
+    // Delegated attempt (no explicit prover) never settles; the local re-prove succeeds.
+    fakeMidenClient.transactions.consume
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementationOnce(async () => ({ result: fakeTransactionResult }));
+
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 'Private', Public: 'Public' },
+      TransactionProver: {
+        newLocalProver: jest.fn(() => 'local')
+      }
+    }));
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface, DELEGATED_PROVE_TIMEOUT_MS } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const pending = client.consumeNoteId({
+      accountId: 'acc-id',
+      noteId: 'note-1',
+      type: 'consume',
+      delegateTransaction: true
+    } as any);
+
+    await jest.advanceTimersByTimeAsync(DELEGATED_PROVE_TIMEOUT_MS);
+
+    expect(await pending).toBe(fakeTransactionResult);
+    expect(fakeMidenClient.transactions.consume).toHaveBeenCalledTimes(2);
+    // First delegated (prover undefined), then the local prover on the fallback.
+    expect(fakeMidenClient.transactions.consume.mock.calls[0][0].prover).toBeUndefined();
+    expect(fakeMidenClient.transactions.consume.mock.calls[1][0].prover).toBe('local');
+    jest.useRealTimers();
+  });
+
   it('consumeNoteId consumes every noteId in one transaction when a batch is given', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

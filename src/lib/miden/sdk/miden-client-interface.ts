@@ -1225,11 +1225,23 @@ export class MidenClientInterface {
       // deadline is its most common failure.
       recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
       try {
-        const { result } = await this.client.transactions.consume({
+        const consuming = this.client.transactions.consume({
           account: accountId,
           notes: targetNoteIds,
           prover
         });
+        // Bound the DELEGATED call only. This write is opaque — the SDK executes, proves
+        // and submits inside it — so unlike the guardian pipeline there is no seam to put
+        // a deadline on the prove alone, and a timeout here can land after submit. That is
+        // survivable for THIS caller and no other, for the same reason it is the only one
+        // that already permits a whole-op retry (see the comment above): the re-run
+        // consumes the SAME input notes, so an attempt that did reach the chain makes the
+        // retry fail on the spent nullifier rather than move funds twice. Local proving is
+        // deliberately left unbounded — it is legitimately slow on a weak machine, and it
+        // is also the fallback, so capping it would leave nothing to fall back to.
+        const { result } = await (prover === undefined
+          ? withDelegatedProveTimeout(consuming, 'Delegated consume')
+          : consuming);
         recordProveTiming('consumeNoteId SDK consume returned');
         return result;
       } catch (error) {
@@ -1523,6 +1535,50 @@ export class MidenClientInterface {
   ): Promise<void> {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }
+}
+
+/**
+ * Client-side ceiling on a DELEGATED prove, after which the wallet stops waiting for the
+ * remote prover and proves locally instead.
+ *
+ * Generous on purpose: a backstop against a prover that has stopped answering, NOT a
+ * latency target. It has to sit well above a legitimately slow proof on a loaded machine,
+ * because expiring early costs the user the remote wait AND a full local re-prove.
+ */
+export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
+
+/**
+ * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without a delegated prove
+ * answering.
+ *
+ * The remote prove is awaited on a gRPC call carrying no deadline of its own, so a prover
+ * that accepts a request and then never responds parks that await forever — while the
+ * client lock is STILL HELD, so every later write queues behind a transaction that can
+ * never finish. Only a REJECTION could reach the local-prover fallback; silence could not,
+ * which is the difference between a prover that fails and one that stalls, and is what
+ * turned a single slow proof into an unbounded claim stall (#718).
+ *
+ * Timing out abandons only the RESPONSE — the request itself cannot be cancelled — so
+ * every call site must be one where re-running the work cannot move funds twice. See each
+ * caller for why it qualifies.
+ */
+export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
+      DELEGATED_PROVE_TIMEOUT_MS
+    );
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
 }
 
 /**
