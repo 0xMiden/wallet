@@ -128,12 +128,12 @@ test.describe.skip('Public Note Send — local proving (offscreen-doc path)', ()
       // a separate code path.
       //
       // Arming it before `deploy_and_fund` (where it used to live) also made the
-      // funding CLAIM prove locally. That was never asserted — it is prologue — and
-      // on the 0.16 SDK it stopped being affordable: a locally-proved consume on the
-      // 2-vCPU CI runner outran the offscreen write deadline, so the spec died in
-      // its prologue without ever reaching the send. Local proving is ~1.5x more
-      // expensive on 0.16 than 0.15 at equal trace length, and a saturated runner
-      // multiplies that again.
+      // funding CLAIM prove locally. That was never asserted — it is prologue — so
+      // the spec spent its prologue on the very path it exists to test, and died
+      // there without ever reaching the send. Narrowing it was worth doing on its
+      // own merits, though it does not rescue the spec on 0.16: local proving
+      // cannot complete in a browser on that line at all, which is what the
+      // quarantine at the top of this file is for.
       await walletA.setDelegateProofEnabled(false);
     });
 

@@ -187,17 +187,21 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * always dies first, turning a bounded, logged abort into an unexplained 300s
  * timeout with no Failed row. An earlier 600s override did precisely that.
  *
- * Above the slowest legitimate write, which is NOT a delegated one: delegated
- * proving carries its own `DELEGATED_PROVE_TIMEOUT_MS` ceiling, so it cannot run
- * long here. It is LOCAL proving, which is deliberately unbounded (it is the
- * fallback — capping it would leave nothing to fall back to). A locally-proved
- * consume on the 2-vCPU CI runner was still going when a 180s override killed it,
- * which is what makes 180s too low: 0.16 proving costs ~1.5x its 0.15 equivalent
- * at equal trace length, and a saturated runner multiplies that again.
+ * Above the slowest legitimate write — which, on the 0.16 SDK line, is never a
+ * local prove. Local proving does not finish at all in a browser there: it traps a
+ * few milliseconds in on a thread spawn wasm cannot service, and because the trap
+ * leaves its promise unsettled rather than rejected, the prove neither returns nor
+ * throws (see the quarantine note on `send-public-local-prove.spec.ts`). That makes
+ * this deadline the only thing that reclaims the realm afterwards, and it means no
+ * override could have let such a write through — an earlier 180s value was read as
+ * having cut a legitimately-slow local prove short, but that prove had already
+ * crashed and was never going to finish at any deadline. The bound that actually
+ * binds is the delegated one: `DELEGATED_PROVE_TIMEOUT_MS` (120s), plus the execute,
+ * submit and apply around it.
  *
- * 240s sits inside that window with the margin split. It leaves the healthy case
- * untouched either way — delegated consumes that completed on the same 2-core
- * runner took 12.1s and 9.9s end to end.
+ * 240s clears that with margin and stays well under the per-test timeout. It leaves
+ * the healthy case untouched either way — delegated consumes that completed on the
+ * same 2-core runner took 12.1s and 9.9s end to end.
  */
 const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
 
