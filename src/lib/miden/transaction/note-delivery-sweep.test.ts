@@ -170,6 +170,57 @@ describe('sweepNoteDeliveries', () => {
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 
+  it('treats a duplicate rejection as proof of delivery and retires the row', async () => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    // The transport declares `id BLOB NOT NULL UNIQUE`, so re-pushing a note it
+    // already holds is rejected. That rejection is the only positive receipt the
+    // protocol offers short of a nullifier — it must confirm, not condemn.
+    mockRelayById.mockRejectedValue(
+      new Error('Failed to store note: ConstraintViolation("UNIQUE constraint failed: notes.id")')
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
+  });
+
+  it('accepts a proper AlreadyExists code as the same proof', async () => {
+    // So a service that starts returning a distinguishable status keeps working
+    // without a wallet change.
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(new Error('AlreadyExists: note already stored'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+  });
+
+  it('does not confirm on an unrelated transport error', async () => {
+    // Guards the classifier against over-matching: only a duplicate rejection is
+    // evidence of storage.
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(new Error('503 service unavailable'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
+  });
+
+  it('keeps an accepted re-push as relayed — acceptance means the note was missing', async () => {
+    rows.push(row({ noteDelivery: 'relayed' }));
+    mockRelayById.mockResolvedValue(undefined);
+
+    await sweepNoteDeliveries();
+
+    // Acceptance is the silent-loss case: the note was not on the transport and now
+    // is, on a fresh cursor position. It stays `relayed` until a nullifier proves
+    // the recipient actually consumed it.
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(rows[0]!.relayAttempts).toBe(2);
+  });
+
   it('marks a never-ACKed row undelivered when the re-push fails', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
     mockRelayById.mockRejectedValue(new Error('transport unreachable'));

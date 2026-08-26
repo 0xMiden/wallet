@@ -43,6 +43,25 @@ const RELAY_WINDOW_SECONDS = 6 * 60 * 60;
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
+/**
+ * Does this re-push failure mean "the transport already holds this note"?
+ *
+ * The transport rejects a duplicate `id` with a UNIQUE-constraint violation, which
+ * its gRPC layer currently surfaces as `Internal` with the SQLite error in the
+ * message rather than as `AlreadyExists`. Matching on the text is therefore
+ * deliberate and load-bearing until the service returns a distinguishable code
+ * (tracked upstream); the alternatives are all worse, since treating this as a
+ * failure marks a healthy send `undelivered` and shows the user a warning about a
+ * note that is demonstrably delivered.
+ *
+ * Both spellings are matched so that a service that starts returning a proper
+ * `AlreadyExists` keeps working without a wallet change.
+ */
+const isAlreadyStoredRejection = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /ConstraintViolation|UNIQUE constraint|already[ _]?exists/i.test(message);
+};
+
 const backoffFor = (attempts: number): number => {
   const last = RELAY_BACKOFF_SECONDS[RELAY_BACKOFF_SECONDS.length - 1] ?? 1_800;
   return RELAY_BACKOFF_SECONDS[Math.min(attempts, RELAY_BACKOFF_SECONDS.length - 1)] ?? last;
@@ -82,17 +101,30 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * permanently, while the sender's push was ACKed and its transaction landed. No
  * error exists anywhere in that sequence for the wallet to react to.
  *
- * A re-push escapes it structurally. The transport stores notes with an append-only
- * insert (no upsert, no dedupe by note id), so each push takes a FRESH cursor
- * position, which is by construction above whatever cursor the recipient has
- * already persisted. The recipient's very next fetch therefore sees it. The same
- * mechanism covers a transport that accepted and dropped the note, and a recipient
- * whose tag started being tracked after the cursor had moved on.
+ * A re-push escapes it structurally, but NOT by appending a second row. The
+ * transport's `notes` table declares `id BLOB NOT NULL UNIQUE` (note-transport-
+ * service, migration `20260422000000_add_seq_cursor`, the same change that
+ * introduced `seq`), so re-pushing a note the transport ALREADY holds is rejected
+ * outright rather than stored again. Verified against the deployed service: the
+ * second `SendNote` of an identical note answers
+ * `Internal — Failed to store note: ConstraintViolation("UNIQUE ...")`, and nothing
+ * appears above the previous cursor.
  *
- * It is safe to repeat. Imports dedupe on the details commitment, so a note the
- * recipient already holds is a no-op for them, and the hint is re-derived from the
- * note's stored `expected_height` on every call, so a late re-push is as correct as
- * the first one.
+ * That rejection is the point. It is the delivery receipt this protocol otherwise
+ * lacks: `SendNoteResponse` is an empty message, so a SUCCESSFUL push tells the
+ * sender nothing, while a duplicate-rejection is positive proof that the body is on
+ * the transport. So the two outcomes of a re-push read in the opposite direction to
+ * the intuitive one:
+ *
+ *   - rejected as a duplicate -> the note IS stored -> `confirmed`, terminal.
+ *   - accepted -> the note was NOT stored, and now is, on a fresh `seq` above every
+ *     recipient cursor. This is the silent-loss case actually happening, so it is
+ *     logged as such; the row stays `relayed` until a nullifier confirms it.
+ *
+ * A push that is accepted therefore both DETECTS and REPAIRS the loss, and one that
+ * is rejected proves there was none. Either way the recipient's next fetch is
+ * correct, and the hint is re-derived from the note's stored `expected_height` on
+ * every call, so a late re-push is as correct as the first one.
  *
  * Failures are swallowed per row on purpose: this runs as maintenance behind
  * transactions that have already landed, so one row's transport error must not stop
@@ -150,20 +182,44 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
     let outcome: INoteDeliveryState = 'relayed';
     try {
       await midenClientProxy.relayPrivateNoteById(target.noteId, target.recipient);
-    } catch (error) {
-      // A failed RE-push says nothing about the original one. Where the first relay
-      // was ACKed, downgrading the row to `undelivered` here would invent a problem
-      // and show the user a warning about a note that may well be in flight; keep
-      // what the row already knew. Only `pending` — which means no ACK was ever
-      // obtained — becomes `undelivered`.
-      outcome = row.noteDelivery === 'relayed' ? 'relayed' : 'undelivered';
-      console.warn('[noteDeliverySweep] re-push failed', {
+      // Accepted. Because the transport rejects duplicates, acceptance means the
+      // note was NOT there — the silent loss this sweep exists to catch, caught.
+      // It is now stored on a fresh `seq`, above every recipient cursor, so the
+      // repair is already done; the row stays `relayed` until a nullifier confirms
+      // it was actually consumed. Logged at error level because a wallet ACK that
+      // did not result in a stored note is a defect worth seeing in the field.
+      console.error('[noteDeliverySweep] re-push was ACCEPTED — the note was missing from the transport', {
         txId: row.id,
         noteId: target.noteId,
         attempts,
-        priorState: row.noteDelivery,
-        error
+        priorState: row.noteDelivery
       });
+    } catch (error) {
+      if (isAlreadyStoredRejection(error)) {
+        // The transport already holds it. This is the only positive delivery receipt
+        // the protocol offers short of a nullifier, so it is terminal: it stops the
+        // sweep and clears any `undelivered` the row picked up on the way.
+        outcome = 'confirmed';
+        console.info('[noteDeliverySweep] re-push rejected as duplicate — delivery to transport confirmed', {
+          txId: row.id,
+          noteId: target.noteId,
+          attempts
+        });
+      } else {
+        // A failed RE-push says nothing about the original one. Where the first relay
+        // was ACKed, downgrading the row to `undelivered` here would invent a problem
+        // and show the user a warning about a note that may well be in flight; keep
+        // what the row already knew. Only `pending` — which means no ACK was ever
+        // obtained — becomes `undelivered`.
+        outcome = row.noteDelivery === 'relayed' ? 'relayed' : 'undelivered';
+        console.warn('[noteDeliverySweep] re-push failed', {
+          txId: row.id,
+          noteId: target.noteId,
+          attempts,
+          priorState: row.noteDelivery,
+          error
+        });
+      }
     }
 
     await recordNoteDelivery(row.id, outcome);
