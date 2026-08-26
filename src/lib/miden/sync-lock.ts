@@ -12,11 +12,19 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  * wasm32, so a parked gRPC-web fetch would otherwise hold the lock until the
  * 5-minute last resort.
  *
+ * BACKEND ONLY, despite sitting next to the dependency-free `sync-backoff.ts`:
+ * this imports the service worker's client proxy, which reaches the offscreen
+ * codec, the vault and intercom. That is why the frontend loop passes
+ * `watchdogMs` to `withWasmClientLock` itself instead of calling this.
+ *
  * Other `syncState()` holds in the codebase deliberately stay on the default,
  * and it is not an oversight: most of them continue into other work under the
- * same hold (a `getAccount`, a guardian round-trip) and so fall under the
- * restriction below. The service worker's own sync hold is the one exception
- * that could convert and has not — see `WASM_LOCK_WATCHDOG_MS`. Expiry is the
+ * same hold (a `getAccount`, a cold-restore's on-chain probe) and so fall under
+ * the restriction below. The service worker's own sync hold needs no ceiling for
+ * a different reason — its 30s `withTimeout` rejects the lock callback, so the
+ * mutex is released well inside any watchdog bound (see
+ * `WASM_LOCK_WATCHDOG_MS`). What no ceiling on this side reaches, there or here,
+ * is the SDK's module-level in-flight sync. Expiry is the
  * #775 eviction (the hold is rejected with `WasmClientPoisonedError` and the
  * client singletons are replaced); errors, including the eviction, propagate to
  * the caller — whether a failed sync is fatal is each call site's decision.

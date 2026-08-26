@@ -97,7 +97,7 @@ import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError, poisonReasonOf } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -807,15 +807,28 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // sync: true — this resolves ONE killed tx and wants the freshest possible note
   // state before deciding (the background reaper rides AutoSync and passes false).
   //
-  // Except after a watchdog eviction, where the thing that was just evicted IS
-  // the sync (#777). The SDK memoises an in-flight sync in a module-level map the
-  // wallet cannot reach, so a second call joins the same never-settling promise
-  // and buys nothing but another full ceiling of the whole app's WASM access —
-  // while the user is waiting on a consume verdict. Skipping it costs only
-  // freshness, and the last-synced note state is already the authority here: the
-  // sync is best-effort inside `verifyConsumeLanded` for exactly that reason, and
-  // a stale read degrades to 'unknown', which is funds-safe.
-  const freshSyncWorthTrying = !(isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog');
+  // Except when the thing that just died IS the sync (#777), which the COMMITTED
+  // stage says and the error shape does not. `'syncing'` is only ever written
+  // around the pre-flight sync, so reading it here means the kill landed on that
+  // sync — and a second one joins the same never-settling promise the SDK
+  // memoises in a module-level map the wallet cannot reach, buying nothing but
+  // another full ceiling of the whole app's WASM access while the user waits on a
+  // consume verdict.
+  //
+  // Keyed on the stage rather than on `reason === 'watchdog'` because the
+  // mechanism answers a different question and gets both cases wrong: a
+  // watchdog-evicted PROVE would skip a sync that is perfectly safe to run (the
+  // prove was what parked, and losing freshness can turn a landed consume into a
+  // Failed row), while a pre-flight sync killed by the offscreen dispatch
+  // deadline is an `OperationAbortedError` and would still dispatch a doomed
+  // second sync. Same equivalence `cancelTransactionAfterPipelineStopped` already
+  // draws between the two kill shapes on this path.
+  //
+  // Skipping costs only freshness, never safety: the sync is best-effort inside
+  // `verifyConsumeLanded` for exactly that reason, and a stale read can only
+  // under-report "landed", which fails safe.
+  const committed = await Repo.transactions.where({ id: transaction.id }).first();
+  const freshSyncWorthTrying = committed?.stage !== 'syncing';
   const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).

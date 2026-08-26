@@ -26,6 +26,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -336,7 +337,7 @@ export class MultisigService {
    * AHEAD, so this cannot pull a good local account backwards.
    */
   async adoptGuardianStateOnce(): Promise<void> {
-    await withWasmClientLock(() => this.multisig.syncState());
+    await withWasmClientLock(() => this.multisig.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
   }
 
   sync(): Promise<void> {
@@ -365,7 +366,12 @@ export class MultisigService {
     let realignAttempted = false;
     for (;;) {
       try {
-        await withWasmClientLock(() => this.multisig.syncState());
+        // Bounded like every other pure-sync hold (#777): this is a guardian
+        // HTTP round-trip with no deadline of its own, and it is reached from the
+        // idle loop, so on the default 5-minute backstop one unresponsive
+        // guardian parked the whole app's WASM access — and did it once per
+        // retry in this loop.
+        await withWasmClientLock(() => this.multisig.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {

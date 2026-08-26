@@ -6,8 +6,11 @@
  * the mobile/desktop inline loop (`front/useSyncTrigger.ts`) reschedules itself
  * onto the remainder of that window. Both trip on the same streak
  * (`MAX_CONSECUTIVE_SYNC_FAILURES`) and draw every window from the same curve
- * (`computeSyncBackoffMs`), so neither platform can quietly end up hammering a
- * rate-limiting node harder than the other — the suspected #777 trigger.
+ * (`computeSyncBackoffMs`), so neither platform can quietly drift onto a
+ * different backoff SHAPE than the other — an unbacked-off sync loop is the
+ * suspected #777 trigger. Note this is parity of shape, not of request count
+ * per window: the next paragraph's re-trip rule means the SW fires more probes
+ * inside one window than the inline loop does.
  *
  * What is deliberately NOT shared is the RE-TRIP rule, so don't read the two as
  * one state machine. The SW zeroes its failure streak when it opens a window,

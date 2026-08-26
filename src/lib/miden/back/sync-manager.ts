@@ -71,7 +71,14 @@ let consecutiveSyncFailures = 0;
 // and while the alarm keeps firing, every attempt inside it is skipped — so the
 // user-visible outcome is a wallet that stops syncing, same as on mobile. Safe to
 // hold monotonically because the window is module state that dies with the SW
-// realm; it is never persisted across a restart. `null` rather than 0 for "no
+// realm; it is never persisted across a restart.
+//
+// Which cuts the other way too, and is worth knowing: an idle MV3 worker is
+// terminated between alarm wakes, so with no page open each wake starts with no
+// window at all and the breaker only really holds while a page keeps the worker
+// alive. Not introduced here — the `Date.now()` state it replaced was just as
+// realm-local — and not a freeze risk on this platform, where the alarm is
+// clamped to one minute anyway. `null` rather than 0 for "no
 // window": 0 is a real stamp on this clock (it is the time origin), so the
 // sentinel has to be outside the number domain — see `monotonicNowMs`.
 let syncBackoffUntilMs: number | null = null;

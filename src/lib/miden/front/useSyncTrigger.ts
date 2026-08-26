@@ -3,11 +3,7 @@ import { useEffect } from 'react';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import {
-  isWasmClientPoisonedError,
-  poisonReasonOf,
-  WASM_LOCK_SYNC_WATCHDOG_MS
-} from 'lib/miden/sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -28,6 +24,39 @@ import { isTestSyncPaused } from './test-sync-pause';
 const SYNC_INTERVAL_MS = 3_000;
 
 const immediateSyncListeners = new Set<() => void>();
+
+/**
+ * The fuse's evidence and its deadline (#777), deliberately at MODULE scope
+ * while the breaker's state is effect-scoped.
+ *
+ * What the fuse knows is a fact about the REALM's WASM client, not about this
+ * effect: the dead in-flight sync promise lives in the SDK's module-level map
+ * and outlives any remount. The effect, meanwhile, is rebuilt on every
+ * `status` transition — so an idle auto-lock followed by an unlock used to
+ * throw the evidence away and hand a provably parked realm back the 3s
+ * cadence, plus four more two-minute evictions to re-earn a conclusion it had
+ * already reached. Eight minutes of the whole app's WASM access, per unlock.
+ *
+ * The breaker's own state stays effect-scoped, and that asymmetry is the
+ * point: a remount there legitimately means the user came back and a node
+ * outage may well be over, whereas a remount tells you nothing at all about a
+ * promise parked in a module the remount did not touch.
+ *
+ * A standing deadline rather than a flag plus the breaker's window, because
+ * the two must not share one field: while fused, any single non-watchdog
+ * failure re-entered the breaker's arm and overwrote the fused deadline with a
+ * window at most a fifth as long, so one offline blip mid-fuse cost the user
+ * the whole cadence. Kept separate, the scheduler simply waits for the later
+ * of the two.
+ */
+let realmWatchdogEvictions = 0;
+let realmFusedUntilMs: number | null = null;
+
+/** Test-only: the module-scoped fuse above would otherwise leak between tests. */
+export function __resetSyncFuseStateForTests(): void {
+  realmWatchdogEvictions = 0;
+  realmFusedUntilMs = null;
+}
 
 export function requestImmediateSync(): void {
   for (const listener of immediateSyncListeners) listener();
@@ -125,25 +154,6 @@ export function useSyncTrigger() {
     // off from. Monotonic, not `Date.now()`, and `null` rather than 0 for "no
     // window", because 0 is a real stamp on that clock — see `monotonicNowMs`.
     let syncBackoffUntilMs: number | null = null;
-    // Consecutive WATCHDOG evictions (#777). Once the realm's sync is parked,
-    // the SDK hands every later `syncState()` the SAME dead promise — its
-    // in-flight map is module-level and keyed on the store name, so replacing
-    // the client cannot reach it (see `WASM_LOCK_SYNC_WATCHDOG_MS`). Every
-    // further AUTOMATIC probe is therefore guaranteed to park for the full
-    // ceiling and be evicted again, and each eviction costs two minutes of the
-    // whole app's WASM access plus a client rebuild the SDK cannot free while
-    // the abandoned sync still references it. The breaker spaces that cycle out
-    // but its ceiling still pays that price every few minutes forever. After
-    // this many in a row the loop drops to `FUSED_SYNC_PROBE_INTERVAL_MS`.
-    let consecutiveWatchdogEvictions = 0;
-    // Set when the loop has stopped believing automatic probes are worth their
-    // cost; cleared by any successful sync or an effect remount. It throttles
-    // the CADENCE, it does not gate the probe — see the constant's docstring for
-    // why a full stop was wrong in both directions. A banner Retry or app
-    // foreground still punches through immediately via `retryAfterCurrentRun`,
-    // exactly as it does through an ordinary backoff window, so nothing here
-    // needs a separate forced-probe grant.
-    let autoProbeFused = false;
     // Whether the NEXT run was asked for by the user (banner Retry, app
     // foreground) rather than the timer. Granted by `retryNow`, consumed by the
     // run it precedes. Its only job is to keep a user's attempt from escalating
@@ -212,14 +222,25 @@ export function useSyncTrigger() {
               // would reschedule onto its remainder and keep the wallet backed
               // off from a node that just answered.
               syncBackoffUntilMs = null;
-              consecutiveWatchdogEvictions = 0;
-              autoProbeFused = false;
+              // The only thing that clears the fuse. A sync that goes through
+              // proves the realm's sync is not parked after all, which is the
+              // one observation the fuse is waiting for.
+              realmWatchdogEvictions = 0;
+              realmFusedUntilMs = null;
               // Gated with the counters rather than run unconditionally after
               // the await: on the `!client || cancelled` early return no sync
               // happened, so dismissing the "cannot reach the node" banner there
               // would clear it on the strength of a torn-down effect.
               clearReachabilityIssues();
             }
+            // A teardown mid-sync means this effect no longer owns the loop, so
+            // the work that follows the sync belongs to the successor's run, not
+            // to this one. (The spinner clear in the `finally` stays
+            // unconditional: a successor sets it true at the top of every run,
+            // whereas skipping the clear here could strand it true with no owner
+            // at all.)
+            if (cancelled) return;
+
             // The sync just imported any new notes; surface them NOW instead of
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
             // read runs after the sync's wasm lock has been released (#462).
@@ -230,7 +251,19 @@ export function useSyncTrigger() {
               .accounts.filter(acc => acc.type === WalletType.Guardian)
               .map(acc => acc.publicKey);
             if (guardianAccountKeys.length > 0) {
-              await syncGuardianAccounts().catch(() => {});
+              // NOT awaited, deliberately. `MultisigService.runSync` retries in a
+              // loop and each attempt is its own lock hold, so awaiting it put
+              // the guardian endpoint in charge of this loop's cadence: while it
+              // hung, `isRunning` stayed true, no next tick was scheduled, the
+              // spinner stayed on, and because the failure is swallowed the
+              // breaker, the fuse and the banner never saw it. Guardian accounts
+              // are the wallet's default type, so that was the #777 freeze with
+              // none of the instrumentation #777 added.
+              //
+              // Safe to fire and forget because `sync()` coalesces overlapping
+              // ticks onto one in-flight run, so a slow guardian gets one
+              // outstanding sync, not one per tick.
+              void syncGuardianAccounts().catch(() => {});
             }
           } catch (error) {
             consecutiveSyncFailures++;
@@ -254,16 +287,15 @@ export function useSyncTrigger() {
             //
             // The other poison reason is deliberately excluded from the BANNER
             // only. A `realm-error` eviction is a WASM trap in this realm, not
-            // an unreachable node, so `classifySyncError`'s only verdict
-            // ('node') would tell the user something false, and Retry — the
-            // affordance the banner exists to offer — cannot improve on a client
-            // that was already replaced in milliseconds. It still counts toward
-            // the failure streak and so can still trip the breaker: a realm that
+            // an unreachable node, and `classifySyncError` can only answer
+            // 'network' or 'node' — neither describes a trap in this realm — so
+            // the banner would tell the user something false, and Retry, the
+            // affordance it exists to offer, cannot improve on a client that was
+            // already replaced in milliseconds. It still counts toward the
+            // failure streak and so can still trip the breaker: a realm that
             // traps on every sync should not be probed every 3s either. What it
-            // must not do is blow the fuse, which is why the check below is
-            // narrower than this one.
-            const transportShaped =
-              isLikelyNetworkError(error) || (isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog');
+            // must not do is blow the fuse.
+            const transportShaped = isLikelyNetworkError(error) || isSyncWatchdogEviction(error);
             if (transportShaped && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
               markConnectivityIssue(classifySyncError(error));
             }
@@ -299,32 +331,47 @@ export function useSyncTrigger() {
             // later probe. Any other error — including a `realm-error` eviction,
             // whose client IS replaced in milliseconds — resets the count, so an
             // ordinary outage keeps retrying on the breaker's schedule as before.
-            if (isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog') {
-              if (++consecutiveWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
-                if (!autoProbeFused) {
-                  autoProbeFused = true;
+            //
+            // Only the loop's OWN probes count, for the same reason they alone
+            // escalate the breaker: this measures what the automatic cadence
+            // costs, and a user tap is neither part of that cadence nor
+            // throttled by it. A forced probe therefore neither adds evidence
+            // nor withdraws it.
+            if (!forced) {
+              if (isSyncWatchdogEviction(error)) {
+                realmWatchdogEvictions++;
+              } else if (realmFusedUntilMs === null) {
+                // Once the fuse is lit, a non-eviction failure does NOT withdraw
+                // the evidence: it is no proof the parked sync recovered — only a
+                // SUCCESS is that — and zeroing here meant one offline blip
+                // mid-fuse bought four fresh evictions, eight more minutes of
+                // parked WASM, to re-reach a conclusion nothing had contradicted.
+                realmWatchdogEvictions = 0;
+              }
+              if (realmWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
+                if (realmFusedUntilMs === null) {
                   console.warn(
-                    `[useSyncTrigger] ${consecutiveWatchdogEvictions} consecutive sync watchdog evictions — ` +
+                    `[useSyncTrigger] ${realmWatchdogEvictions} consecutive sync watchdog evictions — ` +
                       "the realm's sync is parked and replacing the client cannot reach it; dropping automatic " +
                       `probes to one per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one ` +
                       'succeeds (#777)'
                   );
                 }
-                // The fuse writes a DEADLINE on the same window the breaker
-                // uses, rather than being a flag the scheduler turns into a
-                // fresh delay each run. Same reason the breaker keeps a
-                // deadline: a tick the guards skip must be able to serve out a
+                // Re-armed after EVERY failed probe while the evidence stands,
+                // not only after the eviction that lit the fuse. "One probe per
+                // 30 min until one succeeds" is the contract, and a probe that
+                // fails some other way has not succeeded — arming only on the
+                // eviction let the deadline expire and the loop fall back to the
+                // breaker's much shorter windows.
+                //
+                // A DEADLINE rather than a per-run delay, for the same reason the
+                // breaker keeps one: a tick the guards skip must serve out the
                 // wait, not restart it. As a per-run delay, every skipped tick
-                // re-armed the full cadence — so a user who opened the send flow
+                // re-armed the full cadence, so a user who opened the send flow
                 // while fused pushed their next probe out by another half hour
-                // each time the loop ticked past the guard, which is the
-                // never-syncs-again failure this cadence exists to avoid.
-                // Always longer than any window the curve can produce, so
-                // overwriting the breaker's is the intended precedence.
-                syncBackoffUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+                // each time the loop ticked past the guard.
+                realmFusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
               }
-            } else {
-              consecutiveWatchdogEvictions = 0;
             }
           } finally {
             useWalletStore.getState().setSyncStatus(false);
@@ -351,17 +398,18 @@ export function useSyncTrigger() {
           // The monotonic clock makes that hard to reach; the clamp makes it
           // impossible, and costs nothing when the deadline is sane.
           //
-          // A fused loop still probes, just far more slowly. It needs nothing of
-          // its own here: the fuse writes an ordinary (much longer) window, so
-          // it schedules, punches through and expires by exactly the same rules.
-          // All the flag does at this point is raise the ceiling the remainder is
-          // clamped to — the fused window is legitimately longer than anything
-          // the curve can produce, so clamping it to the curve's maximum would
-          // silently shorten the very wait it was set to take.
-          const windowCeilingMs = autoProbeFused ? FUSED_SYNC_PROBE_INTERVAL_MS : MAX_SYNC_BACKOFF_MS;
-          const backoffRemainingMs =
-            syncBackoffUntilMs === null ? 0 : Math.min(syncBackoffUntilMs - monotonicNowMs(), windowCeilingMs);
-          const idleMs = Math.max(SYNC_INTERVAL_MS, backoffRemainingMs);
+          // A fused loop still probes, just far more slowly. Its deadline is
+          // read here beside the breaker's and the loop simply waits for the
+          // later of the two — each clamped to its OWN maximum, since the fused
+          // wait is legitimately longer than anything the breaker's curve can
+          // produce and clamping it to that curve would silently shorten it.
+          const remainingMs = (until: number | null, ceilingMs: number) =>
+            until === null ? 0 : Math.min(until - monotonicNowMs(), ceilingMs);
+          const idleMs = Math.max(
+            SYNC_INTERVAL_MS,
+            remainingMs(syncBackoffUntilMs, MAX_SYNC_BACKOFF_MS),
+            remainingMs(realmFusedUntilMs, FUSED_SYNC_PROBE_INTERVAL_MS)
+          );
           const delay = retryAfterCurrentRun ? 0 : idleMs;
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);

@@ -1070,48 +1070,50 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
-  it('does not re-enter the sync it was just evicted from when adjudicating (#777)', async () => {
-    // The adjudication normally opens with a fresh sync so the note state is
-    // current. When the kill IS a sync watchdog eviction, that fresh sync is the
-    // worst possible next move: the SDK coalesces concurrent syncs onto one
-    // in-flight promise, and the promise the watchdog abandoned is still the
-    // in-flight one — so the "fresh" sync re-attaches to a dead promise and parks
-    // the wallet's only WASM lock for another full ceiling. The last-synced note
-    // state answers the question well enough (a consumed note cannot un-consume),
-    // so on that one kill shape it reads without syncing.
-    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
-    const syncsFor = async (id: string, killError: Error) => {
-      const syncState = jest.fn(async () => {});
+  it.each([
+    ['the pre-flight sync itself is killed', true, 1],
+    ['the consume is killed after pickup', false, 2]
+  ])(
+    're-syncs before adjudicating only when the sync was not what died — %s (#777)',
+    async (_label, killDuringSync, expectedSyncs) => {
+      // The adjudication normally opens with a fresh sync so the note state is
+      // current. When the thing that just died IS the pre-flight sync, that fresh
+      // sync is the worst possible next move: the SDK coalesces concurrent syncs
+      // onto one in-flight promise, and after a watchdog eviction the promise it
+      // abandoned is still the in-flight one — so the "fresh" sync re-attaches to a
+      // dead promise and parks the wallet's only WASM lock for another full
+      // ceiling. The committed stage is what distinguishes the two cases; the kill
+      // shape is not, which is why an evicted PROVE still gets its fresh sync.
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      const kill = () => new WasmClientPoisonedError('watchdog');
+      const syncState = jest.fn(async () => {
+        if (killDuringSync) throw kill();
+      });
       const sdk = require('../sdk/miden-client');
       const orig = sdk.getMidenClient;
       sdk.getMidenClient = async () => ({
         syncState,
         consumeNoteId: jest.fn(async () => {
-          throw killError;
+          throw kill();
         }),
         getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
       });
+      const id = `nk-sync-${killDuringSync}`;
       pushConsume(id);
       try {
         await generateTransactionsLoop(dummySign, false, stubProvider);
       } finally {
         sdk.getMidenClient = orig;
       }
-      return syncState.mock.calls.length;
-    };
 
-    // Counted relative to the abort leg rather than absolutely: the point is that
-    // the adjudication's own sync is skipped, not how many syncs the surrounding
-    // lap happens to do.
-    const abortSyncs = await syncsFor('nk-sync-abort', new OperationAbortedError('op-kill', 'deadline'));
-    const poisonSyncs = await syncsFor('nk-sync-poison', new WasmClientPoisonedError('watchdog'));
-
-    expect(poisonSyncs).toBeLessThan(abortSyncs);
-    // Both rows still get adjudicated — skipping the sync must not skip the read.
-    for (const id of ['nk-sync-abort', 'nk-sync-poison']) {
+      // 1 = the pre-flight sync only (the adjudication skipped its own);
+      // 2 = pre-flight plus the adjudication's.
+      expect(syncState).toHaveBeenCalledTimes(expectedSyncs);
+      // Either way the row is still adjudicated — skipping the sync must not skip
+      // the read.
       expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
     }
-  });
+  );
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
     // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).

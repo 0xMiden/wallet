@@ -1,6 +1,6 @@
 import { test, expect } from '../../fixtures/two-wallets';
 import { expectSettlesWithin } from '../../harness/resilience-assertions';
-import { pendingNoteTotal, waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
+import { maxPendingNoteTotal, waitForPendingNoteTotal, waitForVaultBalance } from '../../helpers/balance-truth';
 import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
 
 /**
@@ -126,11 +126,26 @@ test.describe('infra resilience — the SW sync path under node faults (characte
           await walletA.triggerSync(true);
         }
 
-        // Falsifiability: discovery REQUIRES a successful sync round-trip, so a
-        // note minted under the armed fault must be invisible. If it shows up,
-        // the 429s never reached the sync RPCs and the settle assertions above
-        // proved nothing.
-        const pendingUnderLimit = await pendingNoteTotal(walletA.page, TOKEN);
+        // Falsifiability, part one: the fault ACTUALLY FIRED. Arming is best
+        // effort — the node's gRPC-web traffic is reached at the fetch layer,
+        // whose `applyToRealm` gives up after four bounded attempts rather than
+        // hang on a busy realm, and the SDK's network worker is spawned lazily —
+        // so "never armed" is a real outcome. Everything below this line is an
+        // ABSENCE, which is exactly what an unarmed fault also produces.
+        expect(
+          await walletA.networkFaultHits(),
+          'the 429 fault injected into zero requests — it never reached a sync RPC, so nothing below is evidence'
+        ).toBeGreaterThan(0);
+
+        // Falsifiability, part two: discovery REQUIRES a successful sync
+        // round-trip, so a note minted under the armed fault must be invisible.
+        //
+        // Sampled over a window rather than read once. `triggerSync` cannot
+        // observe whether the sync it asked for finished (it swallows its own
+        // wait), so a single 0n is also what "the sync succeeded but has not
+        // persisted yet" looks like — the max over several seconds is what
+        // distinguishes blind from merely early.
+        const pendingUnderLimit = await maxPendingNoteTotal(walletA.page, TOKEN, { forMs: 10_000 });
         expect(
           pendingUnderLimit,
           'a note minted while the sync RPCs are 429-limited must NOT be discoverable — if it is, the fault never bit'
@@ -237,16 +252,24 @@ test.describe('infra resilience — the SW sync path under node faults (characte
         // Falsifiability, part two: discovery REQUIRES a completed sync
         // round-trip, so note #2 must be invisible even though note #1 was
         // discovered on this same wallet minutes earlier.
-        const pendingUnderHang = await pendingNoteTotal(walletA.page, TOKEN);
+        // Windowed for the same reason as the 429 leg: one read of 0n cannot tell
+        // blind from early.
+        const pendingUnderHang = await maxPendingNoteTotal(walletA.page, TOKEN, { forMs: 10_000 });
         expect(
           pendingUnderHang,
           'a note minted while the sync RPCs hang must NOT be discoverable — if it is, the fault never bit'
         ).toBe(0n);
 
-        // The wallet as a whole must stay responsive. This one IS a real settle
-        // assertion: `getBalance` resolves the in-page read's own promise, so a
-        // read parked behind the sync would genuinely blow the budget.
-        await expectSettlesWithin(() => walletA.getBalance(TOKEN), 30_000, 'balance read beside a hung sync');
+        // The wallet as a whole must stay responsive. Deliberately a WEAK check,
+        // and labelled as one: this read runs in the page realm and takes the
+        // WASM mutex non-blockingly (`tryWithWasmClientLock` in `fetchBalances`
+        // returns null rather than queueing), while the hung sync holds the
+        // SERVICE WORKER's mutex. So it cannot park behind that sync and its
+        // settling is not evidence about the wedged realm — it only says the page
+        // still answers. The claim that a parked read would blow this budget was
+        // wrong; the leg's real evidence is the fault-hit count and the blindness
+        // above.
+        await expectSettlesWithin(() => walletA.getBalance(TOKEN), 30_000, 'page still answers beside a hung sync');
       },
       { captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }] }
     );
@@ -259,7 +282,10 @@ test.describe('infra resilience — the SW sync path under node faults (characte
       // inline path's client replacement is what works around it on mobile.
       await walletA.clearFaults();
       await walletA.triggerSync(true);
-      await expectSettlesWithin(() => walletA.getBalance(TOKEN), 30_000, 'balance read after clearing the hang');
+      // Same weak page-realm check as above, for the same reason: what this leg
+      // can honestly assert after the hang is that the UI still answers, not that
+      // the SW's sync recovered.
+      await expectSettlesWithin(() => walletA.getBalance(TOKEN), 30_000, 'page still answers after clearing the hang');
     });
   });
 });

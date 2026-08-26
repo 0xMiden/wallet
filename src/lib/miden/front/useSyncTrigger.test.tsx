@@ -23,7 +23,7 @@ import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_SYNC_BACKOFF_MS } from 'lib/miden/syn
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
+import { __resetSyncFuseStateForTests, requestImmediateSync, useSyncTrigger } from './useSyncTrigger';
 
 const storeState: {
   status: WalletStatus;
@@ -119,6 +119,8 @@ const HookHost: React.FC = () => {
 const flush = () => new Promise(res => setTimeout(res, 0));
 
 describe('useSyncTrigger', () => {
+  let envBeforeTest: string | undefined;
+
   beforeEach(() => {
     jest.clearAllMocks();
     window.location.hash = '';
@@ -137,6 +139,11 @@ describe('useSyncTrigger', () => {
     // read it can assert on position rather than depending on being the only
     // writer since the last manual reset.
     wasmLockOptionsSeen.length = 0;
+    // The fuse's evidence is module-scoped on purpose (it describes the realm's
+    // parked sync, not one effect), so it survives an unmount — which means it
+    // also survives a test unless reset here.
+    __resetSyncFuseStateForTests();
+    envBeforeTest = process.env.MIDEN_E2E_TEST;
   });
 
   // The breaker tests install fake timers and stub `Math.random`. Tearing those
@@ -146,6 +153,14 @@ describe('useSyncTrigger', () => {
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
+    // Restored centrally, not at the end of each test body: several tests set
+    // these to reach a guarded branch, and a failed assertion before their own
+    // restore line left `MIDEN_E2E_TEST` (or the pause flag) set for every later
+    // test in the worker — which is the same cascade this hook was added to stop
+    // for timers and mocks.
+    if (envBeforeTest === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = envBeforeTest;
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
   });
 
   it('does nothing when wallet status is not Ready', () => {
@@ -274,7 +289,6 @@ describe('useSyncTrigger', () => {
   });
 
   it('extension: skips SyncRequest while a test pauses sync via __TEST_SYNC_PAUSED__', async () => {
-    const prevEnv = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
     mockIsExtension.mockReturnValue(true);
@@ -285,12 +299,9 @@ describe('useSyncTrigger', () => {
     expect(mockIntercomRequest).not.toHaveBeenCalled();
 
     unmount();
-    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
-    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   it('mobile/desktop: skips syncState while a test pauses sync via __TEST_SYNC_PAUSED__', async () => {
-    const prevEnv = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
 
@@ -300,12 +311,9 @@ describe('useSyncTrigger', () => {
     expect(mockSyncState).not.toHaveBeenCalled();
 
     unmount();
-    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
-    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   it('does not pause sync when __TEST_SYNC_PAUSED__ is set but MIDEN_E2E_TEST is off (production)', async () => {
-    const prevEnv = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'false';
     (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
 
@@ -315,8 +323,6 @@ describe('useSyncTrigger', () => {
     await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
 
     unmount();
-    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
-    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   // #596 — the mobile/desktop sync path used to fire the "cannot reach the Miden
@@ -555,6 +561,19 @@ describe('useSyncTrigger', () => {
     });
     expect(mockSyncState).toHaveBeenCalledTimes(7);
 
+    // That 7th probe was the TIMER's, so it escalates: 60s, not another 30. This
+    // half is what makes the exemption an exemption rather than an off switch —
+    // without it, a grant that leaked past the run it was meant for (or a `!forced`
+    // guard widened to everything) reads identically to the intended behaviour.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(59_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(7);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(8);
+
     unmount();
   });
 
@@ -562,7 +581,6 @@ describe('useSyncTrigger', () => {
     jest.useFakeTimers();
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(Math, 'random').mockReturnValue(0);
-    const prevEnv = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     evictEveryLockHold = true;
     evictionReason = 'watchdog';
@@ -597,14 +615,12 @@ describe('useSyncTrigger', () => {
     expect(mockSyncState).toHaveBeenCalledTimes(5);
 
     unmount();
-    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   it('mobile/desktop: clamps an over-large window remainder so a clock anomaly cannot stop syncing (#777)', async () => {
     jest.useFakeTimers();
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(Math, 'random').mockReturnValue(0);
-    const prevEnv = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
     mockSyncState.mockRejectedValue(new Error('x'));
 
@@ -641,7 +657,6 @@ describe('useSyncTrigger', () => {
     expect(mockSyncState).toHaveBeenCalledTimes(4);
 
     unmount();
-    process.env.MIDEN_E2E_TEST = prevEnv;
   });
 
   it('mobile/desktop: requestImmediateSync probes right through an open backoff window (#777)', async () => {
@@ -954,6 +969,119 @@ describe('useSyncTrigger', () => {
     expect(mockSyncState).toHaveBeenCalledTimes(5);
 
     unmount();
+  });
+
+  it('mobile/desktop: user Retries cannot blow the fuse, however many are tapped (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+
+    // Four taps of a Retry that keeps being evicted — enough evidence to fuse, if
+    // taps counted as evidence. They must not: the fuse governs how often the
+    // loop probes ON ITS OWN, and a user tap is neither part of that cadence nor
+    // throttled by it, so counting it lets the user talk the wallet into a
+    // half-hour of silence by trying to fix it. Same argument that keeps a tap
+    // from escalating the breaker.
+    for (let tap = 0; tap < 4; tap++) {
+      await act(async () => {
+        requestImmediateSync();
+        await jest.advanceTimersByTimeAsync(0);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    // The automatic cadence is still the breaker's base window, not the fuse's.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+
+    unmount();
+  });
+
+  it('mobile/desktop: an ordinary failure while fused does not shorten the fused wait (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // The device drops offline during the fused period, so the next probe fails
+    // fast instead of parking. While the fuse and the breaker shared one deadline
+    // field, this failure re-entered the breaker's arm and overwrote the fused
+    // deadline with a window at most a fifth as long — and the eviction streak
+    // was zeroed alongside it, so re-earning the cadence cost four more
+    // two-minute evictions, eight further minutes of the whole app's WASM access,
+    // for a conclusion nothing had contradicted. One offline blip, and the fuse
+    // was gone.
+    evictEveryLockHold = false;
+    mockSyncState.mockRejectedValue(new Error('Failed to fetch'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    // Still the fused cadence: nothing before the next 30 minutes are up.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_SYNC_BACKOFF_MS);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(FUSED_SYNC_PROBE_INTERVAL_MS - MAX_SYNC_BACKOFF_MS);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+
+    unmount();
+  });
+
+  it('mobile/desktop: the fuse survives a remount, since what it knows is about the realm (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const first = render(<HookHost />);
+    await driveToBlownFuse();
+    // An idle auto-lock and an unlock: the effect keys on wallet status, so this
+    // is a remount. The parked in-flight sync it concluded about lives in the
+    // SDK's module scope and is entirely untouched by it — so throwing the
+    // conclusion away handed a provably parked realm back the 3s cadence, and
+    // charged the user four fresh two-minute evictions per unlock to reach it
+    // again.
+    first.unmount();
+    const second = render(<HookHost />);
+
+    // A remount does probe once immediately — that much is the right bias, the
+    // user just came back. What it must not do is resume the fast cadence.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(MAX_SYNC_BACKOFF_MS);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    second.unmount();
   });
 
   it('mobile/desktop: the breaker still serves its first window before the fuse blows (#777)', async () => {
