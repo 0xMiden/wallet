@@ -17,10 +17,13 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
  * codec, the vault and intercom. That is why the frontend loop passes
  * `watchdogMs` to `withWasmClientLock` itself instead of calling this.
  *
- * Other `syncState()` holds in the codebase deliberately stay on the default,
- * and it is not an oversight: most of them continue into other work under the
- * same hold (a `getAccount`, a cold-restore's on-chain probe) and so fall under
- * the restriction below. The service worker's own sync hold needs no ceiling for
+ * Not every bounded sync hold comes through here: the frontend loop and the two
+ * guardian `syncState` holds pass `watchdogMs` to `withWasmClientLock`
+ * themselves, because this module is backend-only (above) and `guardian/index.ts`
+ * is not. The holds still on the DEFAULT ceiling are so deliberately: they
+ * continue into other work under the same hold (a `getAccount`, a cold-restore's
+ * on-chain probe) and so fall under the restriction below. The service worker's
+ * own sync hold needs no ceiling for
  * a different reason — its 30s `withTimeout` rejects the lock callback, so the
  * mutex is released well inside any watchdog bound (see
  * `WASM_LOCK_WATCHDOG_MS`). What no ceiling on this side reaches, there or here,

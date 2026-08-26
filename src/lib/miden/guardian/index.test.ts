@@ -12,6 +12,7 @@
  */
 
 import { MultisigService } from './index';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -47,9 +48,17 @@ const mockMidenClient = {
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// `wasmLockOptionsSeen` records every hold's options: with a pass-through lock a
+// hold on the 5-minute backstop and one on the sync ceiling are otherwise
+// indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
+// idle sync (#777).
+const wasmLockOptionsSeen: unknown[] = [];
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => mockMidenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+    wasmLockOptionsSeen.push(options);
+    return fn();
+  }
 }));
 
 const mockInterfaceClient = { accounts: { insert: jest.fn(async () => {}) } };
@@ -356,6 +365,20 @@ describe('MultisigService', () => {
       await service.sync();
 
       expect(service.syncRetryCount).toBe(0);
+    });
+
+    it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
+      // A guardian sync is a pure-sync hold whose RPC carries no transport
+      // deadline on wasm32, and guardian is the wallet's default account type — on
+      // the five-minute backstop one parked guardian sync froze every send, claim
+      // and balance read in the app for five minutes at a time.
+      wasmLockOptionsSeen.length = 0;
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.sync();
+
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }]);
     });
 
     it('rethrows immediately for non-nonce errors', async () => {

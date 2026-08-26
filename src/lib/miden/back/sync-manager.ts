@@ -40,15 +40,20 @@ const ALARM_NAME = 'miden-sync';
 // sync can legitimately take 5-25s, so this is set well above the typical
 // worst case: it exists to catch a genuinely wedged sync, not to cap a
 // slow-but-healthy one. Note this timeout does NOT release the WASM client
-// mutex early — withTimeout (below) only rejects the outer promise; the
-// underlying syncState keeps running and holding the lock until it truly
-// settles. So an aggressive ceiling buys nothing for lock contention and
-// merely turns healthy slow syncs into spurious "node unreachable" reports.
+// WASM work early — withTimeout (below) only rejects the outer promise; the
+// underlying syncState keeps running. It DOES release the JS mutex, because the
+// rejection propagates out of the lock callback (which is why this hold needs no
+// watchdog ceiling of its own — see `WASM_LOCK_SYNC_WATCHDOG_MS`), but the
+// abandoned sync still occupies the SDK's in-flight map, so an aggressive ceiling
+// buys little and merely turns healthy slow syncs into spurious "node
+// unreachable" reports.
 // On a real breach the circuit breaker (below) trips and we back off.
 const SYNC_TIMEOUT_MS = 30_000;
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
-// a row we skip sync attempts for the backoff window, then allow one probe. A
+// a row we skip sync attempts for the backoff window, then allow probes until
+// the streak fills again (the inline loop is stricter — one probe per window —
+// see `sync-backoff.ts`). A
 // successful sync resets the counter. Protects both the wasm client and the
 // RPC backend from being hammered when the network (or the node) is flapping.
 // The parameters are shared with the mobile/desktop inline loop (#777) — see
@@ -181,17 +186,24 @@ async function runSync(force: boolean): Promise<void> {
         if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
           markConnectivityIssue(classifySyncError(err));
         }
-        // A user-FORCED sync (banner Retry, popup open) opens or re-arms a
-        // window but never ESCALATES one, mirroring the frontend loop (#777).
-        // Escalation is meant to measure how long the node has been failing, not
-        // how many times the user asked: without the exemption three Retry taps
-        // against a down node walked the user's own wallet from 30s to 240s of
-        // enforced silence, and Retry is the only affordance that probes through
-        // an open window.
+        // A FORCED sync — one the automatic cadence did not schedule: the banner's
+        // Retry (`SyncRequest` with `force`) and the guardian recovery pass's
+        // closing sync — opens or re-arms a window but never ESCALATES one,
+        // mirroring the frontend loop (#777). Escalation is meant to measure how
+        // long the node has been failing, not how many times the user asked:
+        // without the exemption three Retry taps against a down node walked the
+        // user's own wallet from 30s to 240s of enforced silence, and Retry is the
+        // only affordance that probes through an open window.
         if (!force) breakerTripCount++;
         const backoffMs = computeSyncBackoffMs(Math.max(1, breakerTripCount));
         syncBackoffUntilMs = monotonicNowMs() + backoffMs;
-        consecutiveSyncFailures = 0;
+        // Zeroed only for an automatic trip. This path is what lets the SW probe a
+        // full streak again between windows (deliberate, and unlike the frontend
+        // loop — see `sync-backoff.ts`), and letting a forced failure spend the
+        // streak turned the exemption into a way to STOP escalating: alternating
+        // two automatic failures with one Retry re-armed at trip 1 forever, so the
+        // curve never left 30s while the popup kept probing every 3s.
+        if (!force) consecutiveSyncFailures = 0;
         console.warn(
           `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`
         );

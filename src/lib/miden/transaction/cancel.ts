@@ -218,8 +218,10 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  *
  * `generateTransaction`'s first act is a locked `syncState()`, taken while the
  * row still reads 'syncing' — 'sending' is only stamped once that sync returns.
- * That sync has no JS-level timeout, which makes it one of the likeliest places
- * for a watchdog eviction to land, and it is unambiguously pre-write.
+ * Its SDK call still carries no transport deadline, and the hold is now bounded
+ * by the 2-minute sync watchdog rather than the 5-minute backstop, which together
+ * make it one of the likeliest places for an eviction to land — and it is
+ * unambiguously pre-write.
  *
  * Deliberately a one-element list rather than a general "is this before submit"
  * test. `mayHaveSubmitted` is permanent and `requeueFailedTransaction` refuses
@@ -228,8 +230,10 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * from the stage alone therefore keeps recording.
  *
  * Membership here is necessary but not sufficient — the caller also requires
- * `processingStartedAt` to be absent, so the exemption rests on the row not
- * having been picked up rather than on this name alone.
+ * `processingStartedAt` to be absent, so the exemption rests on the write stamp
+ * never having run rather than on this name alone. Note that is NOT the same as
+ * "the FIFO has not picked the row up": the pre-flight sync runs after pickup,
+ * with the row still `Queued` and the stamp still unset.
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 

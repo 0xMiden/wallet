@@ -156,10 +156,11 @@ export function useSyncTrigger() {
     let syncBackoffUntilMs: number | null = null;
     // Whether the NEXT run was asked for by the user (banner Retry, app
     // foreground) rather than the timer. Granted by `retryNow`, consumed by the
-    // run it precedes. Its only job is to keep a user's attempt from escalating
-    // the breaker; it grants no other privilege, because a forced run needs
-    // none — it punches through an open window via `retryAfterCurrentRun`, and
-    // nothing gates the probe on the fuse.
+    // run it precedes. Its job is to keep a user's attempt out of the automatic
+    // cadence's two ledgers — it neither escalates the breaker nor adds to (or
+    // withdraws from) the fuse's evidence. It grants no SCHEDULING privilege,
+    // because a forced run needs none: it punches through an open window via
+    // `retryAfterCurrentRun`, and no guard gates the probe on the fuse.
     let forceNextRun = false;
 
     const runAndSchedule = async () => {
@@ -191,7 +192,10 @@ export function useSyncTrigger() {
             // gRPC-web fetch carries no transport deadline, so a parked sync
             // would otherwise hold the lock until the 5-minute last resort —
             // on mobile that is the whole app's WASM access. Expiry evicts the
-            // hold and replaces the client; the next tick syncs on a fresh one.
+            // hold and replaces the client, so the next tick runs on a fresh
+            // one — which recovers the MUTEX, not necessarily the sync: the SDK
+            // memoises the parked call, so the fresh client may join it (which is
+            // what the fuse is for).
             const synced = await withWasmClientLock(
               async () => {
                 const client = await getMidenClient();
@@ -263,7 +267,12 @@ export function useSyncTrigger() {
               // Safe to fire and forget because `sync()` coalesces overlapping
               // ticks onto one in-flight run, so a slow guardian gets one
               // outstanding sync, not one per tick.
-              void syncGuardianAccounts().catch(() => {});
+              void syncGuardianAccounts().catch(e => {
+                // Per-account failures are already logged inside; this catch is
+                // for a throw from the accounts read itself, which would otherwise
+                // be the one failure on this path that logs nothing at all.
+                console.warn('[useSyncTrigger] guardian sync failed', e);
+              });
             }
           } catch (error) {
             consecutiveSyncFailures++;

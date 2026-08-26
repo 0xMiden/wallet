@@ -719,6 +719,13 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
       mockClient.syncState.mockReset();
       mockClient.syncState.mockRejectedValue(new Error('node down'));
+      // Driving the monotonic clock (the deadline's clock) is what lets an
+      // automatic probe past the open window at the end; jitter pinned off so
+      // "advance past the window" is a fact rather than a coin flip.
+      let fakeNow = 1_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
 
       const { doSync: isolated } = await import('./sync-manager');
 
@@ -736,11 +743,23 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       await isolated(true);
       await isolated(true);
 
-      const trips = warnSpy.mock.calls.map(args => String(args[0])).filter(msg => msg.includes('circuit breaker open'));
-      expect(trips).toHaveLength(2);
-      expect(trips[0]).toContain('trip 1');
-      expect(trips[1]).toContain('trip 1');
+      const openings = () =>
+        warnSpy.mock.calls.map(args => String(args[0])).filter(msg => msg.includes('circuit breaker open'));
+      expect(openings()).toEqual([expect.stringContaining('trip 1'), expect.stringContaining('trip 1')]);
+
+      // And the exemption must not become a way to STOP escalating: a forced
+      // failure does not spend the automatic streak, so the next automatic failure
+      // is still the one that walks the curve. (Past the window, since an
+      // automatic probe inside it is skipped and never reaches the node.)
+      fakeNow += 35_000;
+      await isolated();
+      expect(openings()).toHaveLength(3);
+      expect(openings()[2]).toContain('trip 2');
+
       warnSpy.mockRestore();
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
     });
   });
 

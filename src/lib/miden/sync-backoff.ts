@@ -9,8 +9,9 @@
  * (`computeSyncBackoffMs`), so neither platform can quietly drift onto a
  * different backoff SHAPE than the other — an unbacked-off sync loop is the
  * suspected #777 trigger. Note this is parity of shape, not of request count
- * per window: the next paragraph's re-trip rule means the SW fires more probes
- * inside one window than the inline loop does.
+ * per cycle: the next paragraph's re-trip rule means the SW fires more probes
+ * BETWEEN windows than the inline loop does (inside an open window neither
+ * platform probes at all, bar a forced one).
  *
  * What is deliberately NOT shared is the RE-TRIP rule, so don't read the two as
  * one state machine. The SW zeroes its failure streak when it opens a window,

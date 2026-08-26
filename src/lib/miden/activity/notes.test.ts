@@ -6,7 +6,13 @@ _g.__notesTest = {
   midenClient: {
     importNoteBytes: jest.fn(),
     syncState: jest.fn()
-  }
+  },
+  // Every hold's options, so a test can assert the ceiling a hold was taken with —
+  // a pass-through lock mock makes an unbounded hold indistinguishable otherwise.
+  lockOptions: [] as unknown[],
+  // When set, the NEXT hold is torn down instead of run: the shape of a watchdog
+  // eviction, which abandons its callback rather than letting it finish.
+  evictNextHold: false
 };
 
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -29,7 +35,15 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__notesTest.midenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+    const t = (globalThis as any).__notesTest;
+    t.lockOptions.push(options);
+    if (t.evictNextHold) {
+      t.evictNextHold = false;
+      throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    }
+    return fn();
+  }
 }));
 
 // importAllNotes now routes import + sync through `midenClientProxy` (issue #260,
@@ -43,12 +57,15 @@ jest.mock('shared/logger', () => ({
 }));
 
 import { importAllNotes, queueNoteImport } from './notes';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__notesTest.store)) delete _g.__notesTest.store[k];
   _g.__notesTest.beforeSet = undefined;
   _g.__notesTest.midenClient.importNoteBytes.mockClear();
   _g.__notesTest.midenClient.syncState.mockClear();
+  _g.__notesTest.lockOptions = [];
+  _g.__notesTest.evictNextHold = false;
 });
 
 describe('queueNoteImport', () => {
@@ -65,6 +82,64 @@ describe('queueNoteImport', () => {
 });
 
 describe('importAllNotes', () => {
+  it('takes both of its holds on the bounded sync ceiling (#777)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    _g.__notesTest.midenClient.importNoteBytes.mockResolvedValue(undefined);
+    _g.__notesTest.midenClient.syncState.mockResolvedValue(undefined);
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    // Both the import and the trailing sync reach a node over an RPC that carries
+    // no transport deadline on wasm32, so neither may sit on the five-minute last
+    // resort: that is one parked note freezing every send and claim in the app for
+    // five minutes per lap.
+    expect(_g.__notesTest.lockOptions).toEqual([
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
+    ]);
+    jest.useRealTimers();
+  });
+
+  it('banks the attempt when the import hold is evicted mid-pass (#777)', async () => {
+    // An eviction abandons the callback, so neither the per-note catch nor the
+    // queue rewrite inside the hold runs. Without banking here the next lap reads a
+    // byte-identical queue and re-enters the same hold: no attempt is ever spent,
+    // so the poison cap never trips, the dead-letter store is never reached, and
+    // the note jams the import pass — and therefore the transaction lap — forever.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', attempts: 1 });
+    // And it earns backoff, which is what gives the jam an exit: a carried note
+    // stops being eligible, so the next pass imports nothing and cannot be evicted
+    // on this note again.
+    expect(queue[0].nextEligibleAt).toBeGreaterThan(Date.now());
+    expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('dead-letters rather than carrying a note whose transient budget is spent, when the hold is evicted (#777)', async () => {
+    // Evictions are read as transient, so the 24h wall-clock budget is what ends
+    // the carry — the note is never silently dropped, it lands in the dead-letter
+    // store where it stays recoverable.
+    const longAgo = Date.now() - 25 * 60 * 60 * 1000;
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9, firstFailureAt: longAgo }];
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
+    expect(deadletter).toHaveLength(1);
+    expect(deadletter[0]).toMatchObject({ bytes: 'aGVsbG8=', reason: 'transport', attempts: 10 });
+  });
+
   it('is a no-op when the queue is empty', async () => {
     await importAllNotes();
     expect(_g.__notesTest.midenClient.importNoteBytes).not.toHaveBeenCalled();

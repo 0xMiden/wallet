@@ -808,9 +808,10 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
   // state before deciding (the background reaper rides AutoSync and passes false).
   //
   // Except when the thing that just died IS the sync (#777), which the COMMITTED
-  // stage says and the error shape does not. `'syncing'` is only ever written
-  // around the pre-flight sync, so reading it here means the kill landed on that
-  // sync — and a second one joins the same never-settling promise the SDK
+  // stage says and the error shape does not. On a row this pipeline owns,
+  // `'syncing'` is only written around the pre-flight sync (the locked-vault
+  // requeue reuses the name, but on a `Queued` row), so reading it here means the
+  // kill landed on that sync — and a second one joins the same never-settling promise the SDK
   // memoises in a module-level map the wallet cannot reach, buying nothing but
   // another full ceiling of the whole app's WASM access while the user waits on a
   // consume verdict.
@@ -2224,31 +2225,30 @@ export const generateTransactionsLoop = async (
 
   // Import any notes needed for queued transactions.
   //
-  // This runs BEFORE the try below, so a throw here used to abort the whole lap
-  // and land in the caller's bare catch: no queued transaction picked up, no row
-  // failed, nothing but a log line. The failure that made that reachable was the
-  // queue's own trailing `syncState()` being evicted (#775, and #777 makes
-  // evictions on the sync path far likelier) — a sync that has nothing to do with
-  // whether the notes imported, and which now lives in its own bounded hold and
-  // swallows its own error, so it no longer reaches here at all.
+  // Isolated from the rest of the lap. This runs BEFORE the try below, so a throw
+  // here aborts the whole lap and lands in the caller's bare catch: no queued
+  // transaction picked up, no row failed, nothing but a log line — for as long as
+  // the import keeps failing. Every driver funnels through this one loop, so that
+  // is the whole pipeline: no send, no swap, no claim, in any realm.
   //
-  // What is left is a failure of the IMPORT phase, and that one must NOT be
-  // swallowed into a normal lap: `queueNoteImport` is followed immediately by a
-  // consume of that note (see `initiate.ts` and the dApp import path), so a lap
-  // that proceeds regardless picks the row up, fails to find its note, and marks
-  // it terminally Failed — trading "nothing moves this lap" for "the dependent
-  // transaction is dead". Skipping the lap keeps the row Queued for the next one,
-  // which is what the note queue's own carry-forward assumes.
+  // Continuing costs the dependent row instead, and that trade is deliberate.
+  // `queueNoteImport` is followed by a consume of that note, so a lap that
+  // proceeds picks it up, cannot find the note, and marks it Failed. But a Failed
+  // consume is recoverable — the note stays claimable and a later auto-consume
+  // re-initiates it, with no double-payment risk, because nothing was ever
+  // submitted — whereas a skipped lap blocks money movement wallet-wide AND
+  // reaps that same consume anyway once `cancelStaleQueuedTransactions` reaches
+  // MAX_QUEUED_AGE, half an hour later, under a message that points nowhere near
+  // the note queue.
   //
-  // Per-note failures are handled inside `importAllNotes` (backoff, then the
-  // dead-letter store) and never throw, so this is not the "one poison note jams
-  // the loop" case: reaching here means the import hold itself was torn down,
-  // and the next lap retries in seconds.
+  // Skipping was tried (round 7 of the review on #777) and is strictly worse for
+  // a second reason: an eviction ABANDONS the import hold mid-loop, so before the
+  // banking fix in `importAllNotes` no attempt was spent and the next lap's queue
+  // was byte-identical — the skip had no exit condition at all.
   try {
     await importAllNotes();
   } catch (e) {
-    logger.error('Failed to import queued notes; skipping this transaction lap', e);
-    return;
+    logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
   }
 
   // Wait for other in progress transactions

@@ -668,42 +668,38 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['skips the lap when the note-import pass throws', true],
-    ['picks the row up when the import pass succeeds', false]
-  ])('note-import pass gates the lap — %s (#777)', async (_label, importThrows) => {
-    // `importAllNotes` runs before the lap's try, so a throw there decides whether
-    // the lap happens at all. It must NOT proceed: `queueNoteImport` is immediately
-    // followed by a consume of that note, so a lap that runs anyway picks the row
-    // up, cannot find its note, and marks it terminally Failed. Keeping it Queued
-    // costs one lap. The false leg is the falsifier: with the import healthy the
-    // same row is picked up, so the skip is the throw's doing and not the fixture's.
+  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
+    // The whole pipeline funnels through this one loop, so aborting the lap on an
+    // import failure stops every send, swap and claim in the wallet — and an
+    // eviction abandons the import hold, so nothing about the queue changes and the
+    // next lap fails the same way. The dependent consume is the smaller loss: it is
+    // marked Failed with nothing submitted, the note stays claimable, and a later
+    // auto-consume re-initiates it.
+    //
+    // `initiatedAt` is current so neither reaper can be what moves the row: only
+    // the pickup can.
     const { importAllNotes } = require('../activity/notes');
-    if (importThrows) importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
-    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
     txStore.push({
       id: 'queued-behind-a-bad-import',
       type: 'execute',
       accountId: 'acc-1',
       status: ITransactionStatus.Queued,
-      // Current, so `cancelStaleQueuedTransactions` cannot be what moves the row.
       initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
       requestBytes: new Uint8Array([9])
     });
     const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
-    const sign = jest.fn(async () => new Uint8Array());
 
-    try {
-      await generateTransactionsLoop(sign, false, guardianProvider);
+    await generateTransactionsLoop(
+      jest.fn(async () => new Uint8Array()),
+      false,
+      guardianProvider
+    );
 
-      const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
-      expect(row.status === ITransactionStatus.Queued).toBe(importThrows);
-      expect(row.processingStartedAt === undefined).toBe(importThrows);
-    } finally {
-      errSpy.mockRestore();
-    }
+    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
   });
 
   it('returns undefined when there are no queued or in-progress transactions', async () => {

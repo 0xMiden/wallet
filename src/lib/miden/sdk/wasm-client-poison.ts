@@ -41,9 +41,12 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
 
 /**
  * The watchdog ceiling for a lock hold whose whole job is a chain sync
- * (issue #777). Passed as `withWasmClientLock`'s `watchdogMs` by the pure-sync
- * call sites — the mobile/desktop idle loop and the pre-flight syncs in the
- * transaction pipeline — whose SDK call carries no transport deadline on wasm32
+ * (issue #777). Passed as `withWasmClientLock`'s `watchdogMs` by the sync-shaped
+ * call sites: the mobile/desktop idle loop and the two guardian `syncState` holds
+ * directly, and everything behind `syncUnderBoundedLock` (the transaction
+ * pipeline's pre-flight sync, the two landed-verification probes, the note-import
+ * queue's trailing sync) — plus the note import itself, which is the same shape:
+ * an RPC under a hold. Their SDK call carries no transport deadline on wasm32
  * (the wasm `ApiClient` drops its `timeout_ms`), so a parked gRPC-web fetch
  * otherwise wedges the lock until the 5-minute last resort.
  *
@@ -245,8 +248,11 @@ export function poisonReasonOf(error: unknown): WasmClientPoisonReason | undefin
 
 /**
  * Whether a failure is "the sync itself was evicted for overrunning its
- * ceiling" — the one shape that proves the realm's sync is parked on a promise
- * no client replacement can reach (see {@link WASM_LOCK_SYNC_WATCHDOG_MS}).
+ * ceiling". One hit can still be a merely slow sync; what it identifies is the
+ * shape that REPEATS into a sync parked on a promise no client replacement can
+ * reach, which is why four of them light the fuse and one only raises the banner
+ * (see {@link WASM_LOCK_SYNC_WATCHDOG_MS} and
+ * {@link MAX_CONSECUTIVE_WATCHDOG_EVICTIONS}).
  *
  * Named here rather than open-coded at its two call sites in `useSyncTrigger`
  * (raise the reachability banner, blow the probe fuse), because both rest on
