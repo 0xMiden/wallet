@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
+import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
@@ -524,7 +525,7 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
       // authoritative for a consumed note (it cannot un-consume), and for a
       // not-yet-consumed note it can only under-report "landed" → a safe Fail.
       try {
-        await withWasmClientLock(async () => midenClientProxy.syncState());
+        await syncUnderBoundedLock();
       } catch (syncError) {
         console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
       }
@@ -590,7 +591,7 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
   const txId = tx.transactionId;
   try {
     try {
-      await withWasmClientLock(async () => midenClientProxy.syncState());
+      await syncUnderBoundedLock();
     } catch (syncError) {
       console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
     }

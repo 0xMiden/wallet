@@ -34,6 +34,25 @@
 export const WASM_LOCK_WATCHDOG_MS = 300_000;
 
 /**
+ * The watchdog ceiling for a lock hold whose whole job is a chain sync
+ * (issue #777). Passed as `withWasmClientLock`'s `watchdogMs` by the pure-sync
+ * call sites — the mobile/desktop idle loop and the pre-flight syncs in the
+ * transaction pipeline — whose SDK call carries no transport deadline on wasm32
+ * (the wasm `ApiClient` drops its `timeout_ms`), so a parked gRPC-web fetch
+ * otherwise wedges the lock until the 5-minute last resort.
+ *
+ * 2 minutes: well above both the 5-25s slow-testnet syncs the SW timeout
+ * comment records and the 30-60s holds observed on mobile, and the same order
+ * as `DELEGATED_PROVE_TIMEOUT_MS` — a backstop against a sync that has stopped
+ * answering, NOT a latency target. Expiry is a real eviction (the client is
+ * replaced), so firing on a merely-slow sync costs a client rebuild; firing
+ * late merely leaves the wallet lockless a little longer. On the observed
+ * freeze cadence (a 3s loop), 2 minutes still cuts recovery from 5 minutes to
+ * 2 while keeping a healthy margin over every recorded legitimate sync.
+ */
+export const WASM_LOCK_SYNC_WATCHDOG_MS = 120_000;
+
+/**
  * The ceiling that applies while a hold's watchdog is PAUSED (issue #775).
  *
  * A pause used to stop the clock outright, which quietly made the backstop

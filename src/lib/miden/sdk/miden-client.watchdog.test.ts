@@ -274,6 +274,114 @@ describe('wasm lock watchdog', () => {
   });
 });
 
+describe('per-hold watchdog ceiling (issue #777)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    // Drop any recovery stamp left by an earlier test, so its cooldown cannot
+    // suppress this test's trap. Fake timers restart the monotonic clock at 0
+    // on every install, which puts a prior stamp in this test's future.
+    __resetRecoveryCooldownForTests();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('evicts a never-settling holder at ITS OWN ceiling, well before the 5-minute default', async () => {
+    // The mobile idle sync takes the lock every 3 s with no bound of its own;
+    // a parked sync should be recovered on the sync's ceiling, not the
+    // last-resort 5-minute one.
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}), { watchdogMs: 120_000 });
+    const wedgedRejects = expectRejection(wedged, {
+      name: 'WasmClientPoisonedError',
+      reason: 'watchdog'
+    });
+
+    let ran = false;
+    const second = withWasmClientLock(async () => {
+      ran = true;
+    });
+
+    // One tick under the custom ceiling: still merely slow, not wedged.
+    await jest.advanceTimersByTimeAsync(119_999);
+    expect(isWasmClientBusy()).toBe(true);
+    expect(ran).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1);
+    await wedgedRejects;
+    await second;
+    expect(ran).toBe(true);
+  });
+
+  it('the custom ceiling is holder-scoped — the next hold is back on the default', async () => {
+    await withWasmClientLock(async () => 'quick', { watchdogMs: 45_000 });
+
+    const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    // Past the earlier hold's custom ceiling: the default holder must survive.
+    await jest.advanceTimersByTimeAsync(45_000);
+    expect(isWasmClientBusy()).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(255_000);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('a pause bracket still relaxes a custom-ceiling hold to the shared paused ceiling', async () => {
+    // No sync site opens a pause bracket today, but the option must not turn
+    // the relaxed ceiling OFF for whoever combines them next — the pre-#775
+    // wedge reached through an escape hatch, again.
+    const wedged = withWasmClientLock(
+      async () => {
+        await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}));
+      },
+      { watchdogMs: 120_000 }
+    );
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    // Far past the custom ceiling: the paused hold must still be waiting.
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(isWasmClientBusy()).toBe(true);
+
+    // The paused ceiling still bounds it.
+    await jest.advanceTimersByTimeAsync(1_200_000);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
+  it('the post-pause finishing slice is charged against the CUSTOM ceiling, not the default', async () => {
+    // A hold that burned its whole custom budget inside a bracket must come
+    // back to at most the one 30 s slice — reading the DEFAULT constant here
+    // would hand it 300 s minus spent time instead, quietly widening the bound
+    // the caller asked for.
+    let openBracket!: () => void;
+    const gate = new Promise<void>(resolve => {
+      openBracket = resolve;
+    });
+    const wedged = withWasmClientLock(
+      async () => {
+        await gate;
+        await withWasmLockWatchdogPaused(async () => {});
+        await new Promise<never>(() => {});
+      },
+      { watchdogMs: 120_000 }
+    );
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    // Burn 119 s of the 120 s running budget, then bracket-close with 1 s left.
+    await jest.advanceTimersByTimeAsync(119_000);
+    expect(isWasmClientBusy()).toBe(true);
+    openBracket();
+    // The close grants the one 30 s slice (1 s remaining < the slice).
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+});
+
 describe('realm error fast path', () => {
   beforeEach(() => {
     jest.useFakeTimers();

@@ -24,6 +24,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
+import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -874,7 +875,7 @@ export const generateTransaction = async (
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  await withWasmClientLock(async () => midenClientProxy.syncState());
+  await syncUnderBoundedLock();
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {

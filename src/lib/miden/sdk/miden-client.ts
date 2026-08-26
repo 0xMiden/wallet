@@ -162,6 +162,15 @@ interface LockHolder {
    * would restore exactly the unbounded loop `unpausedElapsedMs` prevents.
    */
   graceUsed: boolean;
+  /**
+   * The normal (unpaused) watchdog ceiling for THIS hold. Defaults to
+   * `WASM_LOCK_WATCHDOG_MS`; a caller whose operation has a tighter known
+   * bound (the sync holds, issue #777) passes a smaller one via
+   * `withWasmClientLock`'s options so a wedge is recovered on the operation's
+   * own budget instead of the 5-minute last resort. Holder-scoped so it
+   * survives pause brackets and yields, and never leaks to the next hold.
+   */
+  normalCeilingMs: number;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
   abort: (err: Error) => void;
   aborted: Promise<never>;
@@ -485,7 +494,7 @@ function armWatchdogFor(holder: LockHolder): void {
   } else {
     // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
     // hold rather than the segment since the last transition.
-    const remaining = WASM_LOCK_WATCHDOG_MS - holder.unpausedElapsedMs;
+    const remaining = holder.normalCeilingMs - holder.unpausedElapsedMs;
     if (remaining >= WASM_LOCK_MIN_WATCHDOG_MS) {
       ceiling = remaining;
     } else if (!holder.graceUsed) {
@@ -504,7 +513,7 @@ function armWatchdogFor(holder: LockHolder): void {
       // submit. Writing the ledger back to "one slice left" makes the resume
       // re-arm on the unspent remainder of the grace instead.
       holder.graceUsed = true;
-      holder.unpausedElapsedMs = WASM_LOCK_WATCHDOG_MS - WASM_LOCK_MIN_WATCHDOG_MS;
+      holder.unpausedElapsedMs = holder.normalCeilingMs - WASM_LOCK_MIN_WATCHDOG_MS;
       ceiling = WASM_LOCK_MIN_WATCHDOG_MS;
     } else {
       ceiling = Math.max(remaining, 0);
@@ -546,7 +555,7 @@ function startPausedSegment(holder: LockHolder): void {
   if (holder.pausedSegmentStartedAt === null) holder.pausedSegmentStartedAt = monotonicNow();
 }
 
-function beginHold(): LockHolder {
+function beginHold(normalCeilingMs: number = WASM_LOCK_WATCHDOG_MS): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
@@ -560,6 +569,7 @@ function beginHold(): LockHolder {
     pausedElapsedMs: 0,
     pausedSegmentStartedAt: null,
     graceUsed: false,
+    normalCeilingMs,
     abort,
     aborted
   };
@@ -648,6 +658,24 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
 }
 
 /**
+ * Options for {@link withWasmClientLock}.
+ *
+ * `watchdogMs` tightens THIS hold's normal watchdog ceiling below
+ * `WASM_LOCK_WATCHDOG_MS` (issue #777) — for operations with a known bound (the
+ * sync holds) where waiting out the 5-minute last resort leaves the wallet
+ * lockless for far longer than the operation could legitimately run. Expiry is
+ * the ordinary #775 eviction: the holder is rejected with
+ * `WasmClientPoisonedError` and the client singletons are replaced, because the
+ * abandoned operation is not cancelled and may still be borrowing the WASM
+ * client — merely releasing the mutex would double-borrow it under the next
+ * holder. The paused/yielded ceilings are NOT affected: a pause bracket still
+ * relaxes to `WASM_LOCK_PAUSED_WATCHDOG_MS`.
+ */
+export interface WasmClientLockOptions {
+  watchdogMs?: number;
+}
+
+/**
  * Execute an operation with the WASM client mutex held.
  * This ensures only one WASM client operation runs at a time across the entire app.
  *
@@ -656,9 +684,12 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  * distinguish this flow from an evicted corpse (issue #775) — a flow that
  * ignores the argument keeps the older, ownership-blind behaviour.
  */
-export async function withWasmClientLock<T>(operation: (hold: WasmLockHold) => Promise<T>): Promise<T> {
+export async function withWasmClientLock<T>(
+  operation: (hold: WasmLockHold) => Promise<T>,
+  options?: WasmClientLockOptions
+): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold();
+  const holder = beginHold(options?.watchdogMs);
   try {
     const running = operation(holder);
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse

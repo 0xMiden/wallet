@@ -4,6 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES } from 'lib/miden/sync-backoff';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -47,28 +48,12 @@ const ALARM_NAME = 'miden-sync';
 const SYNC_TIMEOUT_MS = 30_000;
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
-// a row we skip sync attempts for BACKOFF_MS, then allow one probe. A
+// a row we skip sync attempts for the backoff window, then allow one probe. A
 // successful sync resets the counter. Protects both the wasm client and the
 // RPC backend from being hammered when the network (or the node) is flapping.
-const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
-
-// Circuit-breaker backoff: EXPONENTIAL with jitter (gap 14). Each consecutive
-// trip roughly doubles the wait (capped at BACKOFF_MAX_MS) so a sustained outage
-// is probed ever less aggressively instead of hammered every 30s; the jitter
-// de-syncs many wallets from all probing in lockstep. A successful sync resets
-// the trip count back to the base interval.
-const BACKOFF_BASE_MS = 30_000;
-const BACKOFF_MAX_MS = 5 * 60_000;
-
-/**
- * Backoff (ms) for the Nth consecutive breaker trip (1-based): base for the
- * first trip, doubling each subsequent trip up to the cap, plus 0–20% jitter.
- * Pure + injectable RNG so it's unit-testable.
- */
-export function computeSyncBackoffMs(tripCount: number, rand: () => number = Math.random): number {
-  const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, tripCount - 1), BACKOFF_MAX_MS);
-  return Math.round(exp + exp * 0.2 * rand());
-}
+// The parameters are shared with the mobile/desktop inline loop (#777) —
+// see `lib/miden/sync-backoff`; re-exported here for existing importers.
+export { computeSyncBackoffMs };
 
 // Concurrent doSync() callers join the in-flight sync instead of being dropped.
 // The previous boolean-guard silently no-op'd concurrent calls, so a single stuck

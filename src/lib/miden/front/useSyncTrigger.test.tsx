@@ -45,10 +45,14 @@ jest.mock('lib/store', () => {
 
 const mockSyncState = jest.fn(async (..._args: unknown[]) => {});
 const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ syncState: mockSyncState }));
+const wasmLockOptionsSeen: Array<unknown> = [];
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   // In .tsx `<T>` parses as JSX — the trailing comma disambiguates it as a generic.
-  withWasmClientLock: async <T,>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T,>(fn: () => Promise<T>, options?: unknown) => {
+    wasmLockOptionsSeen.push(options);
+    return fn();
+  }
 }));
 
 const mockIsExtension = jest.fn((..._args: unknown[]) => false);
@@ -329,6 +333,147 @@ describe('useSyncTrigger', () => {
 
     warn.mockRestore();
     unmount();
+  });
+
+  // #777 — the mobile idle sync froze the app permanently: a parked syncState
+  // held the WASM lock with no bound of its own, and the flat 3s retry kept
+  // hammering a rate-limiting node. The lock hold gets the sync-specific
+  // watchdog ceiling, and the retry cadence gets the SW path's exponential
+  // circuit breaker (sync-manager.ts, gap 14).
+  it('mobile/desktop: takes the WASM lock with the sync watchdog ceiling (#777)', async () => {
+    const { WASM_LOCK_SYNC_WATCHDOG_MS } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    wasmLockOptionsSeen.length = 0;
+
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+    expect(wasmLockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+    unmount();
+  });
+
+  it('mobile/desktop: backs off exponentially once the breaker trips, instead of retrying flat every 3s (#777)', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // Pin the jitter to zero so the windows are exactly 30s / 60s.
+    const rand = jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockSyncState.mockRejectedValue(new Error('HTTP 429'));
+
+    const { unmount } = render(<HookHost />);
+
+    // Failures 1-3 run on the normal 3s cadence.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // Third consecutive failure trips the breaker: the next probe waits out the
+    // first backoff window (30s), not the flat 3s.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    // Still failing: the window doubles.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(59_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    rand.mockRestore();
+    warn.mockRestore();
+    unmount();
+    jest.useRealTimers();
+  });
+
+  it('mobile/desktop: a successful probe resets the breaker back to the 3s cadence (#777)', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const rand = jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockSyncState
+      .mockRejectedValueOnce(new Error('x'))
+      .mockRejectedValueOnce(new Error('x'))
+      .mockRejectedValueOnce(new Error('x'))
+      .mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+
+    // Three failures on the 3s cadence trip the breaker.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // The probe at the end of the window SUCCEEDS…
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    // …so the next tick is back on the normal 3s interval.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    rand.mockRestore();
+    warn.mockRestore();
+    unmount();
+    jest.useRealTimers();
+  });
+
+  it('mobile/desktop: requestImmediateSync probes right through an open backoff window (#777)', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const rand = jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockSyncState.mockRejectedValue(new Error('HTTP 429'));
+
+    const { unmount } = render(<HookHost />);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // Inside the 30s window the banner's Retry (or a foreground return) must
+    // not be made to wait it out.
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    rand.mockRestore();
+    warn.mockRestore();
+    unmount();
+    jest.useRealTimers();
   });
 
   it('extension: clears the interval on unmount', async () => {
