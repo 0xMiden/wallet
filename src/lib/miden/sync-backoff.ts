@@ -17,6 +17,13 @@
  * time — which is the right bias on the platform where the sync loop is the
  * only sync driver and a wedged hold blocks the whole app's WASM access.
  *
+ * Nor is the CLOCK shared, for the same structural reason. The SW reads its
+ * deadline as a skip check while its own driver keeps ticking, so a clock step
+ * costs it skipped attempts; the inline loop sleeps out the remainder on the
+ * timer that is its only driver, so a backward step there would stall syncing
+ * outright. Hence `monotonicNowMs` plus the `MAX_SYNC_BACKOFF_MS` clamp on the
+ * inline side.
+ *
  * This module is dependency-free so the frontend hook can import it without
  * dragging in the service worker's vault/intercom graph.
  */
@@ -45,4 +52,27 @@ const BACKOFF_MAX_MS = 5 * 60_000;
 export function computeSyncBackoffMs(tripCount: number, rand: () => number = Math.random): number {
   const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, tripCount - 1), BACKOFF_MAX_MS);
   return Math.round(exp + exp * 0.2 * rand());
+}
+
+/**
+ * The largest value `computeSyncBackoffMs` can return (the cap plus its full
+ * jitter). A driver that waits out the REMAINDER of a window rather than a
+ * freshly computed delay needs this: the remainder is arithmetic on a clock, and
+ * clamping it to the curve's own maximum keeps a clock anomaly from turning a
+ * bounded backoff into an unbounded stall.
+ */
+export const MAX_SYNC_BACKOFF_MS = Math.round(BACKOFF_MAX_MS * 1.2);
+
+/**
+ * Monotonic-where-available clock for backoff deadlines, mirroring the WASM
+ * lock's `monotonicNow`. `Date.now()` is wall-clock: an NTP correction, a
+ * user clock change or a mobile resume can step it, and a deadline stored
+ * against it then expires early or — worse for a driver that sleeps out the
+ * remainder — stretches by the size of the step.
+ *
+ * Note that 0 is a VALID stamp on this clock (it is the time origin), so a
+ * caller must use `null`/`undefined` for "no deadline", never 0.
+ */
+export function monotonicNowMs(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 }

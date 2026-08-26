@@ -456,21 +456,11 @@ describe('watchdog ceiling clamp (issue #777)', () => {
     expect(isWasmClientBusy()).toBe(false);
   });
 
-  it('clamps a below-minimum request up to the finishing slice instead of spending the grace at hold start', async () => {
-    // Unclamped, a sub-slice ceiling fell straight into the grace branch on the
-    // FIRST arm: the hold got 30 s anyway, but it burned the one-shot slice a
-    // post-sign submit needs and banked a negative elapsed ledger.
-    const wedged = withWasmClientLock(() => new Promise<never>(() => {}), { watchdogMs: 1_000 });
-    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
-
-    await jest.advanceTimersByTimeAsync(WASM_LOCK_MIN_WATCHDOG_MS - 1);
-    expect(isWasmClientBusy()).toBe(true);
-
-    await jest.advanceTimersByTimeAsync(1);
-    await wedgedRejects;
-    expect(isWasmClientBusy()).toBe(false);
-  });
-
+  // There is deliberately NO test that a below-minimum request simply gets a
+  // 30 s timer. Unclamped, a sub-slice ceiling fell into `armWatchdogFor`'s
+  // grace branch on the FIRST arm, which pins the ceiling at the slice anyway —
+  // so the eviction lands at 30 s either way and the assertion cannot fail.
+  // That invisibility WAS the bug; the test below pins its actual consequence.
   it('a below-minimum hold keeps its finishing slice: the grace is still unspent when a bracket closes', async () => {
     // The consequence the clamp exists for. Clamped, this hold reaches its
     // first bracket with `graceUsed` false, so the close grants the slice.

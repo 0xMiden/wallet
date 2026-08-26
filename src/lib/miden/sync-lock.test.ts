@@ -41,8 +41,11 @@ describe('syncUnderBoundedLock (#777)', () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     mockSyncState.mockResolvedValue(undefined);
-    // Fake timers restart the monotonic clock at 0, which would put an earlier
-    // test's recovery stamp in this test's future and suppress its eviction.
+    // Defensive: the recovery stamp is a module global shared with the
+    // realm-error suites, and fake timers restart the monotonic clock at 0, so a
+    // stamp left behind lands in this test's future. Only `recoverFromTrap`
+    // actually consults it — this suite evicts via the watchdog, which has no
+    // cooldown — so nothing here depends on the reset today.
     __resetRecoveryCooldownForTests();
   });
 

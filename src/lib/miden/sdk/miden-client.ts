@@ -170,9 +170,11 @@ interface LockHolder {
    * own budget instead of the 5-minute last resort. Holder-scoped so it
    * survives pause brackets and yields, and never leaks to the next hold.
    *
-   * Always within `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]` —
-   * `resolveNormalCeilingMs` clamps whatever the caller asked for, so the rest
-   * of the watchdog arithmetic can treat this as a sane finite budget.
+   * Always within `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]`, so the
+   * rest of the watchdog arithmetic can treat it as a sane finite budget.
+   * `beginHold` is the only writer and clamps its argument through
+   * `resolveNormalCeilingMs`, which is what makes that an invariant rather than
+   * a convention every call site has to remember.
    */
   normalCeilingMs: number;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
@@ -559,7 +561,13 @@ function startPausedSegment(holder: LockHolder): void {
   if (holder.pausedSegmentStartedAt === null) holder.pausedSegmentStartedAt = monotonicNow();
 }
 
-function beginHold(normalCeilingMs: number = WASM_LOCK_WATCHDOG_MS): LockHolder {
+/**
+ * Open a hold. `requestedCeilingMs` is what the CALLER asked for, not a usable
+ * ceiling: it is clamped here, by construction, so `normalCeilingMs` cannot be
+ * out of range no matter which call site (or which future one) supplies it —
+ * see {@link resolveNormalCeilingMs} for what an unchecked value breaks.
+ */
+function beginHold(requestedCeilingMs?: number): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
@@ -573,7 +581,7 @@ function beginHold(normalCeilingMs: number = WASM_LOCK_WATCHDOG_MS): LockHolder 
     pausedElapsedMs: 0,
     pausedSegmentStartedAt: null,
     graceUsed: false,
-    normalCeilingMs,
+    normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
     abort,
     aborted
   };
@@ -731,7 +739,7 @@ export async function withWasmClientLock<T>(
   options?: WasmClientLockOptions
 ): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold(resolveNormalCeilingMs(options?.watchdogMs));
+  const holder = beginHold(options?.watchdogMs);
   try {
     const running = operation(holder);
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse

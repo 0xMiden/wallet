@@ -3,8 +3,17 @@ import { useEffect } from 'react';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
-import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES } from 'lib/miden/sync-backoff';
+import {
+  isWasmClientPoisonedError,
+  poisonReasonOf,
+  WASM_LOCK_SYNC_WATCHDOG_MS
+} from 'lib/miden/sdk/wasm-client-poison';
+import {
+  computeSyncBackoffMs,
+  MAX_CONSECUTIVE_SYNC_FAILURES,
+  MAX_SYNC_BACKOFF_MS,
+  monotonicNowMs
+} from 'lib/miden/sync-backoff';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
@@ -105,13 +114,15 @@ export function useSyncTrigger() {
     // like the streak: a remount starts fresh on the 3s cadence, which is the
     // right bias (a remount usually means the user came back).
     let breakerTripCount = 0;
-    // Wall-clock end of the open backoff window (#777), 0 when none is open.
-    // A DEADLINE rather than a one-shot delay, matching `syncBackoffUntilMs` in
-    // the SW path: a tick the guards skip (send flow, generating-tx page) does
-    // not run a probe, so it must not be able to cancel a window either — with
-    // a one-shot delay it silently reset the cadence to 3s and the wallet went
-    // straight back to probing a node it had just decided to back off from.
-    let syncBackoffUntilMs = 0;
+    // End of the open backoff window (#777) on the monotonic clock, null when
+    // none is open. A DEADLINE rather than a one-shot delay, for the same reason
+    // the SW path keeps one: a tick the guards skip (send flow, generating-tx
+    // page) does not run a probe, so it must not be able to cancel a window
+    // either — with a one-shot delay it silently reset the cadence to 3s and the
+    // wallet went straight back to probing a node it had just decided to back
+    // off from. Monotonic, not `Date.now()`, and `null` rather than 0 for "no
+    // window", because 0 is a real stamp on that clock — see `monotonicNowMs`.
+    let syncBackoffUntilMs: number | null = null;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
@@ -165,7 +176,12 @@ export function useSyncTrigger() {
             if (synced) {
               consecutiveSyncFailures = 0;
               breakerTripCount = 0;
-              syncBackoffUntilMs = 0;
+              // Clear the window too, not just the counters: a user Retry (or an
+              // app foreground) probes straight through an open window, so a
+              // success can land mid-window — leaving the deadline standing
+              // would reschedule onto its remainder and keep the wallet backed
+              // off from a node that just answered.
+              syncBackoffUntilMs = null;
             }
             clearReachabilityIssues();
             // The sync just imported any new notes; surface them NOW instead of
@@ -190,7 +206,7 @@ export function useSyncTrigger() {
             // matching the service-worker path (#273). markConnectivityIssue is
             // idempotent, so re-marking on each further failure while it's up is a
             // no-op; a later successful sync resets the streak and clears it (#596).
-            // A watchdog eviction is transport-shaped in every way that matters
+            // A WATCHDOG eviction is transport-shaped in every way that matters
             // to the user: on the sync path it means the node stopped answering
             // and the parked gRPC-web fetch had to be torn off the lock. Its
             // message is a closed wallet-authored string, so it matches none of
@@ -199,7 +215,15 @@ export function useSyncTrigger() {
             // predicate. Without this the #777 hang is the one failure that
             // backs off SILENTLY: no banner, and therefore no Retry, which is
             // the only affordance that probes through an open window.
-            const transportShaped = isLikelyNetworkError(error) || isWasmClientPoisonedError(error);
+            //
+            // The other poison reason is deliberately excluded. A `realm-error`
+            // eviction is a WASM trap in this realm, not an unreachable node, so
+            // `classifySyncError`'s only verdict ('node') would tell the user
+            // something false — and it needs no banner anyway: the client is
+            // replaced in milliseconds and the next 3s tick syncs on a fresh
+            // one, which is precisely the case Retry cannot improve on.
+            const transportShaped =
+              isLikelyNetworkError(error) || (isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog');
             if (transportShaped && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
               markConnectivityIssue(classifySyncError(error));
             }
@@ -209,7 +233,7 @@ export function useSyncTrigger() {
             // Counted per FAILED ATTEMPT, not per tick, so windows only grow
             // while probes actually fail.
             if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
-              syncBackoffUntilMs = Date.now() + computeSyncBackoffMs(++breakerTripCount);
+              syncBackoffUntilMs = monotonicNowMs() + computeSyncBackoffMs(++breakerTripCount);
             }
           } finally {
             useWalletStore.getState().setSyncStatus(false);
@@ -229,7 +253,14 @@ export function useSyncTrigger() {
           // standing rather than cleared, exactly as the SW path's `force`
           // bypasses `syncBackoffUntilMs` without resetting it: one punch-
           // through should not hand the node back the 3s cadence.
-          const backoffRemainingMs = syncBackoffUntilMs - Date.now();
+          //
+          // Clamped to the curve's own maximum on the way out: this timer is the
+          // loop's ONLY driver, so an over-large remainder would not merely
+          // stretch a backoff, it would stop syncing altogether for that long.
+          // The monotonic clock makes that hard to reach; the clamp makes it
+          // impossible, and costs nothing when the deadline is sane.
+          const backoffRemainingMs =
+            syncBackoffUntilMs === null ? 0 : Math.min(syncBackoffUntilMs - monotonicNowMs(), MAX_SYNC_BACKOFF_MS);
           const delay = retryAfterCurrentRun ? 0 : Math.max(SYNC_INTERVAL_MS, backoffRemainingMs);
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);

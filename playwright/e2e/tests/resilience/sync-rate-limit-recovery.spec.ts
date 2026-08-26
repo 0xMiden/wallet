@@ -40,9 +40,12 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *    on-chain notes, and once the limiter relents it catches up on its own.
  *  - A sync RPC that accepts and never answers likewise blinds discovery, and
  *    a balance read beside it still settles.
- *  Both legs carry the same falsifiability check — a note minted while the
- *  fault is armed must be undiscoverable — so a fault that never reached the
- *  sync RPCs fails the test instead of passing it silently.
+ *  Both legs carry the same falsifiability check: each first proves discovery
+ *  WORKS on that wallet (mint #1 is discovered, then claimed back to zero), and
+ *  only then asserts that mint #2, minted under the armed fault, stays
+ *  undiscoverable. The positive control is what makes that second reading a
+ *  transition rather than the initial value — without it, a fault that never
+ *  reached the sync RPCs would pass silently.
  *
  * `path: 'rpc.Api/Sync'` is a case-sensitive URL SUBSTRING, so it arms every
  * `rpc.Api/Sync*` method the SDK calls — SyncChainMmr, SyncNotes,
@@ -177,9 +180,27 @@ test.describe('infra resilience — the SW sync path under node faults (characte
       expect(addressA, 'the created wallet must report an account address').toBeTruthy();
     });
 
-    await steps.step('fund_the_faucet', async () => {
+    // The POSITIVE CONTROL for the blindness assertion below. Without it that
+    // assertion reads `0n` off a wallet that has never discovered anything, so
+    // it is the initial value and an unarmed fault, an unpropagated mint or a
+    // broken `pendingNoteTotal` would all pass it. Proving discovery works here
+    // first — and then claiming back down to zero — is what makes the later `0n`
+    // a transition rather than a default. Same shape as the 429 leg's baseline.
+    await steps.step('fund_and_settle_baseline', async () => {
       await midenCli.init();
       faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA, Number(MINT_1_BASE_UNITS), 'public');
+      await midenCli.sync();
+
+      await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_1_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
+      await walletA.claimAllNotes(180_000);
+      await waitForVaultBalance(walletA.page, TOKEN, MINT_1_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS
+      });
     });
 
     await steps.step(
@@ -187,8 +208,8 @@ test.describe('infra resilience — the SW sync path under node faults (characte
       async () => {
         await walletA.armNetworkFault({ target: 'node', path: SYNC_RPC_PATH, mode: 'hang' });
 
-        // Mint on-chain while the sync RPCs accept and never answer.
-        await midenCli.mint(faucetId, addressA, Number(MINT_1_BASE_UNITS), 'public');
+        // Mint note #2 on-chain while the sync RPCs accept and never answer.
+        await midenCli.mint(faucetId, addressA, Number(MINT_2_BASE_UNITS), 'public');
         await midenCli.sync();
 
         // Drivers, not assertions (see the header). Two of them: the second
@@ -199,8 +220,9 @@ test.describe('infra resilience — the SW sync path under node faults (characte
 
         // Falsifiability — the check the hang leg previously had none of, and
         // the reason it could pass with the fault never reaching a single sync
-        // RPC. Discovery REQUIRES a completed sync round-trip, so a note minted
-        // under the armed hang must be invisible.
+        // RPC. Discovery REQUIRES a completed sync round-trip, so note #2 must
+        // be invisible even though note #1 was discovered on this same wallet
+        // minutes earlier.
         const pendingUnderHang = await pendingNoteTotal(walletA.page, TOKEN);
         expect(
           pendingUnderHang,
