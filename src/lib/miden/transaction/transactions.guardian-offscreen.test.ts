@@ -73,6 +73,32 @@ const txStore: Array<Record<string, unknown>> = [];
 // leaves every write untouched.
 // eslint-disable-next-line no-var
 var mockThrowOnStageWrite: string | null = null;
+// Makes the row read inside the requeue wake fail a bounded number of times, so
+// the wake's read-failure path is reachable. Armed AFTER the requeue, since the
+// requeue itself reads the row through the same seam.
+var mockFailRowReads: { id: string; times: number } | null = null;
+
+// One-shot: the next read of this row returns the row as it was, then advances
+// the stored row to GeneratingTransaction, as a concurrent driver picking it up
+// would. Lets a test occupy the gap between a read and its write.
+var mockClaimRowOnRead: { id: string } | null = null;
+
+// How many `modify` callbacks returned `false`. Dexie skips the put on exactly
+// that value and treats anything else — `undefined` included — as "modified",
+// re-putting the clone and firing a `liveQuery` event for it. A guard written as
+// a bare `return` therefore still writes, and without counting the declines no
+// assertion can tell the two apart: the clone equals the row, so the stored
+// fields look identical either way.
+var mockDeclinedWrites = 0;
+
+// Dexie's `innerDeepClone`: recurse into plain objects, hand everything else
+// back by reference.
+function dexieLikeClone<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || value.constructor !== Object) return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value)) copy[key] = dexieLikeClone(nested);
+  return copy as T;
+}
 
 jest.mock('lib/miden/repo', () => ({
   db: { transaction: async (_mode: string, _t: unknown, cb: () => unknown) => cb() },
@@ -81,18 +107,80 @@ jest.mock('lib/miden/repo', () => ({
       txStore.push({ ...tx });
     }),
     where: jest.fn((query: { id: string }) => ({
-      modify: jest.fn(async (fn: (tx: Record<string, unknown>) => void) => {
+      modify: jest.fn(async (fn: (tx: Record<string, unknown>) => unknown) => {
         const row = txStore.find(r => r.id === query.id);
-        if (row) fn(row);
+        // Dexie hands the callback a CLONE and only writes it back when the
+        // callback does not return `false` — which is the entire mechanism
+        // behind the write-time terminal guards. Mutating the stored row
+        // directly would make those guards untestable: move one below its first
+        // assignment and the suite would stay green while production wrote over
+        // a terminal row.
+        if (row) {
+          // Deep over PLAIN objects only, which is what Dexie's own clone does:
+          // it recurses into plain objects and returns anything with a
+          // non-`Object` constructor — typed arrays, class instances — by
+          // reference. A shallow copy would share `stageTimestamps` and
+          // `extraInputs` with the stored row, so a callback that mutated a
+          // nested field and then declined would still have written through,
+          // which is the one case this mock exists to catch. `structuredClone`
+          // is not a substitute: it throws on the functions and class instances
+          // these fixtures carry.
+          const draft = dexieLikeClone(row);
+          if (fn(draft) === false) mockDeclinedWrites += 1;
+          else Object.assign(row, draft);
+        }
         if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite) {
           throw new Error(`dexie write blew up stamping '${mockThrowOnStageWrite}'`);
         }
       }),
-      first: jest.fn(async () => txStore.find(r => r.id === query.id))
+      first: jest.fn(async () => {
+        if (mockFailRowReads !== null && mockFailRowReads.id === query.id && mockFailRowReads.times > 0) {
+          mockFailRowReads.times -= 1;
+          throw new Error('dexie read blew up');
+        }
+        const found = txStore.find(r => r.id === query.id);
+        // Model a concurrent driver claiming the row in the gap between a
+        // caller's read and its write: hand back the stale snapshot the caller
+        // would have seen, and advance the stored row as the driver would.
+        if (found && mockClaimRowOnRead !== null && mockClaimRowOnRead.id === query.id) {
+          mockClaimRowOnRead = null;
+          const snapshot = { ...found };
+          found.status = ITransactionStatus.GeneratingTransaction;
+          return snapshot;
+        }
+        return found;
+      })
     })),
     filter: jest.fn(() => ({ toArray: jest.fn(async () => []) }))
   }
 }));
+
+// `generateTransactionsLoop` reaches the table through `filter`, so its call
+// count is the only observable this suite has for "the queue was actually
+// driven" — which is what a wake exists to do, and what a timer merely firing
+// does not prove.
+const repoMock = jest.requireMock('lib/miden/repo') as { transactions: { filter: jest.Mock } };
+
+/**
+ * jsdom has no `navigator.locks`, so `safeGenerateTransactionsLoop` throws into
+ * its own catch and returns false without ever touching the table — which would
+ * make "the wake drove the queue" unobservable and the assertion vacuous.
+ * Granting the lock lets the loop run for real.
+ */
+const installNavigatorLocks = (): (() => void) => {
+  const nav = globalThis.navigator as unknown as Record<string, unknown>;
+  const had = 'locks' in nav;
+  const prev = nav.locks;
+  Object.defineProperty(nav, 'locks', {
+    value: { request: (_n: string, _o: unknown, cb: (lock: object) => unknown) => cb({}) },
+    writable: true,
+    configurable: true
+  });
+  return () => {
+    if (had) Object.defineProperty(nav, 'locks', { value: prev, writable: true, configurable: true });
+    else delete nav.locks;
+  };
+};
 
 jest.mock('../front', () => ({
   putToStorage: jest.fn(async () => {}),
@@ -204,9 +292,15 @@ jest.mock('../sdk/native-prover-mobile', () => ({
 
 // eslint-disable-next-line no-var
 var mockPlatformIsMobile = false;
+// jsdom carries a mocked `chrome.runtime.id`, so the real `isExtension()` is
+// TRUE in every unit test. Anything gated on being off-extension is therefore
+// unreachable — and silently so — unless the test can drive this.
+// eslint-disable-next-line no-var
+var mockPlatformIsExtension = true;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => mockPlatformIsMobile
+  isMobile: () => mockPlatformIsMobile,
+  isExtension: () => mockPlatformIsExtension
 }));
 
 jest.mock('shared/logger', () => ({
@@ -367,7 +461,14 @@ beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
   mockPlatformIsMobile = false;
+  // Reset alongside its siblings. Left `false` by a test that forgot to restore
+  // it, every LATER unauthorized requeue in this file arms a real 16-56s timer
+  // (the suite runs on real timers), which then fires after the run has moved on.
+  mockPlatformIsExtension = true;
   mockThrowOnStageWrite = null;
+  mockFailRowReads = null;
+  mockClaimRowOnRead = null;
+  mockDeclinedWrites = 0;
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
 });
 
@@ -418,6 +519,1297 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       expect(complete.mock.calls[0]).toContain(dispatched);
     }
   );
+
+  it('an "unauthorized" execution failure requeues even though the realm cannot author `stage`', async () => {
+    // The guardian co-signs a summary bound to the state it saw; if that state
+    // moves before the leaf's executeRequest recomputes it, execution rejects
+    // the signature. `guardianPipeline` throws from executeRequest, which sits
+    // before its own postStageEvent('submitting') and provenTx.submit(), so
+    // nothing reached the chain and the transfer is recoverable.
+    //
+    // The requeue must NOT be gated on the row's `stage`: an offscreen leaf's
+    // stamps are replayed as `timingOnly` precisely so they never author that
+    // field, so the row still reads whichever stage the SW stamped last. Gating
+    // on 'executing' would make the whole arm dead code on the shipping path —
+    // the service-worker bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true'.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary ' +
+          'TransactionSummary { nonce_delta: 1 }'
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(buildTx('on-send-unauthorized', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized') as Record<string, unknown>;
+    // The leaf was actually reached — without this the test would pass for any
+    // earlier crash, e.g. a renamed mock silently short-circuiting the pipeline.
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    // Guards the point of the test: if the realm ever DID author `stage`, a
+    // stage-gated implementation would pass here for the wrong reason.
+    expect(stored.stage).not.toBe('executing');
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored.processingStartedAt).toBeUndefined();
+    // Bounded on BOTH sides: a bare "is a number" assertion stays green if the
+    // cooldown is changed to 0 (the row is re-picked every ~5s poll, hammering
+    // the guardian and starving other accounts) or to something so large the row
+    // never becomes eligible again before MAX_QUEUED_AGE reaps it. The jitter is
+    // pinned below rather than left to the draw, which only caught a zeroed base
+    // cooldown about three runs in four.
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+  });
+
+  it('the stamped cooldown lands inside the jittered 15-54s window', async () => {
+    // The BOUNDS are pinned here; the boundary VALUES are pinned directly on
+    // `unauthorizedRequeueCooldownSec` in transactions.cooldown.test.ts. Split
+    // that way deliberately: pinning the exact value here needs a constant
+    // `Math.random`, and a constant draw held across a failing assertion makes
+    // jest's source-map sort degenerate, so the run reports
+    // `RangeError: Maximum call stack size exceeded` instead of the expectation
+    // that failed. This test therefore mocks no clock and no draw, and asserts
+    // the property that matters end to end: whatever the draw, the row is
+    // re-eligible inside the documented window.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-jitter', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-jitter', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-jitter') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+  });
+
+  it('an unauthorized consume requeues too — the same race hit claims in the field', async () => {
+    // The stress run that motivated this arm produced 20 failed consumes
+    // alongside the 47 failed sends, with the identical error. `consume` reaches
+    // the arm through the same set as `send`, and only `send` was covered.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'consume', noteId: 'note-unauth' };
+    arrange('on-consume-unauthorized', row);
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(buildTx('on-consume-unauthorized', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-consume-unauthorized') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    // Bounded like the send case rather than merely "is a number", which stays
+    // green at a cooldown of 0 — the row re-picked every poll, hammering the
+    // guardian this arm is trying to give room to recover.
+    expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+  });
+
+  it('an unauthorized replace-hot-key is NOT requeued — a structural op must not re-mint', async () => {
+    // The type gate is the only thing stopping a structural op from re-running a
+    // proposal creator that has already minted a hardware hot key, orphaning one
+    // per cycle. Without this test the whole `UNAUTHORIZED_EXECUTION_REQUEUEABLE`
+    // conjunct is mutation-dead: deleting it leaves every suite green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'replace-hot-key', extraInputs: {} };
+    arrange('on-replace-hot-key-unauthorized', row);
+
+    await generateTransaction(
+      buildTx('on-replace-hot-key-unauthorized', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-replace-hot-key-unauthorized') as Record<string, unknown>;
+    // Pins WHY it failed. Without this the test is vacuous: a structural op does
+    // not reach the leaf in this harness, so it ends Failed for an unrelated
+    // reason and the assertion below stays green even with the type gate deleted.
+    // The `earn-deposit` case above and the membership test below are what
+    // actually hold that gate honest.
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('the unauthorized requeue set is exactly the value-moving retryable types', async () => {
+    // Membership asserted directly because the behavioural tests cannot reach it
+    // from both sides: a structural row dies before the leaf in this harness, so
+    // ADDING `replace-hot-key` here changes no test's outcome, and no suite sends
+    // an unauthorized `swap` or `execute`, so DROPPING those changes nothing
+    // either. Both directions matter — one lets a retry re-mint a hot key, the
+    // other silently narrows the fix back to the two types that happen to have
+    // tests.
+    const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
+    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual(['consume', 'execute', 'send', 'swap']);
+  });
+
+  it('an "unauthorized" that is NOT execution-scoped stays terminally Failed (no double-send)', async () => {
+    // The requeue arm above concludes "never reached the chain" from the error
+    // text alone, so that text has to pin the failure to the execute step. A
+    // rejection carrying the same word from anywhere AFTER submit describes a
+    // transfer that may already have landed, and requeueing it would rebuild
+    // and co-sign a second valid send — the account debited twice, with no
+    // input-note nullifier for the chain to reject the duplicate on.
+    //
+    // Without this, `isGuardianUnauthorizedExecutionError` could be reduced to
+    // a bare /unauthorized/ match and every suite would stay green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error("Offscreen call 'guardianPipeline' failed: submit rejected by node: transaction is unauthorized")
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-post-submit', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-post-submit', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-post-submit') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('off-extension, an unauthorized requeue arms a wake to drive the row', async () => {
+    // Off-extension there is no service worker polling the queue: the only driver
+    // is the generating-transaction screen's interval, which the user cancels by
+    // leaving the screen. Without this wake the requeued row sits Queued until
+    // the next app launch — a send that silently does nothing, worse than the
+    // failure the requeue replaced. Gated on `isExtension()`, which is TRUE for
+    // every other test in this file, so without the override below the whole
+    // wake is unreachable and deleting it would leave the suite green.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake')?.status).toBe(ITransactionStatus.Queued);
+      // Scheduled past the cooldown rather than immediately — firing before
+      // `nextEligibleAt` would just put the loop straight back to sleep.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(loopRuns()).toBe(runsBefore);
+
+      // Past the longest cooldown the jitter can draw: the wake fires and
+      // actually DRIVES the queue. Without this the whole callback body could be
+      // deleted and the suite would stay green.
+      await jest.advanceTimersByTimeAsync(56_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+
+      // Firing is not progress. The loop takes its lock with `ifAvailable` and
+      // services the oldest eligible row, so a wake can land and leave this row
+      // exactly where it was — which is the state the wake exists to prevent. It
+      // re-arms while the row is still Queued.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      const runsAfterFirst = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsAfterFirst);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('comes back after a row read that fails, instead of abandoning the row', async () => {
+    // The wake decides whether to re-arm by reading its own row. That read is
+    // the only thing standing between the row and being stranded, so a Dexie
+    // hiccup there must not end the chain — off-extension nothing else would
+    // come back for it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-readfail', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-readfail', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Armed only now: the requeue itself reads the row through this same seam.
+      mockFailRowReads = { id: 'on-send-unauthorized-wake-readfail', times: 1 };
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+
+      // Past the longest cooldown: the wake fires, drives the queue, and its row
+      // read throws.
+      await jest.advanceTimersByTimeAsync(56_000);
+      // The read really did fail. Without this the test would pass on the
+      // ordinary still-Queued re-arm — which produces the same timer count and
+      // the same loop drive — and would never touch the catch it exists for.
+      expect(mockFailRowReads?.times).toBe(0);
+      const runsAfterFailedRead = loopRuns();
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // It came back, and the next lap drives the queue again.
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsAfterFailedRead);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps at most one wake per row, so repeated requeues cannot compound chains', async () => {
+    // `scheduleRequeueWake` is called afresh on every unauthorized requeue, and
+    // in production the second one lands while the first callback is still
+    // awaiting its loop drive — before that callback reaches its own re-arm.
+    // Without the per-row cancel both chains survive and each drives the loop
+    // independently, multiplying queue-driver load on a row whose whole problem
+    // is a guardian already under load.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-dedupe', row);
+      const tx = buildTx('on-send-unauthorized-wake-dedupe', row) as never;
+
+      await generateTransaction(tx, signCallback, false, provider as never);
+      expect(jest.getTimerCount()).toBe(1);
+
+      // A second unauthorized failure on the SAME row arms a second wake.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-dedupe') as Record<string, unknown>;
+      stored.status = ITransactionStatus.Queued;
+      await generateTransaction(tx, signCallback, false, provider as never);
+
+      expect(jest.getTimerCount()).toBe(1);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('stops re-arming the wake once the row leaves Queued', async () => {
+    // The re-arm chain has to end on its own. A row the user cancelled, or one a
+    // later cycle completed, must not keep a timer alive behind it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-stop', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-stop', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stop') as Record<string, unknown>;
+      stored.status = ITransactionStatus.Completed;
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps watching a row another driver picked up, and drives it again if that attempt requeues', async () => {
+    // `GeneratingTransaction` is not an ending. The attempt that claimed the row
+    // can finish by requeueing rather than completing — through the 409, 429,
+    // prover-outage or locked-wallet arms, none of which schedules a wake, since
+    // only the unauthorized arm does. A chain that stopped on any non-Queued
+    // status would hand the row back to a queue with no driver off-extension,
+    // which is the strand it exists to prevent, and the row would look healthy
+    // on the way there.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    // Needed for the DRIVE half: without a lock implementation
+    // `safeGenerateTransactionsLoop` returns before touching the queue, so the
+    // chain would stay armed while driving nothing and the assertion below could
+    // not tell the difference.
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-inflight', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-inflight', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-inflight') as Record<string, unknown>;
+      stored.status = ITransactionStatus.GeneratingTransaction;
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      // Still armed. Watching, not abandoning.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // That attempt requeues for an unrelated reason and schedules no wake of
+      // its own. The chain that stayed alive is what drives it.
+      stored.status = ITransactionStatus.Queued;
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(10_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row for longer than its whole retry budget', async () => {
+    // The wake has to outlast what it is covering. An earlier version stopped
+    // after 20 re-arms of 3s — about a minute against a three-minute budget — so
+    // a row whose wakes kept losing the loop lock ran out of liveness while it
+    // was still perfectly retryable, and sat Queued until the next app launch.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-budget', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-budget', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Past the full 180s retry budget, with the row never picked up.
+      await jest.advanceTimersByTimeAsync(200_000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-budget')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row whose deadline an unrelated backoff pushed past the old fixed ceiling', async () => {
+    // The retry budget is a wall clock that OTHER arms extend: a 429 from the
+    // same overloaded guardian parks the row and pushes `unauthorizedRetryUntil`
+    // out by its own cooldown. An earlier version fixed the chain's ceiling at
+    // 10 minutes from the first wake, so a row that had waited out two clamped
+    // 429s held a live deadline the chain had already stopped covering — Queued,
+    // still retryable, and off-extension with nothing left to drive it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-extended', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-extended', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Park the row on a clamped rate-limit cooldown, as the same overloaded
+      // guardian readily does next. That is the shape that broke the old fixed
+      // ceiling: two of these and the row is still waiting, still retryable,
+      // ten minutes after the chain would have given up.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-extended') as Record<string, unknown>;
+      stored.nextEligibleAt = Math.floor(Date.now() / 1000) + 600;
+
+      // Well past the old 10-minute ceiling, and past the 180s budget too, but
+      // still inside the queue's own 30-minute cap — where the row remains
+      // Queued and therefore still needs a driver.
+      await jest.advanceTimersByTimeAsync(15 * 60 * 1000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-extended')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('keeps waking a row past MAX_QUEUED_AGE, because the reaper it is waiting for runs inside the loop', async () => {
+    // A row older than MAX_QUEUED_AGE looks like the chain's natural stopping
+    // point: `cancelStaleQueuedTransactions` will fail it as expired, so the
+    // wake has nothing left to do. That reasoning is circular. The reaper runs
+    // INSIDE `generateTransactionsLoop`, which off-extension this wake is what
+    // drives, and the drive takes the loop lock with `ifAvailable` — a lap that
+    // loses it to a long-running pipeline reaps nothing. Stopping on age would
+    // abandon the row on exactly the lap that failed to do the work, leaving it
+    // Queued with nothing left to reap it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-stale', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-stale', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Older than MAX_QUEUED_AGE (30 min) — a row the reaper WOULD take, if a
+      // loop pass ever got the lock. The `filter` mock returns nothing, so here
+      // none does, standing in for a lap that lost the lock.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-stale') as Record<string, unknown>;
+      stored.initiatedAt = Math.floor(Date.now() / 1000) - 31 * 60;
+
+      // Past the longest cooldown, so the first wake has fired and decided.
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-stale')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+      // The loop drive, not just the timer. Both assertions below hold for a
+      // chain that re-arms forever without ever calling
+      // `safeGenerateTransactionsLoop` — the silent no-op this wake exists to
+      // prevent, and which the row-status assertion cannot distinguish from a
+      // working chain, since the row stays Queued either way.
+      const loopRuns = () => repoMock.transactions.filter.mock.calls.length;
+      const runsBefore = loopRuns();
+      await jest.advanceTimersByTimeAsync(4_000);
+      expect(loopRuns()).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('drives a stale row at the reap boundary instead of sleeping out its cooldown first', async () => {
+    // Past MAX_QUEUED_AGE the row's own cooldown stops being the right thing to
+    // wait for: what it needs is a loop pass, so the reaper inside it can fail
+    // the row with a reason. A row parked on a 429's clamped 300s cooldown would
+    // otherwise sit five more minutes past the point it should already be gone.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const restoreLocks = installNavigatorLocks();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-clamp', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-clamp', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Already past the reap boundary, and parked on a long rate-limit cooldown.
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-clamp') as Record<string, unknown>;
+      const nowSec = Math.floor(Date.now() / 1000);
+      stored.initiatedAt = nowSec - 31 * 60;
+      stored.nextEligibleAt = nowSec + 600;
+
+      // Let the first wake fire and decide when to come back.
+      await jest.advanceTimersByTimeAsync(60_000);
+      const runsBefore = repoMock.transactions.filter.mock.calls.length;
+
+      // Without the clamp the next drive is 10 minutes out, not seconds.
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(repoMock.transactions.filter.mock.calls.length).toBeGreaterThan(runsBefore);
+    } finally {
+      restoreLocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('stops the chain at its ceiling even when every row read fails', async () => {
+    // The read-failure re-arm carries the chain's ORIGINAL start time. Carrying
+    // the current time instead would push the ceiling out on every failed read,
+    // so a row whose read never recovers would re-arm every three seconds for
+    // the life of the process — the one thing the ceiling exists to stop.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-readfail-cap', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-readfail-cap', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Every read from here on throws.
+      mockFailRowReads = { id: 'on-send-unauthorized-wake-readfail-cap', times: Number.MAX_SAFE_INTEGER };
+
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('stops the chain when the row has vanished from the table', async () => {
+    // A deleted row is not a waiting row. `row?.status !== Queued` is what makes
+    // `undefined` a stop rather than a reason to keep coming back.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-gone', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-gone', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(jest.getTimerCount()).toBe(1);
+
+      const idx = txStore.findIndex(r => r.id === 'on-send-unauthorized-wake-gone');
+      txStore.splice(idx, 1);
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('caps the wake chain so a row that can never be driven cannot run timers forever', async () => {
+    // The row stays Queued for the whole test, so only the cap can end the
+    // chain. Without one, a row nothing will ever pick up leaves a timer chain
+    // running for the life of the process. The cap is absolute and generous —
+    // sized past MAX_QUEUED_AGE, because up to that point a Queued row still has
+    // work owed to it (a retry, a terminal failure, or a reap) and off-extension
+    // this wake is what runs it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-cap', row);
+      const warn = jest.spyOn(console, 'warn');
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-cap', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Past the absolute ceiling (MAX_QUEUED_AGE + 60s from the first wake).
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+      // The other half of the boolean `cancelTransaction` now returns: this row
+      // WAS expired here, and the log has to say so. Together with the declined
+      // case asserted in the claimed-row test, this is what makes the return
+      // value falsifiable rather than decorative.
+      const ceilingLogs = warn.mock.calls
+        .map(call => String(call[0]))
+        .filter(line => line.includes('absolute ceiling'));
+      warn.mockRestore();
+      expect(ceilingLogs).toHaveLength(1);
+      expect(ceilingLogs[0]).toContain('expired the row');
+
+      // Terminal, NOT still Queued. Off-extension this chain is the only thing
+      // that would ever drive the row, so a ceiling that merely stopped would
+      // leave it Queued with nothing watching it — the exact silent no-op the
+      // wake exists to prevent, and the reaper cannot be assumed to have run
+      // because it needs a lap that won the loop lock.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-cap')?.status).toBe(ITransactionStatus.Failed);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('does not expire a fresh incarnation of the row the chain started on', async () => {
+    // `requeueFailedTransaction` refreshes `initiatedAt` on the SAME row id, and
+    // the wake map is keyed by id, so a user who cancels and retries mid-chain
+    // hands the old chain a transaction it never started timing. Expiring that
+    // on the inherited deadline tells the user their minutes-old retry "expired
+    // after being queued too long" — and the reaper, which this ceiling claims
+    // only to be standing in for, would not have touched it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const adoptions = () =>
+      warn.mock.calls.filter(c => typeof c[0] === 'string' && c[0].includes('adopted a newer row')).length;
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-reborn', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-reborn', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Most of the way to the ceiling, then the user retries: same id, fresh
+      // `initiatedAt`, as `requeueFailedTransaction` writes it.
+      await jest.advanceTimersByTimeAsync(20 * 60 * 1000);
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-reborn') as Record<string, unknown>;
+      stored.initiatedAt = Math.floor(Date.now() / 1000);
+
+      await jest.advanceTimersByTimeAsync(12 * 60 * 1000);
+
+      // Still alive, and still being driven — the new incarnation gets its own
+      // chain rather than inheriting a deadline that was never about it.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-reborn')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+
+      // The chain is FRESH, not merely alive. Hand the adoption the old
+      // `chainStartedAt` and the row survives this far all the same, but every
+      // 3s lap lands back on an already-expired ceiling and re-adopts — a row
+      // that is driven, yet can never again reach the expiry the ceiling exists
+      // to produce. One adoption, not a cadence of them, is what distinguishes
+      // the two.
+      expect(adoptions()).toBe(1);
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(adoptions()).toBe(1);
+    } finally {
+      warn.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['a whole day ahead of the clock', () => Math.floor(Date.now() / 1000) + 86_400]
+  ])('expires a row whose initiatedAt is %s, rather than adopting it forever', async (_label, stamp) => {
+    // The adoption branch asks "is this row younger than the reaper's cap?". An
+    // absent stamp answers NaN, which loses every comparison, and a stamp a day
+    // in the future is not a clock skew — it is a stamp that means nothing.
+    // Routed to adoption, either re-arms a chain whose ceiling reaches the same
+    // answer 31 minutes later, forever, and the reaper it defers to filters on
+    // the same comparison so it will never take the row either. The ceiling is
+    // the only thing that can end it.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-noage', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-noage', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-noage') as Record<string, unknown>;
+      if (stamp === undefined) delete stored.initiatedAt;
+      else stored.initiatedAt = stamp();
+
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-noage')?.status).toBe(ITransactionStatus.Failed);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('adopts a row a minute ahead of the clock instead of expiring it', async () => {
+    // The MAGNITUDE of the discrepancy is what disqualifies a stamp, not its
+    // sign — the rule `pipelineMayStillBeRunning` already states for this same
+    // arithmetic, where a small skew stays live and errs toward funds safety. A
+    // predicate rejecting every negative age fails a row a user retried a moment
+    // before an NTP correction stepped the clock back, and reports it to them as
+    // "expired after being queued too long" seconds into its life. The day-ahead
+    // case above still expires, so the two halves of the bound are separated.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn');
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-skew', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-skew', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-wake-skew') as Record<string, unknown>;
+      // Stamped so the age is a SMALL negative number at the moment the ceiling
+      // reads it, ~31 minutes from now — a clock stepped back under a row that
+      // was retried, not a stamp from another epoch.
+      stored.initiatedAt = Math.floor(Date.now() / 1000) + 32 * 60 + 1;
+
+      await jest.advanceTimersByTimeAsync(32 * 60 * 1000);
+
+      const adoptions = warn.mock.calls.filter(call => String(call[0]).includes('adopted a newer row')).length;
+      warn.mockRestore();
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-skew')?.status).toBe(ITransactionStatus.Queued);
+      expect(adoptions).toBe(1);
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      warn.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('does not expire a row at the ceiling that another driver has just picked up', async () => {
+    // The expiry runs OUTSIDE the loop lock, so unlike the reaper it imitates it
+    // races every other driver. A row past its cooldown can be advanced to
+    // GeneratingTransaction between the ceiling's read and its write, and failing
+    // that row would report a failure for a pipeline that is still running and
+    // can still submit — the double-send shape this whole arm is careful about.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockPlatformIsExtension = false;
+    jest.useFakeTimers();
+    // Pinned, because the whole test turns on WHICH read consumes the one-shot.
+    // The first wake lands a jittered cooldown after the requeue and every later
+    // lap is exactly REQUEUE_WAKE_REARM_MS after that, so an unpinned draw shifts
+    // the lap phase and can let an ORDINARY lap take the claim instead of the
+    // ceiling's. That still leaves the row in GeneratingTransaction, so the
+    // assertion below passes with the guard removed — the test looks green while
+    // testing nothing.
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    // Silenced for as long as the draw is constant, and that is the POINT rather
+    // than noise reduction. Jest formats each console line as it is written, and
+    // that formatting sorts source maps with `Math.random` as its pivot — with a
+    // constant draw the sort degenerates and throws, so the run reports
+    // `RangeError: Maximum call stack size exceeded` INSTEAD of the expectation
+    // that failed. Restoring the draw before the assertion does not help: the
+    // overflow already happened, inside `generateTransaction`, when production
+    // logged. No console output while the draw is pinned means nothing to sort.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-wake-claimed', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-wake-claimed', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      // Run right up to the ceiling first. The claim has to land on the CEILING's
+      // read, so it is armed only once the next lap is the one that crosses:
+      // armed earlier, an ordinary lap consumes it and the chain simply stops on
+      // a non-Queued row, which would exercise nothing.
+      await jest.advanceTimersByTimeAsync(31 * 60 * 1000 - 2_000);
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-claimed')?.status).toBe(ITransactionStatus.Queued);
+
+      // Occupy the gap: the ceiling reads Queued, a driver claims the row, and
+      // only then does the write land.
+      mockClaimRowOnRead = { id: 'on-send-unauthorized-wake-claimed' };
+      // Zeroed here so the count below belongs to the CEILING's write and not to
+      // any earlier decline in the run.
+      mockDeclinedWrites = 0;
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      const ceilingLogs = warn.mock.calls
+        .map(call => String(call[0]))
+        .filter(line => line.includes('absolute ceiling'));
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+
+      // Left alone. The running pipeline owns this row's outcome.
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-wake-claimed')?.status).toBe(
+        ITransactionStatus.GeneratingTransaction
+      );
+      // The log has to say which of the two things happened, because it is the
+      // only record of it. Asserted rather than assumed: `cancelTransaction`'s
+      // boolean is otherwise mutation-dead — dropping its `applied` bookkeeping
+      // leaves every other assertion green while this line claims the row was
+      // expired when it was not.
+      expect(ceilingLogs).toHaveLength(1);
+      expect(ceilingLogs[0]).toContain('another driver had already taken it');
+      expect(ceilingLogs[0]).not.toContain('expired the row');
+      // The declining write returned `false`, so Dexie skipped the put. Written
+      // as a bare `return` it would have re-put the unchanged clone and fired a
+      // `liveQuery` event for a write that changed nothing — invisible in any
+      // field assertion, since the clone matches the row.
+      expect(mockDeclinedWrites).toBeGreaterThan(0);
+      // And the row is still being watched: a declined expiry means someone else
+      // owns the attempt, and that attempt can requeue rather than finish.
+      expect(jest.getTimerCount()).toBeGreaterThan(0);
+    } finally {
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+      jest.clearAllTimers();
+      jest.useRealTimers();
+      mockPlatformIsExtension = true;
+    }
+  });
+
+  it('on extension, no wake is armed — the service worker already drives the queue', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    jest.useFakeTimers();
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-nowake', row);
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-nowake', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      expect(txStore.find(r => r.id === 'on-send-unauthorized-nowake')?.status).toBe(ITransactionStatus.Queued);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it('an unauthorized earn-deposit stays Failed — its caller is waiting on the result', async () => {
+    // `earn-deposit` is result-awaiting (`isResultAwaitingRow`): the Epoch flow
+    // reads `resultBytes` / `outputNoteIds` back off the finished row. Requeueing
+    // one leaves that caller waiting on a row that will not finish this cycle,
+    // which is the same hang the neighbouring post-submit branch fails the row to
+    // avoid. Its collateral note is also bound to an allocator mandate, so it is
+    // not a transfer that can simply be rebuilt. It must fail rather than retry,
+    // even though the error is the same recoverable race for every other type.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = {
+      type: 'earn-deposit',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '5',
+      requestBytes: new Uint8Array([4, 4]),
+      extraInputs: { recallBlocks: 10 }
+    };
+    arrange('on-earn-unauthorized', row);
+
+    await generateTransaction(buildTx('on-earn-unauthorized', row) as never, signCallback, false, provider as never);
+
+    const stored = txStore.find(r => r.id === 'on-earn-unauthorized') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+  });
+
+  it('stops requeueing an unauthorized send once it has outlived the retry window', async () => {
+    // The race clears in a block or two, so a row still being rejected minutes
+    // later is not racing — it is genuinely unauthorized (a rotated-out key, a
+    // missing co-signature). Retrying it until MAX_QUEUED_AGE would hold the user
+    // on a progress screen for 30 minutes and then replace the real reason with a
+    // generic "expired", which is strictly worse than the terminal failure this
+    // change replaced. Past the window it fails with the reason it actually got.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-aged', row);
+    // A row that has already spent its retry budget: the deadline stamped by an
+    // earlier unauthorized failure is in the past. Well inside MAX_QUEUED_AGE, so
+    // the only thing that can fail it is this arm giving up, not the reaper.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-aged') as Record<string, unknown>;
+    stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) - 60;
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-aged', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-aged') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    // The whole point of giving up early is that the user gets the reason they
+    // actually got. If this row ages out to the reaper instead, that text is
+    // replaced by a generic "expired" and the diagnosis is lost.
+    expect(String(stored.error)).toMatch(/transaction is unauthorized/i);
+  });
+
+  it('does not park an unauthorized send on a cooldown that outlives its retry window', async () => {
+    // Being inside the deadline is not the same as having room to retry: the
+    // cooldown runs up to 54s, so a failure with seconds left would requeue,
+    // wait most of a minute, and then fail on arrival for the reason it already
+    // had. The user waits longer to see the same error, and no retry that could
+    // have succeeded is lost. Fail now instead.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-nowindow', row);
+    // Still inside the deadline — 10s left — but under the 15s MINIMUM cooldown,
+    // so no draw of the jitter can schedule an attempt that lands in time.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-nowindow') as Record<string, unknown>;
+    stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) + 10;
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-nowindow', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-nowindow') as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(String(stored.error)).toMatch(/transaction is unauthorized/i);
+  });
+
+  it('fails a retry whose cooldown lands exactly ON the deadline, not a beat inside it', async () => {
+    // The boundary itself. A cooldown that ends exactly at the deadline buys an
+    // attempt that arrives with zero budget and fails the same way, so `<` is
+    // right and `<=` would spend a full cooldown to learn nothing. Nothing else
+    // in the suite separates the two: every other fixture sits well clear of the
+    // edge, so relaxing the comparison passes them all.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    // Time is pinned as well as the jitter. The fixture derives the deadline from
+    // one `Date.now()` and production reads its own later; if the wall clock
+    // crosses a second between them the row fails for the ORDINARY reason and the
+    // test passes under `<=` too, quietly ceasing to pin the boundary it names.
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    // Silenced while the draw is constant — see the claimed-row test above: jest
+    // formats console lines through a source-map sort pivoted on `Math.random`,
+    // and a constant draw turns a failure here into a stack overflow with no
+    // expectation printed.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      mockDispatchGuardianPipeline.mockRejectedValue(
+        new Error(
+          "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+            'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+        )
+      );
+      const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+      arrange('on-send-unauthorized-exactly-at', row);
+      // random()=0 pins the cooldown to the 15s floor, so a deadline exactly 15s
+      // out makes `nowSec + cooldownSec` and the deadline the same number.
+      const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-exactly-at') as Record<string, unknown>;
+      stored0.unauthorizedRetryUntil = Math.floor(Date.now() / 1000) + 15;
+
+      await generateTransaction(
+        buildTx('on-send-unauthorized-exactly-at', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      const stored = txStore.find(r => r.id === 'on-send-unauthorized-exactly-at') as Record<string, unknown>;
+      random.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      random.mockRestore();
+      now.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it('treats an error that reports BOTH a mempool accept and an execution failure as submitted', async () => {
+    // The arm's safety rests on `isApplyAfterSubmitError` being consulted first:
+    // that one means the transaction REACHED THE CHAIN, so requeueing on it would
+    // broadcast the transfer twice. The two classifiers are disjoint on every SDK
+    // string today, which is exactly why nothing would go red if the arms were
+    // reordered. This fixture makes the order load-bearing by handing the catch
+    // chain text both would claim.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: transaction execution failed: " +
+          'transaction is unauthorized with summary TransactionSummary {}, and the transaction was ' +
+          "accepted into the node's mempool but the local store update failed"
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-and-submitted', row);
+
+    await generateTransaction(
+      buildTx('on-send-unauthorized-and-submitted', row) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    // Completed, specifically, and not merely "not Queued". The row is picked up
+    // as GeneratingTransaction, so a `not.toBe(Queued)` assertion also passes if
+    // the apply-after-submit arm stops writing anything at all — leaving the
+    // status untouched at pickup value and pinning nothing. Asserting the arm's
+    // actual verdict is what makes the ordering load-bearing.
+    const stored = txStore.find(r => r.id === 'on-send-unauthorized-and-submitted') as Record<string, unknown>;
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalled();
+    expect(stored.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('stamps a retry deadline on the first unauthorized failure and keeps it across cycles', async () => {
+    // The budget has to run from the first FAILURE, not from enqueue: under the
+    // queue depth this arm exists to survive, a row can wait longer than the whole
+    // window before its first attempt, and an enqueue-based clock would give it
+    // zero retries — a silent no-op exactly when it is needed.
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(
+        "Offscreen call 'guardianPipeline' failed: failed to execute transaction: " +
+          'transaction execution failed: transaction is unauthorized with summary TransactionSummary {}'
+      )
+    );
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    arrange('on-send-unauthorized-deadline', row);
+    // Enqueued far longer ago than the retry window — an enqueue-based bound
+    // would refuse to retry this at all. Still inside MAX_QUEUED_AGE (30 min),
+    // so the row is one the queue would really hand to this arm: past that the
+    // loop's own reaper takes it first and the scenario cannot arise.
+    const stored0 = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    stored0.initiatedAt = Math.floor(Date.now() / 1000) - 20 * 60;
+    const before = Math.floor(Date.now() / 1000);
+
+    await generateTransaction(
+      { ...buildTx('on-send-unauthorized-deadline', row), initiatedAt: stored0.initiatedAt } as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    const first = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    expect(first.status).toBe(ITransactionStatus.Queued);
+    // Bounded on BOTH sides. A lower bound alone lets the window be widened to
+    // half an hour — the exact outcome the budget exists to prevent — without
+    // reddening anything.
+    expect(Number(first.unauthorizedRetryUntil)).toBeGreaterThanOrEqual(before + 180);
+    expect(Number(first.unauthorizedRetryUntil)).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 180);
+
+    // Second cycle: the deadline must NOT be pushed out, or the budget renews
+    // every cycle and the row retries forever. Seeded with a distinctive value
+    // rather than compared to the first write — both cycles land in the same
+    // wall-clock second, so `now + 180` twice over would compare equal and a
+    // renew-every-cycle bug would read as a pass.
+    // Still live, with room for another cooldown, so the arm takes the requeue
+    // branch — and distinct from any `now + 180` the branch could write.
+    const seeded = before + 100;
+    first.unauthorizedRetryUntil = seeded;
+    await generateTransaction(
+      { ...buildTx('on-send-unauthorized-deadline', row), initiatedAt: stored0.initiatedAt } as never,
+      signCallback,
+      false,
+      provider as never
+    );
+    const second = txStore.find(r => r.id === 'on-send-unauthorized-deadline') as Record<string, unknown>;
+    expect(second.status).toBe(ITransactionStatus.Queued);
+    expect(Number(second.unauthorizedRetryUntil)).toBe(seeded);
+  });
 
   it('delegated flag ON forwards delegateTransaction=true to the offscreen leaf', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';

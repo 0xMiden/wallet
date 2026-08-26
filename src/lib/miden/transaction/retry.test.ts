@@ -63,6 +63,7 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     completedAt: 1200,
     stage: 'sending',
     nextEligibleAt: 99_999,
+    unauthorizedRetryUntil: 99_999,
     error: 'Something broke',
     rawError: 'Error: something broke',
     displayMessage: 'Failed',
@@ -399,6 +400,10 @@ describe('requeueFailedTransaction', () => {
     expect(row.stage).toBeUndefined();
     // Stale requeue-backoff must not delay an explicit user retry.
     expect(row.nextEligibleAt).toBeUndefined();
+    // Nor may a spent unauthorized-retry budget be inherited: the row would get
+    // one automatic attempt at most before the arm concluded it had already run
+    // out of time, on a retry the user asked for minutes or days later.
+    expect(row.unauthorizedRetryUntil).toBeUndefined();
     expect(row.error).toBeUndefined();
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();

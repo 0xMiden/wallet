@@ -13,6 +13,7 @@ import {
   TransactionOutput
 } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
+import { errorMessageParts } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -51,6 +52,74 @@ export type { SignCallbackReason };
 export function isGuardianCanonicalizationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
+}
+
+/**
+ * Detect a co-signature that no longer authorizes the transaction being executed:
+ *
+ * The verbatim text, from all 67 guardian failures in a 300-send devnet run:
+ *
+ *   "Offscreen call 'guardianPipeline' failed: failed to execute transaction:
+ *    transaction execution failed: transaction is unauthorized with summary
+ *    TransactionSummary { ... }"
+ *
+ * The guardian co-signs a `TransactionSummary` bound to the account state and
+ * block commitment it saw when it signed. If the executing client recomputes
+ * that summary against anything else, the account's auth procedure rejects the
+ * signature. It is not a rejection of the transfer — the transfer is untouched,
+ * and a fresh proposal is authorized again.
+ *
+ * The mechanism behind every observed instance is the chain moving between the
+ * signature and the `executeRequest`, and its odds scale with the guardian
+ * round-trip: measured over a 300-send devnet run at ~4.5% with a sub-second
+ * proposal→execute window, rising to ~35% past 1.7s under sustained load.
+ *
+ * That mechanism is closable, and closing it is in review as #786: the execute is
+ * pinned to the proposal's own `ChainAnchor`, so a client whose sync height has
+ * advanced still reproduces the summary. Once it lands, a match here stops
+ * meaning "a block landed mid-flow" and starts meaning some other divergence
+ * between the two computations of the summary — a proposal carrying no anchor
+ * included. Widen the wording here, not the predicate, when that happens.
+ *
+ * BOTH halves are required, and the execution half is the load-bearing one: it
+ * is what lets callers conclude the transaction never reached the chain, since
+ * this text can only come from the execute step, which precedes prove and
+ * submit in both the inline (`runGuardianPipeline`) and offscreen
+ * (`guardianPipeline`) leaves. Matching "unauthorized" alone would also catch a
+ * post-submit rejection carrying the same word, and requeueing one of those
+ * could double-send a transfer that had already landed.
+ *
+ * The execution marker is deliberately the narrow `transaction execution
+ * failed` and not the broader "failed to execute …": the native prover reports
+ * `failed to execute transaction kernel program`, which would pair with the
+ * word "unauthorized" on a text coincidence and pin the failure to no step at
+ * all.
+ *
+ * The `cause` chain is searched, like `isApplyAfterSubmitError` in the same
+ * catch chain — the offscreen bus rewraps errors and callers may attach a
+ * cause, so the reason does not reliably land on `.message`, and reading only
+ * that fails closed (silently switching this arm back off) rather than
+ * announcing itself. But both halves must come from the SAME error in that
+ * chain, which is why this tests each link instead of the flattened string: on
+ * the flattened form a post-submit rejection supplying "unauthorized" and any
+ * unrelated inner error supplying the execution marker would assemble a match
+ * for a transfer that may already be on chain, out of two errors that never
+ * described one failure.
+ */
+export function isGuardianUnauthorizedExecutionError(error: unknown): boolean {
+  // A lock-recovery eviction is never a guardian auth rejection, but its `cause`
+  // carries the raw realm error VERBATIM — and this classifier walks the cause
+  // chain, so an eviction that interrupted a pipeline which had already produced
+  // this text would match on the wrapper (issue #775). That breaks the arm's
+  // whole safety argument: it holds because the execute step STOPPED the
+  // pipeline before prove and submit, whereas an eviction only rejects the
+  // caller — the abandoned pipeline runs on and can still submit, so requeueing
+  // would broadcast the transfer a second time. Checked first, mirroring
+  // `isApplyAfterSubmitError` and `isLockedError`.
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(
+    part => /transaction is unauthorized/i.test(part) && /transaction execution failed/i.test(part)
+  );
 }
 
 /**
@@ -104,7 +173,19 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
     throw new Error('Transaction already in a finalized state');
   }
 
+  // Re-checked at WRITE time as well as above, because the two are separate
+  // transactions and the terminal writer is no longer always inside the loop
+  // lock: the requeue wake's ceiling can fail a stale row from outside it. Lose
+  // that race and this call writes a live status straight over the Failed —
+  // without clearing `error`, `displayIcon` or `completedAt`, which nothing on
+  // the success path clears either. The row then completes wearing a FAILED
+  // icon and an expiry message, on a send that actually went through.
+  let finalized = false;
   await Repo.transactions.where({ id: id }).modify(t => {
+    if (t.status === ITransactionStatus.Failed || t.status === ITransactionStatus.Completed) {
+      finalized = true;
+      return false;
+    }
     // Snapshot the stamps accumulated DURING the run, before the assign below
     // can overwrite them with a stale forwarded copy (see the Completed branch).
     const runStageTimestamps = t.stageTimestamps;
@@ -142,7 +223,9 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       if (!t.stageTimestamps) t.stageTimestamps = {};
       if (t.stageTimestamps.complete === undefined) t.stageTimestamps.complete = Date.now();
     }
+    return undefined;
   });
+  if (finalized) throw new Error('Transaction already in a finalized state');
 };
 
 /**
@@ -164,30 +247,44 @@ export const setTransactionStage = async (
   opts?: { readonly timingOnly?: boolean }
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
-      // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
-      // are written together only when the writer is reliable and in-order.
-      //
-      // Two funds-safety gates in `transaction/index.ts` read `tx.stage` to decide a
-      // failed guardian tx is PRE-submit and may therefore be auto-requeued — "submit
-      // is stamped 'submitting' and runs only AFTER prove, so nothing reached the
-      // chain". That inference is only sound if every writer of `stage` is ordered
-      // with respect to the work it describes.
-      //
-      // A stamp replayed from the OFFSCREEN realm is not: it crosses `chrome.runtime`
-      // fire-and-forget, with no delivery or ordering guarantee against the op's own
-      // reply. A dropped or late `submitting` would leave the row reading `proving`
-      // after submit had actually run, and the requeue gate would re-submit a
-      // transaction that may already be on chain. So cross-realm stamps record the
-      // boundary for the progress screen and leave `stage` alone — the service
-      // worker's own in-order writes remain its only author.
-      if (!opts?.timingOnly) tx.stage = stage;
-      // Record the first time this stage was entered so the UI can compute
-      // per-step durations from persisted stamps (see ITransaction.stageTimestamps).
-      // First-entry-wins: a stage re-set on requeue keeps its original boundary.
-      if (!tx.stageTimestamps) tx.stageTimestamps = {};
-      if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
-    }
+    // `false` on the declining path, not a fall-through: Dexie only skips its
+    // put on that exact value and treats `undefined` as "modified", so a
+    // terminal row would be re-put unchanged and fire a `liveQuery` event for
+    // it. This writer runs at every stage boundary and `useTransactionRow`
+    // observes the table, so that is the noisiest place to get it wrong.
+    if (tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed) return false;
+    // `tx.stage` is CONTROL state, `tx.stageTimestamps` is TELEMETRY, and the two
+    // are written together only when the writer is reliable and in-order.
+    //
+    // The rate-limit and remote-prover-outage gates in `transaction/index.ts` read
+    // `tx.stage` to decide a failed guardian tx is PRE-submit and may therefore be
+    // auto-requeued — "submit is stamped 'submitting' and runs only AFTER prove, so
+    // nothing reached the chain". That inference is only sound if every writer of
+    // `stage` is ordered with respect to the work it describes. (The 409
+    // pending-conflict arm reads only the error and the transaction type.)
+    //
+    // The unauthorized-at-execution gate deliberately does NOT read `stage`: on the
+    // shipping path its leaf runs offscreen, so by the rule below the row still
+    // reads 'sending' when execution failed, and a stage-gated arm would never have
+    // fired in production. It proves pre-submit from the error text instead. Do not
+    // "harmonize" it onto `stage`.
+    //
+    // A stamp replayed from the OFFSCREEN realm is not: it crosses `chrome.runtime`
+    // fire-and-forget, with no delivery or ordering guarantee against the op's own
+    // reply. A dropped or late `submitting` would leave the row reading `proving`
+    // after submit had actually run, and the requeue gate would re-submit a
+    // transaction that may already be on chain. So cross-realm stamps record the
+    // boundary for the progress screen and leave `stage` alone — the service
+    // worker's own in-order writes remain its only author.
+    if (!opts?.timingOnly) tx.stage = stage;
+    // Record the first time this stage was entered so the UI can compute
+    // per-step durations from persisted stamps (see ITransaction.stageTimestamps).
+    // First-entry-wins WITHIN AN ATTEMPT: a requeue clears the whole map (both
+    // the automatic arms and a user Retry do), so the next attempt re-stamps
+    // from scratch rather than inheriting this one's boundaries.
+    if (!tx.stageTimestamps) tx.stageTimestamps = {};
+    if (tx.stageTimestamps[stage] === undefined) tx.stageTimestamps[stage] = Date.now();
+    return undefined;
   });
 };
 
@@ -306,8 +403,11 @@ export const markMayHaveSubmitted = async (id: string) => {
 export const markCancelledInFlight = async (id: string) => {
   const at = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.GeneratingTransaction) return;
+    // `false`, not a bare return — Dexie reads `undefined` as "modified" and
+    // re-puts the unchanged clone, a write and a `liveQuery` event for nothing.
+    if (tx.status !== ITransactionStatus.GeneratingTransaction) return false;
     tx.cancelledInFlightAt = at;
+    return undefined;
   });
 };
 
