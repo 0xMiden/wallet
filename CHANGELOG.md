@@ -2,6 +2,8 @@
 
 ## 1.16.0 (TBD)
 
+## 1.16.0-rc.1 (2026-08-27)
+
 ### Changes
 
 - [CHANGE][all] **In-browser local proving works again — `@miden-sdk/miden-sdk` and `@miden-sdk/react` move to `0.16.0-rc.4`.** The only change in that SDK release is the Miden VM moving `0.29.1` → `0.29.4` (same `miden-client 0.16.0-rc.2`, same protocol layer `0.16.0-rc.6`), carrying [miden-vm#3722](https://github.com/0xMiden/miden-vm/pull/3722): `miden-processor` now attempts the hasher-chiplet trace-builder thread with a fallible spawn and builds the trace serially when the target refuses. On wasm32 the refused spawn used to trap ~2ms into every local prove, and the trapped `wasm-bindgen` future never settled — which is why local proving could not complete in a browser anywhere on the 0.16 line. The `send-public-local-prove` E2E spec is un-quarantined and runs in the local suite again. The native prover's VM crates take the same `0.29.4` move and its binaries are rebuilt in lockstep (the `miden-client` pin stays `=0.16.0-rc.2`; `miden-protocol`/`miden-tx` stay `0.16.0-rc.6`).
