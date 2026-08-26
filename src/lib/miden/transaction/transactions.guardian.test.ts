@@ -679,6 +679,82 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
+  // Why `freeChainAnchor` exists rather than a bare `anchor.free()` in the
+  // `finally`, pinned on the pipeline mobile and desktop actually run. A throw
+  // from the free REPLACES the in-flight error, and the error IDENTITY is what
+  // the guardian catch branches on: an eviction reaching that catch as a
+  // free() error loses `isWasmClientPoisonedError` and retracts a co-signature
+  // for a transaction the abandoned pipeline may still land (#775). Both
+  // failures coincide precisely here — a disposed module is what makes
+  // wasm-bindgen's unguarded `free()` throw in the first place.
+  it('Guardian send: a failing anchor free never masks a lock-recovery eviction, so the candidate is not abandoned (#784 × #775)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = 'send-guardian-anchor-free-throws-on-eviction';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const anchor = {
+      free: jest.fn(() => {
+        throw new Error('null pointer passed to rust');
+      }),
+      blockNum: () => 42
+    };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-evicted',
+        nonce: 25,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    clientApi.transactions.executeRequest.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   // The note type used to be hardcoded Private here regardless of the row, so a
   // Public guardian send emitted a private note — and since the ROW still said
   // 'public', `completeSendTransaction` skipped the relay, leaving the

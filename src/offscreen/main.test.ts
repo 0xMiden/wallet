@@ -3255,6 +3255,35 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
+  // `freeChainAnchor`'s second argument is the whole reason it takes one: a
+  // hidden document's `console` is the one channel the harness cannot attach
+  // to, so offscreen a failed free is invisible unless it also reaches THIS
+  // trail. Asserted at the call site, not just on the helper — the argument can
+  // be dropped without breaking a single other test.
+  it('reports a failed anchor free onto the realm marker trail (#784)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      G.__off.deserializeChainAnchor.mockReturnValue({
+        __anchor: true,
+        free: jest.fn(() => {
+          throw new Error('null pointer passed to rust');
+        })
+      });
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      expect(markerLines(posted).some(l => l.includes('chain anchor free failed'))).toBe(true);
+    });
+  });
+
   it('records nothing at all when the E2E flag is off (production builds)', async () => {
     await withE2EFlag(undefined, async () => {
       await loadModule();
@@ -3262,7 +3291,11 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       capturedListener!(
         callReq({
           method: 'guardianPipeline',
-          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false)]
+          // ANCHORED, so this covers the #784 markers too. With a 3-slot
+          // envelope the anchor-conditional decode marker is never reached, and
+          // an anchor breadcrumb that skipped the flag gate would ship its
+          // trail to production with every assertion here still green.
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
         }),
         {},
         jest.fn()

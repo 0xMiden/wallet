@@ -824,9 +824,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     // The decode gets its own breadcrumb because it can throw (a skewed or
     // truncated anchor fails here, before execution), and this realm's whole
     // diagnostic contract is that a write names the step it stopped on.
-    // Decode INSIDE the try so the anchor can never outlive a throw between
-    // here and the execute — `recordProveTiming` sends a message in E2E builds.
-    // `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
+    // The decode sits INSIDE the try purely by shape, so nothing added between
+    // it and the execute can ever leak the anchor. It closes no live hazard
+    // today: the only statement between them is `recordProveTiming`, which is a
+    // bare return in production builds and try/caught in E2E ones, so it cannot
+    // throw. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
     let anchor: sdk.ChainAnchor | undefined;
     let executedTx;
     try {
