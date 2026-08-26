@@ -298,14 +298,16 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport ACCEPTED the note. Deliberately not terminal:
- *                     an accepted note is not a received one. The transport hands
- *                     back an opaque pagination cursor that the recipient persists
- *                     verbatim, so a cursor that advances past a stored note makes
- *                     it unreachable for that recipient forever, with the send
- *                     reporting success (note-transport-service#77). `relayed`
- *                     therefore means "believed to be in flight" and keeps the row
- *                     eligible for the re-push sweep.
+ *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
+ *                     the push, or it rejected a re-push as a duplicate, which is
+ *                     itself evidence the body is already there. Deliberately not
+ *                     terminal, because a held note is not a received one. The
+ *                     transport hands back an opaque pagination cursor that the
+ *                     recipient persists verbatim, so a cursor that advances past a
+ *                     stored note makes it unreachable for that recipient forever,
+ *                     with the send reporting success (note-transport-service#77).
+ *                     `relayed` therefore means "believed to be in flight" and keeps
+ *                     the row eligible for the re-push sweep.
  *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
@@ -406,14 +408,16 @@ export interface ITransaction {
   /**
    * Earliest time (unix seconds) the sweep may re-push this row's private note.
    *
-   * A re-push is worth doing because the transport keys `notes.id` as a primary
-   * key and inserts without `ON CONFLICT`, so the push either lands a row at a
-   * FRESH cursor position — by construction above whatever cursor the recipient
-   * has already persisted — or is rejected because the note is already there.
-   * Only the first of those repairs a note the recipient's cursor skipped; a
-   * rejection means the bytes were never missing in the first place, and takes no
-   * new cursor position. Either way it costs the recipient nothing: imports dedupe
-   * on the details commitment, so a note they already hold is a no-op.
+   * A re-push is worth doing because the transport declares `id BLOB NOT NULL
+   * UNIQUE` and inserts without `ON CONFLICT`, so exactly one of two things
+   * happens. The push is ACCEPTED, meaning the note was ABSENT from the transport
+   * and now sits at a fresh `seq` above every recipient cursor — that is the
+   * silent-loss case, detected and repaired in one step. Or it is REJECTED,
+   * meaning the transport already holds the bytes: nothing was repaired and no new
+   * `seq` was taken, so a recipient whose cursor has already passed the note is no
+   * better off. Only the accepted case is a repair; a rejection is evidence about
+   * the original push, not a fix. An accepted re-push costs the recipient nothing
+   * either way, since imports dedupe on the details commitment.
    */
   nextRelayAt?: number;
   /**

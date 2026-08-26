@@ -2,11 +2,20 @@
  * Tests for the private-note delivery sweep.
  *
  * The sweep exists because a transport ACK is not a delivery: the recipient reaches
- * a private note only through a paginated fetch whose cursor, once advanced past a
- * stored note, never comes back to it (note-transport-service#77). A re-push lands
- * a fresh cursor position and escapes that, so these tests pin down when the sweep
- * pushes again, when it stops, and — just as importantly — when it must NOT invent
- * a delivery problem.
+ * a private note only through the transport, and a note can be ACKed by the wallet,
+ * committed on chain, and still never stored — which is what cost 14 notes on
+ * 2026-08-24. A re-push that is ACCEPTED detects and repairs exactly that, landing
+ * the note at a fresh `seq` above every recipient cursor.
+ *
+ * A re-push that is REJECTED as a duplicate repairs nothing: the transport already
+ * holds the note, and under `id BLOB NOT NULL UNIQUE` it takes no new `seq`, so a
+ * recipient whose cursor already passed it (note-transport-service#77) stays stuck.
+ * It is still worth reading, because it proves the original relay arrived — so the
+ * row must not be condemned as `undelivered` — but it is NOT delivery.
+ *
+ * These tests pin down when the sweep pushes again, when it stops, how it reads each
+ * outcome, and — just as importantly — when it must neither invent a delivery
+ * problem nor claim a delivery it cannot prove.
  */
 
 import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
@@ -202,11 +211,47 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
   });
 
-  it('reads a proper AlreadyExists status the same way', async () => {
+  it('counts the attempt on a duplicate rejection so the row still retires', async () => {
+    // Without this the row would be re-pushed on every sweep cycle for the whole
+    // relay window, and each push is rejected again — pure traffic. The counter is
+    // what bounds it.
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(
+      new Error('Failed to store note: ConstraintViolation("UNIQUE constraint failed: notes.id")')
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.relayAttempts).toBe(2);
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it.each([
+    ['the Display spelling', 'grpc error: status: AlreadyExists, message: "note stored"'],
+    ['the Debug spelling', 'Status { code: AlreadyExists, message: "note stored" }']
+  ])('reads a proper AlreadyExists status the same way — %s', async (_label, message) => {
     // So a service that starts returning a distinguishable status keeps working
     // without a wallet change.
     rows.push(row({ noteDelivery: 'pending' }));
-    mockRelayById.mockRejectedValue(new Error('grpc error: status: AlreadyExists, message: "note stored"'));
+    mockRelayById.mockRejectedValue(new Error(message));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
+  });
+
+  it('reads the duplicate rejection through the offscreen wrapper, which is what the SW sees', async () => {
+    // With the offscreen client on — the extension default — the sweep never sees
+    // the raw rejection. `dispatchOp` rebuilds it as this shape, so that is the only
+    // string the classifier is actually handed on the primary platform.
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(
+      new Error(
+        "Offscreen call 'relayPrivateNoteById' failed: Failed to store note: " +
+          'ConstraintViolation("UNIQUE constraint failed: notes.id")'
+      )
+    );
 
     await sweepNoteDeliveries();
 
@@ -242,16 +287,17 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
   });
 
-  it('keeps an accepted re-push as relayed — acceptance means the note was missing', async () => {
-    rows.push(row({ noteDelivery: 'relayed' }));
+  it('promotes a never-ACKed row to relayed when the re-push is accepted', async () => {
+    // Acceptance is the silent-loss case: the note was not on the transport and now
+    // is, at a fresh `seq`. From `pending` that is also a state change worth
+    // asserting — the row had no ACK at all before this push.
+    rows.push(row({ noteDelivery: 'pending' }));
     mockRelayById.mockResolvedValue(undefined);
 
     await sweepNoteDeliveries();
 
-    // Acceptance is the silent-loss case: the note was not on the transport and now
-    // is, on a fresh cursor position. It stays `relayed` until a nullifier proves
-    // the recipient actually consumed it.
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 

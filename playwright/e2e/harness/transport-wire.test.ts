@@ -1,17 +1,24 @@
 /**
  * Tests for the note-transport wire decoder.
  *
- * The fixture is a REAL `SendNote` body: it is the gRPC-web framing of a note
- * actually fetched back off `transport.miden.io`, so the byte layout under test is
- * the one the service really receives — not a hand-rolled approximation that could
- * agree with a wrong decoder.
+ * The fixture is a REAL `SendNote` body captured off `transport.miden.io`, so the
+ * byte layout under test is the one the service really receives — not a hand-rolled
+ * approximation that could agree with a wrong decoder.
+ *
+ * One deliberate edit: the `details` field (the note's own serialized payload —
+ * serial number, script, inputs, assets) has been zeroed. A private note is reached
+ * only through its bytes, so checking a real one into a public repo hands out
+ * material that should not be public, and a test fixture is a poor place to keep it.
+ * Zeroing that field changes no length, so the gRPC-web framing, the field offsets
+ * and the whole `NoteHeader` — everything this decoder actually reads — stay
+ * byte-identical to the capture.
  */
 
 import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
 
-/** One real SendNote request body, gRPC-web framed, base64. */
+/** One real SendNote request body, gRPC-web framed, base64, `details` zeroed. */
 const REAL_SEND_NOTE_B64 =
-  'AAAAARQKkQIKWAtB2lCtNnQ7S+xncyPWlAMq4FG2WwH2YQX6iuCYldufANcc4fCm1RshJnNzgZGxygAAoLgBAQEA35IjPX14bCSRcM4m2P0BmAY8lUumXrwQzvf3Qu7sFBYSsAEBAbJolZmhX5FRQkZ9QZsTDgBlzR0AAAAAAE1BU1QAAAADAQMDAAAAAAEAAAAAAAAAgFEuu3FrZmT8BU3CLINwj1DZLXXaEVl1L1zzoOgVlKHaAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAAAAAAQAAFrXpBMha1phTtCCq5ShuEshHgAAAAAAAAAAAAAAAAD+/hbNMnRyZBDcRhlcEtXFz+INs0rhi4OU5MoCj0rqhRjPm2w=';
+  'AAAAARQKkQIKWAtB2lCtNnQ7S+xncyPWlAMq4FG2WwH2YQX6iuCYldufANcc4fCm1RshJnNzgZGxygAAoLgBAQEA35IjPX14bCSRcM4m2P0BmAY8lUumXrwQzvf3Qu7sFBYSsAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABjPm2w=';
 
 /**
  * The 32-byte details commitment, NOT the note id — the note id is

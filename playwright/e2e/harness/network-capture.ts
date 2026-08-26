@@ -288,41 +288,54 @@ export async function attachServiceWorkerFetchCapture(
           }
         }
 
-        const start = performance.now();
         const realm = (g.location && g.location.href) || 'unknown';
 
         // Carry the request body for transport pushes ONLY. It is the sole way to
         // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
         // other category would add real log volume for no diagnostic gain.
         //
-        // Read BEFORE the fetch. The SDK's gRPC-web transport calls
-        // `fetch(request, initWithSignal)`, so the body lives on the Request and not
-        // on `init` — and once the fetch has consumed that Request the stream is
-        // disturbed and unreadable. The URL pattern mirrors `isSendNoteUrl`, which
-        // is the canonical copy; this function cannot close over module scope.
-        let reqBody: string | undefined;
+        // The body has to be SECURED before the fetch but READ after it. The SDK's
+        // gRPC-web transport calls `fetch(request, initWithSignal)`, so the body
+        // lives on the Request rather than on `init`, and the fetch disturbs that
+        // stream — hence the `clone()`, which is synchronous and tees the stream so
+        // the bytes stay readable afterwards. Reading it only once the fetch has
+        // settled keeps capture out of the measured duration, and keeps a body that
+        // never finishes arriving from delaying the request being observed. The URL
+        // pattern mirrors `isSendNoteUrl`, the canonical copy; this function cannot
+        // close over module scope.
+        let bodySource: BodyInit | Request | null | undefined;
         try {
           if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
             const isRequest = typeof input !== 'string' && !(input instanceof URL);
-            const raw = init?.body ?? undefined;
-            let bytes: Uint8Array | undefined;
-            if (raw instanceof Uint8Array) bytes = raw;
-            else if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw);
-            else if (raw && ArrayBuffer.isView(raw)) bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
-            else if (!raw && isRequest) bytes = new Uint8Array(await input.clone().arrayBuffer());
-            if (bytes && bytes.length > 0 && bytes.length <= 8192) {
-              let bin = '';
-              for (const b of bytes) bin += String.fromCharCode(b);
-              reqBody = btoa(bin);
-            }
+            bodySource = init?.body ?? (isRequest ? input.clone() : undefined);
           }
         } catch {
           // capture is diagnostic; never let it disturb the fetch it wraps
         }
 
+        const encodeBody = async (): Promise<string | undefined> => {
+          try {
+            if (!bodySource) return undefined;
+            let bytes: Uint8Array | undefined;
+            if (bodySource instanceof Uint8Array) bytes = bodySource;
+            else if (bodySource instanceof ArrayBuffer) bytes = new Uint8Array(bodySource);
+            else if (ArrayBuffer.isView(bodySource))
+              bytes = new Uint8Array(bodySource.buffer, bodySource.byteOffset, bodySource.byteLength);
+            else if (bodySource instanceof Request) bytes = new Uint8Array(await bodySource.arrayBuffer());
+            if (!bytes || bytes.length === 0 || bytes.length > 8192) return undefined;
+            let bin = '';
+            for (const b of bytes) bin += String.fromCharCode(b);
+            return btoa(bin);
+          } catch {
+            return undefined;
+          }
+        };
+
+        const start = performance.now();
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
+          const reqBody = await encodeBody();
           console.log(
             prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody })
           );
@@ -331,8 +344,9 @@ export async function attachServiceWorkerFetchCapture(
           const durationMs = Math.round(performance.now() - start);
           const errStr = err instanceof Error ? err.message : String(err);
           // A push that threw is at least as diagnostic as one that returned 200 —
-          // it is what the resilience suite's injected faults produce — so the note
-          // identity has to ride along here too.
+          // a real transport failure is exactly when you need to know which note —
+          // so the identity has to ride along here too.
+          const reqBody = await encodeBody();
           console.log(
             prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm, reqBody })
           );

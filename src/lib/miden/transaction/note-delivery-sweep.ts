@@ -46,12 +46,14 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 /**
  * Does this re-push failure mean "the transport already holds this note"?
  *
- * The transport stores notes with a bare insert against `notes.id BLOB PRIMARY KEY`
- * (note-transport-service, `database/sqlite/mod.rs`, no `ON CONFLICT` clause), so
- * re-pushing a note it already holds fails on that key. Its gRPC layer currently
- * surfaces the failure as `Internal` carrying the SQLite text rather than as
- * `AlreadyExists`, so matching on the message is the only option until the service
- * returns a distinguishable code (tracked upstream).
+ * The transport's `notes` table declares `id BLOB NOT NULL UNIQUE` alongside its
+ * `seq` primary key (note-transport-service, migration
+ * `20260422000000_add_seq_cursor`), and `store_note` is a bare
+ * `diesel::insert_into` with no `ON CONFLICT` clause, so re-pushing a note it
+ * already holds fails on that unique index. Its gRPC layer currently surfaces the
+ * failure as `Internal` carrying the SQLite text rather than as `AlreadyExists`, so
+ * matching on the message is the only option until the service returns a
+ * distinguishable code (tracked upstream).
  *
  * Matching is deliberately narrow. The generic spellings — a bare
  * `ConstraintViolation`, or "already exists" on its own — appear in unrelated
@@ -68,7 +70,9 @@ const isAlreadyStoredRejection = (error: unknown): boolean => {
     // service has been observed to produce.
     /(?:UNIQUE constraint failed|ConstraintViolation\()[^)]*\bnotes\.id\b/i.test(message) ||
     // A service that starts returning a proper gRPC status keeps working unchanged.
-    /\bstatus:\s*AlreadyExists\b/i.test(message) ||
+    // Both tonic spellings: `status: AlreadyExists` (Display) and the `Status {
+    // code: AlreadyExists` of its Debug formatting.
+    /\b(?:status|code):\s*AlreadyExists\b/i.test(message) ||
     /\bcode:\s*6\b.*\balready exists\b/i.test(message)
   );
 };
@@ -234,8 +238,14 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       if (isAlreadyStoredRejection(error)) {
         // The transport holds the body, so the original relay did reach it. That
         // rules out `undelivered` — but it is not delivery, so the row stays
-        // `relayed` and remains sweepable for the nullifier check that can actually
-        // confirm it. See the header comment for why this must not be `confirmed`.
+        // `relayed`. See the header comment for why this must not be `confirmed`.
+        //
+        // The attempt is still counted, which does mean a note that stays stored and
+        // unconsumed retires after `MAX_RELAY_ATTEMPTS` like any other. That is the
+        // conservative choice: further pushes of a note the transport already holds
+        // are rejected too, so they would buy nothing but traffic. The cost is that
+        // the nullifier check at the top of this loop gets only the remaining
+        // attempts, not an open-ended watch.
         //
         // The matched error is logged because the classifier matches on message
         // text: when it misfires, this line is the only record of what it matched.
