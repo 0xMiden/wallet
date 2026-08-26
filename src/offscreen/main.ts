@@ -44,6 +44,7 @@ import {
   OFFSCREEN_STAGE_EVENT,
   SW_TARGET,
   b64ToBytes,
+  type GuardianPipelineArgs,
   bytesToB64,
   decodeArg,
   errorNameOf,
@@ -55,6 +56,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -71,7 +73,6 @@ import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
-import { b64ToU8 } from 'lib/shared/helpers';
 
 const TAG = '[offscreen-prover]';
 
@@ -794,13 +795,14 @@ const DISPATCH: Record<string, DispatchFn> = {
   // this pipeline drives the raw transactions API itself, so it stamps the
   // boundaries itself too. Fire-and-forget (see `postStageEvent`): a lost stamp
   // costs a blank duration, never the transaction.
-  guardianPipeline: async (
-    client,
-    accountId: string,
-    trBytes: Uint8Array,
-    delegateTransaction?: boolean,
-    chainAnchorB64?: string
-  ) => {
+  // Args are destructured from the SHARED `GuardianPipelineArgs` tuple rather
+  // than re-declared here, so this list and the SW-side packer cannot drift.
+  // Note `chainAnchorB64` is `string | null`: the slot is always on the wire and
+  // `encodeArg` maps an absent anchor to JSON `null`, never `undefined`. Every
+  // branch below selects on truthiness, which covers both — and the older tests
+  // that build a 3-arg envelope by hand.
+  guardianPipeline: async (client, ...args: GuardianPipelineArgs) => {
+    const [accountId, trBytes, delegateTransaction, chainAnchorB64] = args;
     // This op's own id and lock hold, taken before any await so both are
     // provably ours (issue #775). The hold is what keeps a pause from silencing
     // the watchdog of whichever holder took the lock after an eviction; the id
@@ -810,23 +812,38 @@ const DISPATCH: Record<string, DispatchFn> = {
     recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
-    recordProveTiming('guardianPipeline calling executeRequest');
-    // Anchored execution (protocol 0.16): the proposal's signed summary binds
-    // the reference block commitment, so execution must be pinned to the block
-    // the summary was built at — this realm's own sync height has usually moved
-    // past it by now, and an unanchored execute derives a different summary that
-    // the collected hot/cold/guardian signatures no longer authorize. Legacy
-    // anchor-less proposals fall through to the old unanchored call.
+    // #784: execute AT the proposal's anchored reference block, not this realm's
+    // current sync height. The request's co-signatures were collected over a
+    // summary that binds that block's commitment (protocol 0.16), so an
+    // unanchored execute after the chain advanced derives a different summary
+    // and the kernel rejects the transaction as unauthorized. The anchor crossed
+    // in wire form (the proposal metadata's base64 — a WASM ChainAnchor cannot
+    // cross the message boundary) and is decoded here, in the realm that
+    // executes; freed as soon as executeRequest is done with it.
+    //
+    // The decode gets its own breadcrumb because it can throw (a skewed or
+    // truncated anchor fails here, before execution), and this realm's whole
+    // diagnostic contract is that a write names the step it stopped on.
+    // The decode sits INSIDE the try purely by shape, so nothing added between
+    // it and the execute can ever leak the anchor. It closes no live hazard
+    // today: the only statement between them is `recordProveTiming`, a bare
+    // return in production builds whose one unguarded statement in E2E ones is a
+    // `console.log`. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
+    let anchor: sdk.ChainAnchor | undefined;
     let executedTx;
-    if (chainAnchorB64) {
-      const anchor = (sdk as any).ChainAnchor.deserialize(b64ToU8(chainAnchorB64));
-      try {
-        executedTx = await client.client.transactions.executeRequest(accountId, tr, { anchor });
-      } finally {
-        anchor.free();
-      }
-    } else {
-      executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    try {
+      if (chainAnchorB64) recordProveTiming('guardianPipeline decoding chain anchor');
+      anchor = chainAnchorB64 ? sdk.ChainAnchor.deserialize(b64ToBytes(chainAnchorB64)) : undefined;
+      recordProveTiming(`guardianPipeline calling executeRequest anchored=${anchor ? 'yes' : 'no'}`);
+      executedTx = await client.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
+    } finally {
+      // Narrate a failed free to the realm's OWN channel too: the harness
+      // cannot attach a console to this document, so `console.warn` alone is
+      // invisible exactly where this realm is hardest to debug. Prefixed like
+      // every other line this op emits, so it survives the `] guardianPipeline `
+      // filter that separates the pipeline's trail from the envelope's — the one
+      // marker reporting a failure must not be the one the filter drops.
+      freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
     postStageEvent(context, 'proving');

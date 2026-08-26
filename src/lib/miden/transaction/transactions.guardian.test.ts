@@ -12,7 +12,6 @@
  */
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
-import { chainAnchorFromBase64 } from '@openzeppelin/miden-multisig-client';
 
 import { WalletType } from 'screens/onboarding/types';
 
@@ -152,6 +151,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
+// #784: the guardian leaf decodes the proposal's base64 chain anchor back into
+// a WASM ChainAnchor before pinning executeRequest to it.
+// eslint-disable-next-line no-var
+var mockChainAnchorDeserialize = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -162,6 +165,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     WasmWebClient: {
       createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
+    },
+    ChainAnchor: {
+      deserialize: (...a: unknown[]) => mockChainAnchorDeserialize(...a)
     }
   };
 });
@@ -349,6 +355,17 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateWasmWebClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
     mockBuildPswapCreateRequest.mockReset();
+    // #784: `clearAllMocks` clears CALLS but keeps implementations, so reset
+    // this one and give it an echoing default. Without a default, a test that
+    // sets `metadata.chainAnchor` but forgets `mockReturnValue` would decode to
+    // `undefined`, silently take the UNANCHORED path, and still pass. The reset
+    // also stops a per-test throwing implementation leaking into the rest of
+    // the file.
+    mockChainAnchorDeserialize.mockReset();
+    mockChainAnchorDeserialize.mockImplementation((bytes: Uint8Array) => ({
+      __anchorFromBytes: Array.from(bytes),
+      free: jest.fn()
+    }));
     txStore.length = 0;
   });
 
@@ -408,6 +425,355 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, 'Public');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  // #784: a guardian co-signature is bound to a TransactionSummary that (since
+  // protocol 0.16) pins the reference block commitment. Executing at the current
+  // sync height instead of the proposal's anchored block makes the kernel reject
+  // the transaction as unauthorized whenever the chain advanced during the
+  // guardian round-trip — so the leaf must pin executeRequest to the proposal's
+  // chain anchor.
+  it('Guardian send: pins executeRequest to the proposal chain anchor and frees the decoded anchor (#784)', async () => {
+    const txId = 'send-guardian-anchored';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    // 'BwcH' is base64 for the bytes [7, 7, 7] — distinctive enough to assert
+    // the decode consumed exactly the proposal's wire-form anchor.
+    const anchor = { free: jest.fn(), blockNum: () => 42 };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored',
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const clientApi = makeClientApi(result);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    const provider = makeGuardianProvider(true);
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    );
+
+    // The base64 anchor from the proposal metadata was decoded in-realm...
+    expect(mockChainAnchorDeserialize).toHaveBeenCalledTimes(1);
+    expect(Array.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array)).toEqual([7, 7, 7]);
+    // ...execution was pinned to it...
+    expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    const anchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
+    expect(anchoredExecuteArgs[2]).toEqual({ anchor });
+    // ...and the decoded WASM object was released once the pipeline finished.
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    // ORDER, not just occurrence. `executeRequest` BORROWS the anchor — the
+    // generated glue reads `anchor.__wbg_ptr` synchronously as it is invoked —
+    // so a free that ran first would hand rust a null pointer on every anchored
+    // guardian write, and `_assertClass` would not catch it because a freed
+    // instance still passes. "free was called once" holds just as well for that
+    // use-after-free, which is why the ordering is asserted explicitly.
+    const executeOrder = clientApi.transactions.executeRequest.mock.invocationCallOrder[0] ?? 0;
+    const freeOrder = anchor.free.mock.invocationCallOrder[0] ?? 0;
+    expect(executeOrder).toBeGreaterThan(0);
+    expect(freeOrder).toBeGreaterThan(executeOrder);
+  });
+
+  it('Guardian send: executes unanchored when the proposal metadata has no chain anchor (#784)', async () => {
+    const txId = 'send-guardian-unanchored';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-plain' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const clientApi = makeClientApi(result);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    const provider = makeGuardianProvider(true);
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    );
+
+    expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
+    expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    const unanchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
+    expect(unanchoredExecuteArgs[2]).toBeUndefined();
+    // This branch is unreachable in production (signing throws on an anchorless
+    // proposal), so the warning IS the diagnostic — it has to name the row and
+    // the proposal or it cannot be traced back to anything.
+    const anchorWarn = warn.mock.calls.find(call => String(call[0]).includes('no chain anchor'));
+    expect(anchorWarn?.[1]).toEqual({ transactionId: txId, proposalId: 'prop-plain' });
+    warn.mockRestore();
+  });
+
+  // The free lives in a `finally` so a FAILED execute still releases the
+  // anchor's partial blockchain. Without this, moving the free after the await
+  // would leak one anchor per failed guardian write and stay green.
+  it('Guardian send: frees the decoded chain anchor even when executeRequest fails (#784)', async () => {
+    const txId = 'send-guardian-anchor-execute-fails';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const anchor = { free: jest.fn(), blockNum: () => 42 };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-fail',
+        nonce: 21,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    clientApi.transactions.executeRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).toHaveBeenCalledWith(21);
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  // A skewed or truncated anchor throws in `deserialize`, BEFORE execution.
+  // That must fail the write outright — never fall back to the unanchored
+  // execute this issue exists to eliminate — and still abandon the candidate.
+  it('Guardian send: a malformed chain anchor fails the write without executing unanchored (#784)', async () => {
+    const txId = 'send-guardian-anchor-malformed';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    mockChainAnchorDeserialize.mockImplementation(() => {
+      throw new Error('ChainAnchor deserialization failed');
+    });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-malformed',
+        nonce: 23,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(clientApi.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(23);
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  // Why `freeChainAnchor` exists rather than a bare `anchor.free()` in the
+  // `finally`, pinned on the pipeline mobile and desktop actually run. A throw
+  // from the free REPLACES the in-flight error, and the error IDENTITY is what
+  // the guardian catch branches on: an eviction reaching that catch as a
+  // free() error loses `isWasmClientPoisonedError` and retracts a co-signature
+  // for a transaction the abandoned pipeline may still land (#775). Both
+  // failures coincide precisely here — a disposed module is what makes
+  // wasm-bindgen's unguarded `free()` throw in the first place.
+  it('Guardian send: a failing anchor free never masks a lock-recovery eviction, so the candidate is not abandoned (#784 × #775)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = 'send-guardian-anchor-free-throws-on-eviction';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const anchor = {
+      free: jest.fn(() => {
+        throw new Error('null pointer passed to rust');
+      }),
+      blockNum: () => 42
+    };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-evicted',
+        nonce: 25,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    clientApi.transactions.executeRequest.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   // The note type used to be hardcoded Private here regardless of the row, so a
@@ -1071,7 +1437,11 @@ describe('generateTransaction — Guardian routing', () => {
         noteType: 'public',
         extraInputs: { recallBlocks: 25 },
         delegateTransaction: true,
-        initiatedAt: Math.floor(Date.now() / 1000)
+        initiatedAt: Math.floor(Date.now() / 1000),
+        // Seeded on the ROW — see the recallable-send case below. Asserting
+        // "undefined after the requeue" against a row that never carried bytes
+        // pins nothing.
+        requestBytes: new Uint8Array([81, 82, 83])
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
@@ -1149,7 +1519,12 @@ describe('generateTransaction — Guardian routing', () => {
         noteType: 'public',
         extraInputs: { recallBlocks: 25 },
         delegateTransaction: false,
-        initiatedAt: Math.floor(Date.now() / 1000)
+        initiatedAt: Math.floor(Date.now() / 1000),
+        // Seeded on the ROW, which is what the clear acts on. Without this the
+        // assertion below ("no bytes after the requeue") is true because the
+        // pipeline never persisted any, so deleting the whole clear leaves this
+        // test green — it would pin nothing.
+        requestBytes: new Uint8Array([91, 92, 93])
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
@@ -2363,6 +2738,66 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('a 429 cooldown does not eat the unauthorized-retry budget it parks on top of', async () => {
+    // The unauthorized budget is a wall clock, so any backoff for an unrelated
+    // reason spends it. That matters here more than anywhere: a rate limit and an
+    // unauthorized race come from the SAME overloaded guardian, so the row that
+    // raced is exactly the row likely to be rate-limited next — and a 429 can
+    // park it for 300s against a 180s budget, leaving nothing for the retry the
+    // budget exists to fund. The deadline moves with the delay.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-rate-limited-budget';
+      const deadline = Math.floor(Date.now() / 1000) + 120;
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-429-budget',
+        unauthorizedRetryUntil: deadline
+      });
+
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw rateLimited;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-429-budget',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      // Pushed out by exactly the cooldown this requeue imposes — not left where
+      // it was, and not reset to a fresh window either.
+      expect(Number(row.unauthorizedRetryUntil)).toBe(deadline + 45);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian replace-hot-key: a 429 is NOT requeued — structural ops must not re-mint a hot key (#617)', async () => {
     // Same exclusion as the 409 case: requeueing a structural op re-runs its
     // proposal creator, which has already minted a hardware hot key.
@@ -2487,6 +2922,79 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.stage).toBe('submitting');
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send: an "unauthorized" execution failure requeues instead of failing', async () => {
+    // The guardian co-signs a TransactionSummary bound to the account state and
+    // block commitment it saw. If that state moves before the local
+    // executeRequest recomputes the summary, execution rejects the signature:
+    // "transaction is unauthorized". Execution is where it dies — before prove
+    // and submit — so nothing reached the chain and a fresh proposal against
+    // fresh state succeeds. Terminal-failing loses a recoverable transfer to a
+    // transient race that gets likelier as guardian round-trips slow down.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unauthorized-at-execute';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.executeRequest.mockRejectedValue(
+      new Error(
+        'failed to execute transaction: transaction execution failed: ' +
+          'transaction is unauthorized with summary TransactionSummary { nonce_delta: 1 }'
+      )
+    );
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // Prove execution was actually REACHED and that nothing was submitted —
+    // without these the test would pass for any earlier crash.
+    expect(client.transactions.executeRequest).toHaveBeenCalled();
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.processingStartedAt).toBeUndefined();
+    expect(typeof row.nextEligibleAt).toBe('number');
     warnSpy.mockRestore();
   });
 
@@ -2984,7 +3492,10 @@ describe('generateTransaction — Guardian routing', () => {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: {
           id: 'prop-switch',
-          metadata: { proposalType: 'switch_guardian', chainAnchor: 'proposal-anchor-b64' }
+          // 'cHJvcG9zYWwtYW5jaG9y' = base64 of 'proposal-anchor' — the fixture
+          // must be REAL base64: the leaf decodes it with b64ToU8 (atob), which
+          // throws on the bare token this used to be.
+          metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
         },
         newEndpoint: 'https://new.guardian'
       })),
@@ -3043,8 +3554,12 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
     // Protocol 0.16: execution is pinned to the proposal's ChainAnchor — the
     // signed summary binds the reference block commitment, so an unanchored
-    // execute at a later sync height fails "transaction is unauthorized".
-    expect(jest.mocked(chainAnchorFromBase64)).toHaveBeenCalledWith('proposal-anchor-b64');
+    // execute at a later sync height fails "transaction is unauthorized". The
+    // leaf decodes the wire-form base64 with the SDK's ChainAnchor.deserialize
+    // (in-realm), so that spy — not the multisig client's chainAnchorFromBase64
+    // — is the decode seam to assert.
+    expect(mockChainAnchorDeserialize).toHaveBeenCalledTimes(1);
+    expect(Buffer.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array).toString()).toBe('proposal-anchor');
     expect(clientApi.transactions.executeRequest).toHaveBeenCalledWith(
       'guardian-acc',
       expect.anything(),
@@ -3067,7 +3582,9 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
     mockCreateDirectSwitchRequest.mockResolvedValue({
       request: { serialize: () => new Uint8Array([2]) },
-      chainAnchorB64: 'chain-anchor-b64'
+      // 'Y2hhaW4tYW5jaG9y' = base64 of 'chain-anchor' — must be REAL base64;
+      // the leaf decodes it with b64ToU8 (atob), which throws on a bare token.
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
     });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
@@ -3109,8 +3626,10 @@ describe('generateTransaction — Guardian routing', () => {
     );
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
     // Same leaf + commit-wait as the proposal path, pinned to the ChainAnchor
-    // the direct build signed at (protocol 0.16).
-    expect(jest.mocked(chainAnchorFromBase64)).toHaveBeenCalledWith('chain-anchor-b64');
+    // the direct build signed at (protocol 0.16). The leaf decodes the
+    // wire-form base64 in-realm with the SDK's ChainAnchor.deserialize.
+    expect(mockChainAnchorDeserialize).toHaveBeenCalledTimes(1);
+    expect(Buffer.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array).toString()).toBe('chain-anchor');
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     // Completion registers on the NEW guardian standalone (undefined service).
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
@@ -3144,7 +3663,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
     mockCreateDirectSwitchRequest.mockResolvedValue({
       request: { serialize: () => new Uint8Array([2]) },
-      chainAnchorB64: 'chain-anchor-b64'
+      // Real base64 ('chain-anchor') — the leaf's b64ToU8 (atob) throws on a bare token.
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
     });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 

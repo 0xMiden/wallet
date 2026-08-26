@@ -2785,7 +2785,8 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
 // A guardian tx's co-signature is contributed BEFORE execute, so the leaf that
 // crosses is byte-for-byte the same op-shape as a non-guardian write — it reuses
 // `dispatchOffscreenWrite` wholesale. These tests pin the guardian-specific waist:
-// the `guardianPipeline` method name, the [accountId, trBytes, delegate] DTO with
+// the `guardianPipeline` method name, the [accountId, trBytes, delegate,
+// chainAnchorB64] DTO with
 // the co-signed request crossing as RAW BYTES intact (§4.0), the shared write-deadline
 // deadline + criticalOp bracketing, the reused OFFSCREEN_SIGN_REQUEST sign channel,
 // the errorCode round-trip, and the retryable abort on a kill.
@@ -2825,13 +2826,19 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(env.method).toBe('guardianPipeline');
     expect(env.deadline_ms).toBe(__test.writeDeadlineMs());
     expect(env.deadline_ms).toBe(90_000);
-    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool)].
+    // DTO: [accountId (s:string), trBytes (b:bytes), delegate (s:bool),
+    // chainAnchorB64 (s:string|null)].
+    expect(env.argsB64).toHaveLength(4);
     expect(env.argsB64[0]).toBe(`s:${JSON.stringify('mtst1qguardian')}`);
     expect(env.argsB64[2]).toBe('s:false');
     // §4.0: the co-signed request crossed as RAW BYTES, byte-for-byte intact —
     // NOT JSON-mangled — so the advice map carrying the co-signatures survives.
     expect(env.argsB64[1].startsWith('b:')).toBe(true);
     expect(Array.from(b64ToBytes(env.argsB64[1].slice(2)))).toEqual(Array.from(tr));
+    // #784: no anchor passed here, and the slot is still present — `encodeArg`
+    // maps it to the wire NULL rather than dropping it, so the offscreen
+    // dispatch's positional parameters stay aligned.
+    expect(env.argsB64[3]).toBe('s:null');
     // criticalOp + sign callback bracketed AROUND the op, cleaned up after.
     expect(criticalDuring).toBe(true);
     expect(signCbSizeDuring).toBe(1);
@@ -2841,6 +2848,37 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(G.__px.getWasmOrThrow).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ __txResult: [5, 6, 7] });
     expect(__test.inFlightSize()).toBe(0);
+  });
+
+  // #784: this crossing is the ONLY place the proposal's chain anchor is put on
+  // the wire. Both sides of it are covered elsewhere — the caller by a mocked
+  // `dispatchGuardianPipeline`, the offscreen dispatch by a hand-built envelope
+  // — so without this the anchor could be dropped from the DTO entirely and
+  // every other suite would stay green.
+  it('#784: the proposal chain anchor crosses in the 4th DTO slot, as its wire-form base64', async () => {
+    const { dispatchGuardianPipeline } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([5, 6, 7]).toString('base64'),
+      durationMs: 4
+    }));
+
+    const p = dispatchGuardianPipeline(
+      'mtst1qguardian',
+      trBytes(),
+      false,
+      jest.fn(async () => new Uint8Array()),
+      undefined,
+      'BwcH'
+    );
+    await flush();
+    fireReady();
+    await p;
+
+    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
+    expect(env.argsB64).toHaveLength(4);
+    expect(env.argsB64[3]).toBe('s:"BwcH"');
   });
 
   it('flag ON → an ApplyTransactionAfterSubmitFailed reply rejects with the errorCode the GUARDIAN classifier reads (Completed, not Failed → requeue)', async () => {

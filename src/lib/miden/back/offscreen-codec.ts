@@ -318,6 +318,35 @@ export function encodeArg(value: unknown): string {
   return `s:${JSON.stringify(value ?? null)}`;
 }
 
+/**
+ * The positional argument list of the `guardianPipeline` OFFSCREEN_CALL, named
+ * once so the SW-side packer and the offscreen-side dispatch are checked
+ * against the SAME declaration instead of two hand-written parameter lists in
+ * different modules (#784).
+ *
+ * Worth naming for this op specifically: the dispatch table erases its entries
+ * to `(client, ...args: any[])`, so a dropped or reordered slot compiles
+ * cleanly, and dropping the anchor slot silently reinstates the unanchored
+ * execute that #784 exists to remove — a regression that shows up only once
+ * the chain advances mid-round-trip.
+ *
+ * The two optional slots are `| null`, not `| undefined`: the packer always
+ * sends four elements and {@link encodeArg} maps an absent value to JSON
+ * `null`, so a PACKED slot never arrives as `undefined`. A short envelope still
+ * leaves the tail `undefined` — only hand-built test envelopes do that today —
+ * which is why both receivers select on truthiness rather than on `null`.
+ *
+ * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
+ * `Uint8Array` at the top level, and a nested one would be JSON-mangled,
+ * destroying the advice map that carries the co-signatures.
+ */
+export type GuardianPipelineArgs = [
+  accountId: string,
+  trBytes: Uint8Array,
+  delegateTransaction: boolean | null,
+  chainAnchorB64: string | null
+];
+
 /** Inverse of {@link encodeArg}. */
 export function decodeArg(encoded: string): unknown {
   const tag = encoded.slice(0, 2);

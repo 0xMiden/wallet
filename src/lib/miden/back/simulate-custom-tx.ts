@@ -2,6 +2,7 @@ import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
@@ -143,10 +144,24 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           // the one that can omit it.
           //
           // The anchor this also returns is only useful to a party that has to
-          // reproduce the summary later — a cosigner or executor. This is a local
-          // dry run that displays the summary and discards it, so it is dropped.
-          const { summary } = await executeForSummary(client.client, accountIdHex, request, getEffectiveRpcUrl());
-          return { summaryBytes: u8ToB64(summary.serialize()) };
+          // reproduce the summary later — a cosigner or executor. This dry run
+          // displays the summary and discards it, so nothing here wants the
+          // anchor on the wire. It still has to be RELEASED rather than merely
+          // dropped: it owns a partial blockchain on the WASM heap, and the
+          // summary branch is the GUARDIAN one, so every confirm dialog a
+          // multisig account opens strands another one until the finalizer
+          // happens to run (#784).
+          const { summary, anchor } = await executeForSummary(
+            client.client,
+            accountIdHex,
+            request,
+            getEffectiveRpcUrl()
+          );
+          try {
+            return { summaryBytes: u8ToB64(summary.serialize()) };
+          } finally {
+            freeChainAnchor(anchor);
+          }
         } catch (e) {
           if (!isAlreadyAuthorizedError(e)) throw e;
           // Ordinary (non-guardian) account: nothing is pending authorization, so

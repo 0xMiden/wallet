@@ -31,7 +31,34 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
-export const cancelTransaction = async (transaction: Transaction, error: any, displayMessage: string = 'Failed') => {
+/**
+ * Returns whether the row was actually failed. `false` means a concurrent writer
+ * moved it out from under this call, so the caller's own account of what it did
+ * — a log line, a notification — should not claim the row was failed.
+ *
+ * @param onlyIfStatus When given, the row is failed ONLY if it still holds this
+ * status at write time, checked inside the Dexie `modify` so the check and the
+ * write cannot be interleaved. The `existing` read below is a separate
+ * transaction from that write, which is enough to reject a row that was ALREADY
+ * terminal, but says nothing about one that becomes terminal in between. A
+ * caller holding the loop lock excludes the other loop DRIVERS — not a user
+ * cancel, which takes no lock — and the requeue wake's ceiling holds nothing at
+ * all: it can have a Queued row picked up and advanced to
+ * `GeneratingTransaction` in the gap, and failing THAT row would report a
+ * failure for a pipeline still running, which can still submit.
+ *
+ * The terminal check is re-run at write time for EVERY caller, gated or not,
+ * because the same gap runs the other way: a pipeline that commits `Completed`
+ * between the read and the write would otherwise be overwritten with `Failed`,
+ * turning a settled send into a reported failure. That direction needs no opt-in
+ * — no caller has a reason to fail a row that finished.
+ */
+export const cancelTransaction = async (
+  transaction: Transaction,
+  error: any,
+  displayMessage: string = 'Failed',
+  onlyIfStatus?: ITransactionStatus
+) => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -42,7 +69,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
       `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
       error
     );
-    return;
+    return false;
   }
 
   // The stage the tx died in (persisted by setTransactionStage) disambiguates
@@ -53,7 +80,18 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
       ? error
       : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
+  let applied = false;
+  let racedTerminal = false;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
+    // `false`, not a bare return: Dexie treats `undefined` as "modified" and
+    // issues a put of the unchanged clone, which is a pointless write and a
+    // spurious event for anything observing the table.
+    if (dbTx.status === ITransactionStatus.Completed || dbTx.status === ITransactionStatus.Failed) {
+      racedTerminal = true;
+      return false;
+    }
+    if (onlyIfStatus !== undefined && dbTx.status !== onlyIfStatus) return false;
+    applied = true;
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = displayError;
@@ -61,7 +99,31 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    return undefined;
   });
+  if (racedTerminal) {
+    console.warn(
+      `[cancelTransaction] ignored — tx ${transaction.id} went terminal between this call's ` +
+        'read and its write; suppressed error:',
+      error
+    );
+    return false;
+  }
+  if (!applied) {
+    // The reason is branched because this line is the ONLY record of a row that
+    // vanished. For an ungated caller that is the only way to get here at all,
+    // and reporting it as "no longer undefined" says nothing about what
+    // happened. Either way the call failed nothing and notified no one.
+    console.warn(
+      `[cancelTransaction] skipped — tx ${transaction.id} ` +
+        (onlyIfStatus === undefined
+          ? 'was absent when the write ran'
+          : `was no longer ${onlyIfStatus}, or was absent, when the guarded write ran`) +
+        '; the row was not failed and no notification was raised. Suppressed error:',
+      error
+    );
+    return false;
+  }
 
   // Gap 6: a transaction that terminally failed while the user wasn't watching
   // used to be silent — the row went to Failed and nothing told them. Notify,
@@ -74,6 +136,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
   if (isGenuineFailure) notifyBackgroundTransactionFailed();
+  return true;
 };
 
 /**
@@ -611,17 +674,35 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
       // The node confirms the note is consumed on chain by THIS client's own tracked
       // tx - mark the transaction completed. 'landed-external' deliberately does NOT
       // reach here (see the funds-safety note above).
-      await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-        displayMessage: 'Received',
-        completedAt: Math.floor(Date.now() / 1000)
-      });
-      resolvedCount++;
+      //
+      // Wrapped because `updateTransactionStatus` throws on a row that is already
+      // terminal, including one a concurrent writer finalized mid-loop. This
+      // reaper is the only consume reconciler off-extension and runs on a 3s
+      // interval whose caller does not catch, so an unhandled throw here both
+      // abandons the remaining rows for the cycle and surfaces as an unhandled
+      // rejection. A row someone else already settled needs no reconciling.
+      try {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Received',
+          completedAt: Math.floor(Date.now() / 1000)
+        });
+        resolvedCount++;
+      } catch (e) {
+        // Deliberately not diagnosed as "no longer in progress": the throw is
+        // also what a deleted row ('No transaction found to update') and a real
+        // Dexie failure produce, and this line has not checked which. Naming a
+        // cause it does not have is the defect the ceiling's log was fixed for.
+        console.warn(`[verifyStuckTransactions] could not complete ${tx.id}; it may have been settled or removed`, e);
+      }
     } else if (verdict === 'invalid') {
       // Note is invalid - it can never be consumed, so fail immediately with the
       // specific reason instead of waiting out the grace window (restores the
       // fast-fail the #3a refactor accidentally collapsed into 'not-landed').
-      await cancelTransaction(tx, INVALID_NOTE_ERROR);
-      resolvedCount++;
+      // Counted only if the row was actually failed. `resolvedCount` is what
+      // this function returns and what `useClaimNotes` reports, so counting a
+      // refused write — a row a concurrent driver already settled — overstates
+      // what the reaper did.
+      if (await cancelTransaction(tx, INVALID_NOTE_ERROR)) resolvedCount++;
     } else if (verdict === 'not-landed' || verdict === 'landed-external') {
       // Either the note is not consumed at all, or it is consumed by someone who is
       // not provably us ('landed-external'). Both mean this consume did not
@@ -633,8 +714,7 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
         ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-        await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
-        resolvedCount++;
+        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
       }
     }
     // 'unknown' (no note row / node query error) and 'processing' (our own consume

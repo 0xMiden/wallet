@@ -192,6 +192,25 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   dumpTransactions(): Promise<string>;
   /**
+   * Send value this wallet queued that never moved, split into terminally
+   * Failed and still-in-flight. Lets a caller reconcile a driver's optimistic
+   * "sent" bookkeeping against what the wallet actually settled — see the
+   * implementation. Chrome-only, like the stress suite that consumes it.
+   */
+  unlandedSendTotals(): Promise<{
+    completed: number;
+    completedCount: number;
+    failed: number;
+    pending: number;
+    failedCount: number;
+    pendingCount: number;
+    totalCount: number;
+    failedMaybeSubmitted: number;
+    failedMaybeSubmittedCount: number;
+    pendingEligibleAtMax: number;
+    storeMissing: boolean;
+  }>;
+  /**
    * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
    * tab → asset detail → group claim / per-note claim) instead of the top-level
    * "Claim All". Chrome-only: mobile page objects cover their React Claim All
@@ -1960,6 +1979,189 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         `after ${ctx.iteration} iteration(s) (lastPending=${ctx.lastPending}, ` +
         `stableZero=${ctx.stableZero}/${ctx.stableZeroThreshold}). Transactions: ${txDump}`
     );
+  }
+
+  /**
+   * Total `send` value this wallet queued that never actually moved, split by
+   * why. The stress driver counts a send the moment `sendTokens` returns — which
+   * is when the UI says "transaction initiated", long before the guardian
+   * pipeline runs — so its expected-delta bookkeeping silently assumes every
+   * send landed. Rows the wallet itself later marked Failed (or that were still
+   * in flight when the run ended) are exactly the difference between that
+   * assumption and reality, which is what lets a caller reconcile the two
+   * instead of reporting a phantom loss.
+   *
+   * `failed` is terminal with no RECORDED submit crossing — which is weaker
+   * than proof of none, since the stamp is best-effort and its write is
+   * deliberately swallowed on failure; `pending` covers
+   * Queued/Generating (0/1), which for a requeued row means "will retry, hasn't
+   * moved value yet". Amounts are converted to the same display units
+   * `quickBalanceSnapshot` reports, so the two are directly comparable.
+   *
+   * `failedMaybeSubmitted` is held apart and deliberately NOT offered as
+   * unlanded value. The wallet stamps `mayHaveSubmitted` at the submit crossing
+   * precisely because a row can end Failed with its transaction already on
+   * chain; counting that as "never landed" would accuse the wallet of losing
+   * value on a run where value moved exactly as intended. It is reported both so
+   * the caller can surface it — a Failed-but-possibly-landed send is worth
+   * knowing about — and as the explicit bound on the ambiguity: the per-wallet
+   * reconciliation allows a discrepancy only up to this value, and only in the
+   * direction the ambiguous rows could have moved value.
+   *
+   * `storeMissing` distinguishes "this wallet has no send rows" from "this read
+   * did not find the database". `indexedDB.open` with no version CREATES an
+   * empty database rather than failing, so a read against the wrong origin
+   * succeeds and returns a flawless all-zero result. Without the flag, that is
+   * indistinguishable from a perfect run.
+   */
+  async unlandedSendTotals(): Promise<{
+    /** Value of `send` rows the wallet itself marked Completed. */
+    completed: number;
+    completedCount: number;
+    failed: number;
+    pending: number;
+    failedCount: number;
+    pendingCount: number;
+    totalCount: number;
+    failedMaybeSubmitted: number;
+    failedMaybeSubmittedCount: number;
+    /** Latest `nextEligibleAt` (unix seconds) across pending rows; 0 if none. */
+    pendingEligibleAtMax: number;
+    storeMissing: boolean;
+  }> {
+    return this.page.evaluate(async () => {
+      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+      const db: IDBDatabase = await new Promise((res, rej) => {
+        const r = idb.open('TridentMain');
+        // A blocked open still resolves later, so the rejection below would
+        // otherwise leak the connection it eventually hands back — and this read
+        // runs every few seconds for hours on both wallets.
+        let settled = false;
+        r.onsuccess = () => {
+          if (settled) {
+            r.result.close();
+            return;
+          }
+          settled = true;
+          res(r.result);
+        };
+        r.onerror = () => {
+          settled = true;
+          rej(r.error ?? new Error('unlandedSendTotals: open of TridentMain failed'));
+        };
+        // Without this, a blocked open never settles. This read runs on the
+        // settle loop, inside a spec with no timeout, before any artifact is
+        // written — a hang here costs the whole run's forensics.
+        r.onblocked = () => {
+          settled = true;
+          rej(new Error('unlandedSendTotals: open of TridentMain blocked'));
+        };
+      });
+      try {
+        const out = {
+          completed: 0,
+          completedCount: 0,
+          failed: 0,
+          pending: 0,
+          failedCount: 0,
+          pendingCount: 0,
+          totalCount: 0,
+          failedMaybeSubmitted: 0,
+          failedMaybeSubmittedCount: 0,
+          pendingEligibleAtMax: 0,
+          storeMissing: false
+        };
+        if (!db.objectStoreNames.contains('transactions')) {
+          out.storeMissing = true;
+          return out;
+        }
+        // Mirrors quickBalanceSnapshot's pending-note conversion: the stress
+        // faucet is 8-decimal, and balances are reported in display units.
+        // A NaN here would propagate silently into the reconciliation and surface
+        // as "unexplained by NaN", so an unparseable amount is reported rather
+        // than folded in as a zero that quietly understates the total.
+        const toDisplay = (raw: unknown): number => {
+          const n =
+            typeof raw === 'bigint'
+              ? Number(raw)
+              : typeof raw === 'number'
+                ? raw
+                : typeof raw === 'string' && raw !== ''
+                  ? Number(raw)
+                  : NaN;
+          // Absent is unparseable too. Folding a missing amount in as 0 would
+          // understate one side of the reconciliation by exactly the value it
+          // failed to read, which is indistinguishable from the run being clean.
+          if (!Number.isFinite(n)) throw new Error(`unlandedSendTotals: unparseable amount ${String(raw)}`);
+          return n / 1e8;
+        };
+        // Cursor rather than getAll: rows carry `requestBytes`/`resultBytes`
+        // blobs, and this runs every few seconds on both wallets at once. The
+        // neighbouring dump code streams for exactly this reason — materializing
+        // both tables concurrently has tripped the OOM killer on the runner, and
+        // here that would surface as a read failure rather than a crash, which is
+        // the quietest possible way to lose the measurement.
+        await new Promise<void>((res, rej) => {
+          const tx = db.transaction('transactions', 'readonly');
+          // The transaction can end without the cursor request ever firing again
+          // — an abort, a version-change teardown, or the throw below. Listening
+          // only to the request would leave this promise pending forever, and it
+          // runs inside a spec with no timeout, so the hang would cost the whole
+          // run's forensics rather than surfacing as a failed read.
+          // Each carries its own fallback: IDBTransaction.error is null until the
+          // transaction actually aborts, so rejecting with it bare can produce a
+          // `null` reason that reaches the log as the string "null".
+          tx.onabort = () => rej(tx.error ?? new Error('unlandedSendTotals: transaction aborted'));
+          tx.onerror = () => rej(tx.error ?? new Error('unlandedSendTotals: transaction failed'));
+          const r = tx.objectStore('transactions').openCursor();
+          r.onerror = () => rej(r.error ?? new Error('unlandedSendTotals: cursor failed'));
+          r.onsuccess = () => {
+            // A throw inside an IndexedDB event handler does not reach the
+            // enclosing executor — it aborts the transaction and is reported on
+            // the global error handler. Caught here so an unparseable amount
+            // rejects this read (loud) instead of stalling it (silent).
+            try {
+              const cursor = r.result;
+              if (!cursor) {
+                res();
+                return;
+              }
+              const row = cursor.value as Record<string, unknown>;
+              if (row.type === 'send') {
+                out.totalCount += 1;
+                const status = Number(row.status);
+                const amount = toDisplay(row.amount);
+                if (status === 2) {
+                  out.completed += amount;
+                  out.completedCount += 1;
+                } else if (status === 3) {
+                  if (row.mayHaveSubmitted === true) {
+                    out.failedMaybeSubmitted += amount;
+                    out.failedMaybeSubmittedCount += 1;
+                  } else {
+                    out.failed += amount;
+                    out.failedCount += 1;
+                  }
+                } else if (status === 0 || status === 1) {
+                  out.pending += amount;
+                  out.pendingCount += 1;
+                  const eligible = Number(row.nextEligibleAt ?? 0);
+                  if (Number.isFinite(eligible) && eligible > out.pendingEligibleAtMax) {
+                    out.pendingEligibleAtMax = eligible;
+                  }
+                }
+              }
+              cursor.continue();
+            } catch (e) {
+              rej(e);
+            }
+          };
+        });
+        return out;
+      } finally {
+        db.close();
+      }
+    });
   }
 
   /**

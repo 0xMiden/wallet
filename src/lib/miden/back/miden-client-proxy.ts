@@ -38,6 +38,7 @@ import {
   b64ToBytes,
   bytesToB64,
   encodeArg,
+  type GuardianPipelineArgs,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
   type OffscreenReloadEndpointsRequest,
@@ -882,21 +883,16 @@ export function dispatchGuardianPipeline(
   delegateTransaction: boolean | undefined,
   signCallback: RawSignCallback,
   onStage?: StageCallback,
-  // The ChainAnchor (base64) the proposal's summary was signed at. Since
-  // protocol 0.16 the signed summary binds the reference block commitment, so
-  // the offscreen executeRequest must be pinned to that block — executing at
-  // whatever height the offscreen client happens to be synced to derives a
-  // different summary and the collected signatures no longer verify
-  // ("transaction is unauthorized"). Optional only for anchor-less legacy
-  // proposals, which keep the old unanchored execute.
+  // #784: the proposal's chain anchor, in its wire form (the metadata's base64
+  // string). It crosses as-is — a WASM ChainAnchor cannot survive the message
+  // boundary — and the offscreen dispatch decodes it in-realm to pin
+  // executeRequest to the reference block the co-signatures were bound to.
   chainAnchorB64?: string
 ): Promise<TransactionResult> {
-  return dispatchOffscreenWrite(
-    'guardianPipeline',
-    [accountId, trBytes, delegateTransaction, chainAnchorB64],
-    signCallback,
-    onStage
-  );
+  // Typed against the shared wire contract so a dropped or reordered slot is a
+  // compile error here rather than a silently unanchored execute offscreen.
+  const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
+  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
 }
 
 /**

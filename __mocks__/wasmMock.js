@@ -20,6 +20,14 @@ module.exports = {
   Program: {
     fromString: jest.fn()
   },
+  // No `ChainAnchor` entry on purpose (#784). Both suites that decode a
+  // proposal's anchor install their own spy, so a shared default is reached by
+  // nothing — and it would be actively harmful if it ever were: returning a
+  // truthy anchor makes a suite that forgot to stub the decode pass silently
+  // ON THE ANCHORED PATH, which is the failure the guardian suite's own
+  // `mockReset` + explicit default exists to prevent. The unstubbed
+  // "Cannot read properties of undefined (reading 'deserialize')" is the louder
+  // outcome, and it names the member to stub.
   RecordPlaintext: {
     fromString: jest.fn()
   },
