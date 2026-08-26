@@ -187,6 +187,17 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
     (isOperationAbortedError(error) || isWasmClientPoisonedError(error))
   ) {
     await markMayHaveSubmitted(tx.id);
+    if (isWasmClientPoisonedError(error)) {
+      // A poison eviction ABANDONS the pipeline — unlike an offscreen kill it
+      // may still submit AFTER this row is Failed, so the permanent crossing
+      // above is not enough: the user's acknowledgement ("it never arrived")
+      // can be true when given and wrong a minute later. Stamp the TIME-BOUNDED
+      // liveness marker too; the retry guard refuses even an acknowledged retry
+      // until the pipeline provably cannot still be running. Ordered before
+      // `cancelTransaction` below, while the row is still in-flight, because
+      // this marker's writer refuses terminal rows.
+      await markCancelledInFlight(tx.id);
+    }
   } else {
     await clearCancelledInFlight(tx.id);
   }

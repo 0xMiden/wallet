@@ -507,6 +507,13 @@ export class MidenClientInterface {
 
     registerGuardianOrigin(guardianEndpoint);
     for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+      // The scan holds `this` across many independently-locked ops; a recovery
+      // mid-scan replaces the singleton and leaves later iterations driving a
+      // poisoned client (issue #775). Fail loudly at the next index instead of
+      // producing a confusing partial result on a dead client.
+      if (this.isDisposed) {
+        throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+      }
       const coldSeed = deriveColdSeed(hdIndex);
       const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');

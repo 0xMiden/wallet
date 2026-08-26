@@ -92,21 +92,27 @@ export class MultisigService {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
 
+      // `load` drives the shared WASM web-client, so it must be serialized with
+      // every other client operation via the global mutex — and the client is
+      // RESOLVED inside the same hold: resolving it outside left a window where
+      // a recovery replaced the singleton between the resolve and the lock, so
+      // this caller drove a client that no longer existed (issue #775; the same
+      // shape speculation-manager and vault already fixed).
+      //
       // Reuse the shared singleton client instead of spinning up a fresh
       // WebClient (each new WebClient spawns a ~6MB web-client-methods-worker
       // that is never terminated). Reusing the singleton also lets the multisig
       // lib's rawClientCache WeakMap (keyed by this client instance) hit across
       // every init, so at most ONE shared raw worker is created total.
-      const webClient = (await getMidenClient()).client;
-
-      registerGuardianOrigin(guardianEndpoint);
-      const client = new MultisigClient(webClient, {
-        guardianEndpoint,
-        midenRpcEndpoint: getEffectiveRpcUrl()
+      const { multisig, client } = await withWasmClientLock(async () => {
+        const webClient = (await getMidenClient()).client;
+        registerGuardianOrigin(guardianEndpoint);
+        const multisigClient = new MultisigClient(webClient, {
+          guardianEndpoint,
+          midenRpcEndpoint: getEffectiveRpcUrl()
+        });
+        return { multisig: await multisigClient.load(account.id().toString(), signer), client: multisigClient };
       });
-      // `load` drives the shared WASM web-client, so it must be serialized with
-      // every other client operation via the global mutex.
-      const multisig = await withWasmClientLock(() => client.load(account.id().toString(), signer));
 
       return new MultisigService(multisig, client, guardianEndpoint);
     } catch (error) {

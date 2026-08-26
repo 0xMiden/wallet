@@ -147,6 +147,15 @@ interface LockHolder {
   unpausedElapsedMs: number;
   segmentStartedAt: number | null;
   /**
+   * Same ledger for PAUSED wall-clock: total time this hold has spent inside
+   * pause brackets, and when the current paused segment began. Without it each
+   * bracket re-armed a fresh relaxed ceiling, so SEQUENTIAL brackets (sign,
+   * then prove, then sign again…) bought unbounded unwatched time — the exact
+   * loophole `unpausedElapsedMs` closes for the normal ceiling.
+   */
+  pausedElapsedMs: number;
+  pausedSegmentStartedAt: number | null;
+  /**
    * Whether this hold has already been granted the once-per-hold finishing
    * slice (`WASM_LOCK_MIN_WATCHDOG_MS`) it gets when a bracket closes on an
    * already-exhausted budget. One grant is mercy; granting it at every close
@@ -468,10 +477,11 @@ function armWatchdogFor(holder: LockHolder): void {
   if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
   let ceiling: number;
   if (holder.pauseCount > 0) {
-    // A pause is a fresh relaxed ceiling: the wait it brackets is the thing
-    // that is legitimately unbounded, so unpaused time already spent is not
-    // charged against it.
-    ceiling = WASM_LOCK_PAUSED_WATCHDOG_MS;
+    // The relaxed ceiling bounds the hold's TOTAL paused time, not the current
+    // bracket: unpaused time already spent is not charged against it, but time
+    // spent in earlier brackets is, or sequential brackets would each buy a
+    // fresh 30 minutes and a bracket-looping flow would run forever unwatched.
+    ceiling = Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0);
   } else {
     // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
     // hold rather than the segment since the last transition.
@@ -520,6 +530,22 @@ function startUnpausedSegment(holder: LockHolder): void {
   if (holder.segmentStartedAt === null) holder.segmentStartedAt = monotonicNow();
 }
 
+/**
+ * Close the hold's current paused segment (the outermost bracket is closing, or
+ * the hold is yielding the mutex mid-bracket), banking what it spent paused so
+ * the relaxed ceiling bounds the hold's total paused time.
+ */
+function endPausedSegment(holder: LockHolder): void {
+  if (holder.pausedSegmentStartedAt === null) return;
+  holder.pausedElapsedMs += Math.max(monotonicNow() - holder.pausedSegmentStartedAt, 0);
+  holder.pausedSegmentStartedAt = null;
+}
+
+/** Start a new paused segment (a bracket is open and the hold owns the mutex). */
+function startPausedSegment(holder: LockHolder): void {
+  if (holder.pausedSegmentStartedAt === null) holder.pausedSegmentStartedAt = monotonicNow();
+}
+
 function beginHold(): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
@@ -531,6 +557,8 @@ function beginHold(): LockHolder {
     watchdogTimer: null,
     unpausedElapsedMs: 0,
     segmentStartedAt: monotonicNow(),
+    pausedElapsedMs: 0,
+    pausedSegmentStartedAt: null,
     graceUsed: false,
     abort,
     aborted
@@ -543,11 +571,13 @@ function beginHold(): LockHolder {
   // to fire against a stale identity while it still believes it owns the lock.
   if (currentHolder) {
     console.error('[miden-client] BUG: taking the WASM lock while another holder is still registered');
-    // Deliberately NOT marked `killed`: that flag means "recovery already
-    // released the mutex on your behalf", and this holder's own acquire is
-    // still outstanding. It has to run its normal `endHold` release or the
-    // mutex ends up one release short and the queue stops draining forever.
+    // Marked `killed` so the displaced flow's own `endHold` does NOT release: a
+    // second owner can only have been admitted through a release that already
+    // happened spuriously, so letting the displaced holder release again would
+    // wake yet another waiter into the still-running new owner — turning one
+    // over-release into a cascade of concurrent WASM calls.
     const displaced = currentHolder;
+    displaced.killed = true;
     if (displaced.watchdogTimer) clearTimeout(displaced.watchdogTimer);
     displaced.watchdogTimer = null;
     displaced.abort(new WasmClientPoisonedError('realm-error', new Error('displaced by a second lock holder')));
@@ -630,7 +660,13 @@ export async function withWasmClientLock<T>(operation: (hold: WasmLockHold) => P
   await wasmClientMutex.acquire();
   const holder = beginHold();
   try {
-    return await Promise.race([operation(holder), holder.aborted]);
+    const running = operation(holder);
+    // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse
+    // later rejects with a trap-shaped error past the recovery cooldown, an
+    // unhandled rejection would re-enter `onRealmRejection` and evict the
+    // innocent successor. Park a no-op handler so the abandonment is silent.
+    running.catch(() => {});
+    return await Promise.race([running, holder.aborted]);
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();
@@ -683,7 +719,11 @@ export async function tryWithWasmClientLock<T>(
   if (!wasmClientMutex.tryAcquire()) return { ran: false };
   const holder = beginHold();
   try {
-    return { ran: true, value: await Promise.race([operation(holder), holder.aborted]) };
+    const running = operation(holder);
+    // See withWasmClientLock: an abandoned corpse's late rejection must not
+    // surface as an unhandled rejection and evict the successor.
+    running.catch(() => {});
+    return { ran: true, value: await Promise.race([running, holder.aborted]) };
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();
@@ -735,6 +775,7 @@ export async function withWasmLockWatchdogPaused<T>(
   // pushing the bound out and get the old stop-the-clock behaviour back.
   if (holder.pauseCount === 1) {
     endUnpausedSegment(holder);
+    startPausedSegment(holder);
     armWatchdogFor(holder);
   }
   try {
@@ -743,6 +784,7 @@ export async function withWasmLockWatchdogPaused<T>(
     if (!holder.killed) {
       holder.pauseCount--;
       if (holder.pauseCount === 0 && holder === currentHolder) {
+        endPausedSegment(holder);
         startUnpausedSegment(holder);
         armWatchdogFor(holder);
       }
@@ -789,29 +831,65 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     clearTimeout(holder.watchdogTimer);
     holder.watchdogTimer = null;
   }
-  // Not running while yielded, so this time is not charged against the ceiling.
+  // Not running while yielded, so this time is charged against neither ceiling.
   endUnpausedSegment(holder);
+  endPausedSegment(holder);
   currentHolder = null;
   yieldedHolderCount++;
+  // The count must settle exactly once whether the yielded wait resolves or the
+  // yield watchdog below gives up on it: a wait that never settles used to leave
+  // the count elevated forever, permanently degrading every future recovery to
+  // poison-in-place (and its holder wedged unwatched — the pre-#775 symptom
+  // reached through the yield).
+  let yieldCountSettled = false;
+  const settleYieldCount = (): void => {
+    if (yieldCountSettled) return;
+    yieldCountSettled = true;
+    yieldedHolderCount--;
+  };
+  // A yielded wait is legitimately long (an offscreen prove) but must not be
+  // UNWATCHED: the same relaxed ceiling a pause gets, minus paused time already
+  // spent. On fire the holder is evicted like any other wedge — except the
+  // client singletons are left alone, because the mutex is not held by this flow
+  // and nothing here says the module trapped (the external wait simply hung).
+  const yieldWatchdog = setTimeout(
+    () => {
+      if (holder.killed) return;
+      holder.killed = true;
+      lastRecoveryAt = monotonicNow();
+      settleYieldCount();
+      const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
+      console.error('[miden-client] evicting holder wedged while yielded:', {
+        pausedMs: Math.round(holder.pausedElapsedMs),
+        runningMs: Math.round(holder.unpausedElapsedMs),
+        error
+      });
+      holder.abort(error);
+    },
+    Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0)
+  );
   wasmClientMutex.release();
   try {
     return await operation();
   } finally {
+    clearTimeout(yieldWatchdog);
     await wasmClientMutex.acquire();
-    yieldedHolderCount--;
-    /* c8 ignore else -- a suspended holder is never the eviction target today */
+    settleYieldCount();
     if (!holder.killed) {
       currentHolder = holder;
       // Back on the clock — at the relaxed ceiling if the resumed flow is still
       // inside a pause bracket (a yield nested in a pause), the normal one
       // otherwise, minus what this hold has already spent running.
-      if (holder.pauseCount === 0) startUnpausedSegment(holder);
+      if (holder.pauseCount === 0) {
+        startUnpausedSegment(holder);
+      } else {
+        startPausedSegment(holder);
+      }
       armWatchdogFor(holder);
     } else {
-      // Defensive: a holder cannot currently be killed while suspended, but if
-      // that ever becomes possible this flow must not resume as owner — hand
-      // the slot straight back instead of leaking a held lock.
-      /* c8 ignore next 2 -- see above */
+      // Evicted while suspended (the yield watchdog above, or a future eviction
+      // path): this flow must not resume as owner — hand the slot straight back
+      // instead of leaking a held lock.
       wasmClientMutex.release();
     }
   }
@@ -965,7 +1043,16 @@ class MidenClientSingleton {
     // await it forever, and recovery could not clear it (issue #775).
     this.initializingPromiseWithOptions = null;
     if (this.instanceWithOptions) {
-      this.freeGuarded(this.instanceWithOptions);
+      if (yieldedHolderCount > 0) {
+        // A holder suspended mid-yield may still be using this instance (the
+        // routine options-refresh dispose races the same suspended flows a
+        // trap recovery does — see poisonAllInstances). Mark instead of
+        // terminating, so its isDisposed guards fire without failing a write
+        // that may already have submitted.
+        this.instanceWithOptions.markPoisoned();
+      } else {
+        this.freeGuarded(this.instanceWithOptions);
+      }
       this.instanceWithOptions = null;
     }
   }

@@ -12,6 +12,11 @@
 // failed write IDENTICALLY to the flag-OFF inline path (the funds-critical
 // invariant: an apply-after-submit failure must mark Completed, never Failed →
 // requeue → double-spend).
+//
+// The one import is `wasm-client-poison`, itself a zero-dependency leaf, so this
+// module stays realm- and cycle-safe.
+
+import { isWasmClientPoisonedError } from './wasm-client-poison';
 
 /**
  * Pulls a stable SDK error code off a thrown value, if present.
@@ -83,6 +88,12 @@ function errorMessageChain(err: unknown): string {
  * (under either property name) keeps working without a wallet change.
  */
 export function isApplyAfterSubmitError(err: unknown): boolean {
+  // A lock-recovery eviction is never an apply-after-submit report, but its
+  // `cause` carries the raw realm error VERBATIM — and this classifier walks
+  // the cause chain. Without the type check a trap whose text happened to
+  // embed the SDK's mempool phrasing would mark a row Completed that never
+  // submitted (issue #775). Checked first, mirroring isLockedError.
+  if (isWasmClientPoisonedError(err)) return false;
   if (extractSdkErrorCode(err) === 'ApplyTransactionAfterSubmitFailed') return true;
   return /accepted into the node's mempool[\s\S]*local store update failed/i.test(errorMessageChain(err));
 }

@@ -47,6 +47,7 @@ import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/d
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
 // ============================================================================
@@ -838,6 +839,14 @@ export class Vault {
               console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
               return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme) };
             } catch (e) {
+              // A lock-recovery eviction is not a "not on chain" answer either:
+              // the outer caller has already been rejected, so falling through
+              // would create a spurious empty account nobody is waiting for, on
+              // a client recovery just replaced — the same fund-loss shape as
+              // the network case below (issue #775).
+              if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
+                throw e;
+              }
               // A network-unreachable import and a genuine "not on chain" miss are
               // different answers; swallowing both creates a fresh EMPTY wallet on a
               // transient node blip, hiding the user's real (correctly-seeded)

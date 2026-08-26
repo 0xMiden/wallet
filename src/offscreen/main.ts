@@ -68,7 +68,7 @@ import {
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { poisonReasonOf } from 'lib/miden/sdk/wasm-client-poison';
+import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -945,6 +945,7 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     // client's sign without touching a successor's (issue #775).
     const liveness: SignLiveness = { poisoned: false };
     currentSignLiveness = liveness;
+    const startedGeneration = wasmClientGeneration();
     const created: Promise<MidenClientInterface> = ensureEndpointOverrides()
       .then(() =>
         MidenClientInterface.create({
@@ -952,6 +953,20 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
           useWorker: false
         })
       )
+      .then(client => {
+        // A poisoning that lands while this create is in flight nulls the memo
+        // synchronously, but a dispatch already awaiting THIS promise is ahead
+        // of the poison hook's own `.then(markPoisoned)` in the microtask queue
+        // — it would receive a live, unmarked client built on the poisoned
+        // module, and its disposed-keyed guards (`yieldLockUnlessDisposed`, the
+        // sign/prove pauses) would all read "healthy". Mark BEFORE resolving,
+        // keyed on the cross-module generation both replace paths bump, so no
+        // awaiter can ever observe the client unmarked (issue #775).
+        if (wasmClientGeneration() !== startedGeneration) {
+          client.markPoisoned();
+        }
+        return client;
+      })
       .catch((err: unknown) => {
         if (clientPromise === created) clientPromise = null;
         throw err;

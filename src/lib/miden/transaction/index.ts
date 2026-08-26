@@ -1530,6 +1530,13 @@ const generateGuardianTransaction = async (
     }
   } catch (error) {
     console.error('Error during Guardian transaction submission or execution', { error });
+    if (isWasmClientPoisonedError(error)) {
+      // A lock-recovery eviction ABANDONED this pipeline; its transaction may
+      // still land. Abandoning the candidate would retract a co-signature the
+      // chain may be about to consume — let the next cycle's 409
+      // pending-conflict path reconcile instead (issue #775).
+      throw error;
+    }
     try {
       await service.abandonCandidate(proposalResult.nonce);
     } catch (abandonError) {

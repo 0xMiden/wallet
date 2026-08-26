@@ -770,6 +770,36 @@ describe('watchdog pause and yield', () => {
     await successorRejects;
   });
 
+  it('sequential pause brackets share one relaxed budget — a bracket loop cannot buy unbounded unwatched time', async () => {
+    const op = withWasmClientLock(async hold => {
+      // Bracket 1 spends 25 of the 30 relaxed minutes, then closes cleanly.
+      await withWasmLockWatchdogPaused(() => new Promise<void>(resolve => setTimeout(resolve, 1_500_000)), hold);
+      // Bracket 2 never settles: only the remaining 5 minutes are left for it.
+      await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}), hold);
+    });
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_500_000);
+    await jest.advanceTimersByTimeAsync(299_999);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(isWasmClientBusy()).toBe(false);
+    await opRejects;
+  });
+
+  it('a yielded wait that never settles is evicted at the relaxed ceiling instead of wedging forever', async () => {
+    const op = withWasmClientLock(hold => yieldWasmClientLock(() => new Promise<never>(() => {}), hold));
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(isWasmClientBusy()).toBe(false);
+    await jest.advanceTimersByTimeAsync(1_800_000);
+    await opRejects;
+    // The lock keeps working — no leaked acquire, no wedged queue.
+    await expect(withWasmClientLock(async () => 'ok')).resolves.toBe('ok');
+  });
+
   it('a tryWithWasmClientLock holder is recoverable, and the mutex stays sane after the abandoned op settles late', async () => {
     let settleLate!: () => void;
     const late = new Promise<void>(resolve => {
@@ -1043,5 +1073,51 @@ describe('poisoned client recovery', () => {
     const before = poison.wasmClientGeneration();
     await mod.resetMidenClient();
     expect(poison.wasmClientGeneration()).toBeGreaterThan(before);
+  });
+
+  it('restores the suspended count after a yield-watchdog eviction, so a later trap frees rather than poisons', async () => {
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => new Promise<never>(() => {}), hold));
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_800_000);
+    await opRejects;
+
+    // Without the count settling on eviction, every later recovery would be
+    // permanently degraded to poison-in-place by a suspended flow that no
+    // longer exists.
+    await jest.advanceTimersByTimeAsync(10_000); // past the recovery cooldown
+    window.dispatchEvent(
+      new ErrorEvent('error', {
+        error: new WebAssembly.RuntimeError('unreachable'),
+        message: 'Uncaught RuntimeError: unreachable'
+      })
+    );
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(markPoisoned).not.toHaveBeenCalled();
+  });
+
+  it('an options refresh while a holder is mid-yield marks the old client instead of terminating it', async () => {
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient({ useWorker: false });
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The routine per-call refresh of the with-options slot races the same
+    // suspended flows a trap recovery does — it must not terminate a client a
+    // mid-yield flow still holds.
+    await mod.getMidenClient({ useWorker: false });
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    releaseYield();
+    await op;
   });
 });

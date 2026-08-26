@@ -98,6 +98,7 @@ import { startTransactionProcessing } from './transaction-processor';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -382,6 +383,9 @@ export async function generatePromisifyRequestPermission(
       });
     } catch (e) {
       console.error('[DApp] Error fetching account public key:', e);
+      // A lock-recovery eviction is a retryable internal failure, not a
+      // permissions verdict (issue #775).
+      if (isWasmClientPoisonedError(e)) throw e;
       throw new Error(MidenDAppErrorType.NotGranted);
     }
 
@@ -677,9 +681,12 @@ const generatePromisifySign = async (
           // worse than approving and then declining.
           const authorized = await withUnlocked(() =>
             withWasmClientLock(() => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey))
-          ).catch(() => false);
-          if (!authorized) {
-            reject(new Error(MidenDAppErrorType.NotGranted));
+          ).catch(err => (isWasmClientPoisonedError(err) ? err : false));
+          if (authorized !== true) {
+            // A lock-recovery eviction (issue #775) is not an authorization
+            // verdict — reject an APPROVED request with the real, retryable
+            // failure rather than a false NotGranted.
+            reject(isWasmClientPoisonedError(authorized) ? authorized : new Error(MidenDAppErrorType.NotGranted));
             return {
               type: MidenMessageType.DAppSignConfirmationResponse
             };
@@ -885,6 +892,9 @@ async function getPrivateNoteDetails(
     });
     return privateNotes;
   } catch (e) {
+    // A lock-recovery eviction is a retryable internal failure, not a
+    // parameter problem (issue #775).
+    if (isWasmClientPoisonedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1040,6 +1050,9 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     });
     return consumableNotes;
   } catch (e) {
+    // A lock-recovery eviction is a retryable internal failure, not a
+    // parameter problem (issue #775).
+    if (isWasmClientPoisonedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1180,6 +1193,9 @@ async function getAssets(accountId: string): Promise<Asset[]> {
 
     return assets;
   } catch (e) {
+    // A lock-recovery eviction is a retryable internal failure, not a
+    // parameter problem (issue #775).
+    if (isWasmClientPoisonedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }

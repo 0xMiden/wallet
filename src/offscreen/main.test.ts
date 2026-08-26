@@ -2565,6 +2565,47 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     expect(r.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('a create in flight when the poisoning lands resolves to an ALREADY-marked client (#775 F-056)', async () => {
+    await loadModule();
+    const orderLog: string[] = [];
+    G.__off.clientMarkPoisoned.mockImplementation(() => orderLog.push('marked'));
+    G.__off.clientGetAccount.mockImplementation(async () => {
+      orderLog.push('used');
+      return undefined;
+    });
+
+    // Gate the create so the poisoning lands while it is in flight, with a
+    // dispatch already awaiting the memoized promise.
+    let releaseCreate!: (c: unknown) => void;
+    const gate = new Promise<unknown>(resolve => {
+      releaseCreate = resolve;
+    });
+    G.__off.getMidenClient.mockReturnValueOnce(gate);
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+
+    // What both replace paths do before notifying: bump the cross-module
+    // generation, then fire the realm hook.
+    const { bumpWasmClientGeneration } = require('lib/miden/sdk/wasm-client-poison');
+    bumpWasmClientGeneration();
+    firePoisoned();
+    await flush();
+
+    releaseCreate({
+      markPoisoned: (...a: unknown[]) => G.__off.clientMarkPoisoned(...a),
+      getAccount: (...a: unknown[]) => G.__off.clientGetAccount(...a)
+    });
+    await flush();
+
+    // The awaiting dispatch is ahead of the poison hook's own late
+    // `.then(markPoisoned)` in the microtask queue — the generation check
+    // inside the create chain is what guarantees the mark lands FIRST.
+    expect(orderLog[0]).toBe('marked');
+    expect(orderLog).toContain('used');
+    expect(r1.mock.calls[0][0].ok).toBe(true);
+  });
+
   it('refuses a sign from the displaced client, even while a successor op makes the ambient id look valid', async () => {
     await loadModule();
     const signed: any[] = [];
