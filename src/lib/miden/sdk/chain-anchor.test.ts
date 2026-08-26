@@ -113,4 +113,18 @@ describe('freeChainAnchor (#784)', () => {
 
     expect(() => freeChainAnchor(anchorStub(throwingFree()))).not.toThrow();
   });
+
+  // Each channel gets its own guard, so neither can starve the other. This is
+  // the ordering that matters offscreen: `console` is the channel the harness
+  // cannot attach to, so a console failure taking the marker down with it would
+  // lose the only report anybody there can read.
+  it('still reaches the secondary channel when the console throws', () => {
+    const report = jest.fn();
+    warn.mockImplementation(() => {
+      throw new Error('console is gone');
+    });
+
+    expect(() => freeChainAnchor(anchorStub(throwingFree()), report)).not.toThrow();
+    expect(report).toHaveBeenCalledWith('chain anchor free failed');
+  });
 });

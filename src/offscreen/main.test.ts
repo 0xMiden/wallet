@@ -2081,6 +2081,16 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(acct).toBe('acc');
     expect(opts).toEqual({ anchor });
     expect(anchor.free).toHaveBeenCalledTimes(1);
+    // ORDER, not just occurrence. `executeRequest` BORROWS the anchor — the
+    // generated glue reads `anchor.__wbg_ptr` synchronously as it is invoked —
+    // so a free that ran first would hand rust a null pointer on every anchored
+    // guardian write, and `_assertClass` would not catch it because a freed
+    // instance still passes. "free was called once" holds just as well for that
+    // use-after-free, which is why the ordering is asserted explicitly.
+    const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0] ?? 0;
+    const freeOrder = anchor.free.mock.invocationCallOrder[0] ?? 0;
+    expect(executeOrder).toBeGreaterThan(0);
+    expect(freeOrder).toBeGreaterThan(executeOrder);
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 

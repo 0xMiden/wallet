@@ -37,16 +37,25 @@ export function freeChainAnchor(anchor: ChainAnchor | undefined, report?: (messa
     // so "never throws" has to hold for the failure path too — a throwing
     // console or report channel would destroy the in-flight error just as
     // surely as the `free()` this catch exists to contain.
+    //
+    // A guard EACH, not one around both: sharing one would let whichever
+    // channel runs first starve the other, and offscreen that is backwards —
+    // `console` is the channel the E2E harness provably cannot attach to, so
+    // `report` is the only one anybody reads in the realm hardest to debug.
     try {
       // Message in the FORMAT STRING, not only the object: Chrome truncates
       // strings nested in a logged object's preview.
       console.warn(`[Guardian] failed to free the chain anchor (#784): ${String(freeError)}`, {
         error: freeError
       });
-      report?.('chain anchor free failed');
     } catch {
       // best-effort — losing the report is strictly cheaper than losing the
       // error the caller is already carrying.
+    }
+    try {
+      report?.('chain anchor free failed');
+    } catch {
+      // best-effort, as above.
     }
   }
 }
