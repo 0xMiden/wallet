@@ -185,24 +185,25 @@ export function decodeSendNoteBody(body: Uint8Array | null | undefined): SentNot
   try {
     for (const frame of dataFrames(body)) {
       const request = walkFields(frame);
-      for (const noteField of request.get(1) ?? []) {
-        if (!(noteField instanceof Uint8Array)) continue;
-        const note = walkFields(noteField);
-        // Protobuf resolves a repeated singular field last-wins, so take the last.
-        const header = lastOfType(note.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
-        if (!header || header.length < MIN_HEADER_BYTES) continue;
-        const tag =
-          header[TAG_OFFSET]! +
-          (header[TAG_OFFSET + 1]! << 8) +
-          (header[TAG_OFFSET + 2]! << 16) +
-          header[TAG_OFFSET + 3]! * 2 ** 24;
-        const afterBlockNum = lastOfType(note.get(3), (v): v is number => typeof v === 'number');
-        notes.push({
-          detailsCommitment: toHex(header.subarray(0, DETAILS_COMMITMENT_BYTES)),
-          tag,
-          ...(afterBlockNum === undefined ? {} : { afterBlockNum })
-        });
-      }
+      // `SendNoteRequest.note` is a SINGULAR field, so a body that repeats field 1
+      // stores only its LAST value — and reporting the earlier ones would send an
+      // operator after a note the service never wrote. Same rule inside the note.
+      const noteField = lastOfType(request.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
+      if (!noteField) continue;
+      const note = walkFields(noteField);
+      const header = lastOfType(note.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
+      if (!header || header.length < MIN_HEADER_BYTES) continue;
+      const tag =
+        header[TAG_OFFSET]! +
+        (header[TAG_OFFSET + 1]! << 8) +
+        (header[TAG_OFFSET + 2]! << 16) +
+        header[TAG_OFFSET + 3]! * 2 ** 24;
+      const afterBlockNum = lastOfType(note.get(3), (v): v is number => typeof v === 'number');
+      notes.push({
+        detailsCommitment: toHex(header.subarray(0, DETAILS_COMMITMENT_BYTES)),
+        tag,
+        ...(afterBlockNum === undefined ? {} : { afterBlockNum })
+      });
     }
   } catch {
     return notes; // keep whatever decoded cleanly

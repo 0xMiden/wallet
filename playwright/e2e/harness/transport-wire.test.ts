@@ -34,6 +34,24 @@ const EXPECTED_AFTER_BLOCK = 1773007;
 /** The fixture's raw bytes, for assertions that must not go through the decoder. */
 const rawFixture = () => Uint8Array.from(Buffer.from(REAL_SEND_NOTE_B64, 'base64'));
 
+const varint = (value: number): number[] => {
+  const out: number[] = [];
+  let rest = value;
+  do {
+    out.push((rest & 0x7f) | (rest > 0x7f ? 0x80 : 0));
+    rest >>>= 7;
+  } while (rest > 0);
+  return out;
+};
+
+/** A length-delimited protobuf field: tag byte, varint length, payload. */
+const field = (tag: number, payload: Uint8Array): Uint8Array =>
+  new Uint8Array([tag, ...varint(payload.length), ...payload]);
+
+/** One gRPC-web data frame: uncompressed flag, 4-byte big-endian length, payload. */
+const dataFrame = (payload: Uint8Array): Uint8Array =>
+  new Uint8Array([0, ...[24, 16, 8, 0].map(shift => (payload.length >>> shift) & 0xff), ...payload]);
+
 describe('decodeSendNoteBody', () => {
   it('recovers the details commitment, tag and block hint from a real request body', () => {
     const notes = decodeSendNoteBase64(REAL_SEND_NOTE_B64);
@@ -106,6 +124,41 @@ describe('decodeSendNoteBody', () => {
     expect(decoded).toHaveLength(1);
     expect(decoded[0]!.detailsCommitment).toBe(EXPECTED_DETAILS_COMMITMENT);
     expect(decoded[0]!.afterBlockNum).toBeUndefined();
+  });
+
+  it('drops a block hint whose varint simply runs off the end of the buffer', () => {
+    // The other unterminated case, and the one a truncated capture actually produces:
+    // a single continuation byte with nothing after it. It never reaches the
+    // precision guard, so only the end-of-buffer return covers it.
+    const full = rawFixture();
+    const headerStart = full.indexOf(0x0b, 5);
+    const header = full.subarray(headerStart, headerStart + 88);
+
+    const note = new Uint8Array([0x0a, header.length, ...header, 0x18, 0x80]);
+    const request = new Uint8Array([0x0a, note.length, ...note]);
+    const decoded = decodeSendNoteBody(new Uint8Array([0, 0, 0, 0, request.length, ...request]));
+
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0]!.afterBlockNum).toBeUndefined();
+  });
+
+  it('takes the LAST value of each singular field, as protobuf does', () => {
+    // Both levels matter and neither is theoretical: the service keeps only the last
+    // value, so reporting an earlier one sends an operator after a note that was
+    // never written — a confident wrong answer, which is worse than none.
+    const full = rawFixture();
+    const headerStart = full.indexOf(0x0b, 5);
+    const header = full.subarray(headerStart, headerStart + 88);
+    const decoy = Uint8Array.from(header);
+    decoy.fill(0xaa, 0, 32);
+
+    const noteWithTwoHeaders = new Uint8Array([...field(0x0a, decoy), ...field(0x0a, header), 0x18, 0x01, 0x18, 0x02]);
+    const request = new Uint8Array([...field(0x0a, field(0x0a, decoy)), ...field(0x0a, noteWithTwoHeaders)]);
+    const decoded = decodeSendNoteBody(dataFrame(request));
+
+    expect(decoded).toHaveLength(1);
+    expect(decoded[0]!.detailsCommitment).toBe(EXPECTED_DETAILS_COMMITMENT);
+    expect(decoded[0]!.afterBlockNum).toBe(2);
   });
 
   it('skips a compressed frame instead of parsing gzip bytes as protobuf', () => {

@@ -299,10 +299,10 @@ export async function attachServiceWorkerFetchCapture(
         // lives on the Request rather than on `init`, and the fetch disturbs that
         // stream — hence the `clone()`, which is synchronous and tees the stream so
         // the bytes stay readable afterwards. Reading it only once the fetch has
-        // settled keeps capture out of the measured duration, and keeps a body that
-        // never finishes arriving from delaying the request being observed. The URL
-        // pattern mirrors `isSendNoteUrl`, the canonical copy; this function cannot
-        // close over module scope.
+        // settled keeps capture out of the measured `durationMs`; it does NOT keep a
+        // slow read off the caller's critical path, which is what the ceiling in
+        // `encodeBody` is for. The URL pattern mirrors `isSendNoteUrl`, the canonical
+        // copy; this function cannot close over module scope.
         // Held as `unknown` and narrowed by `instanceof` below on purpose: this file
         // type-checks with both the DOM and the Node fetch typings in scope, so a
         // written-out union naming `Request` picks one of the two declarations and

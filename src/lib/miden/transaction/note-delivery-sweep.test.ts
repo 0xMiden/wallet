@@ -22,7 +22,12 @@ jest.mock('lib/miden/repo', () => ({
       if (typeof arg === 'string') {
         return {
           anyOf: (states: string[]) => ({
-            toArray: async () => rows.filter(row => states.includes(String(row.noteDelivery)))
+            // Copies, deliberately. Dexie hands back deserialized records and `modify`
+            // later writes the STORED row in its own transaction, so the sweep never
+            // sees its own writes reflected in the array it is looping over. A fake
+            // that returned the live objects would alias the two and could hide a
+            // missing `continue` — it did, until this was fixed.
+            toArray: async () => rows.filter(row => states.includes(String(row.noteDelivery))).map(row => ({ ...row }))
           })
         };
       }
@@ -128,6 +133,19 @@ describe('sweepNoteDeliveries', () => {
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
 
+  it('arms an old row from its send time, so a late first sighting is due at once', async () => {
+    // The wait exists because the original relay just happened — which is false for a
+    // row first seen hours later (wallet closed, or first sync since the send). Arming
+    // another full wait from now would push its only attempts toward the far end of
+    // the sweep window, or past it, leaving a genuinely lost note never re-pushed.
+    rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 3 * 60 * 60 }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.nextRelayAt).toBeLessThanOrEqual(NOW);
+  });
+
   it('leaves a row alone until its scheduled time', async () => {
     rows.push(row({ nextRelayAt: NOW + 60 }));
 
@@ -217,7 +235,9 @@ describe('sweepNoteDeliveries', () => {
 
   it.each([
     ['the Display spelling', 'grpc error: status: AlreadyExists, message: "note stored"'],
-    ['the Debug spelling', 'Status { code: AlreadyExists, message: "note stored" }']
+    ['the Debug spelling', 'Status { code: AlreadyExists, message: "note stored" }'],
+    ['a gRPC-web trailer', 'unexpected trailer: grpc-status: 6, grpc-message: note already stored'],
+    ['the numeric code', 'rpc failed: code: 6, message: the note already exists']
   ])('reads a proper AlreadyExists status the same way — %s', async (_label, message) => {
     // So a service that starts returning a distinguishable status keeps working
     // without a wallet change.
@@ -262,6 +282,11 @@ describe('sweepNoteDeliveries', () => {
   // These are the near-miss strings the same call path can genuinely produce.
   it.each([
     ['a UNIQUE violation on a different column', 'ConstraintViolation("UNIQUE constraint failed: notes.seq")'],
+    // The service funnels every constraint kind through one `ConstraintViolation`
+    // variant, so these read almost identically to a duplicate while meaning the
+    // opposite: the row was never stored.
+    ['a NOT NULL failure on the same column', 'ConstraintViolation("NOT NULL constraint failed: notes.id")'],
+    ['a foreign-key failure on the same column', 'ConstraintViolation("FOREIGN KEY constraint failed: notes.id")'],
     ["tonic's stock AlreadyExists blurb", 'Some entity that we attempted to create already exists'],
     ['an SDK account-tree collision', 'account ID prefix already exists in the tree'],
     ['an SDK asset-vault collision', 'the non-fungible asset already exists in the asset vault'],
@@ -276,18 +301,59 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
   });
 
-  it('promotes a never-ACKed row to relayed when the re-push is accepted', async () => {
-    // Acceptance is the silent-loss case: the note was not on the transport and now
-    // is, at a fresh `seq`. From `pending` that is also a state change worth
-    // asserting — the row had no ACK at all before this push.
-    rows.push(row({ noteDelivery: 'pending' }));
-    mockRelayById.mockResolvedValue(undefined);
+  it.each([['pending'], ['undelivered'], ['relayed']] as const)(
+    'records an accepted re-push as relayed from a %s prior',
+    async priorState => {
+      // Acceptance is the silent-loss case whatever the row said before: the note was
+      // not on the transport and now is, at a fresh `seq`.
+      rows.push(row({ noteDelivery: priorState }));
+      mockRelayById.mockResolvedValue(undefined);
+
+      await sweepNoteDeliveries();
+
+      expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+      expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
+      expect(rows[0]!.relayAttempts).toBe(2);
+    }
+  );
+
+  it('reports an accepted re-push at error level only when the row already held an ACK', async () => {
+    // This one line is the incident signal the whole feature is for: an ACK that did
+    // not produce a stored note means the ACK was worthless. From `pending` the same
+    // acceptance is just the sweep working, and crying wolf there would bury it.
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rows.push(row({ id: 'acked', noteDelivery: 'relayed', initiatedAt: NOW - 600 }));
+    rows.push(row({ id: 'never-acked', noteDelivery: 'pending', initiatedAt: NOW - 60 }));
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
-    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
-    expect(rows[0]!.relayAttempts).toBe(2);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]![1]).toMatchObject({ txId: 'acked' });
+    expect(warn.mock.calls.map(call => call[1])).toContainEqual(expect.objectContaining({ txId: 'never-acked' }));
+  });
+
+  it('says so once when a row exhausts its attempts without a receipt', async () => {
+    // At the cap the row leaves the candidate set for good — no further push, and no
+    // further nullifier check either — while `relayed` renders as nothing at all in
+    // history. Without this line, giving up leaves no trace anywhere.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
+
+    await sweepNoteDeliveries();
+
+    expect(warn.mock.calls.map(call => String(call[0]))).toContainEqual(expect.stringContaining('attempts exhausted'));
+  });
+
+  it('does not announce exhaustion while attempts remain', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rows.push(row({ relayAttempts: 1 }));
+
+    await sweepNoteDeliveries();
+
+    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(
+      expect.stringContaining('attempts exhausted')
+    );
   });
 
   it('marks a never-ACKed row undelivered when the re-push fails', async () => {

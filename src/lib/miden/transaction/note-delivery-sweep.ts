@@ -60,19 +60,26 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
  * failures on this path: tonic's stock `AlreadyExists` blurb, Dexie/IndexedDB
  * `ConstraintError`, and the SDK's own account-tree and asset-vault errors. Since a
  * match suppresses the delivery warning, an over-broad pattern would hide exactly
- * the failure this sweep exists to surface, so the id-collision spellings must name
- * the note key, and a status-code match must be a real `AlreadyExists` status.
+ * the failure this sweep exists to surface, so a text match must name BOTH the note
+ * key and the uniqueness of the violation, and a status-code match must be a real
+ * `AlreadyExists`. Naming the key alone is not enough: the service funnels every
+ * constraint kind through one `ConstraintViolation` variant, so a NOT NULL or
+ * foreign-key failure on the same column reads almost identically while meaning the
+ * opposite — nothing was stored.
  */
 const isAlreadyStoredRejection = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
   return (
-    // SQLite/diesel text for the `notes.id` collision, in either spelling the
-    // service has been observed to produce.
-    /(?:UNIQUE constraint failed|ConstraintViolation\()[^)]*\bnotes\.id\b/i.test(message) ||
+    // The uniqueness collision on `notes.id`, in either spelling this path produces:
+    // SQLite's own `UNIQUE constraint failed: notes.id` (which is what the deployed
+    // service passes through today) and diesel's `Unique constraint violation`.
+    /\bunique constraint (?:failed|violation)\b[^)]*\bnotes\.id\b/i.test(message) ||
     // A service that starts returning a proper gRPC status keeps working unchanged.
-    // Both tonic spellings: `status: AlreadyExists` (Display) and the `Status {
-    // code: AlreadyExists` of its Debug formatting.
+    // Tonic spells it three ways depending on how it reaches us: `status:
+    // AlreadyExists` (Display), `Status { code: AlreadyExists` (Debug), and the
+    // numeric `grpc-status: 6` of a gRPC-web trailer.
     /\b(?:status|code):\s*AlreadyExists\b/i.test(message) ||
+    /\bgrpc-status:\s*6\b/i.test(message) ||
     /\bcode:\s*6\b.*\balready exists\b/i.test(message)
   );
 };
@@ -108,22 +115,31 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * Re-push private notes that have not been proven delivered, and retire the ones
  * that have.
  *
- * Why a re-push is the right instrument. A private note is reachable only through
- * the transport, and the transport hands the recipient an opaque pagination cursor
- * that the recipient persists verbatim. If that cursor ever advances past a stored
- * note — which is what note-transport-service#77 did, via timestamp collisions and
- * a per-tag query interleave — the note becomes unreachable for that recipient
- * permanently, while the sender's push was ACKed and its transaction landed. No
- * error exists anywhere in that sequence for the wallet to react to.
+ * What a re-push can and cannot fix — worth stating precisely, because there are TWO
+ * silent losses here and this instrument only reaches one of them.
  *
- * A re-push escapes it structurally, but NOT by appending a second row. The
- * transport's `notes` table declares `id BLOB NOT NULL UNIQUE` (note-transport-
- * service, migration `20260422000000_add_seq_cursor`, the same change that
- * introduced `seq`), so re-pushing a note the transport ALREADY holds is rejected
- * outright rather than stored again. Verified against the deployed service: the
- * second `SendNote` of an identical note answers
- * `Internal — Failed to store note: ConstraintViolation("UNIQUE ...")`, and nothing
- * appears above the previous cursor.
+ * The one it repairs: a note that was ACKed and never stored. `SendNoteResponse` is
+ * an empty message, so an ACK is not evidence of storage, and the 2026-08-24 stress
+ * run lost 14 notes exactly that way — committed on chain, ACKed, absent from the
+ * service, no error anywhere for the wallet to react to. A re-push closes that in one
+ * step: a note the transport does not hold is accepted and stored at a fresh `seq`,
+ * above every recipient cursor.
+ *
+ * The one it does NOT repair: a note that IS stored but sits below the recipient's
+ * cursor. The transport hands out an opaque pagination cursor that the recipient
+ * persists verbatim, and once it advances past a stored note — note-transport-
+ * service#77, via timestamp collisions and a per-tag query interleave — that note is
+ * unreachable for that recipient permanently. A re-push cannot lift it, because the
+ * `notes` table declares `id BLOB NOT NULL UNIQUE` (migration
+ * `20260422000000_add_seq_cursor`, the same change that introduced `seq`) and
+ * `store_note` is a bare insert with no `ON CONFLICT`: a note the transport already
+ * holds is REJECTED, not re-stored at a new position. Verified against the deployed
+ * service — the second `SendNote` of an identical note answers `Internal — Failed to
+ * store note: ConstraintViolation("UNIQUE ...")`, and nothing appears above the
+ * previous cursor.
+ *
+ * From the sender the two are indistinguishable up front, which is why the sweep
+ * pushes at all: the push itself is the test.
  *
  * So the two outcomes of a re-push carry quite different information, and neither is
  * the intuitive reading:
@@ -137,15 +153,13 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  *     push tells the sender nothing at all — but it is NOT proof of delivery, and
  *     the row stays `relayed` too.
  *
- * That second reading is the easy mistake here: "the bytes are on the transport" is
- * precisely the #77 state above — stored and still unreachable — and since a
- * rejection takes no new `seq`, it repairs nothing. Promoting it to `confirmed`
- * would retire exactly the rows exhibiting the bug, drop their remaining attempts,
- * and (since `confirmed` renders as "the recipient has received and spent this
- * private note") claim a note the recipient may never see was spent. `confirmed`
- * stays exclusive to the nullifier. What the rejection IS good for is not raising a
- * false alarm: the original relay demonstrably reached the transport, so the row
- * must not be downgraded to `undelivered` either.
+ * Promoting a rejection to `confirmed` would therefore retire exactly the rows
+ * exhibiting #77, drop their remaining attempts, and — since `confirmed` renders as
+ * "the recipient has received and spent this private note" — claim a note the
+ * recipient may never see was spent. `confirmed` stays exclusive to the nullifier.
+ * What the rejection IS good for is not raising a false alarm: the original relay
+ * demonstrably reached the transport, so the row must not be downgraded to
+ * `undelivered` either.
  *
  * Either way the recipient's next fetch is no worse off, and the hint is re-derived
  * from the note's stored `expected_height` on every call, so a late re-push is as
@@ -177,13 +191,18 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
     }
 
     if (row.nextRelayAt === undefined) {
-      // First sighting: arm the schedule and leave. The original relay just happened
-      // (or is the reason this row is here at all), so pushing again in the same
-      // breath would spend an attempt against identical conditions and prove
-      // nothing. Attempts start at 1 to count that original relay.
+      // First sighting: arm the schedule and leave. Pushing again in the same breath
+      // as the original relay would spend an attempt against identical conditions and
+      // prove nothing. Attempts start at 1 to count that original relay.
+      //
+      // The delay is measured from the SEND, not from now, because "the original
+      // relay just happened" is only true when the row is fresh. A row first sighted
+      // hours later — the wallet was closed, or this is the first sync since — has
+      // already served the wait, and arming another one from now would push its only
+      // attempts toward the far end of `RELAY_WINDOW_SECONDS`, or past it.
       await Repo.transactions.where({ id: row.id }).modify(tx => {
         tx.relayAttempts = row.relayAttempts ?? 1;
-        tx.nextRelayAt = nowSeconds() + backoffFor(1);
+        tx.nextRelayAt = Math.max(nowSeconds(), (row.initiatedAt ?? nowSeconds()) + backoffFor(1));
       });
       continue;
     }
@@ -206,6 +225,8 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       console.warn('[noteDeliverySweep] could not read delivery receipt; re-pushing anyway', {
         txId: row.id,
         noteId: target.noteId,
+        attempts: (row.relayAttempts ?? 1) + 1,
+        priorState: row.noteDelivery,
         error
       });
     }
@@ -280,5 +301,19 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       tx.relayAttempts = attempts;
       tx.nextRelayAt = nowSeconds() + backoffFor(attempts);
     });
+
+    if (attempts >= MAX_RELAY_ATTEMPTS) {
+      // Last attempt: the row drops out of the candidate set after this, so nothing
+      // will look at it again — not even the nullifier check that could still have
+      // retired it as `confirmed`. Say so once, here, because `relayed` renders as
+      // nothing at all in history: without this line, a note the transport holds and
+      // nobody ever consumed leaves no trace anywhere of having been given up on.
+      console.warn('[noteDeliverySweep] attempts exhausted; no further re-push or receipt check', {
+        txId: row.id,
+        noteId: target.noteId,
+        attempts,
+        finalState: outcome
+      });
+    }
   }
 };
