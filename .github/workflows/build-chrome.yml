@@ -82,11 +82,15 @@ jobs:
           NODE_ENV: production
         run: yarn build:chrome
 
+      - name: Resolve artifact version
+        id: artifact_version
+        uses: ./.github/actions/artifact-version
+
       - name: Compute artifact name
         id: name
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION="${{ steps.artifact_version.outputs.version }}"
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           FILE="MidenWallet.${VERSION}.${ENV_CAP}.zip"
