@@ -1090,6 +1090,43 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('does NOT requeue a lock-recovery eviction that lands alongside a stale locked auth reason (#775)', async () => {
+    // The locked-defer branch is reached by an OR: the error looks locked, OR
+    // the client's ambient `lastAuthError()` says 'locked'. The second disjunct
+    // never looks at the error at all, so a WasmClientPoisonedError arriving
+    // while that ambient reason is set would take the defer path — which
+    // requeues the row as a fresh write on the argument that a locked vault is
+    // strictly pre-submit. An eviction is precisely the failure where that does
+    // not hold: the abandoned pipeline runs on and can still submit, so
+    // requeueing a send is a second payment.
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw new WasmClientPoisonedError('watchdog');
+      return fn();
+    });
+    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
+
+    txStore.push({
+      id: 'tx-poisoned-not-locked',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    // Terminal, and never returned to the queue.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
+
+    sdk.withWasmClientLock = origLock;
+  });
+
   it('leaves a Guardian tx Queued (not Failed) when the wallet is locked at consume time (#313)', async () => {
     // A background Guardian consume that runs while the wallet is locked hits
     // `isGuardianAccount` → `guardianProvider.getAccounts()` first, which throws

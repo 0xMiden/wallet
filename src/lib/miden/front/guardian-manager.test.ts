@@ -6,6 +6,8 @@
 
 import { WalletType } from 'screens/onboarding/types';
 
+// The real (dependency-free) poison module — guardian-manager reads the client
+// generation from it, so a test can simulate a lock recovery by bumping it.
 import {
   clearGuardianCache,
   clearGuardianServiceFor,
@@ -13,6 +15,7 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from './guardian-manager';
+import { bumpWasmClientGeneration } from '../sdk/wasm-client-poison';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('./storage', () => ({
@@ -187,6 +190,79 @@ describe('guardian-manager', () => {
 
       resolveInit(service);
       await expect(Promise.all([first, second])).resolves.toEqual([service, service]);
+    });
+
+    // Issue #775: lock recovery replaces the WASM client under a cached service.
+    // The service holds the SDK `Account` handle it was built from, so after a
+    // recovery every call it makes throws — and the guardian sync would keep
+    // using it every ~3s until a reload, turning a transparent recovery into a
+    // permanently broken guardian account.
+    it('rebuilds a cached service after a WASM lock recovery replaced the client', async () => {
+      const stale = { guardianEndpoint: 'https://default.guardian.test', tag: 'pre-recovery' };
+      const fresh = { guardianEndpoint: 'https://default.guardian.test', tag: 'post-recovery' };
+      mockMultisigServiceInit.mockResolvedValueOnce(stale).mockResolvedValueOnce(fresh);
+      const provider = makeProvider([guardianAccount]);
+
+      expect(await getOrCreateMultisigService(GUARDIAN_PK, provider)).toBe(stale);
+
+      bumpWasmClientGeneration();
+
+      // Nothing about the endpoint or hot key drifted — only the client did.
+      expect(await getOrCreateMultisigService(GUARDIAN_PK, provider)).toBe(fresh);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not cache a service whose client was replaced while it was initializing', async () => {
+      const midInit = { guardianEndpoint: 'https://default.guardian.test', tag: 'built-on-dead-client' };
+      const rebuilt = { guardianEndpoint: 'https://default.guardian.test', tag: 'rebuilt' };
+      let resolveInit!: (value: unknown) => void;
+      mockMultisigServiceInit
+        .mockReturnValueOnce(
+          new Promise(resolve => {
+            resolveInit = resolve;
+          })
+        )
+        .mockResolvedValueOnce(rebuilt);
+      const provider = makeProvider([guardianAccount]);
+
+      const inflight = getOrCreateMultisigService(GUARDIAN_PK, provider);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      // Recovery lands while the init is still in flight, so the service it is
+      // about to resolve is already bound to the dead client.
+      bumpWasmClientGeneration();
+      resolveInit(midInit);
+      // Its own caller still gets it — and fails on its next WASM call, exactly
+      // as every other in-flight user of that client does.
+      expect(await inflight).toBe(midInit);
+
+      expect(await getOrCreateMultisigService(GUARDIAN_PK, provider)).toBe(rebuilt);
+    });
+
+    it('does not coalesce a post-recovery caller onto an init started before the recovery', async () => {
+      const preRecovery = { guardianEndpoint: 'https://default.guardian.test', tag: 'pre' };
+      const postRecovery = { guardianEndpoint: 'https://default.guardian.test', tag: 'post' };
+      let resolveFirst!: (value: unknown) => void;
+      mockMultisigServiceInit
+        .mockReturnValueOnce(
+          new Promise(resolve => {
+            resolveFirst = resolve;
+          })
+        )
+        .mockResolvedValueOnce(postRecovery);
+      const provider = makeProvider([guardianAccount]);
+
+      const first = getOrCreateMultisigService(GUARDIAN_PK, provider);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      bumpWasmClientGeneration();
+
+      // The next guardian tick must start its own init rather than adopting the
+      // one already building on the client that just died.
+      const second = getOrCreateMultisigService(GUARDIAN_PK, provider);
+      resolveFirst(preRecovery);
+
+      expect(await first).toBe(preRecovery);
+      expect(await second).toBe(postRecovery);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
     it('throws when the account is not of type Guardian', async () => {

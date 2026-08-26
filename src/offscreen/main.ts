@@ -46,6 +46,7 @@ import {
   b64ToBytes,
   bytesToB64,
   decodeArg,
+  errorNameOf,
   type OffscreenCallRequest,
   type OffscreenConnectivityEvent,
   type OffscreenOpStarted,
@@ -56,11 +57,19 @@ import {
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
-import { withWasmClientLock, yieldWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  type WasmLockHold,
+  getCurrentWasmLockHold,
+  onWasmClientPoisoned,
+  withWasmClientLock,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock
+} from 'lib/miden/sdk/miden-client';
 import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -316,6 +325,44 @@ function newSignId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * Per-client liveness for the sign stub (issue #775).
+ *
+ * `currentOpId` is a module global, so clearing it at eviction only covers the
+ * window before a SUCCESSOR op sets its own — after that, an abandoned
+ * dispatch's mid-execute sign would read the successor's id and look perfectly
+ * well-formed. The corpse and the successor cannot be told apart by the id;
+ * they CAN be told apart by the client, because recovery rebuilds it. So each
+ * created client gets its own sign closure over its own liveness token, and
+ * poisoning marks that token: the corpse's sign then fails on its own identity
+ * no matter whose id is ambient.
+ */
+type SignLiveness = { poisoned: boolean };
+
+/**
+ * Liveness of the most recently CREATED client — the one to mark on poison.
+ *
+ * Deliberately not "the one in `clientPromise`": `reloadEndpointOverrides()`
+ * clears that slot without touching this, so between a reload and the next
+ * `getOrCreateClient()` this names a client no longer installed. That is still
+ * the right target, because it is the client any in-flight dispatch is running
+ * on, and a trap aborts the WASM module they all share.
+ */
+let currentSignLiveness: SignLiveness | null = null;
+
+const makeOffscreenSignViaSW =
+  (liveness: SignLiveness) =>
+  async (publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> => {
+    if (liveness.poisoned) {
+      // This client was displaced by lock recovery, so whoever is calling is an
+      // abandoned dispatch (issue #775). Its signature would be attributed to
+      // whichever op holds the lock NOW — pausing that op's write deadline and
+      // letting this failure land in the successor's `locked` slot.
+      throw new Error('offscreen sign: this client was poisoned by WASM lock recovery');
+    }
+    return offscreenSignViaSW(publicKey, signingInputs);
+  };
+
 async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Array): Promise<Uint8Array> {
   const op_id = currentOpId;
   if (!op_id) {
@@ -350,9 +397,17 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 //
 // The staged send drives execute → prove → submit itself so the UI can time each
 // step; those stamps live on the SW's transaction ROW, which this realm knows
-// nothing about. So the stamp reverses across the bus tagged with the ambient
-// op_id — the SAME attribution the sign stub uses — and the SW maps it back to the
-// row via the stage callback it registered for that op.
+// nothing about. So the stamp reverses across the bus tagged with an op_id, and
+// the SW maps it back to the row via the stage callback it registered for that op.
+//
+// The op_id is PASSED IN, captured once per dispatch (see `dispatchContext`) —
+// deliberately not read from the ambient `currentOpId` at post time, which the
+// sign stub has to do because the SDK invokes it with no context of its own. A
+// stamp is not attribution-neutral: `stageStampFor` turns a 'submitting' stamp
+// into `markMayHaveSubmitted(txId)`, so an evicted dispatch that kept running
+// and stamped under the ambient id would mark the SUCCESSOR's row as
+// possibly-broadcast and make the wallet refuse to retry a send that never
+// happened (issue #775).
 //
 // Three ways this deliberately differs from `offscreenSignViaSW`, all because a
 // stamp is telemetry and a signature is the transaction:
@@ -361,14 +416,18 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 //   2. NEVER THROWS. A `sendMessage` that rejects (no receiver) or throws
 //      synchronously (a torn-down port) is swallowed — losing a stamp costs one
 //      blank duration in the UI; throwing here would fail a funds-moving send.
-//   3. A MISSING ambient op_id is skipped, not fatal. Signing fails loud without
-//      one because an untagged signature is a bug; an untagged stamp is simply
+//   3. A MISSING op_id is skipped, not fatal. Signing fails loud without one
+//      because an untagged signature is a bug; an untagged stamp is simply
 //      undeliverable, so there is nothing to do but drop it.
-function postStageEvent(stage: ITransactionStage): void {
-  // Read at POST time (not captured at dispatch) so the stamp always carries the
-  // id of the op actually executing.
-  const op_id = currentOpId;
-  if (!op_id) return;
+//
+// A stamp from a dispatch that has already SETTLED is dropped too. Binding the
+// id fixes attribution but not time: an evicted dispatch keeps running, and a
+// stamp it fires afterwards is correctly addressed to a row the SW has already
+// moved past — 'proving' arriving after the row completed would rewind the UI,
+// and 'submitting' would set may-have-submitted on a row already adjudicated.
+function postStageEvent(context: DispatchContext, stage: ITransactionStage): void {
+  const { op_id } = context;
+  if (!op_id || context.settled) return;
   const event: OffscreenStageEvent = { target: SW_TARGET, type: OFFSCREEN_STAGE_EVENT, op_id, stage };
   try {
     // `Promise.resolve(...)` tolerates a mock/polyfilled sendMessage that returns a
@@ -397,6 +456,49 @@ function postStageEvent(stage: ITransactionStage): void {
  * entry serializes its own result so the transport only base64-encodes bytes
  * (design §1.4 rule 1: pass `serialize()` bytes where the SDK exposes them). */
 type DispatchFn = (client: MidenClientInterface, ...args: any[]) => Promise<Uint8Array | null>;
+
+/**
+ * One dispatch's own identity: the op it serves and the WASM lock hold it runs
+ * under, plus whether it has settled.
+ *
+ * It exists because none of the three can be read safely later. `currentOpId` is
+ * overwritten by the next op, and `getCurrentWasmLockHold()` returns whoever
+ * holds the mutex NOW — which for an evicted dispatch that kept running is the
+ * successor. Anything read at that point silently belongs to somebody else: a
+ * stage stamp lands on the successor's row, and a watchdog pause silences the
+ * successor's backstop (issue #775).
+ */
+type DispatchContext = {
+  readonly op_id: string;
+  readonly hold: WasmLockHold | null;
+  /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
+  settled: boolean;
+};
+
+/**
+ * The context of the dispatch currently being STARTED. Published by `handleCall`
+ * immediately before it invokes the dispatch, with no await in between, so a
+ * dispatch that takes it in its own first synchronous statement provably gets
+ * its OWN identity.
+ */
+let startingDispatch: DispatchContext | null = null;
+
+/**
+ * Take the identity of the dispatch being started. MUST be called from a
+ * dispatch's first synchronous statement — see {@link startingDispatch}. Cleared
+ * on read so a later (invalid) call cannot pick up somebody else's identity.
+ */
+function dispatchContext(): DispatchContext {
+  const context = startingDispatch;
+  startingDispatch = null;
+  if (!context) {
+    // Only reachable if a dispatch reads this after an await, or outside
+    // `handleCall` entirely. Fail loud rather than guess an identity: guessing is
+    // exactly the bug this replaces.
+    throw new Error('offscreen dispatch: no dispatch context (read it in the first statement of the dispatch)');
+  }
+  return context;
+}
 
 const DISPATCH: Record<string, DispatchFn> = {
   getAccount: async (client, accountId: string) => {
@@ -616,6 +718,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       extraInputs: { recallBlocks?: number };
     }
   ) => {
+    // Bound to THIS op before any await, so a stamp fired late (an evicted
+    // dispatch still running) carries its own op_id rather than the successor's
+    // — see `postStageEvent` (issue #775).
+    const context = dispatchContext();
     const tx = { ...dto, amount: BigInt(dto.amount) } as unknown as SendTransaction;
     // The per-step stage stamps (PR #524) are the ONE piece of this write the
     // caller still needs mid-flight, so they reverse to the SW as they happen
@@ -627,7 +733,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // `isOffscreenAvailable()` is false (the `isInOffscreenDocument()` recursion
     // guard), so `shouldUseOffscreenProver()` returns false and the prove runs on
     // THIS doc's pooled WASM; that choice moves the prove, not the stamping.
-    const result = await client.sendTransaction(tx, postStageEvent);
+    const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
     return result.serialize() as Uint8Array;
   },
 
@@ -688,17 +794,29 @@ const DISPATCH: Record<string, DispatchFn> = {
   // boundaries itself too. Fire-and-forget (see `postStageEvent`): a lost stamp
   // costs a blank duration, never the transaction.
   guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
+    // This op's own id and lock hold, taken before any await so both are
+    // provably ours (issue #775). The hold is what keeps a pause from silencing
+    // the watchdog of whichever holder took the lock after an eviction; the id
+    // is what keeps a late 'submitting' stamp off the successor's row.
+    const context = dispatchContext();
+    const { hold } = context;
     recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
-    postStageEvent('executing');
+    postStageEvent(context, 'executing');
     recordProveTiming('guardianPipeline calling executeRequest');
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
     recordProveTiming('guardianPipeline executeRequest returned; proving');
-    postStageEvent('proving');
+    postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
       recordProveTiming('guardianPipeline proving with local prover');
-      provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+      // Local proving is deliberately unbounded — pause this realm's lock
+      // watchdog for its duration, like proveWithFallback's local attempts
+      // (#775). The delegated attempt stays on the clock.
+      provenTx = await withWasmLockWatchdogPaused(
+        () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+        hold
+      );
     } else {
       try {
         // Explicit remote prover rather than `prove({})`, and BOUNDED — the same fix
@@ -728,11 +846,14 @@ const DISPATCH: Record<string, DispatchFn> = {
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
-        provenTx = await executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() });
+        provenTx = await withWasmLockWatchdogPaused(
+          () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
+          hold
+        );
       }
     }
     recordProveTiming('guardianPipeline prove returned; submitting');
-    postStageEvent('submitting');
+    postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
     recordProveTiming('guardianPipeline submit returned; applying');
     await submittedTx.apply();
@@ -770,6 +891,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     // the sign stub reads this op's id. Local capture makes it immune to the
     // interloper also overwriting `reassertCurrentOpId`.
     const reassertOpId = reassertCurrentOpId;
+    // This op's own lock hold, taken before the first yield so it is provably
+    // ours (issue #775). Without it, a yield performed after this op had been
+    // evicted would release whichever holder owns the mutex NOW — popping a
+    // waiter into a concurrent WASM call alongside that live holder, then
+    // leaving the mutex owned by nobody when this loop reacquired. The loop is
+    // not cancelled by the eviction, so it would do that on every poll.
+    const context = dispatchContext();
+    const { hold } = context;
     const timeout = 60_000;
     const interval = 5_000;
     const start = Date.now();
@@ -792,15 +921,73 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
       // Release the offscreen WASM mutex for the WASM-free inter-poll sleep only, so
       // other ops run during it; `yieldWasmClientLock` reacquires before we resume.
-      await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)));
-      // An interloper op that ran during the sleep cleared `currentOpId`; restore it.
-      reassertOpId();
+      await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)), hold);
+      // An interloper op that ran during the sleep cleared `currentOpId`; restore
+      // it — but only while this flow still OWNS the lock. Eviction rejects the
+      // SW-side caller without stopping this loop, so a corpse keeps polling for
+      // up to a minute, and its yield no longer touches the mutex (the hold is
+      // stale), so it resumes here with a successor genuinely holding. Stamping
+      // its dead id back would route that successor's reverse-IPC sign to the
+      // wrong op — pausing a write deadline that is not the signing op's, and
+      // letting a corpse's sign failure land a `locked` reason in the successor's
+      // slot. Comparing the captured hold against the current one is the only
+      // question that distinguishes the two; `context.settled` cannot, because an
+      // evicted dispatch has NOT settled — that is what makes it a corpse.
+      if (getCurrentWasmLockHold() === context.hold) reassertOpId();
     }
   }
 };
 
 // The offscreen-owned client singleton, created lazily on first OFFSCREEN_CALL.
 let clientPromise: Promise<MidenClientInterface> | null = null;
+
+/**
+ * Drop this realm's client when lock recovery declares it poisoned (issue #775).
+ *
+ * Recovery's own `replaceClientSingletons()` reaches only `midenClientSingleton`,
+ * and this document deliberately does NOT use it — the client here is built with
+ * `signCallback` + `useWorker:false` and cached in `clientPromise` above. Without
+ * this hook recovery would release the mutex and then hand the next
+ * OFFSCREEN_CALL the very client that just trapped, so the freeze would clear
+ * and every following op would fail instead. That matters most in this realm,
+ * because this is where the writes and proves run.
+ *
+ * Clearing the slot is all that is needed to keep future callers off it —
+ * deliberately no `free()`, for the reason `reloadEndpointOverrides` documents
+ * below: a dispatch that yielded the mutex resumes on its captured reference,
+ * and terminating under it would fail an op that may still be healthy. The
+ * displaced client goes with the realm when the document closes.
+ *
+ * It is however MARKED poisoned, which is not the same thing. The client's own
+ * corpse guards key off that flag: `yieldLockUnlessDisposed` (so an evicted
+ * dispatch cannot release the successor's mutex) and the keystore sign wrapper
+ * (so an evicted dispatch reaching a sign cannot pause the successor's
+ * watchdog). Those guards are the reason an eviction in this realm is
+ * survivable, and dropping the reference alone would leave them switched off
+ * for exactly the flows that were in flight — the ones that need them.
+ *
+ * The prove-only client goes too: `OFFSCREEN_PROVE` runs on its own raw
+ * `WebClient` in this same WASM instance, so a trap that aborts the module
+ * aborts that one as well, and it is memoized with no other reset path.
+ */
+onWasmClientPoisoned(() => {
+  const poisoned = clientPromise;
+  const hadProver = prover !== null;
+  prover = null;
+  clientPromise = null;
+  // Synchronous, unlike `markPoisoned` below: the sign closure is created with
+  // the client (not resolved from it), so the guard is armed before control ever
+  // returns to an abandoned dispatch.
+  if (currentSignLiveness) currentSignLiveness.poisoned = true;
+  currentSignLiveness = null;
+  if (!poisoned && !hadProver) return;
+  console.warn(`${TAG} WASM client poisoned — dropping this realm's client so the next call rebuilds`);
+  // Marking needs the resolved instance, so it lands a microtask later than the
+  // synchronous drop above. A create still in flight resolves to a client built
+  // on the poisoned module, which is equally untrustworthy; a rejected one has
+  // nothing to mark.
+  void poisoned?.then(client => client.markPoisoned()).catch(() => {});
+});
 function getOrCreateClient(): Promise<MidenClientInterface> {
   if (!clientPromise) {
     // Created with two Slice-5 overrides vs. the SW's plain singleton:
@@ -828,17 +1015,33 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     // Guarded on identity so a late rejection can only clear ITS OWN slot: a reload
     // that lands while this create is in flight already replaced the slot, and
     // blindly nulling would discard that healthy successor too.
+    // One liveness token per created client, so poisoning can switch off THIS
+    // client's sign without touching a successor's (issue #775).
+    const liveness: SignLiveness = { poisoned: false };
+    currentSignLiveness = liveness;
+    const startedGeneration = wasmClientGeneration();
     recordProveTiming('getOrCreateClient: creating the offscreen client');
     const created: Promise<MidenClientInterface> = ensureEndpointOverrides()
       .then(() =>
         MidenClientInterface.create({
-          signCallback: offscreenSignViaSW,
+          signCallback: makeOffscreenSignViaSW(liveness),
           useWorker: false
         })
       )
-      .then(instance => {
+      .then(client => {
         recordProveTiming('getOrCreateClient: client created');
-        return instance;
+        // A poisoning that lands while this create is in flight nulls the memo
+        // synchronously, but a dispatch already awaiting THIS promise is ahead
+        // of the poison hook's own `.then(markPoisoned)` in the microtask queue
+        // — it would receive a live, unmarked client built on the poisoned
+        // module, and its disposed-keyed guards (`yieldLockUnlessDisposed`, the
+        // sign/prove pauses) would all read "healthy". Mark BEFORE resolving,
+        // keyed on the cross-module generation both replace paths bump, so no
+        // awaiter can ever observe the client unmarked (issue #775).
+        if (wasmClientGeneration() !== startedGeneration) {
+          client.markPoisoned();
+        }
+        return client;
       })
       .catch((err: unknown) => {
         if (clientPromise === created) clientPromise = null;
@@ -903,9 +1106,9 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
-    recordProveTiming(`call '${msg.method}' init ready; getting client`);
-    const client = await getOrCreateClient();
-    recordProveTiming(`call '${msg.method}' client ready; awaiting WASM mutex`);
+    // NOTE: the client is deliberately NOT resolved here — it is resolved inside
+    // the lock below, at execution start (issue #775).
+    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     const args = msg.argsB64.map(decodeArg);
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
@@ -914,7 +1117,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
-    const resultBytes = await withWasmClientLock(async () => {
+    const resultBytes = await withWasmClientLock(async hold => {
+      // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
+      // would pin this op to the client that was current when it arrived — and
+      // the ops most likely to be queued are the ones waiting behind the holder
+      // that just trapped, so every one of them would run on the poisoned client
+      // the poison hook had already dropped (issue #775). Same reasoning as the
+      // ambient op_id below: what matters is the state at EXECUTION start.
+      recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
+      const client = await getOrCreateClient();
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
@@ -935,11 +1146,24 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // non-promise; the response is intentionally ignored.
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
       void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
-      recordProveTiming(`call '${msg.method}' won WASM mutex; dispatching`);
+      recordProveTiming(`call '${msg.method}' client ready; dispatching`);
+      // Published for the dispatch to take in its first statement — the only
+      // point at which "the op that owns this hold" is knowable (issue #775).
+      // No await between here and the call, so what it takes is provably ours.
+      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      startingDispatch = context;
       try {
         return await dispatch(client, ...args);
       } finally {
-        currentOpId = null;
+        // Closes the window for late stage stamps: whatever the dispatch does
+        // after this point, its stamps are about a step the SW has already been
+        // told the outcome of (see `postStageEvent`).
+        context.settled = true;
+        // Only if it is still OURS. An evicted dispatch keeps running and can
+        // settle long after a successor installed its own id; clearing blindly
+        // would leave the healthy successor with no ambient id, so its
+        // mid-execute sign would fail on the no-ambient-id guard (issue #775).
+        if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
     });
@@ -951,7 +1175,28 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
-    recordProveTiming(`call '${msg?.method}' FAILED ${String((err as { message?: string })?.message ?? err)}`);
+    // Telemetry must survive a hostile thrown value whose every getter throws
+    // (the same reason the error extraction below is guarded) — a crash here
+    // would swallow the SW's error response entirely.
+    let failDetail = 'unreadable error';
+    try {
+      failDetail = String((err as { message?: string })?.message ?? err);
+    } catch {
+      /* keep the placeholder */
+    }
+    recordProveTiming(`call '${msg?.method}' FAILED ${failDetail}`);
+    // A lock-recovery eviction rejects the WAITER while the dispatch runs on, so
+    // the `finally` that clears the ambient id never ran and this op's id is
+    // still installed (issue #775). The next op overwrites it with its own, and
+    // the abandoned dispatch's sign would then be tagged with the SUCCESSOR's
+    // op_id — pausing that op's write deadline, and letting a corpse's sign
+    // failure write a `locked` reason into the successor's slot, which the SW
+    // re-tags onto the successor's own error. Clear it while it is still
+    // provably ours; a corpse sign then fails loudly on the no-ambient-id guard.
+    if (currentOpId === msg?.op_id) {
+      currentOpId = null;
+      reassertCurrentOpId = () => {};
+    }
     // Preserve the SDK's stable error code when it sets one (issue #260,
     // funds-critical). The offscreen client runs `useWorker:false`, so a failed
     // write throws the RAW main-thread JsError — extract the code with the SAME
@@ -962,11 +1207,38 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // round trip classify identically to flag-off (marked Completed, NOT Failed →
     // requeue → double-spend). `undefined` for a code-less error keeps the reply
     // shape unchanged (mirrors the flag-off path).
+    const errorName = errorNameOf(err);
+    // Guarded for the same reason `errorName` is: both reads touch a value of
+    // unknown provenance, and `message` can be an accessor that throws just as
+    // `name` can. A throw escaping here skips `sendResponse` entirely, which the
+    // SW cannot distinguish from a wedged realm — it waits out the per-op
+    // deadline and closes the document rather than getting the failure it is
+    // owed. A placeholder string is worth strictly more than that.
+    let error = 'offscreen call failed (error details unreadable)';
+    let errorCode: string | undefined;
+    try {
+      error = String((err as { message?: string })?.message ?? err);
+      errorCode = extractSdkErrorCode(err);
+    } catch {
+      /* unreadable error object — the reply below still carries the class */
+    }
     sendResponse({
       ok: false,
       op_id: msg?.op_id,
-      error: String((err as { message?: string })?.message ?? err),
-      errorCode: extractSdkErrorCode(err)
+      error,
+      errorCode,
+      // The error CLASS, for the classifications that key off it rather than off
+      // a code — today `WasmClientPoisonedError` from this realm's own lock
+      // recovery (issue #775). Without it the SW rebuilds a bare `Error` and
+      // treats an abandoned-but-possibly-still-submitting op as an ordinary
+      // failure.
+      errorName,
+      // Read off the ALREADY-GUARDED name rather than re-classifying `err`:
+      // `isWasmClientPoisonedError` reads `.name` unguarded, and a foreign
+      // object with a throwing accessor would escape this catch — leaving the
+      // SW with no reply at all, waiting out its deadline instead of getting
+      // the failure it is owed. `errorNameOf` exists for exactly that reason.
+      errorReason: errorName === 'WasmClientPoisonedError' ? poisonReasonOf(err) : undefined
     });
   }
 }

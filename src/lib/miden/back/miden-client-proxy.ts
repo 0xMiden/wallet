@@ -27,6 +27,7 @@ import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { InputNoteDetails, RecoveryRangeResult } from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
+import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
@@ -395,6 +396,24 @@ function finishOp(op_id: string, resp: OffscreenCallResponse | undefined): void 
     // even though web-sdk 0.16 attaches no code for that variant. Shared by all four
     // writes via `dispatchOffscreenWrite`/this single choke point. A code-less failure
     // (`undefined`) leaves the error untagged, exactly as before.
+    //
+    // A lock-recovery eviction inside the offscreen realm is rebuilt as the same
+    // TYPE it was thrown as (issue #775). It has to be: that error means "the op
+    // was abandoned, outcome unknown", and the classifiers that act on it —
+    // `tryCompleteKilledConsume`'s node adjudication, and the may-have-submitted
+    // crossing in `cancelTransactionAfterPipelineStopped` — key off the class,
+    // not off a code. Arriving as a bare `Error` it read as an ordinary failure,
+    // which for a send lets Retry mint a second payment while the abandoned
+    // offscreen op is still able to submit. Same argument as `finishOpError`'s.
+    if (resp.errorName === 'WasmClientPoisonedError') {
+      // `errorReason` names the mechanism that fired in the offscreen realm; an
+      // older/garbled payload without a recognizable one is still an eviction,
+      // so fall back to the mechanism that bounds every wedge rather than
+      // dropping the classification.
+      const reason = isWasmClientPoisonReason(resp.errorReason) ? resp.errorReason : 'watchdog';
+      op.reject(new WasmClientPoisonedError(reason, new Error(resp.error)));
+      return;
+    }
     const err = new Error(`Offscreen call '${op.method}' failed: ${resp.error}`);
     if (resp.errorCode !== undefined) (err as { errorCode?: string }).errorCode = resp.errorCode;
     op.reject(err);

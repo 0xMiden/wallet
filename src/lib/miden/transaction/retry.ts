@@ -236,10 +236,11 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
  * actually resolve it — see `RetryOptions.acknowledgeUnverifiedSend`.
  */
 export class UnverifiableSendRetryError extends Error {
-  constructor() {
+  constructor(message?: string) {
     super(
-      'This send may already have reached the network, and there is no way to confirm it. ' +
-        'Retrying could send it twice. Check your balance first — if it did not go through, you can retry anyway.'
+      message ??
+        'This send may already have reached the network, and there is no way to confirm it. ' +
+          'Retrying could send it twice. Check your balance first — if it did not go through, you can retry anyway.'
     );
     this.name = 'UnverifiableSendRetryError';
   }
@@ -340,12 +341,25 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
   // before submitting" from "submitted and lost the answer", but the user can —
   // the funds either left their balance or they did not. A refusal with no exit
   // is what makes people re-send by hand, i.e. the double payment this prevents.
+  const pipelineStillLive = pipelineMayStillBeRunning(tx.cancelledInFlightAt);
   if (
     REBUILT_REQUEST_TYPES.includes(tx.type) &&
     tx.requestBytes === undefined &&
     tx.transactionId === undefined &&
-    (tx.mayHaveSubmitted === true || pipelineMayStillBeRunning(tx.cancelledInFlightAt) || isSubmitOutcomeUnknown(tx))
+    (tx.mayHaveSubmitted === true || pipelineStillLive || isSubmitOutcomeUnknown(tx))
   ) {
+    // An acknowledgement can rule out the PAST — the user checked their balance
+    // — but not the FUTURE: while the liveness window is open, an ABANDONED
+    // pipeline (a lock-recovery eviction, issue #775) may still submit after
+    // they answer, so their truthful "it never arrived" goes stale. Refuse
+    // absolutely until the window lapses; the acknowledgement exit below then
+    // applies as before.
+    if (pipelineStillLive) {
+      throw new UnverifiableSendRetryError(
+        'This send may still be finishing in the background, so retrying now could send it twice. ' +
+          'Wait a few minutes, check your balance, and retry then.'
+      );
+    }
     if (!options.acknowledgeUnverifiedSend) {
       throw new UnverifiableSendRetryError();
     }

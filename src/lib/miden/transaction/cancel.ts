@@ -22,6 +22,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -147,9 +148,56 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * ordinary failure, including the vault-slot rejection this release fixes, is not
  * an aborted op and still rebuilds.
  */
+/**
+ * Stages a row can be in where NO write has been built yet, so an abandoned
+ * pipeline provably cannot submit (issue #775).
+ *
+ * `generateTransaction`'s first act is a locked `syncState()`, taken while the
+ * row still reads 'syncing' — 'sending' is only stamped once that sync returns.
+ * That sync has no JS-level timeout, which makes it one of the likeliest places
+ * for a watchdog eviction to land, and it is unambiguously pre-write.
+ *
+ * Deliberately a one-element list rather than a general "is this before submit"
+ * test. `mayHaveSubmitted` is permanent and `requeueFailedTransaction` refuses
+ * on it, so a wrong "cleared" is a double payment while a wrong "recorded" is
+ * only a refused Retry. Every stage whose pre-write property is not provable
+ * from the stage alone therefore keeps recording.
+ */
+const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
+
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
-  if (tx.type === 'send' && isOperationAbortedError(error)) {
+  // A lock-recovery eviction (issue #775) is treated like an offscreen
+  // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
+  // submit — so the crossing must be recorded, never cleared. EXCEPT where the
+  // row never got as far as building a write: recording there would permanently
+  // refuse Retry on a send that demonstrably never touched the chain, which is
+  // the cost a false-positive eviction would otherwise impose.
+  //
+  // The stage comes from the COMMITTED row, not from `tx`: callers pass the
+  // snapshot they picked the transaction up with, which still carries the stage
+  // it held at pickup rather than the one the failure happened in.
+  let abandonedPreWrite = false;
+  if (isWasmClientPoisonedError(error)) {
+    const committed = await Repo.transactions.where({ id: tx.id }).first();
+    abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '');
+  }
+  if (
+    tx.type === 'send' &&
+    !abandonedPreWrite &&
+    (isOperationAbortedError(error) || isWasmClientPoisonedError(error))
+  ) {
     await markMayHaveSubmitted(tx.id);
+    if (isWasmClientPoisonedError(error)) {
+      // A poison eviction ABANDONS the pipeline — unlike an offscreen kill it
+      // may still submit AFTER this row is Failed, so the permanent crossing
+      // above is not enough: the user's acknowledgement ("it never arrived")
+      // can be true when given and wrong a minute later. Stamp the TIME-BOUNDED
+      // liveness marker too; the retry guard refuses even an acknowledged retry
+      // until the pipeline provably cannot still be running. Ordered before
+      // `cancelTransaction` below, while the row is still in-flight, because
+      // this marker's writer refuses terminal rows.
+      await markCancelledInFlight(tx.id);
+    }
   } else {
     await clearCancelledInFlight(tx.id);
   }

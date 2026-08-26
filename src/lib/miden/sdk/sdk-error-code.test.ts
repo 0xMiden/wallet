@@ -91,4 +91,16 @@ describe('isApplyAfterSubmitError', () => {
     err.cause = err;
     expect(isApplyAfterSubmitError(err)).toBe(false);
   });
+
+  it('never classifies a lock-recovery poison error as apply-after-submit, even via its cause chain (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // The poison error's own message is a closed set, but its `cause` carries
+    // the raw realm error verbatim — and this classifier walks the cause chain.
+    // Misclassifying here writes a never-submitted row as Completed.
+    const trapWithSdkText = new Error(
+      "Transaction 0xabc was accepted into the node's mempool at block 5 but the local store update failed."
+    );
+    expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
+    expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
 });

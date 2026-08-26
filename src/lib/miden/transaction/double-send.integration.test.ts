@@ -589,6 +589,53 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('wedged')).mayHaveSubmitted).toBe(true);
   });
 
+  it('records a lock-recovery eviction (WasmClientPoisonedError) as a real crossing too — the pipeline was abandoned, not stopped', async () => {
+    // Issue #775: a watchdog eviction rejects the caller but cannot cancel the
+    // operation, which may still reach submit. Clearing the in-flight marker
+    // here would let Retry mint a second payment while the abandoned pipeline
+    // completes the first.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('wedged-poison', { stage: 'sending', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('wedged-poison'), new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('wedged-poison')).mayHaveSubmitted).toBe(true);
+  });
+
+  it('does NOT record a crossing for an eviction during the pre-write sync — that send provably never built one', async () => {
+    // Issue #775. `generateTransaction`'s first act is a locked `syncState()`,
+    // taken while the row still reads 'syncing' — an untimed call, so one of the
+    // likeliest places for a watchdog eviction to land. `mayHaveSubmitted` is
+    // permanent and Retry refuses on it, so recording it here would brick the
+    // user's retry on a send that demonstrably never touched the chain.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('poison-presync', { stage: 'syncing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('poison-presync'), new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('poison-presync')).mayHaveSubmitted).toBeFalsy();
+  });
+
+  it('reads the stage from the COMMITTED row, not the caller snapshot, when deciding', async () => {
+    // Callers pass the row they picked the transaction up with, which still
+    // carries the stage it held at pickup rather than the one the failure
+    // happened in. A stale 'syncing' snapshot must not clear a crossing for a
+    // row that has since reached 'sending'.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    const tx = inFlightSend('poison-stale-snapshot', { stage: 'syncing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+    const staleSnapshot = await read('poison-stale-snapshot');
+    await Repo.transactions.where({ id: 'poison-stale-snapshot' }).modify(row => {
+      row.stage = 'sending';
+    });
+
+    await cancelTransactionAfterPipelineStopped(staleSnapshot, new WasmClientPoisonedError('watchdog'));
+
+    expect((await read('poison-stale-snapshot')).mayHaveSubmitted).toBe(true);
+  });
+
   it('refuses the retry rather than minting a second payment', async () => {
     const tx = inFlightSend('wedged-retry', { stage: 'sending', requestBytes: undefined });
     await Repo.transactions.add(tx);
@@ -780,7 +827,7 @@ describe('the marker is measured on the same clock as the threshold it is bounde
     globalThis.__testHiddenSeconds = WALL - 100;
     await Repo.transactions.add(cancelledAgo(WALL));
 
-    await expect(requeueFailedTransaction('phone')).rejects.toThrow(/may already have reached the network/);
+    await expect(requeueFailedTransaction('phone')).rejects.toThrow(/may still be finishing/);
   });
 
   it('lets the same elapsed wall clock lapse when none of it was frozen', async () => {
@@ -828,7 +875,7 @@ describe('the marker is measured on the same clock as the threshold it is bounde
       })
     );
 
-    await expect(requeueFailedTransaction('skewed-small')).rejects.toThrow(/may already have reached the network/);
+    await expect(requeueFailedTransaction('skewed-small')).rejects.toThrow(/may still be finishing/);
   });
 });
 
@@ -886,7 +933,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     const row = await read('reaped');
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.cancelledInFlightAt).toBeDefined();
-    await expect(requeueFailedTransaction('reaped')).rejects.toThrow(/may already have reached the network/);
+    await expect(requeueFailedTransaction('reaped')).rejects.toThrow(/may still be finishing/);
   });
 
   // The marker expiring is no longer enough on its own. It retires the precise
@@ -914,6 +961,49 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
 
     await requeueFailedTransaction('reaped-later', { acknowledgeUnverifiedSend: true });
     expect((await read('reaped-later')).status).toBe(ITransactionStatus.Queued);
+  });
+
+  // Issue #775, F-062: a poison eviction ABANDONS the pipeline — it can still
+  // submit AFTER the user answers the acknowledgement dialog, so the user's
+  // "it never arrived" is true at the moment they say it and wrong a minute
+  // later. The poison arm therefore stamps the TIME-BOUNDED liveness marker
+  // alongside the permanent crossing, and while that window is open even an
+  // acknowledged retry is refused.
+  it('a poison-cancelled send carries the liveness marker, and even an acknowledged retry is refused while it is live', async () => {
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    await Repo.transactions.add(inFlightSend('poison-live', { stage: 'proving', requestBytes: undefined }));
+
+    await cancelTransactionAfterPipelineStopped(await read('poison-live'), new WasmClientPoisonedError('watchdog'));
+
+    const row = await read('poison-live');
+    expect(row.mayHaveSubmitted).toBe(true);
+    expect(row.cancelledInFlightAt).toBeGreaterThan(0);
+
+    await expect(requeueFailedTransaction('poison-live', { acknowledgeUnverifiedSend: true })).rejects.toMatchObject({
+      name: 'UnverifiableSendRetryError'
+    });
+    // Refused means refused: the markers survive for the next attempt.
+    const after = await read('poison-live');
+    expect(after.status).toBe(ITransactionStatus.Failed);
+    expect(after.mayHaveSubmitted).toBe(true);
+    expect(after.cancelledInFlightAt).toBeGreaterThan(0);
+  });
+
+  it('once the poison liveness window lapses, the acknowledged retry proceeds and clears the markers', async () => {
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    await Repo.transactions.add(inFlightSend('poison-lapsed', { stage: 'proving', requestBytes: undefined }));
+    await cancelTransactionAfterPipelineStopped(await read('poison-lapsed'), new WasmClientPoisonedError('watchdog'));
+
+    await Repo.transactions.where({ id: 'poison-lapsed' }).modify(r => {
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
+    });
+
+    await expect(requeueFailedTransaction('poison-lapsed')).rejects.toThrow(/may already have reached the network/);
+    await requeueFailedTransaction('poison-lapsed', { acknowledgeUnverifiedSend: true });
+    const after = await read('poison-lapsed');
+    expect(after.status).toBe(ITransactionStatus.Queued);
+    expect(after.mayHaveSubmitted).toBeUndefined();
+    expect(after.cancelledInFlightAt).toBeUndefined();
   });
 });
 
@@ -952,8 +1042,11 @@ describe('a refused send is not a dead end', () => {
   // would refuse the next retry for a crossing that has been disproved.
   it('clears the markers rather than bypassing them', async () => {
     await refused('ack-3');
+    // Lapsed, not live: while the liveness window is open even an acknowledged
+    // retry is refused (issue #775 — the abandoned pipeline may still submit
+    // after the user answers), so the clearing path is only reachable past it.
     await Repo.transactions.where({ id: 'ack-3' }).modify(r => {
-      r.cancelledInFlightAt = Math.floor(Date.now() / 1000);
+      r.cancelledInFlightAt = Math.floor(Date.now() / 1000) - (MAX_WAIT_BEFORE_CANCEL + 60);
     });
 
     await requeueFailedTransaction('ack-3', { acknowledgeUnverifiedSend: true });

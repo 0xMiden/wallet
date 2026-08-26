@@ -85,10 +85,11 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -427,7 +428,10 @@ async function reconcileStructuralApplyFailure(
  * follow-up (#3b) handles them, and this helper leaves that send-style path untouched.
  */
 async function tryCompleteKilledConsume(transaction: Transaction, error: unknown): Promise<boolean> {
-  if (!isOperationAbortedError(error)) return false;
+  // A lock-recovery eviction (issue #775) is the same shape as an offscreen
+  // deadline kill: the consume was killed from outside with its outcome
+  // unknown, so it gets the same node adjudication instead of a blind Failed.
+  if (!isOperationAbortedError(error) && !isWasmClientPoisonedError(error)) return false;
   if (transaction.type !== 'consume') return false;
   const consumeTx = transaction as ConsumeTransaction;
   if (!consumeTx.noteId) return false;
@@ -695,10 +699,20 @@ export const generateTransaction = async (
       // REQUEUEABLE_ON_PENDING_CONFLICT (a requeue would re-mint a hot key / register
       // a duplicate delta); MAX_QUEUED_AGE remains the terminal cap. The prover
       // connectivity banner explains the wait and auto-clears on the next success.
+      //
+      // A lock-recovery eviction is excluded (issue #775). The stage gate's
+      // safety argument is that 'proving' precedes submit, which holds for an
+      // error that STOPPED the pipeline — but an eviction only rejects the
+      // caller: the abandoned pipeline runs on, and can still stamp 'submitting'
+      // and submit. A delegated prove is deliberately not watchdog-paused, so it
+      // sits squarely inside the window an eviction lands in, and requeueing
+      // there would broadcast the transfer a second time. Falls through to the
+      // funds-safe terminal path instead.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
+        !isWasmClientPoisonedError(error) &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -1032,7 +1046,7 @@ const runGuardianPipeline = async (
   };
 
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
-  return withWasmClientLock(async () => {
+  return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
     await setStage('executing');
     const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
@@ -1049,7 +1063,9 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
-      provenTx = await executedTx.prove({ prover: localProver });
+      // Local proving is deliberately unbounded — pause the lock watchdog for
+      // its duration, exactly like proveWithFallback's local attempts (#775).
+      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -1084,7 +1100,7 @@ const runGuardianPipeline = async (
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await executedTx.prove({ prover: fallbackProver });
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
     await setStage('submitting');
@@ -1540,6 +1556,13 @@ const generateGuardianTransaction = async (
       }`,
       { error }
     );
+    if (isWasmClientPoisonedError(error)) {
+      // A lock-recovery eviction ABANDONED this pipeline; its transaction may
+      // still land. Abandoning the candidate would retract a co-signature the
+      // chain may be about to consume — let the next cycle's 409
+      // pending-conflict path reconcile instead (issue #775).
+      throw error;
+    }
     try {
       await service.abandonCandidate(proposalResult.nonce);
     } catch (abandonError) {
@@ -1724,8 +1747,15 @@ export const generateTransactionsLoop = async (
     // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
     // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
     // rather than marking it Failed.
+    // The poison exclusion has to sit on the WHOLE condition, not just inside
+    // `isLockedError` (issue #775). `authReason` is ambient client state, read
+    // after the fact and not derived from `e` at all, so an eviction paired with
+    // a stale `locked` reason would take the defer branch — which requeues the
+    // row as a fresh write while the abandoned pipeline can still submit,
+    // turning one send into two payments. The requeue's "strictly pre-submit"
+    // justification below is exactly what an eviction breaks.
     const authReason = await readLastAuthReason();
-    if (authReason === 'locked' || isLockedError(e)) {
+    if (!isWasmClientPoisonedError(e) && (authReason === 'locked' || isLockedError(e))) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly

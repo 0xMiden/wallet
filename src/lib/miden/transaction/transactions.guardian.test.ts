@@ -95,6 +95,7 @@ jest.mock('lib/miden/guardian', () => ({
 }));
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
+const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
 // Match the relative path used by transactions.ts so the mock intercepts.
@@ -104,6 +105,7 @@ const mockCreateWasmWebClient = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+  withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
 
@@ -1699,11 +1701,75 @@ describe('generateTransaction — Guardian routing', () => {
     expect(client.transactions.prove).toHaveBeenNthCalledWith(2, result, { prover: 'local-prover' });
     expect(TransactionProver.newLocalProver).toHaveBeenCalledTimes(1);
     expect(TransactionProver.newCallbackProver).not.toHaveBeenCalled();
+    // The local fallback prove is unbounded by design, so it must run under a
+    // lock-watchdog pause (#775).
+    expect(mockWithWasmLockWatchdogPaused).toHaveBeenCalledTimes(1);
     // The fallback recovered the tx, so the candidate is NOT abandoned and the
     // row lands Completed rather than Failed.
     expect(abandonCandidate).not.toHaveBeenCalled();
     expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
     warnSpy.mockRestore();
+  });
+
+  it('Guardian send: a lock-recovery eviction does NOT abandon the candidate — the abandoned pipeline may still land it (#775)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = 'send-guardian-poisoned';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const abandonCandidate = jest.fn(async () => {});
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.prove.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    ).catch(() => {});
+
+    // Abandoning retracts a candidate whose transaction may still land — the
+    // eviction abandoned the pipeline, it did not stop it. The next cycle's 409
+    // pending-conflict path reconciles instead.
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 
   it('Guardian send (delegated): a remote prover that never answers falls back on the client-side deadline (#718)', async () => {
@@ -1847,6 +1913,72 @@ describe('generateTransaction — Guardian routing', () => {
     // MAX_QUEUED_AGE terminal cap from original creation, so resetting it would
     // make a persistent outage requeue forever.
     expect(row.initiatedAt).toBe(originalInitiatedAt);
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send (delegated): a lock-recovery eviction at the prove stage is NOT requeued (#775)', async () => {
+    // Same stage and same transaction type as the prover-outage requeue above,
+    // and that is the point: the requeue's safety argument is "'proving' runs
+    // before submit, so nothing reached the chain". That holds for an error that
+    // STOPPED the pipeline. An eviction does not stop it — it rejects the caller
+    // while the abandoned pipeline runs on and can still stamp 'submitting' and
+    // submit. A delegated prove is deliberately not watchdog-paused, so it sits
+    // squarely in the window an eviction lands in; requeueing here would
+    // broadcast the same transfer a second time.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const txId = 'send-guardian-poisoned-prove';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.prove.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // Terminal, and never returned to the queue.
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
     warnSpy.mockRestore();
   });
 

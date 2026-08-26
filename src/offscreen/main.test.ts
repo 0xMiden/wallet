@@ -101,23 +101,66 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     if (next) next();
     else locked = false;
   };
-  const withWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+  // Issue #775: eviction is not cancellation. The real lock rejects the WAITER
+  // with a poisoned error and releases the mutex, while the operation keeps
+  // running — which is the only state in which a corpse and its successor are
+  // both live. `g.__off.evictHolder()` reproduces exactly that, so the offscreen
+  // behaviours that depend on it (a stamp under the corpse's own id, a sign the
+  // corpse must not get) are reachable from a test. Exported off the mock module
+  // rather than the `__off` control object, whose contents are replaced per test.
+  let evictCurrent: (() => void) | null = null;
+  // Issue #775: each hold gets an IDENTITY, mirroring the real module, because the
+  // behaviours under test turn on whether a yielding flow still owns the mutex.
+  // A single shared token cannot express that — with one, an evicted flow's yield
+  // still queues on `acquire()` and therefore can never observe a successor
+  // holding the lock, which is the entire hazard.
+  let currentHold: object | null = null;
+  const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>): Promise<T> => {
     await acquire();
-    try {
-      return await op();
-    } finally {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentHold = hold;
+    let settled = false;
+    const releaseOnce = (): void => {
+      if (settled) return;
+      settled = true;
+      if (currentHold === hold) currentHold = null;
       release();
+    };
+    const evicted = new Promise<never>((_resolve, reject) => {
+      evictCurrent = () => {
+        // The operation is deliberately NOT awaited or cancelled here.
+        releaseOnce();
+        reject(new Error('WASM client poisoned (realm-error): evicted by the test harness'));
+      };
+    });
+    try {
+      return await Promise.race([op(hold), evicted]);
+    } finally {
+      releaseOnce();
     }
+  };
+  const __evictHolder = (): void => {
+    const evict = evictCurrent;
+    evictCurrent = null;
+    if (evict) evict();
   };
   // Mirrors the real yieldWasmClientLock: release the lock, run the (WASM-free)
   // op, then reacquire before resolving — so a second op can win the lock while a
   // commit-wait sleeps, proving the yield actually releases it.
-  const yieldWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+  //
+  // A caller whose hold is no longer current has been EVICTED, and the real module
+  // then runs the op without touching the mutex at all: releasing would hand away
+  // a lock somebody else owns, and reacquiring would deadlock a flow nobody is
+  // waiting on. So an evicted flow resumes IMMEDIATELY after its sleep, while the
+  // successor still holds the lock — the window the corpse guards exist for.
+  const yieldWasmClientLock = async <T>(op: () => Promise<T>, hold?: object): Promise<T> => {
+    if (hold !== undefined && hold !== currentHold) return op();
     release();
     try {
       return await op();
     } finally {
       await acquire();
+      if (hold !== undefined) currentHold = hold;
     }
   };
   // Test hook: true while the shared lock is held (used to assert the commit-wait
@@ -126,8 +169,16 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
-    isWasmClientBusy
+    isWasmClientBusy,
+    __evictHolder,
+    getCurrentWasmLockHold: () => currentHold,
+    onWasmClientPoisoned: (listener: () => void) => {
+      g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
+      g.__off.poisonedListeners.push(listener);
+      return () => {};
+    }
   };
 });
 
@@ -322,7 +373,12 @@ function resetControl() {
     }),
     // Create options captured per MidenClientInterface.create call (slice 5).
     createOptions: [] as any[],
+    // Issue #775: recovery marks a displaced client poisoned instead of freeing
+    // it, so the client's own corpse guards keep firing for flows that still
+    // hold it.
+    clientMarkPoisoned: jest.fn(),
     getMidenClient: jest.fn(async () => ({
+      markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
       getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
       syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
       waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
@@ -1118,6 +1174,97 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       // op1 is still pending (never committed); no dangling assertion needed — the
       // realm-reset in afterEach tears it down.
       expect(r1).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('an EVICTED commit-wait stops re-asserting its op_id, so the live successor keeps its own (#775)', async () => {
+    // The mirror image of follow-up #2, and the reason that re-assert is
+    // conditional. The eviction rejects the SW-side caller but does not stop this
+    // loop — the corpse keeps polling every 5 s for up to a minute. Re-asserting
+    // unconditionally means each of those polls stamps a dead op's id over
+    // whoever is genuinely running, and the ambient id is what tags a reverse-IPC
+    // sign. The SW pauses the WRITE DEADLINE of the op a sign is tagged with, so
+    // a live write's sign attributed to the corpse leaves the real write's
+    // deadline running while it waits on the user.
+    await loadModule();
+    // AFTER loadModule: it resets the module registry, so an earlier import would
+    // hand back a different mock instance with its own lock state.
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    jest.useFakeTimers();
+    try {
+      // The corpse must be evicted while it is RUNNING and owns the lock, which
+      // is the only state eviction actually targets — a holder suspended in a
+      // yield is not the eviction target. Park its first poll to hold it there.
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      let polls = 0;
+      G.__off.clientTransactionsList = jest.fn(async () => {
+        if (++polls === 1) await firstPoll;
+        return [G.__off.pendingStatus];
+      });
+      let releaseSuccessor!: (v: unknown) => void;
+      G.__off.clientConsumeNoteId = jest.fn(
+        () =>
+          new Promise(resolve => {
+            releaseSuccessor = resolve;
+          })
+      );
+      const signOpIds: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+          signOpIds.push(m.op_id);
+          return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
+        }
+        return undefined;
+      });
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-evicted', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Evict exactly as lock recovery does: the SW-side caller's promise rejects
+      // and the mutex frees, while the poll loop carries on running.
+      miden.__evictHolder();
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(r1).toHaveBeenCalledTimes(1);
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+
+      // A live successor takes the now-free lock and parks mid-execute, so it is
+      // the genuine owner of the ambient id for the whole window that follows.
+      const r2 = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op2-live',
+          method: 'consumeNoteId',
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        }),
+        {},
+        r2
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Let the corpse out of its parked poll. Its hold is stale now, so its
+      // yield runs the sleep WITHOUT the mutex and it resumes straight into the
+      // re-assert while the successor is still holding — several polls' worth of
+      // chances to stamp its dead id over the live one.
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(15_000);
+
+      const signCb = G.__off.createOptions[0].signCallback;
+      await signCb(new Uint8Array([8]), new Uint8Array([8]));
+      expect(signOpIds).toEqual(['op2-live']);
+
+      releaseSuccessor({ serialize: () => new Uint8Array([9]) });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(r2.mock.calls[0][0].ok).toBe(true);
     } finally {
       jest.useRealTimers();
     }
@@ -2102,12 +2249,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  // The `if (!op_id) return;` guard in `postStageEvent`: an untagged stamp is
-  // undeliverable (the SW maps a stamp to its row purely through the op_id), so
-  // there is nothing to do but drop it. Deliberately NOT the loud failure the sign
-  // stub raises for the same condition — a stamp is telemetry, a signature is the
-  // transaction.
-  it('a stage stamp fired with no OFFSCREEN_CALL in flight (no ambient op_id) is dropped, not posted', async () => {
+  // The settled guard in `postStageEvent`. The stamp is addressed correctly — it
+  // carries the id of the dispatch that fired it — but it is about a step whose
+  // outcome the SW already has, and replaying it would rewind that row's stage
+  // (or, for 'submitting', re-arm may-have-submitted on a row already
+  // adjudicated). Deliberately NOT the loud failure the sign stub raises for a
+  // missing id: a stamp is telemetry, a signature is the transaction.
+  it('a stage stamp fired after its dispatch settled is dropped, not posted', async () => {
     await loadModule();
     // Capture the `onStage` hook the send dispatch hands the client, then let the
     // op finish — which clears the ambient op_id back to null.
@@ -2138,9 +2286,88 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(() => capturedOnStage!('proving')).not.toThrow();
     await flush();
 
-    // Nothing crossed the bus — in particular no event with a null/undefined op_id,
-    // which the SW would have to filter out on the far side.
+    // Nothing crossed the bus — in particular nothing addressed to a row the SW
+    // has already been told the outcome of.
     expect(posted).toEqual([]);
+  });
+
+  // The other half of the same rule (issue #775): a dispatch that is STILL
+  // RUNNING keeps stamping, and does so under its OWN id even after a successor
+  // has taken over the ambient one. Reading the ambient id at post time is what
+  // put an evicted send's 'submitting' stamp on the successor's row — and
+  // `stageStampFor` turns that into `markMayHaveSubmitted`, so the wallet
+  // refused to retry a send that had never been broadcast.
+  it('a still-running evicted dispatch stamps under its own op_id, not the successor ambient one', async () => {
+    await loadModule();
+    // AFTER loadModule: it resets the module registry, so an earlier import
+    // would hand back a different mock instance with its own lock state.
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`${m.stage}|${m.op_id}`);
+      return undefined;
+    });
+
+    // The first send parks mid-flight, holding its onStage hook.
+    let capturedOnStage: ((s: string) => void) | undefined;
+    let releaseFirst!: () => void;
+    const firstParked = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage?: (s: string) => void) => {
+      capturedOnStage = onStage;
+      await firstParked;
+      return { serialize: () => new Uint8Array([1]) };
+    });
+    const firstResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-displaced',
+        method: 'sendTransaction',
+        argsB64: [encodeArg({ accountId: 'a', amount: '1', extraInputs: {} })]
+      }),
+      {},
+      firstResponse
+    );
+    await flush();
+
+    // Recovery evicts it: the waiter fails and the mutex frees, but the send is
+    // still in there, still holding an onStage hook.
+    miden.__evictHolder();
+    await flush();
+    expect(firstResponse.mock.calls[0][0].ok).toBe(false);
+
+    // The successor now owns the lock and the ambient id.
+    let finishSuccessor!: (result: unknown) => void;
+    G.__off.clientSendTransaction = jest.fn(
+      () =>
+        new Promise(resolve => {
+          finishSuccessor = resolve;
+        })
+    );
+    const secondResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-successor',
+        method: 'sendTransaction',
+        argsB64: [encodeArg({ accountId: 'a', amount: '1', extraInputs: {} })]
+      }),
+      {},
+      secondResponse
+    );
+    await flush();
+
+    capturedOnStage!('submitting');
+    await flush();
+
+    // Its own row — which is genuinely may-have-submitted — and not the
+    // successor's, which has broadcast nothing.
+    expect(posted).toEqual(['submitting|op-displaced']);
+
+    releaseFirst();
+    finishSuccessor({ serialize: () => new Uint8Array([2]) });
+    await flush();
+    expect(secondResponse.mock.calls[0][0].ok).toBe(true);
   });
 });
 
@@ -2302,6 +2529,332 @@ describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', (
     await flush();
     expect(r.mock.calls[0][0].ok).toBe(true);
     expect(G.__off.createOptions).toHaveLength(1);
+  });
+});
+
+// --- Lock recovery in THIS realm (issue #775) -------------------------------
+//
+// `disposeAllInstances()` reaches only `midenClientSingleton`, which this realm
+// deliberately does not use — so recovery fires a realm-local hook and main.ts
+// is what makes it mean anything here. This is the realm the recorded trap
+// happened in, so each strand of that hook gets its own test.
+describe('offscreen/main — WASM lock recovery hook', () => {
+  const firePoisoned = () => {
+    for (const listener of G.__off.poisonedListeners ?? []) listener();
+  };
+
+  const callReq = (extra: Record<string, unknown>) => ({
+    target: 'offscreen',
+    type: 'OFFSCREEN_CALL',
+    op_id: 'op-1',
+    method: 'getAccount',
+    argsB64: [encodeArg('acc')],
+    ...extra
+  });
+
+  it('registers the hook at module load', async () => {
+    await loadModule();
+    expect(G.__off.poisonedListeners).toHaveLength(1);
+  });
+
+  it('drops the client so the next call rebuilds, and MARKS the displaced one poisoned', async () => {
+    await loadModule();
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    firePoisoned();
+    await flush();
+
+    // Marking is what keeps the client's own corpse guards live for a flow that
+    // already holds it: dropping the module reference hides the client from the
+    // next caller but leaves an evicted dispatch looking like a healthy owner,
+    // free to release the successor's mutex or pause its watchdog.
+    expect(G.__off.clientMarkPoisoned).toHaveBeenCalledTimes(1);
+
+    const r2 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-2' }), {}, r2);
+    await flush();
+    expect(r2.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.createOptions).toHaveLength(2);
+    expect(G.__off.createOptions[1].useWorker).toBe(false);
+  });
+
+  it('drops the memoized PROVE client too — it shares the WASM instance that trapped', async () => {
+    await loadModule();
+    const p1 = jest.fn();
+    capturedListener!(
+      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
+      {},
+      p1
+    );
+    await flush();
+    expect(p1.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.webClientCtorCount).toBe(1);
+
+    firePoisoned();
+    await flush();
+
+    const p2 = jest.fn();
+    capturedListener!(
+      { target: 'offscreen', type: 'OFFSCREEN_PROVE', txResultB64: Buffer.from([9]).toString('base64') },
+      {},
+      p2
+    );
+    await flush();
+    expect(p2.mock.calls[0][0].ok).toBe(true);
+    // A second construction: the trapped prover was not handed out again. It has
+    // no other reset path — `OFFSCREEN_PROVE` runs outside the mutex, so it gets
+    // neither the watchdog nor the eviction that a CALL gets.
+    expect(G.__off.webClientCtorCount).toBe(2);
+  });
+
+  it('a no-op fire (nothing built yet) neither logs nor breaks the next call', async () => {
+    await loadModule();
+    firePoisoned();
+    await flush();
+    expect(G.__off.clientMarkPoisoned).not.toHaveBeenCalled();
+
+    const r = jest.fn();
+    capturedListener!(callReq({}), {}, r);
+    await flush();
+    expect(r.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('a create in flight when the poisoning lands resolves to an ALREADY-marked client (#775 F-056)', async () => {
+    await loadModule();
+    const orderLog: string[] = [];
+    G.__off.clientMarkPoisoned.mockImplementation(() => orderLog.push('marked'));
+    G.__off.clientGetAccount.mockImplementation(async () => {
+      orderLog.push('used');
+      return undefined;
+    });
+
+    // Gate the create so the poisoning lands while it is in flight, with a
+    // dispatch already awaiting the memoized promise.
+    let releaseCreate!: (c: unknown) => void;
+    const gate = new Promise<unknown>(resolve => {
+      releaseCreate = resolve;
+    });
+    G.__off.getMidenClient.mockReturnValueOnce(gate);
+    const r1 = jest.fn();
+    capturedListener!(callReq({}), {}, r1);
+    await flush();
+
+    // What both replace paths do before notifying: bump the cross-module
+    // generation, then fire the realm hook.
+    const { bumpWasmClientGeneration } = require('lib/miden/sdk/wasm-client-poison');
+    bumpWasmClientGeneration();
+    firePoisoned();
+    await flush();
+
+    releaseCreate({
+      markPoisoned: (...a: unknown[]) => G.__off.clientMarkPoisoned(...a),
+      getAccount: (...a: unknown[]) => G.__off.clientGetAccount(...a)
+    });
+    await flush();
+
+    // The awaiting dispatch is ahead of the poison hook's own late
+    // `.then(markPoisoned)` in the microtask queue — the generation check
+    // inside the create chain is what guarantees the mark lands FIRST.
+    expect(orderLog[0]).toBe('marked');
+    expect(orderLog).toContain('used');
+    expect(r1.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('refuses a sign from the displaced client, even while a successor op makes the ambient id look valid', async () => {
+    await loadModule();
+    const signed: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+        signed.push(m);
+        return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
+      }
+      return undefined;
+    });
+
+    const r1 = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-corpse' }), {}, r1);
+    await flush();
+    const corpseSign = G.__off.createOptions[0].signCallback;
+
+    firePoisoned();
+    await flush();
+
+    // A successor takes the lock and publishes ITS op_id as the ambient one, so
+    // the corpse's sign can no longer be caught by the no-ambient-id guard —
+    // the id it would read is real, just not its own.
+    let finishSuccessor!: (result: unknown) => void;
+    G.__off.clientConsumeNoteId = jest.fn(
+      () =>
+        new Promise(resolve => {
+          finishSuccessor = resolve;
+        })
+    );
+    const r2 = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-successor',
+        method: 'consumeNoteId',
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+      }),
+      {},
+      r2
+    );
+    await flush();
+
+    await expect(corpseSign(new Uint8Array([1]), new Uint8Array([2]))).rejects.toThrow(
+      'poisoned by WASM lock recovery'
+    );
+    // Nothing reversed to the SW: a signature tagged 'op-successor' would pause
+    // that op's write deadline, and a failure would land a `locked` reason in its
+    // slot for the SW to re-tag onto its error.
+    expect(signed).toHaveLength(0);
+
+    // The REBUILT client's sign is unaffected — the token is per client.
+    const liveSign = G.__off.createOptions[1].signCallback;
+    await expect(liveSign(new Uint8Array([3]), new Uint8Array([4]))).resolves.toEqual(new Uint8Array([7]));
+    expect(signed).toHaveLength(1);
+    expect(signed[0].op_id).toBe('op-successor');
+
+    finishSuccessor({ serialize: () => new Uint8Array([5]) });
+    await flush();
+    expect(r2.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('still answers the SW when the thrown value has a throwing `reason` accessor', async () => {
+    // The failure reply is built from a value of unknown provenance. Reading
+    // `.reason` (or `.name`) unguarded lets a foreign accessor throw out of the
+    // catch, and then `sendResponse` never runs at all — the SW waits out its
+    // per-op deadline and kills the realm instead of getting the failure it is
+    // owed. Both reads go through the guarded helpers for that reason.
+    await loadModule();
+    G.__off.clientGetAccount = jest.fn(async () => {
+      // Not an Error on purpose: a plain object is what a foreign realm can
+      // throw, and it is the only way to give `reason` a hostile accessor.
+      // eslint-disable-next-line no-throw-literal
+      throw {
+        name: 'WasmClientPoisonedError',
+        message: 'evicted',
+        get reason(): string {
+          throw new Error('accessor from a foreign realm');
+        }
+      };
+    });
+    const r = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-hostile' }), {}, r);
+    await flush();
+
+    const resp = r.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.op_id).toBe('op-hostile');
+    // The class still crosses — that is what makes the SW treat the op as
+    // abandoned-outcome-unknown rather than plainly failed — and the
+    // unreadable reason simply drops, where the SW's own fallback covers it.
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+    expect(resp.errorReason).toBeUndefined();
+  });
+
+  it('still answers the SW when EVERY field of the thrown value throws on read', async () => {
+    // The worst case of the same hazard: `name`, `message` and the code the
+    // classifier reads are all hostile accessors. There is nothing left to
+    // report, but the one thing that must still happen is the reply — a silent
+    // catch here is indistinguishable to the SW from a wedged realm, and it pays
+    // the full per-op deadline before killing the document to find out.
+    await loadModule();
+    G.__off.clientGetAccount = jest.fn(async () => {
+      // eslint-disable-next-line no-throw-literal
+      throw {
+        get name(): string {
+          throw new Error('hostile name');
+        },
+        get message(): string {
+          throw new Error('hostile message');
+        },
+        get errorCode(): string {
+          throw new Error('hostile code');
+        }
+      };
+    });
+    const r = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-all-hostile' }), {}, r);
+    await flush();
+
+    const resp = r.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.op_id).toBe('op-all-hostile');
+    // A placeholder rather than a crash, and no class claimed for a value that
+    // would not name one.
+    expect(typeof resp.error).toBe('string');
+    expect(resp.errorName).toBeUndefined();
+    expect(resp.errorCode).toBeUndefined();
+  });
+
+  it('leaves the ambient op_id clear when the evicted op unwinds, so a corpse sign has nothing to borrow', async () => {
+    await loadModule();
+    const signed: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+        signed.push(m);
+        return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
+      }
+      return undefined;
+    });
+
+    // An op whose dispatch REJECTS unwinds through handleCall's catch — the same
+    // path an eviction takes, where the locked section's own finally never runs.
+    G.__off.clientGetAccount = jest.fn(async () => {
+      throw new Error('evicted');
+    });
+    const r = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-evicted' }), {}, r);
+    await flush();
+    expect(r.mock.calls[0][0].ok).toBe(false);
+
+    const signCb = G.__off.createOptions[0].signCallback;
+    await expect(signCb(new Uint8Array([1]), new Uint8Array([2]))).rejects.toThrow('no ambient op_id');
+    expect(signed).toHaveLength(0);
+  });
+
+  it('resolves the client INSIDE the lock, so an op queued behind a poisoned holder gets the rebuilt one', async () => {
+    await loadModule();
+    // Op A holds the lock; op B queues behind it. Recovery lands while B waits.
+    let finishA!: (result: unknown) => void;
+    G.__off.clientConsumeNoteId = jest.fn(
+      () =>
+        new Promise(resolve => {
+          finishA = resolve;
+        })
+    );
+
+    const a = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-a',
+        method: 'consumeNoteId',
+        argsB64: [encodeArg({ accountId: 'acc', noteId: 'n', noteIds: ['n'] })]
+      }),
+      {},
+      a
+    );
+    await flush();
+    const b = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-b' }), {}, b);
+    await flush();
+    expect(G.__off.createOptions).toHaveLength(1);
+
+    firePoisoned();
+    await flush();
+    finishA({ serialize: () => new Uint8Array([1]) });
+    await flush();
+
+    expect(b.mock.calls[0][0].ok).toBe(true);
+    // B ran on a client created AFTER the poisoning. Reading the slot before
+    // queueing would have pinned it to the poisoned one — and the ops most
+    // likely to be queued are precisely those waiting behind the holder that
+    // trapped.
+    expect(G.__off.createOptions).toHaveLength(2);
   });
 });
 
@@ -2486,8 +3039,11 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       // builds the client. Without these a write that never started is
       // indistinguishable from one wedged inside the SDK.
       expect(lines.some(l => l.includes("call 'guardianPipeline' op=op-markers entered"))).toBe(true);
-      expect(lines.some(l => l.includes("call 'guardianPipeline' client ready; awaiting WASM mutex"))).toBe(true);
-      expect(lines.some(l => l.includes("call 'guardianPipeline' won WASM mutex; dispatching"))).toBe(true);
+      // The client is resolved INSIDE the lock (issue #775), so the boundaries
+      // are: await the mutex → win it and build/fetch the client → dispatch.
+      expect(lines.some(l => l.includes("call 'guardianPipeline' init ready; awaiting WASM mutex"))).toBe(true);
+      expect(lines.some(l => l.includes("call 'guardianPipeline' won WASM mutex; getting client"))).toBe(true);
+      expect(lines.some(l => l.includes("call 'guardianPipeline' client ready; dispatching"))).toBe(true);
       // The pipeline's own boundaries, including which prover the delegated prove
       // named — the distinction between a real delegation and the default-prover
       // fallback that never dispatches out of this realm.

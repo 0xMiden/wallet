@@ -47,6 +47,7 @@ import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/d
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
 // ============================================================================
@@ -410,7 +411,18 @@ export class Vault {
       const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
 
       console.log('[Vault.spawn] Step 5: getting miden client...');
-      const midenClient = await getMidenClient(options);
+      let midenClient = await getMidenClient(options);
+      // Spawn holds this reference across long unlocked stretches (a guardian
+      // recovery probes up to 20 HD indices on-chain), and lock recovery can
+      // dispose the singletons from a timer or an error listener at any point in
+      // between — leaving a terminated client whose every call throws. Re-resolve
+      // rather than call into a corpse; the singleton rebuild is what recovery
+      // set up for exactly this (issue #775). Cheap because it only fires when a
+      // dispose actually happened.
+      const liveClient = async () => {
+        if (midenClient.isDisposed) midenClient = await getMidenClient(options);
+        return midenClient;
+      };
       console.log('[Vault.spawn] Step 6: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
 
       // Guardian recovery (lookup + adopt per HD index) runs OUTSIDE the WASM
@@ -450,7 +462,7 @@ export class Vault {
         // only thing the user has left. "No Guardian accounts found at this
         // guardian endpoint for this seed" is actionable (wrong seed, or the
         // wrong operator); "Failed to create wallet" is not (#630).
-        const recovered = await midenClient
+        const recovered = await (await liveClient())
           .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
           .catch((err: unknown) => {
             if (err instanceof PublicError) throw err;
@@ -475,14 +487,17 @@ export class Vault {
             guardianKeys?: CreatedGuardianKeys;
             guardianEndpoint?: string;
           }> => {
+            // Re-resolved now that the lock is held — the reference taken before
+            // queueing may have been disposed by recovery in the meantime (#775).
+            const client = await liveClient();
             if (walletType === WalletType.Guardian) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
-              await midenClient.syncState();
+              await client.syncState();
               // Pass the caller's picked endpoint (stage 1 of #408) as the
               // override; createGuardianAccount falls back to the network default
               // when it is undefined (it no longer consults the frozen global key
               // for NEW accounts — #408 stage 3).
-              const result = await midenClient.createGuardianMidenWallet(walletSeed, guardianEndpoint);
+              const result = await client.createGuardianMidenWallet(walletSeed, guardianEndpoint);
               // Guardian accounts are always ECDSA under the 3-key model.
               return {
                 accountId: result.accountId,
@@ -492,7 +507,7 @@ export class Vault {
               };
             }
 
-            if (ownMnemonic && midenClient.network !== 'mock') {
+            if (ownMnemonic && client.network !== 'mock') {
               // Non-guardian mnemonic restore. Probe each known auth scheme — the
               // user's real on-chain account at hdIndex=0 was created under exactly
               // one of them, but we have no metadata to tell us which. Falcon first
@@ -502,7 +517,7 @@ export class Vault {
               for (const scheme of RESTORE_PROBE_SCHEMES) {
                 try {
                   console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
-                  const id = await midenClient.importPublicMidenWalletFromSeed(walletSeed, scheme);
+                  const id = await client.importPublicMidenWalletFromSeed(walletSeed, scheme);
                   return { accountId: id, accAuthScheme: scheme };
                 } catch (probeError) {
                   // A probe miss and an UNREACHABLE NODE are different answers, and
@@ -526,9 +541,9 @@ export class Vault {
             }
             // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
             console.log('[Vault.spawn] Step 8b: syncing state...');
-            await midenClient.syncState();
+            await client.syncState();
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
-            const id = await midenClient.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
+            const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
             return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
           }
         );
@@ -824,6 +839,14 @@ export class Vault {
               console.log('[Vault.createHDAccount] Step 8a: importPublicMidenWalletFromSeed');
               return { accountId: await midenClient.importPublicMidenWalletFromSeed(walletSeed, newScheme) };
             } catch (e) {
+              // A lock-recovery eviction is not a "not on chain" answer either:
+              // the outer caller has already been rejected, so falling through
+              // would create a spurious empty account nobody is waiting for, on
+              // a client recovery just replaced — the same fund-loss shape as
+              // the network case below (issue #775).
+              if (isWasmClientPoisonedError(e) || midenClient.isDisposed) {
+                throw e;
+              }
               // A network-unreachable import and a genuine "not on chain" miss are
               // different answers; swallowing both creates a fresh EMPTY wallet on a
               // transient node blip, hiding the user's real (correctly-seeded)

@@ -125,6 +125,7 @@ const mockGetMidenClient = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+  withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));
 

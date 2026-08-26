@@ -1,9 +1,12 @@
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+
 import {
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
-  LOCAL_PROVER_FAILED_ERROR
+  LOCAL_PROVER_FAILED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR
 } from './constants';
 
 // The real native-prover error captured in #487.
@@ -45,6 +48,21 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'sending', false)).toBe(
       PROVER_PROCEDURE_MISMATCH_ERROR
     );
+  });
+
+  it('refuses to promise "no funds moved" for a lock-recovery eviction at the proving stage (#775)', () => {
+    // The stage-based copy is only honest for an error that STOPPED the
+    // pipeline. An eviction abandons one that keeps running and can still
+    // submit, so the reassuring version would be a promise the wallet cannot
+    // keep — and it invites the retry that pays twice.
+    const poisoned = new WasmClientPoisonedError('watchdog');
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
+    // Local prover, and the broad non-guardian 'sending' stage, take the same
+    // hedged copy rather than "please try again".
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, undefined, undefined)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
   it('still maps a generic delegated proving failure to the remote-prover message', () => {
