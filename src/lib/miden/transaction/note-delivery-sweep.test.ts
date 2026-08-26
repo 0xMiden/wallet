@@ -170,42 +170,76 @@ describe('sweepNoteDeliveries', () => {
     expect(rows[0]!.relayAttempts).toBe(2);
   });
 
-  it('treats a duplicate rejection as proof of delivery and retires the row', async () => {
+  it('does not condemn a never-ACKed row when the re-push is rejected as a duplicate', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
-    // The transport declares `id BLOB NOT NULL UNIQUE`, so re-pushing a note it
-    // already holds is rejected. That rejection is the only positive receipt the
-    // protocol offers short of a nullifier — it must confirm, not condemn.
+    // The transport inserts against `notes.id BLOB PRIMARY KEY` with no `ON
+    // CONFLICT`, so re-pushing a note it already holds is rejected. That proves the
+    // original relay reached the transport, so the row must not be downgraded.
     mockRelayById.mockRejectedValue(
       new Error('Failed to store note: ConstraintViolation("UNIQUE constraint failed: notes.id")')
     );
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
     expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
   });
 
-  it('accepts a proper AlreadyExists code as the same proof', async () => {
-    // So a service that starts returning a distinguishable status keeps working
-    // without a wallet change.
-    rows.push(row({ noteDelivery: 'pending' }));
-    mockRelayById.mockRejectedValue(new Error('AlreadyExists: note already stored'));
+  it('does NOT claim delivery on a duplicate rejection — the note may be stored yet unreachable', async () => {
+    // The whole point of the sweep (note-transport-service#77) is that a stored note
+    // can sit below the recipient's cursor and be unreachable forever. A duplicate
+    // rejection says the bytes are stored, which is exactly that state — so it must
+    // never be promoted to `confirmed`, whose UI copy asserts the recipient spent it.
+    // The row also has to stay sweepable so the nullifier check can still confirm it.
+    rows.push(row({ noteDelivery: 'undelivered' }));
+    mockRelayById.mockRejectedValue(
+      new Error('Failed to store note: ConstraintViolation("UNIQUE constraint failed: notes.id")')
+    );
 
     await sweepNoteDeliveries();
 
-    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
   });
 
-  it('does not confirm on an unrelated transport error', async () => {
-    // Guards the classifier against over-matching: only a duplicate rejection is
-    // evidence of storage.
+  it('reads a proper AlreadyExists status the same way', async () => {
+    // So a service that starts returning a distinguishable status keeps working
+    // without a wallet change.
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(new Error('grpc error: status: AlreadyExists, message: "note stored"'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'relayed');
+    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'undelivered');
+  });
+
+  it('does not read an unrelated transport error as a duplicate', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
     mockRelayById.mockRejectedValue(new Error('503 service unavailable'));
 
     await sweepNoteDeliveries();
 
     expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
-    expect(mockRecord).not.toHaveBeenCalledWith('tx-1', 'confirmed');
+  });
+
+  // The classifier matches on message TEXT, and a match suppresses the delivery
+  // warning — so an over-broad pattern hides the very failure this sweep surfaces.
+  // These are the near-miss strings the same call path can genuinely produce.
+  it.each([
+    ['a UNIQUE violation on a different column', 'ConstraintViolation("UNIQUE constraint failed: notes.seq")'],
+    ["tonic's stock AlreadyExists blurb", 'Some entity that we attempted to create already exists'],
+    ['an SDK account-tree collision', 'account ID prefix already exists in the tree'],
+    ['an SDK asset-vault collision', 'the non-fungible asset already exists in the asset vault'],
+    ['a Dexie/IndexedDB constraint error', 'ConstraintError: Key already exists in the object store'],
+    ['a bare constraint violation', 'ConstraintViolation']
+  ])('still reports undelivered for %s', async (_label, message) => {
+    rows.push(row({ noteDelivery: 'pending' }));
+    mockRelayById.mockRejectedValue(new Error(message));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'undelivered');
   });
 
   it('keeps an accepted re-push as relayed — acceptance means the note was missing', async () => {

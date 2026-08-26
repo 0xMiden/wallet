@@ -2,8 +2,8 @@ import type { BrowserContext, Page, Request, Response as PwResponse, Worker } fr
 
 import type { FetchFaultWire } from './network-faults';
 import type { TimelineRecorder } from './timeline-recorder';
-import type { NetworkCategory } from './types';
 import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
+import type { NetworkCategory } from './types';
 
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
   rpc: /rpc\.(testnet|devnet)\.miden\.io|localhost:57291/,
@@ -87,7 +87,8 @@ export function attachNetworkCapture(
       // Identity of the notes this push carried. Without it the timeline can say a
       // SendNote happened but not WHICH note, which is precisely what a
       // silently-undelivered note needs in order to be correlated after the fact.
-      const sentNotes = category === 'transport' && isSendNoteUrl(url) ? decodeSendNoteBody(request.postDataBuffer()) : [];
+      const sentNotes =
+        category === 'transport' && isSendNoteUrl(url) ? decodeSendNoteBody(request.postDataBuffer()) : [];
 
       timeline.emit({
         category: 'network_request',
@@ -177,7 +178,14 @@ export async function attachServiceWorkerFetchCapture(
         const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
         const status: number = parsed.status ?? 0;
         const err: string | undefined = parsed.err;
-        const sentNotes = decodeSendNoteBase64(parsed.reqBody);
+        // Gated the same way as the page-side decode below. The producer only ever
+        // sets `reqBody` for a transport SendNote today, but `decodeSendNoteBody`
+        // accepts any message shaped like one, so without this gate widening the
+        // producer would start fabricating `sentNotes` on unrelated traffic.
+        const sentNotes =
+          parsed.category === 'transport' && isSendNoteUrl(String(parsed.url ?? ''))
+            ? decodeSendNoteBase64(parsed.reqBody)
+            : [];
         if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
           // eslint-disable-next-line no-console
           console.log(
@@ -282,39 +290,52 @@ export async function attachServiceWorkerFetchCapture(
 
         const start = performance.now();
         const realm = (g.location && g.location.href) || 'unknown';
+
+        // Carry the request body for transport pushes ONLY. It is the sole way to
+        // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
+        // other category would add real log volume for no diagnostic gain.
+        //
+        // Read BEFORE the fetch. The SDK's gRPC-web transport calls
+        // `fetch(request, initWithSignal)`, so the body lives on the Request and not
+        // on `init` — and once the fetch has consumed that Request the stream is
+        // disturbed and unreadable. The URL pattern mirrors `isSendNoteUrl`, which
+        // is the canonical copy; this function cannot close over module scope.
+        let reqBody: string | undefined;
+        try {
+          if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
+            const isRequest = typeof input !== 'string' && !(input instanceof URL);
+            const raw = init?.body ?? undefined;
+            let bytes: Uint8Array | undefined;
+            if (raw instanceof Uint8Array) bytes = raw;
+            else if (raw instanceof ArrayBuffer) bytes = new Uint8Array(raw);
+            else if (raw && ArrayBuffer.isView(raw)) bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+            else if (!raw && isRequest) bytes = new Uint8Array(await input.clone().arrayBuffer());
+            if (bytes && bytes.length > 0 && bytes.length <= 8192) {
+              let bin = '';
+              for (const b of bytes) bin += String.fromCharCode(b);
+              reqBody = btoa(bin);
+            }
+          }
+        } catch {
+          // capture is diagnostic; never let it disturb the fetch it wraps
+        }
+
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
-          // Carry the request body for transport pushes ONLY. It is the sole way to
-          // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
-          // other category would add real log volume for no diagnostic gain.
-          let reqBody: string | undefined;
-          try {
-            if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url) && init?.body) {
-              const raw = init.body;
-              const bytes =
-                raw instanceof Uint8Array
-                  ? raw
-                  : raw instanceof ArrayBuffer
-                    ? new Uint8Array(raw)
-                    : ArrayBuffer.isView(raw)
-                      ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
-                      : undefined;
-              if (bytes && bytes.length <= 8192) {
-                let bin = '';
-                for (const b of bytes) bin += String.fromCharCode(b);
-                reqBody = btoa(bin);
-              }
-            }
-          } catch {
-            // capture is diagnostic; never let it disturb the fetch it wraps
-          }
-          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody }));
+          console.log(
+            prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody })
+          );
           return res;
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
           const errStr = err instanceof Error ? err.message : String(err);
-          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm }));
+          // A push that threw is at least as diagnostic as one that returned 200 —
+          // it is what the resilience suite's injected faults produce — so the note
+          // identity has to ride along here too.
+          console.log(
+            prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm, reqBody })
+          );
           throw err;
         }
       };

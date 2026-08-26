@@ -46,20 +46,31 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 /**
  * Does this re-push failure mean "the transport already holds this note"?
  *
- * The transport rejects a duplicate `id` with a UNIQUE-constraint violation, which
- * its gRPC layer currently surfaces as `Internal` with the SQLite error in the
- * message rather than as `AlreadyExists`. Matching on the text is therefore
- * deliberate and load-bearing until the service returns a distinguishable code
- * (tracked upstream); the alternatives are all worse, since treating this as a
- * failure marks a healthy send `undelivered` and shows the user a warning about a
- * note that is demonstrably delivered.
+ * The transport stores notes with a bare insert against `notes.id BLOB PRIMARY KEY`
+ * (note-transport-service, `database/sqlite/mod.rs`, no `ON CONFLICT` clause), so
+ * re-pushing a note it already holds fails on that key. Its gRPC layer currently
+ * surfaces the failure as `Internal` carrying the SQLite text rather than as
+ * `AlreadyExists`, so matching on the message is the only option until the service
+ * returns a distinguishable code (tracked upstream).
  *
- * Both spellings are matched so that a service that starts returning a proper
- * `AlreadyExists` keeps working without a wallet change.
+ * Matching is deliberately narrow. The generic spellings — a bare
+ * `ConstraintViolation`, or "already exists" on its own — appear in unrelated
+ * failures on this path: tonic's stock `AlreadyExists` blurb, Dexie/IndexedDB
+ * `ConstraintError`, and the SDK's own account-tree and asset-vault errors. Since a
+ * match suppresses the delivery warning, an over-broad pattern would hide exactly
+ * the failure this sweep exists to surface, so the id-collision spellings must name
+ * the note key, and a status-code match must be a real `AlreadyExists` status.
  */
 const isAlreadyStoredRejection = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error);
-  return /ConstraintViolation|UNIQUE constraint|already[ _]?exists/i.test(message);
+  return (
+    // SQLite/diesel text for the `notes.id` collision, in either spelling the
+    // service has been observed to produce.
+    /(?:UNIQUE constraint failed|ConstraintViolation\()[^)]*\bnotes\.id\b/i.test(message) ||
+    // A service that starts returning a proper gRPC status keeps working unchanged.
+    /\bstatus:\s*AlreadyExists\b/i.test(message) ||
+    /\bcode:\s*6\b.*\balready exists\b/i.test(message)
+  );
 };
 
 const backoffFor = (attempts: number): number => {
@@ -110,21 +121,37 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * `Internal — Failed to store note: ConstraintViolation("UNIQUE ...")`, and nothing
  * appears above the previous cursor.
  *
- * That rejection is the point. It is the delivery receipt this protocol otherwise
- * lacks: `SendNoteResponse` is an empty message, so a SUCCESSFUL push tells the
- * sender nothing, while a duplicate-rejection is positive proof that the body is on
- * the transport. So the two outcomes of a re-push read in the opposite direction to
- * the intuitive one:
+ * So the two outcomes of a re-push carry quite different information, and neither is
+ * the intuitive reading:
  *
- *   - rejected as a duplicate -> the note IS stored -> `confirmed`, terminal.
- *   - accepted -> the note was NOT stored, and now is, on a fresh `seq` above every
- *     recipient cursor. This is the silent-loss case actually happening, so it is
- *     logged as such; the row stays `relayed` until a nullifier confirms it.
+ *   - accepted -> the note was NOT on the transport, and now is, on a fresh `seq`
+ *     above every recipient cursor. This is the silent-loss case actually happening,
+ *     so a push that is accepted both DETECTS and REPAIRS it. The row stays
+ *     `relayed` until a nullifier proves the recipient consumed it.
+ *   - rejected as a duplicate -> the transport HOLDS the body. That is worth
+ *     knowing, because `SendNoteResponse` is an empty message and so a successful
+ *     push tells the sender nothing at all — but it is NOT proof of delivery, and
+ *     the row stays `relayed` too.
  *
- * A push that is accepted therefore both DETECTS and REPAIRS the loss, and one that
- * is rejected proves there was none. Either way the recipient's next fetch is
- * correct, and the hint is re-derived from the note's stored `expected_height` on
- * every call, so a late re-push is as correct as the first one.
+ * That second point is the easy mistake to make here, so it is worth being explicit
+ * about why a duplicate-rejection must not be promoted to `confirmed`. "The bytes
+ * are on the transport" is precisely the #77 state described above: the note is
+ * stored and the recipient still cannot reach it. Worse, under the UNIQUE key a
+ * re-push of a stored note is rejected rather than re-inserted, so it takes no new
+ * `seq` and cannot lift the note above a cursor that has already passed it — a
+ * rejection means this sweep did NOT repair anything. Reading it as success would
+ * therefore retire exactly the rows exhibiting the bug, drop their remaining
+ * attempts, and (since `confirmed` renders as "the recipient has received and spent
+ * this private note") tell the user a note they may never see was spent. `confirmed`
+ * stays exclusive to the nullifier.
+ *
+ * What the rejection IS good for is not raising a false alarm: it means the original
+ * relay demonstrably reached the transport, so the row must not be downgraded to
+ * `undelivered` on the strength of a "failed" re-push.
+ *
+ * Either way the recipient's next fetch is no worse off, and the hint is re-derived
+ * from the note's stored `expected_height` on every call, so a late re-push is as
+ * correct as the first one.
  *
  * Failures are swallowed per row on purpose: this runs as maintenance behind
  * transactions that have already landed, so one row's transport error must not stop
@@ -186,9 +213,18 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       // note was NOT there — the silent loss this sweep exists to catch, caught.
       // It is now stored on a fresh `seq`, above every recipient cursor, so the
       // repair is already done; the row stays `relayed` until a nullifier confirms
-      // it was actually consumed. Logged at error level because a wallet ACK that
-      // did not result in a stored note is a defect worth seeing in the field.
-      console.error('[noteDeliverySweep] re-push was ACCEPTED — the note was missing from the transport', {
+      // it was actually consumed.
+      //
+      // Only a `relayed` prior is a defect: there the original push was ACKed, so a
+      // note that turns out to be absent means the ACK was worthless. From `pending`
+      // or `undelivered` no ACK was ever obtained, and an accepted push is simply
+      // this sweep doing its job — reporting that at error level would cry wolf.
+      const ackedYetAbsent = row.noteDelivery === 'relayed';
+      const acceptedMessage = ackedYetAbsent
+        ? '[noteDeliverySweep] re-push was ACCEPTED despite a prior ACK — the note was missing from the transport'
+        : '[noteDeliverySweep] re-push was accepted — the note was not on the transport and now is';
+      const logAccepted = ackedYetAbsent ? console.error : console.warn;
+      logAccepted(acceptedMessage, {
         txId: row.id,
         noteId: target.noteId,
         attempts,
@@ -196,14 +232,20 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       });
     } catch (error) {
       if (isAlreadyStoredRejection(error)) {
-        // The transport already holds it. This is the only positive delivery receipt
-        // the protocol offers short of a nullifier, so it is terminal: it stops the
-        // sweep and clears any `undelivered` the row picked up on the way.
-        outcome = 'confirmed';
-        console.info('[noteDeliverySweep] re-push rejected as duplicate — delivery to transport confirmed', {
+        // The transport holds the body, so the original relay did reach it. That
+        // rules out `undelivered` — but it is not delivery, so the row stays
+        // `relayed` and remains sweepable for the nullifier check that can actually
+        // confirm it. See the header comment for why this must not be `confirmed`.
+        //
+        // The matched error is logged because the classifier matches on message
+        // text: when it misfires, this line is the only record of what it matched.
+        outcome = 'relayed';
+        console.info('[noteDeliverySweep] re-push rejected as duplicate — the transport holds this note', {
           txId: row.id,
           noteId: target.noteId,
-          attempts
+          attempts,
+          priorState: row.noteDelivery,
+          error
         });
       } else {
         // A failed RE-push says nothing about the original one. Where the first relay

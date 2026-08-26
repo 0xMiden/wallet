@@ -406,13 +406,14 @@ export interface ITransaction {
   /**
    * Earliest time (unix seconds) the sweep may re-push this row's private note.
    *
-   * A re-push is worth doing because the transport stores notes with an
-   * append-only insert — no upsert, no dedupe by note id — so every push lands a
-   * row with a FRESH cursor position, which is by construction above whatever
-   * cursor the recipient has already persisted. That makes a re-push the direct
-   * antidote to a note the recipient's cursor skipped, and it costs the
-   * recipient nothing: imports dedupe on the details commitment, so a note they
-   * already hold is a no-op.
+   * A re-push is worth doing because the transport keys `notes.id` as a primary
+   * key and inserts without `ON CONFLICT`, so the push either lands a row at a
+   * FRESH cursor position — by construction above whatever cursor the recipient
+   * has already persisted — or is rejected because the note is already there.
+   * Only the first of those repairs a note the recipient's cursor skipped; a
+   * rejection means the bytes were never missing in the first place, and takes no
+   * new cursor position. Either way it costs the recipient nothing: imports dedupe
+   * on the details commitment, so a note they already hold is a no-op.
    */
   nextRelayAt?: number;
   /**

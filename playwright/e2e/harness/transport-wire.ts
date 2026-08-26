@@ -14,35 +14,69 @@
  * Diagnostics only: every export is total and returns `[]` rather than throwing, so
  * a malformed or truncated body can never fail a run.
  *
- * Wire format, outermost first:
+ * Wire format, outermost first (verified against `miden_note_transport.proto` in
+ * `miden-note-transport-proto-build`, and against `NoteHeader`/`NoteMetadata`
+ * serialization in `miden-protocol`):
  *   gRPC-web frame : [flag u8][length u32 big-endian][payload]   (repeated)
  *   SendNoteRequest: field 1, length-delimited -> TransportNote
  *   TransportNote  : field 1 `header` (bytes), field 2 `details` (bytes),
  *                    field 3 `after_block_num` (varint)
- *   NoteHeader     : 88 bytes — [0:32] note id (4 little-endian u64 field
- *                    elements), [32:48] sender account id, [48:52] note TAG as a
- *                    little-endian u32, [52:56] type/hint, [56:88] details
- *                    commitment.
+ *   NoteHeader     : [0:32]  details commitment
+ *                    [32]    note type (u8; 0 = private)
+ *                    [33:48] sender account id (15 bytes)
+ *                    [48:52] note TAG, little-endian u32
+ *                    [52]    count of PRESENT attachment headers (u8)
+ *                    [53:..] those attachment headers (variable, 0-4 of them)
+ *                    [..]    32-byte attachments commitment
  *
- * The tag being little-endian is load-bearing and easy to get wrong: reading it
- * big-endian yields a plausible-looking number that matches nothing on the service.
+ * Two traps in that layout, both of which produce a confident wrong answer rather
+ * than an obvious failure:
+ *
+ *   - The header does NOT contain the note id. `NoteHeader::id()` is
+ *     `hash(details_commitment, metadata_commitment)`, computed on demand, so the
+ *     only identifier recoverable from these bytes is the DETAILS COMMITMENT. That
+ *     is still a perfectly good correlation key — the SDK records it alongside the
+ *     note id on the wallet side — but it is not the note id and must not be
+ *     labelled as one.
+ *   - The header is VARIABLE length (85-97 bytes), because the metadata writes only
+ *     the attachment headers that are present. Any fixed-size expectation silently
+ *     drops notes; everything this decoder reads lives below offset 52.
+ *
+ * The tag being little-endian is likewise load-bearing and easy to get wrong:
+ * reading it big-endian yields a plausible-looking number that matches nothing on
+ * the service.
  */
 
 /** One note recovered from a `SendNote` body. */
 export interface SentNoteOnWire {
-  /** Note id as 0x-prefixed hex, matching the wallet's `outputNoteIds`. */
-  noteId: string;
+  /**
+   * Commitment to the note's details, as 0x-prefixed hex.
+   *
+   * NOT the note id — see the trap note above. Correlate against the wallet's
+   * recorded details commitment for an output note, not against `outputNoteIds`.
+   */
+  detailsCommitment: string;
   /** Note tag as the transport service stores it (little-endian u32). */
   tag: number;
   /** Sender-supplied scan floor, or undefined when the field was absent. */
   afterBlockNum?: number;
 }
 
-const NOTE_HEADER_BYTES = 88;
+const DETAILS_COMMITMENT_BYTES = 32;
 const TAG_OFFSET = 48;
+/** Smallest header this decoder can read: everything it uses sits below the tag. */
+const MIN_HEADER_BYTES = TAG_OFFSET + 4;
 
-/** Reads a protobuf varint. Returns the value and the next offset. */
-function readVarint(buf: Uint8Array, start: number): [number, number] {
+/**
+ * Reads a protobuf varint.
+ *
+ * Returns the value and the next offset, or `undefined` when the bytes are not a
+ * varint this decoder can trust: unterminated (the buffer ran out mid-varint) or
+ * wider than a JS number holds exactly. Returning a partial value with an advanced
+ * offset instead would be indistinguishable from success, which is how a malformed
+ * body ends up reported as a real block number.
+ */
+function readVarint(buf: Uint8Array, start: number): [number, number] | undefined {
   let result = 0;
   let shift = 0;
   let i = start;
@@ -50,11 +84,11 @@ function readVarint(buf: Uint8Array, start: number): [number, number] {
     const byte = buf[i]!;
     result += (byte & 0x7f) * 2 ** shift;
     i += 1;
-    if ((byte & 0x80) === 0) return [result, i];
+    if ((byte & 0x80) === 0) return Number.isSafeInteger(result) ? [result, i] : undefined;
     shift += 7;
-    if (shift > 56) break; // beyond precision we care about; treat as malformed
+    if (shift > 56) return undefined; // beyond exact precision; treat as malformed
   }
-  return [result, i];
+  return undefined; // ran off the end mid-varint
 }
 
 /** Walks one protobuf message into {fieldNumber: values}. Never throws. */
@@ -62,20 +96,22 @@ function walkFields(buf: Uint8Array): Map<number, (Uint8Array | number)[]> {
   const out = new Map<number, (Uint8Array | number)[]>();
   let i = 0;
   while (i < buf.length) {
-    const [key, afterKey] = readVarint(buf, i);
-    if (afterKey === i) break;
+    const keyRead = readVarint(buf, i);
+    if (!keyRead) break;
+    const [key, afterKey] = keyRead;
     i = afterKey;
     const field = key >> 3;
     const wireType = key & 7;
     let value: Uint8Array | number;
     if (wireType === 0) {
-      const [v, next] = readVarint(buf, i);
-      if (next === i) break;
-      value = v;
-      i = next;
+      const varint = readVarint(buf, i);
+      if (!varint) break;
+      [value, i] = varint;
     } else if (wireType === 2) {
-      const [len, afterLen] = readVarint(buf, i);
-      if (afterLen === i || afterLen + len > buf.length) break;
+      const lenRead = readVarint(buf, i);
+      if (!lenRead) break;
+      const [len, afterLen] = lenRead;
+      if (afterLen + len > buf.length) break;
       value = buf.subarray(afterLen, afterLen + len);
       i = afterLen + len;
     } else if (wireType === 5) {
@@ -102,7 +138,26 @@ function toHex(bytes: Uint8Array): string {
   return s;
 }
 
-/** Splits a gRPC-web body into its frames, skipping the trailers frame. */
+/** Last value in a field bucket matching `is` — protobuf singular fields are last-wins. */
+function lastOfType<T extends Uint8Array | number>(
+  values: (Uint8Array | number)[] | undefined,
+  is: (v: Uint8Array | number) => v is T
+): T | undefined {
+  for (let i = (values?.length ?? 0) - 1; i >= 0; i -= 1) {
+    const value = values![i]!;
+    if (is(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Splits a gRPC-web body into its plain-protobuf message frames.
+ *
+ * Skips two kinds of frame that are not raw protobuf: the trailers frame (flag bit
+ * 0x80, which carries grpc-status) and a compressed message (flag bit 0x01). Feeding
+ * a compressed payload to the field walker would not fail loudly — it would parse
+ * gzip bytes as protobuf and could emit a plausible wrong note.
+ */
 function dataFrames(body: Uint8Array): Uint8Array[] {
   const frames: Uint8Array[] = [];
   let i = 0;
@@ -111,8 +166,7 @@ function dataFrames(body: Uint8Array): Uint8Array[] {
     const len = ((body[i + 1]! << 24) >>> 0) + (body[i + 2]! << 16) + (body[i + 3]! << 8) + body[i + 4]!;
     i += 5;
     if (i + len > body.length) break;
-    // 0x80 marks the trailers frame, which carries grpc-status, not a message.
-    if ((flag & 0x80) === 0) frames.push(body.subarray(i, i + len));
+    if ((flag & 0x81) === 0) frames.push(body.subarray(i, i + len));
     i += len;
   }
   return frames;
@@ -134,16 +188,17 @@ export function decodeSendNoteBody(body: Uint8Array | null | undefined): SentNot
       for (const noteField of request.get(1) ?? []) {
         if (!(noteField instanceof Uint8Array)) continue;
         const note = walkFields(noteField);
-        const header = (note.get(1) ?? []).find((v): v is Uint8Array => v instanceof Uint8Array);
-        if (!header || header.length < NOTE_HEADER_BYTES) continue;
+        // Protobuf resolves a repeated singular field last-wins, so take the last.
+        const header = lastOfType(note.get(1), (v): v is Uint8Array => v instanceof Uint8Array);
+        if (!header || header.length < MIN_HEADER_BYTES) continue;
         const tag =
           header[TAG_OFFSET]! +
           (header[TAG_OFFSET + 1]! << 8) +
           (header[TAG_OFFSET + 2]! << 16) +
           header[TAG_OFFSET + 3]! * 2 ** 24;
-        const afterBlockNum = (note.get(3) ?? []).find((v): v is number => typeof v === 'number');
+        const afterBlockNum = lastOfType(note.get(3), (v): v is number => typeof v === 'number');
         notes.push({
-          noteId: toHex(header.subarray(0, 32)),
+          detailsCommitment: toHex(header.subarray(0, DETAILS_COMMITMENT_BYTES)),
           tag,
           ...(afterBlockNum === undefined ? {} : { afterBlockNum })
         });
