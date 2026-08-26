@@ -193,7 +193,7 @@ beforeEach(() => {
   mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
   process.env.MIDEN_E2E_TEST = 'false';
   window.history.replaceState(null, '', '/');
-  delete (globalThis as any).__TEST_SKIP_ONBOARDING;
+  delete globalThis.__TEST_SKIP_ONBOARDING;
 });
 
 afterEach(() => {
@@ -661,21 +661,24 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.biometricError).toBe('Biometric authentication failed');
   });
 
-  it('throws inside register when the seed phrase is missing (neither catch branch)', async () => {
-    // Mobile create flow commits a password but no seed (passcode never ran),
-    // so register() throws "Missing password or seed phrase" and the catch
-    // falls through both the guardian and hardware-only branches.
+  it('generates a seed phrase before registering a mobile create flow', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' }); // onboardingType = Create
-    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } }); // mobile → confirmation, no seed
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false,
+      undefined
+    );
+    expect(mockSyncFromBackend).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(mockFlowProps.current.isLoading).toBe(false);
-    expect(mockFlowProps.current.guardianLookupError).toBe(false);
-    // navigation home never happened because register threw.
-    expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 });
 
@@ -1058,7 +1061,7 @@ describe('Welcome — mobile back handler', () => {
 describe('Welcome — E2E onboarding bypass', () => {
   it('does nothing when the E2E build flag is off', async () => {
     process.env.MIDEN_E2E_TEST = 'false';
-    (globalThis as any).__TEST_SKIP_ONBOARDING = true;
+    globalThis.__TEST_SKIP_ONBOARDING = true;
     await renderWelcome();
     expect(mockFlowProps.current.password).toBeNull();
     expect(mockNavigate).not.toHaveBeenCalledWith('/#confirmation');
@@ -1086,7 +1089,7 @@ describe('Welcome — E2E onboarding bypass', () => {
 
   it('creates a fresh off-chain wallet via the CDP global', async () => {
     process.env.MIDEN_E2E_TEST = 'true';
-    (globalThis as any).__TEST_SKIP_ONBOARDING = true;
+    globalThis.__TEST_SKIP_ONBOARDING = true;
     await renderWelcome();
     expect(mockFlowProps.current.password).toBe('password1');
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);

@@ -7,6 +7,7 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
+import type { MidenState } from 'lib/miden/types';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -18,6 +19,11 @@ import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+
+declare global {
+  var __TEST_SKIP_ONBOARDING: boolean | undefined;
+  var __TEST_LAST_GENERATED_SEED__: string | undefined;
+}
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -68,7 +74,7 @@ function protectionStepRoute(): string {
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
-async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttempts = 10): Promise<void> {
+async function waitForReadyState(syncFromBackend: (state: MidenState) => void, maxAttempts = 10): Promise<void> {
   console.log('[waitForReadyState] Starting, maxAttempts:', maxAttempts);
   for (let i = 0; i < maxAttempts; i++) {
     try {
@@ -154,7 +160,7 @@ const Welcome: FC = () => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     const params = new URLSearchParams(window.location.search);
     const skipViaParam = params.get('__test_skip_onboarding') === '1';
-    const skipViaGlobal = (globalThis as any).__TEST_SKIP_ONBOARDING === true;
+    const skipViaGlobal = globalThis.__TEST_SKIP_ONBOARDING === true;
     if (!skipViaParam && !skipViaGlobal) return;
 
     // Wallet type for the bypass: explicit `walletType=guardian` creates a
@@ -199,7 +205,7 @@ const Welcome: FC = () => {
     // so nothing outside this closure could otherwise read it back. Zero
     // production impact: this whole effect is gated on MIDEN_E2E_TEST above,
     // same as __TEST_STORE__ / __TEST_INTERCOM__ (src/lib/store/index.ts).
-    (globalThis as { __TEST_LAST_GENERATED_SEED__?: string }).__TEST_LAST_GENERATED_SEED__ = testSeed.join(' ');
+    globalThis.__TEST_LAST_GENERATED_SEED__ = testSeed.join(' ');
     const testPassword = params.get('password') || 'password1';
     setWalletType(bypassWalletType);
     if (bypassWalletType === WalletType.Guardian && bypassGuardianUrl) {
@@ -399,6 +405,12 @@ const Welcome: FC = () => {
         } else if (onboardingType === OnboardingType.Import) {
           navigate('/#import-select-recovery-method');
         } else {
+          // Mobile create flows can arrive here without passing through passcode setup.
+          // Generate the mnemonic before confirmation, but preserve one already created by
+          // the passcode or biometric flow.
+          if (onboardingType === OnboardingType.Create && !seedPhrase) {
+            setSeedPhrase(generateMnemonic(128).split(' '));
+          }
           navigate('/#confirmation');
         }
         break;

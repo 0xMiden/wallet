@@ -70,12 +70,9 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null;
   }
 
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
+  const css = Object.entries(THEMES)
+    .map(
+      ([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
@@ -85,14 +82,55 @@ ${colorConfig
   .join('\n')}
 }
 `
-          )
-          .join('\n')
-      }}
-    />
-  );
+    )
+    .join('\n');
+
+  return <style>{css}</style>;
 };
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
+
+type ChartPayloadRecord = Record<string, unknown> & {
+  fill?: string;
+};
+
+type ChartPayload = {
+  [key: string]: unknown;
+  dataKey?: string | number;
+  name?: string | number;
+  value?: string | number | readonly (string | number)[];
+  color?: string;
+  type?: string;
+  payload?: ChartPayloadRecord | string | null;
+};
+
+type ChartPayloadEntry = ChartPayload | string;
+
+function isChartPayload(value: ChartPayloadEntry): value is ChartPayload {
+  return typeof value === 'object' && value !== null;
+}
+
+type ChartTooltipContentProps = {
+  active?: boolean;
+  payload?: ChartPayload[];
+  className?: string;
+  indicator?: 'line' | 'dot' | 'dashed';
+  hideLabel?: boolean;
+  hideIndicator?: boolean;
+  label?: React.ReactNode;
+  labelFormatter?: (value: React.ReactNode, payload: ChartPayload[]) => React.ReactNode;
+  labelClassName?: string;
+  formatter?: (
+    value: string | number | readonly (string | number)[],
+    name: string | number,
+    item: ChartPayload,
+    index: number,
+    payload: ChartPayloadRecord
+  ) => React.ReactNode;
+  color?: string;
+  nameKey?: string;
+  labelKey?: string;
+};
 
 function ChartTooltipContent({
   active,
@@ -108,13 +146,7 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey
-}: any & {
-  hideLabel?: boolean;
-  hideIndicator?: boolean;
-  indicator?: 'line' | 'dot' | 'dashed';
-  nameKey?: string;
-  labelKey?: string;
-}) {
+}: ChartTooltipContentProps) {
   const { config } = useChart();
 
   const tooltipLabel = React.useMemo(() => {
@@ -155,12 +187,13 @@ function ChartTooltipContent({
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
         {payload
-          .filter((item: any) => item.type !== 'none')
-          .map((item: any, index: number) => {
+          .filter(item => item.type !== 'none')
+          .map((item, index) => {
             // eslint-disable-next-line i18next/no-literal-string -- recharts default data-key fallback, not user-facing
             const key = `${nameKey || item.name || item.dataKey || 'value'}`;
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
-            const indicatorColor = color || item.payload.fill || item.color;
+            const payloadFill = isRecord(item.payload) && typeof item.payload.fill === 'string' ? item.payload.fill : undefined;
+            const indicatorColor = color || payloadFill || item.color;
 
             return (
               <div
@@ -171,7 +204,7 @@ function ChartTooltipContent({
                 )}
               >
                 {formatter && item?.value !== undefined && item.name ? (
-                  formatter(item.value, item.name, item, index, item.payload)
+                  formatter(item.value, item.name, item, index, isRecord(item.payload) ? item.payload : {})
                 ) : (
                   <>
                     {itemConfig?.icon ? (
@@ -222,7 +255,21 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend;
 
-function ChartLegendContent({ className, hideIcon = false, payload, verticalAlign = 'bottom', nameKey }: any) {
+type ChartLegendContentProps = {
+  className?: string;
+  hideIcon?: boolean;
+  payload?: ChartPayloadEntry[];
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  nameKey?: string;
+};
+
+function ChartLegendContent({
+  className,
+  hideIcon = false,
+  payload,
+  verticalAlign = 'bottom',
+  nameKey
+}: ChartLegendContentProps) {
   const { config } = useChart();
 
   if (!payload?.length) {
@@ -232,15 +279,16 @@ function ChartLegendContent({ className, hideIcon = false, payload, verticalAlig
   return (
     <div className={cn('flex items-center justify-center gap-4', verticalAlign === 'top' ? 'pb-3' : 'pt-3', className)}>
       {payload
-        .filter((item: any) => item.type !== 'none')
-        .map((item: any) => {
+        .filter(item => !isChartPayload(item) || item.type !== 'none')
+        .map((item, index) => {
+          const payloadItem = isChartPayload(item) ? item : {};
           // eslint-disable-next-line i18next/no-literal-string -- recharts default data-key fallback, not user-facing
-          const key = `${nameKey || item.dataKey || 'value'}`;
-          const itemConfig = getPayloadConfigFromPayload(config, item, key);
+          const key = `${nameKey || payloadItem.dataKey || 'value'}`;
+          const itemConfig = getPayloadConfigFromPayload(config, payloadItem, key);
 
           return (
             <div
-              key={item.value}
+              key={payloadItem.value !== undefined ? String(payloadItem.value) : index}
               className={cn('flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground')}
             >
               {itemConfig?.icon && !hideIcon ? (
@@ -249,7 +297,7 @@ function ChartLegendContent({ className, hideIcon = false, payload, verticalAlig
                 <div
                   className="h-2 w-2 shrink-0 rounded-[2px]"
                   style={{
-                    backgroundColor: item.color
+                    backgroundColor: payloadItem.color
                   }}
                 />
               )}
@@ -261,29 +309,25 @@ function ChartLegendContent({ className, hideIcon = false, payload, verticalAlig
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 function getPayloadConfigFromPayload(config: ChartConfig, payload: unknown, key: string) {
-  if (typeof payload !== 'object' || payload === null) {
+  if (!isRecord(payload)) {
     return undefined;
   }
 
-  const payloadPayload =
-    'payload' in payload && typeof payload.payload === 'object' && payload.payload !== null
-      ? payload.payload
-      : undefined;
+  const payloadPayload = isRecord(payload.payload) ? payload.payload : undefined;
+  let configLabelKey = key;
 
-  let configLabelKey: string = key;
-
-  if (key in payload && typeof payload[key as keyof typeof payload] === 'string') {
-    configLabelKey = payload[key as keyof typeof payload] as string;
-  } else if (
-    payloadPayload &&
-    key in payloadPayload &&
-    typeof payloadPayload[key as keyof typeof payloadPayload] === 'string'
-  ) {
-    configLabelKey = payloadPayload[key as keyof typeof payloadPayload] as string;
+  if (typeof payload[key] === 'string') {
+    configLabelKey = payload[key];
+  } else if (payloadPayload && typeof payloadPayload[key] === 'string') {
+    configLabelKey = payloadPayload[key];
   }
 
-  return configLabelKey in config ? config[configLabelKey] : config[key as keyof typeof config];
+  return config[configLabelKey] ?? config[key];
 }
 
 export { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, ChartStyle };
