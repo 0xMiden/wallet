@@ -23,6 +23,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
+import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -1065,7 +1066,7 @@ const runGuardianPipeline = async (
     try {
       executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
     } finally {
-      anchor?.free();
+      freeChainAnchor(anchor);
     }
     await setStage('proving');
     let provenTx;
@@ -1514,7 +1515,10 @@ const generateGuardianTransaction = async (
     // (racy, but mostly-working) unanchored behavior instead of bricking it.
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
     if (!chainAnchorB64) {
-      console.warn('[Guardian] proposal has no chain anchor — executing at the current sync height (#784)');
+      console.warn('[Guardian] proposal has no chain anchor — executing at the current sync height (#784)', {
+        transactionId: transaction.id,
+        proposalId: proposalResult.id
+      });
     }
 
     await setTransactionStage(transaction.id, 'sending');

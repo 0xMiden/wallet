@@ -55,6 +55,7 @@ import {
   type OffscreenStageEvent
 } from 'lib/miden/back/offscreen-codec';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from 'lib/miden/db/types';
+import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -798,7 +799,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     accountId: string,
     trBytes: Uint8Array,
     delegateTransaction?: boolean,
-    chainAnchorB64?: string
+    // `string | null`, not `string | undefined`: the arg slot is always present
+    // on the wire and `encodeArg` deliberately maps an absent anchor to JSON
+    // `null` (see offscreen-codec), so the no-anchor case arrives as `null`.
+    // Every branch below selects on truthiness, which covers both.
+    chainAnchorB64?: string | null
   ) => {
     // This op's own id and lock hold, taken before any await so both are
     // provably ours (issue #775). The hold is what keeps a pause from silencing
@@ -817,13 +822,18 @@ const DISPATCH: Record<string, DispatchFn> = {
     // in wire form (the proposal metadata's base64 — a WASM ChainAnchor cannot
     // cross the message boundary) and is decoded here, in the realm that
     // executes; freed as soon as executeRequest is done with it.
+    //
+    // The decode gets its own breadcrumb because it can throw (a skewed or
+    // truncated anchor fails here, before execution), and this realm's whole
+    // diagnostic contract is that a write names the step it stopped on.
+    if (chainAnchorB64) recordProveTiming('guardianPipeline decoding chain anchor');
     const anchor = chainAnchorB64 ? (sdk as any).ChainAnchor.deserialize(b64ToBytes(chainAnchorB64)) : undefined;
     recordProveTiming(`guardianPipeline calling executeRequest anchored=${anchor ? 'yes' : 'no'}`);
     let executedTx;
     try {
       executedTx = await client.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
     } finally {
-      anchor?.free();
+      freeChainAnchor(anchor);
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
     postStageEvent(context, 'proving');

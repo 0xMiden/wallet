@@ -344,6 +344,17 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateWasmWebClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
     mockBuildPswapCreateRequest.mockReset();
+    // #784: `clearAllMocks` clears CALLS but keeps implementations, so reset
+    // this one and give it an echoing default. Without a default, a test that
+    // sets `metadata.chainAnchor` but forgets `mockReturnValue` would decode to
+    // `undefined`, silently take the UNANCHORED path, and still pass. The reset
+    // also stops a per-test throwing implementation leaking into the rest of
+    // the file.
+    mockChainAnchorDeserialize.mockReset();
+    mockChainAnchorDeserialize.mockImplementation((bytes: Uint8Array) => ({
+      __anchorFromBytes: Array.from(bytes),
+      free: jest.fn()
+    }));
     txStore.length = 0;
   });
 
@@ -535,6 +546,130 @@ describe('generateTransaction — Guardian routing', () => {
     expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
     const unanchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
     expect(unanchoredExecuteArgs[2]).toBeUndefined();
+  });
+
+  // The free lives in a `finally` so a FAILED execute still releases the
+  // anchor's partial blockchain. Without this, moving the free after the await
+  // would leak one anchor per failed guardian write and stay green.
+  it('Guardian send: frees the decoded chain anchor even when executeRequest fails (#784)', async () => {
+    const txId = 'send-guardian-anchor-execute-fails';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const anchor = { free: jest.fn(), blockNum: () => 42 };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-fail',
+        nonce: 21,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    clientApi.transactions.executeRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(abandonCandidate).toHaveBeenCalledWith(21);
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  // A skewed or truncated anchor throws in `deserialize`, BEFORE execution.
+  // That must fail the write outright — never fall back to the unanchored
+  // execute this issue exists to eliminate — and still abandon the candidate.
+  it('Guardian send: a malformed chain anchor fails the write without executing unanchored (#784)', async () => {
+    const txId = 'send-guardian-anchor-malformed';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    mockChainAnchorDeserialize.mockImplementation(() => {
+      throw new Error('ChainAnchor deserialization failed');
+    });
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored-malformed',
+        nonce: 23,
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const clientApi = makeClientApi(makeResult());
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(clientApi.transactions.executeRequest).not.toHaveBeenCalled();
+    expect(abandonCandidate).toHaveBeenCalledWith(23);
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Failed);
   });
 
   // The note type used to be hardcoded Private here regardless of the row, so a

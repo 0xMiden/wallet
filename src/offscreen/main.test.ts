@@ -2084,13 +2084,21 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('guardianPipeline: executes unanchored when no chain anchor crossed (#784)', async () => {
+  // The anchor slot is ALWAYS on the wire — `dispatchGuardianPipeline` packs a
+  // fixed 4-element array — and `encodeArg` maps an absent anchor to JSON
+  // `null`, not `undefined`. So this sends `encodeArg(undefined)` rather than a
+  // short 3-arg array: the dispatch must see `null` and still take the
+  // unanchored branch. A guard tightened to `!== undefined` would pass a
+  // 3-arg test and then feed `null` to the decoder on every unanchored write.
+  it('guardianPipeline: executes unanchored when the crossed chain anchor is the wire NULL (#784)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
+    const anchorSlot = encodeArg(undefined);
+    expect(anchorSlot).toBe('s:null');
     capturedListener!(
       callReq({
         method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false)]
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), anchorSlot]
       }),
       {},
       sendResponse
@@ -2100,6 +2108,85 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
     expect(G.__off.guardianExecuteRequest.mock.calls[0][2]).toBeUndefined();
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  // The `free()` lives in a `finally` precisely so a failed execute still
+  // releases the anchor's partial blockchain. Without this the free could be
+  // moved after the `await` and every test would stay green.
+  it('guardianPipeline: frees the decoded chain anchor even when executeRequest throws (#784)', async () => {
+    await loadModule();
+    const anchor = { __anchor: true, free: jest.fn() };
+    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
+    G.__off.guardianExecuteRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    // ...and the executor's own reason still reaches the SW, not a free() error.
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    expect(sendResponse.mock.calls[0][0].error).toContain('unauthorized');
+  });
+
+  // A throwing `free()` must never replace the in-flight execute failure: the
+  // executor's reason is the whole diagnostic value of a guardian failure, and
+  // a disposed/poisoned module is exactly when both happen at once (#775).
+  it('guardianPipeline: a failing anchor free never masks the executeRequest error (#784)', async () => {
+    await loadModule();
+    const anchor = {
+      __anchor: true,
+      free: jest.fn(() => {
+        throw new Error('null pointer passed to rust');
+      })
+    };
+    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
+    G.__off.guardianExecuteRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    expect(sendResponse.mock.calls[0][0].error).toContain('unauthorized');
+    expect(sendResponse.mock.calls[0][0].error).not.toContain('null pointer');
+  });
+
+  // A skewed or truncated anchor fails in `deserialize`, BEFORE execution. That
+  // must surface as an ordinary failed call — never a silent unanchored execute
+  // and never a wedged realm holding the client lock.
+  it('guardianPipeline: a malformed chain anchor fails the call without executing (#784)', async () => {
+    await loadModule();
+    G.__off.deserializeChainAnchor.mockImplementation(() => {
+      throw new Error('ChainAnchor deserialization failed');
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    expect(sendResponse.mock.calls[0][0].error).toContain('ChainAnchor deserialization failed');
   });
 
   it('guardianPipeline (delegated): proves with an EXPLICIT remote prover under the bounded wait, never a local prover, then submits/applies', async () => {
