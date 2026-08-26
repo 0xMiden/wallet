@@ -76,6 +76,12 @@ module.exports = {
   Note: jest.fn(),
   AuthSecretKey: jest.fn(),
   SigningInputs: jest.fn(),
-  Word: jest.fn(),
-  AccountInterface: jest.fn()
+  Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
+  AccountInterface: jest.fn(),
+  // Advice-map primitives used by the direct guardian-switch fallback
+  AdviceMap: jest.fn(() => ({ insert: jest.fn() })),
+  Felt: jest.fn(),
+  FeltArray: jest.fn(),
+  Poseidon2: { hashElements: jest.fn(() => ({ toHex: () => '0xadvice-key' })) },
+  Signature: { deserialize: jest.fn(() => ({ toPreparedSignature: jest.fn(() => []) })) }
 };

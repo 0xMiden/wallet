@@ -5,7 +5,7 @@ import {
   type TransactionResult,
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
-import { type Proposal } from '@openzeppelin/miden-multisig-client';
+import { chainAnchorFromBase64, type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
   getOrCreateMultisigService,
@@ -13,6 +13,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { createDirectSwitchGuardianRequest, isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -382,7 +383,17 @@ async function reconcileStructuralApplyFailure(
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
     return;
   }
-  const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
+  // A switch that ran the DIRECT fallback (old guardian unreachable) can't
+  // rebuild a MultisigService here — `getOrCreateMultisigService` loads from
+  // the OLD guardian. Completion handles the undefined-service case by
+  // registering on the new guardian directly.
+  let service: MultisigService | undefined;
+  try {
+    service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
+  } catch (error) {
+    if (!isGuardianUnreachableError(error)) throw error;
+    console.warn('[Guardian] old guardian unreachable during switch reconcile — finalizing directly', error);
+  }
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
 }
 
@@ -1035,7 +1046,13 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  setStage: (stage: ITransactionStage) => Promise<void>
+  setStage: (stage: ITransactionStage) => Promise<void>,
+  // Direct-switch fallback only: the ChainAnchor (base64) the summary was
+  // signed at. Since protocol 0.16 the signed summary binds the reference
+  // block commitment, so the execution must be pinned to that block or the
+  // hot/cold signatures no longer verify. The proposal path passes nothing
+  // and keeps its existing unanchored execute.
+  chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1049,7 +1066,17 @@ const runGuardianPipeline = async (
   return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
     await setStage('executing');
-    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+    let executedTx;
+    if (chainAnchorB64) {
+      const anchor = chainAnchorFromBase64(chainAnchorB64);
+      try {
+        executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, { anchor });
+      } finally {
+        anchor.free();
+      }
+    } else {
+      executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+    }
     await setStage('proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -1120,6 +1147,76 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' &&
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
+
+/**
+ * DIRECT on-chain guardian switch — the fallback when the OUTGOING guardian is
+ * unreachable. The proposal flow needs the old guardian as a coordination
+ * mailbox (service load, proposal push, signature accumulation), but the
+ * on-chain `update_guardian` is threshold-2 over the account's OWN keys, so an
+ * unreachable old guardian must not be able to strand the account: build the
+ * request locally, sign with hot + cold, and drive it through the SAME leaf
+ * pipeline + commit-wait + completion as the proposal path. Completion gets an
+ * undefined MultisigService and registers on the NEW guardian directly.
+ *
+ * No `abandonCandidate` on failure: either no proposal ever reached the old
+ * guardian, or it did and the guardian is unreachable anyway — a leftover
+ * pending delta on an abandoned operator has no on-chain authority.
+ */
+const generateDirectSwitchGuardianTransaction = async (
+  transaction: SwitchGuardianTransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider
+): Promise<void> => {
+  const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+    sameWalletAccountId(a.publicKey, transaction.accountId)
+  );
+  if (!walletAccount) {
+    throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+  }
+
+  // Hot + cold both sign at build time — surface that as the signing stage.
+  await setTransactionStage(transaction.id, 'signing-proposal');
+  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+    walletAccount,
+    transaction.extraInputs.newGuardianEndpoint,
+    guardianProvider.signWord
+  );
+
+  // Same leaf routing as the proposal path — offscreen flag-on, inline
+  // flag-off — with the summary's ChainAnchor riding along so the execution is
+  // pinned to the reference block the hot/cold signatures authorized
+  // (protocol 0.16).
+  await setTransactionStage(transaction.id, 'sending');
+  let result: TransactionResult;
+  if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
+    result = await dispatchGuardianPipeline(
+      transaction.accountId,
+      tr.serialize(),
+      transaction.delegateTransaction,
+      signCallback,
+      stageStampFor(transaction.id),
+      chainAnchorB64
+    );
+  } else {
+    result = await runGuardianPipeline(
+      transaction.accountId,
+      tr,
+      transaction.delegateTransaction,
+      signCallback,
+      stageStampFor(transaction.id),
+      chainAnchorB64
+    );
+  }
+
+  // Same commit-wait as the proposal path: the new guardian must be seeded
+  // with the POST-switch state, so registration only runs after inclusion.
+  const id = result.executedTransaction().id().toHex();
+  await setTransactionStage(transaction.id, 'confirming');
+  await midenClientProxy.waitForTransactionCommit(id);
+
+  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider);
+  await setTransactionStage(transaction.id, 'complete');
+};
 
 /**
  * Generate a transaction for a Guardian account using the MultisigService.
@@ -1237,11 +1334,23 @@ const generateGuardianTransaction = async (
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const { proposal } = await withGuardianConflictRetry(() =>
-        service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
-      );
-      proposalResult = proposal;
+      try {
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        const { proposal } = await withGuardianConflictRetry(() =>
+          service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
+        );
+        proposalResult = proposal;
+      } catch (error) {
+        // The service load and the proposal push both round-trip through the
+        // OUTGOING guardian. When it is unreachable (down operator, DNS, proxy
+        // 5xx), fall back to the direct on-chain switch — the whole point of
+        // switch-guardian as a recovery path is escaping a dead guardian.
+        // Reachable-guardian errors (401/409/…) keep the normal handling.
+        if (!isGuardianUnreachableError(error)) throw error;
+        console.warn('[Guardian] outgoing guardian unreachable — switching directly on-chain:', error);
+        await generateDirectSwitchGuardianTransaction(sgTx, signCallback, guardianProvider);
+        return;
+      }
       break;
     }
     case 'replace-hot-key': {
@@ -1469,15 +1578,31 @@ const generateGuardianTransaction = async (
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
-    const coldService = await MultisigService.buildColdMultisigService(
-      sdkAccount,
-      walletAccount,
-      guardianProvider.signWord
-    );
-    // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
-    // otherwise a prior delta mid-canonicalization fails the whole switch even
-    // though the hot proposal already landed.
-    await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
+    try {
+      const coldService = await MultisigService.buildColdMultisigService(
+        sdkAccount,
+        walletAccount,
+        guardianProvider.signWord
+      );
+      // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
+      // otherwise a prior delta mid-canonicalization fails the whole switch even
+      // though the hot proposal already landed.
+      await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
+    } catch (error) {
+      // Connectivity to the outgoing guardian dropped between proposal push and
+      // cold co-sign: fall back to the direct on-chain switch. The already-pushed
+      // delta stays pending on the unreachable old guardian — harmless, since a
+      // rotated-out guardian has no on-chain authority (and abandoning it would
+      // require the very guardian we can't reach).
+      if (!isGuardianUnreachableError(error)) throw error;
+      console.warn('[Guardian] outgoing guardian unreachable at cold co-sign — switching directly on-chain:', error);
+      await generateDirectSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        signCallback,
+        guardianProvider
+      );
+      return;
+    }
   }
 
   let result: TransactionResult;
@@ -1525,12 +1650,19 @@ const generateGuardianTransaction = async (
       if (transaction.requestBytes !== undefined) {
         await markMayHaveSubmitted(transaction.id);
       }
+      // The proposal's ChainAnchor rides along (protocol 0.16): the signed
+      // summary binds the reference block it was built at, so the leaf's
+      // executeRequest must be pinned there — the executing realm's sync height
+      // has usually advanced past it during the guardian HTTP roundtrips, and an
+      // unanchored execute derives a different summary the collected signatures
+      // no longer authorize ("transaction is unauthorized").
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id)
+        stageStampFor(transaction.id),
+        proposalResult.metadata?.chainAnchor
       );
     } else {
       result = await runGuardianPipeline(
@@ -1538,7 +1670,8 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id)
+        stageStampFor(transaction.id),
+        proposalResult.metadata?.chainAnchor
       );
     }
   } catch (error) {

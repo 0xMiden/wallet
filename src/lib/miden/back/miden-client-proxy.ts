@@ -881,9 +881,22 @@ export function dispatchGuardianPipeline(
   trBytes: Uint8Array,
   delegateTransaction: boolean | undefined,
   signCallback: RawSignCallback,
-  onStage?: StageCallback
+  onStage?: StageCallback,
+  // The ChainAnchor (base64) the proposal's summary was signed at. Since
+  // protocol 0.16 the signed summary binds the reference block commitment, so
+  // the offscreen executeRequest must be pinned to that block — executing at
+  // whatever height the offscreen client happens to be synced to derives a
+  // different summary and the collected signatures no longer verify
+  // ("transaction is unauthorized"). Optional only for anchor-less legacy
+  // proposals, which keep the old unanchored execute.
+  chainAnchorB64?: string
 ): Promise<TransactionResult> {
-  return dispatchOffscreenWrite('guardianPipeline', [accountId, trBytes, delegateTransaction], signCallback, onStage);
+  return dispatchOffscreenWrite(
+    'guardianPipeline',
+    [accountId, trBytes, delegateTransaction, chainAnchorB64],
+    signCallback,
+    onStage
+  );
 }
 
 /**

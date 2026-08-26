@@ -12,6 +12,7 @@
  */
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
+import { chainAnchorFromBase64 } from '@openzeppelin/miden-multisig-client';
 
 import { WalletType } from 'screens/onboarding/types';
 
@@ -92,6 +93,17 @@ jest.mock('lib/miden/guardian', () => ({
   MultisigService: {
     buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a)
   }
+}));
+
+// Direct on-chain switch fallback (old guardian unreachable). The classifier
+// keeps its REAL implementation (its unreachable-vs-semantic routing is what
+// these tests exercise); only the request builder + finalizer are stubbed.
+const mockCreateDirectSwitchRequest = jest.fn();
+const mockFinalizeDirectSwitch = jest.fn();
+jest.mock('lib/miden/guardian/direct-switch', () => ({
+  ...jest.requireActual('lib/miden/guardian/direct-switch'),
+  createDirectSwitchGuardianRequest: (...a: unknown[]) => mockCreateDirectSwitchRequest(...a),
+  finalizeDirectGuardianSwitch: (...a: unknown[]) => mockFinalizeDirectSwitch(...a)
 }));
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
@@ -2970,7 +2982,10 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createSwitchGuardianProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-switch' },
+        proposal: {
+          id: 'prop-switch',
+          metadata: { proposalType: 'switch_guardian', chainAnchor: 'proposal-anchor-b64' }
+        },
         newEndpoint: 'https://new.guardian'
       })),
       signAndCreateTransactionRequest: jest.fn(async () => ({
@@ -2993,11 +3008,12 @@ describe('generateTransaction — Guardian routing', () => {
     mockIsGuardianAccount.mockResolvedValue(true);
 
     const waitForTransactionCommit = jest.fn(async () => {});
+    const clientApi = makeClientApi(result);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit,
-      client: makeClientApi(result)
+      client: clientApi
     });
 
     await generateTransaction(
@@ -3025,6 +3041,195 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-switch', undefined);
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+    // Protocol 0.16: execution is pinned to the proposal's ChainAnchor — the
+    // signed summary binds the reference block commitment, so an unanchored
+    // execute at a later sync height fails "transaction is unauthorized".
+    expect(jest.mocked(chainAnchorFromBase64)).toHaveBeenCalledWith('proposal-anchor-b64');
+    expect(clientApi.transactions.executeRequest).toHaveBeenCalledWith(
+      'guardian-acc',
+      expect.anything(),
+      expect.objectContaining({ anchor: expect.anything() })
+    );
+  });
+
+  it('Guardian switch-guardian: OLD guardian unreachable at service init → direct on-chain switch fallback', async () => {
+    const txId = 'switch-guardian-direct-1';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    // Service load round-trips through the OLD guardian — down operator.
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'chain-anchor-b64'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const signWord = jest.fn(async () => 'sig');
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The direct request is built locally (hot + cold advice-map signatures) —
+    // no proposal machinery, no cold service.
+    expect(mockCreateDirectSwitchRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ publicKey: 'guardian-acc' }),
+      'https://new.guardian',
+      signWord
+    );
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+    // Same leaf + commit-wait as the proposal path, pinned to the ChainAnchor
+    // the direct build signed at (protocol 0.16).
+    expect(jest.mocked(chainAnchorFromBase64)).toHaveBeenCalledWith('chain-anchor-b64');
+    expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
+    // Completion registers on the NEW guardian standalone (undefined service).
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Guardian switched');
+  });
+
+  it('Guardian switch-guardian: OLD guardian unreachable at cold co-sign → direct fallback (proposal already pushed)', async () => {
+    const txId = 'switch-guardian-direct-2';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    // Proposal push succeeded, then connectivity to the old guardian dropped:
+    // the cold service load (guardian getState) fails.
+    const multisigService = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch' },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'chain-anchor-b64'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig')
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+
+    const waitForTransactionCommit = jest.fn(async () => {});
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit,
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // The proposal path was abandoned mid-flight; the hot sign never ran.
+    expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('Guardian switch-guardian: a SEMANTIC old-guardian error (401) does NOT trigger the direct fallback', async () => {
+    const txId = 'switch-guardian-no-fallback';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    // Reachable guardian, semantic rejection — the fallback must not swallow it
+    // (a 401 means a registration/allowlist problem, not a dead operator).
+    const authError = Object.assign(new Error('signer not authorized'), { status: 401 });
+    mockGetOrCreateMultisigService.mockRejectedValue(authError);
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig')
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
   it('Guardian replace-hot-key: cold-signs the in-place swap, persists new ciphertext pre-submit, waits for inclusion', async () => {

@@ -71,6 +71,7 @@ import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { b64ToU8 } from 'lib/shared/helpers';
 
 const TAG = '[offscreen-prover]';
 
@@ -793,7 +794,13 @@ const DISPATCH: Record<string, DispatchFn> = {
   // this pipeline drives the raw transactions API itself, so it stamps the
   // boundaries itself too. Fire-and-forget (see `postStageEvent`): a lost stamp
   // costs a blank duration, never the transaction.
-  guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
+  guardianPipeline: async (
+    client,
+    accountId: string,
+    trBytes: Uint8Array,
+    delegateTransaction?: boolean,
+    chainAnchorB64?: string
+  ) => {
     // This op's own id and lock hold, taken before any await so both are
     // provably ours (issue #775). The hold is what keeps a pause from silencing
     // the watchdog of whichever holder took the lock after an eviction; the id
@@ -804,7 +811,23 @@ const DISPATCH: Record<string, DispatchFn> = {
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
     recordProveTiming('guardianPipeline calling executeRequest');
-    const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    // Anchored execution (protocol 0.16): the proposal's signed summary binds
+    // the reference block commitment, so execution must be pinned to the block
+    // the summary was built at — this realm's own sync height has usually moved
+    // past it by now, and an unanchored execute derives a different summary that
+    // the collected hot/cold/guardian signatures no longer authorize. Legacy
+    // anchor-less proposals fall through to the old unanchored call.
+    let executedTx;
+    if (chainAnchorB64) {
+      const anchor = (sdk as any).ChainAnchor.deserialize(b64ToU8(chainAnchorB64));
+      try {
+        executedTx = await client.client.transactions.executeRequest(accountId, tr, { anchor });
+      } finally {
+        anchor.free();
+      }
+    } else {
+      executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
     postStageEvent(context, 'proving');
     let provenTx;

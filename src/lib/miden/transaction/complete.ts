@@ -2,6 +2,7 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
 import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
@@ -515,7 +516,10 @@ export const completeUpdateProcedureThresholdTransaction = async (
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
-  multisigService: MultisigService,
+  // Undefined on the DIRECT-switch fallback (outgoing guardian unreachable):
+  // no MultisigService exists — building one loads from the old guardian —
+  // so registration on the new guardian runs standalone instead.
+  multisigService: MultisigService | undefined,
   guardianProvider: GuardianAccountProvider
 ) => {
   try {
@@ -527,7 +531,11 @@ export const completeSwitchGuardianTransaction = async (
     // or storage. If this throws, storage + status stay untouched so the
     // user can retry.
     await setTransactionStage(tx.id, 'registering-guardian');
-    await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+    if (multisigService) {
+      await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+    } else {
+      await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+    }
 
     // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
     // Guardian accounts on different operators aren't clobbered. Backend
