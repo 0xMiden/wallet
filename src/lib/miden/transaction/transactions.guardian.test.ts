@@ -517,6 +517,7 @@ describe('generateTransaction — Guardian routing', () => {
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const clientApi = makeClientApi(result);
     mockGetMidenClient.mockResolvedValue({
@@ -546,6 +547,12 @@ describe('generateTransaction — Guardian routing', () => {
     expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
     const unanchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
     expect(unanchoredExecuteArgs[2]).toBeUndefined();
+    // This branch is unreachable in production (signing throws on an anchorless
+    // proposal), so the warning IS the diagnostic — it has to name the row and
+    // the proposal or it cannot be traced back to anything.
+    const anchorWarn = warn.mock.calls.find(call => String(call[0]).includes('no chain anchor'));
+    expect(anchorWarn?.[1]).toEqual({ transactionId: txId, proposalId: 'prop-plain' });
+    warn.mockRestore();
   });
 
   // The free lives in a `finally` so a FAILED execute still releases the

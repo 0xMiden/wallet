@@ -38,6 +38,7 @@ import {
   b64ToBytes,
   bytesToB64,
   encodeArg,
+  type GuardianPipelineArgs,
   type OffscreenCallRequest,
   type OffscreenCallResponse,
   type OffscreenReloadEndpointsRequest,
@@ -888,12 +889,10 @@ export function dispatchGuardianPipeline(
   // executeRequest to the reference block the co-signatures were bound to.
   chainAnchorB64?: string
 ): Promise<TransactionResult> {
-  return dispatchOffscreenWrite(
-    'guardianPipeline',
-    [accountId, trBytes, delegateTransaction, chainAnchorB64],
-    signCallback,
-    onStage
-  );
+  // Typed against the shared wire contract so a dropped or reordered slot is a
+  // compile error here rather than a silently unanchored execute offscreen.
+  const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
+  return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
 }
 
 /**

@@ -20,6 +20,14 @@ module.exports = {
   Program: {
     fromString: jest.fn()
   },
+  // #784: the guardian leaf decodes a proposal's base64 chain anchor before
+  // pinning executeRequest to it. Present here so a suite that gives a proposal
+  // a `chainAnchor` gets a legible mock assertion instead of "Cannot read
+  // properties of undefined (reading 'deserialize')". Suites that assert on the
+  // decode override this with their own spy.
+  ChainAnchor: {
+    deserialize: jest.fn(bytes => ({ __anchorFromBytes: Array.from(bytes), free: jest.fn() }))
+  },
   RecordPlaintext: {
     fromString: jest.fn()
   },

@@ -1061,9 +1061,10 @@ const runGuardianPipeline = async (
     // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
     // as soon as executeRequest is done with it — the rest of the pipeline
     // never touches it.
-    const anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
+    let anchor: ChainAnchor | undefined;
     let executedTx;
     try {
+      anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
       executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
     } finally {
       freeChainAnchor(anchor);

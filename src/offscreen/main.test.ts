@@ -3200,6 +3200,61 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
+  // #784: the anchor decode gets its own marker BEFORE the call, which is the only
+  // arrangement that carries information — a decode that throws must leave that
+  // marker as the realm's LAST word, naming the step the write stopped on. Emitted
+  // after the deserialize instead, it would be missing from exactly the failure it
+  // exists to describe, and every other assertion here would still pass.
+  it('names the anchor decode as the last marker when the decode is what failed (#784)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      G.__off.deserializeChainAnchor.mockImplementation(() => {
+        throw new Error('ChainAnchor deserialization failed');
+      });
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      // The envelope keeps narrating its own teardown after the throw, so read the
+      // PIPELINE's markers only (`] guardianPipeline …`, as opposed to the
+      // envelope's `call 'guardianPipeline' …`): the decode has to be its last word.
+      const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
+      expect(pipelineLines[pipelineLines.length - 1]).toContain('guardianPipeline decoding chain anchor');
+      // The execute marker is the one that must NOT appear: nothing executed.
+      expect(pipelineLines.some(l => l.includes('guardianPipeline calling executeRequest'))).toBe(false);
+    });
+  });
+
+  // The marker is anchor-conditional, so an unanchored write must not claim to
+  // have decoded anything — a decode line on a write with no anchor would send
+  // a hang investigation to a step that never ran.
+  it('records no anchor-decode marker on an unanchored guardian write (#784)', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg(undefined)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const lines = markerLines(posted);
+      expect(lines.some(l => l.includes('guardianPipeline decoding chain anchor'))).toBe(false);
+      expect(lines.some(l => l.includes('guardianPipeline calling executeRequest anchored=no'))).toBe(true);
+    });
+  });
+
   it('records nothing at all when the E2E flag is off (production builds)', async () => {
     await withE2EFlag(undefined, async () => {
       await loadModule();
