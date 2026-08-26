@@ -8,6 +8,7 @@
 import { isLockedError } from 'lib/miden/transaction/helper';
 
 import {
+  __resetRecoveryCooldownForTests,
   isWasmClientBusy,
   tryWithWasmClientLock,
   WasmClientPoisonedError,
@@ -16,9 +17,6 @@ import {
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from './miden-client';
-
-/** Advanced by every test's beforeEach — see the setSystemTime call there. */
-let fakeDayOffset = 0;
 
 /**
  * Attach a rejection expectation NOW — so the eviction's rejection always has
@@ -41,10 +39,10 @@ function dispatchTrapEvent(): void {
 describe('wasm lock watchdog', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    // Start each test a full day later than the previous one, so a prior
-    // test's recovery stamp can never hold this test inside the realm-error
-    // cooldown window.
-    jest.setSystemTime(new Date(Date.now() + ++fakeDayOffset * 86_400_000));
+    // Drop any recovery stamp left by an earlier test, so its cooldown cannot
+    // suppress this test's trap. Fake timers restart the monotonic clock at 0
+    // on every install, which puts a prior stamp in this test's future.
+    __resetRecoveryCooldownForTests();
   });
 
   afterEach(() => {
@@ -222,10 +220,10 @@ describe('wasm lock watchdog', () => {
 describe('realm error fast path', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    // Start each test a full day later than the previous one, so a prior
-    // test's recovery stamp can never hold this test inside the realm-error
-    // cooldown window.
-    jest.setSystemTime(new Date(Date.now() + ++fakeDayOffset * 86_400_000));
+    // Drop any recovery stamp left by an earlier test, so its cooldown cannot
+    // suppress this test's trap. Fake timers restart the monotonic clock at 0
+    // on every install, which puts a prior stamp in this test's future.
+    __resetRecoveryCooldownForTests();
   });
 
   afterEach(() => {
@@ -469,6 +467,10 @@ describe('realm error fast path', () => {
     await firstRejects;
   });
 
+  // Also pins the cooldown's "never recovered" sentinel: this recovery is stamped
+  // at monotonic time 0 (no time has been advanced yet), so a sentinel of 0 —
+  // rather than null — would read as "no recovery" and let the corpse trap
+  // through, which is the cascade this suppression exists to stop.
   it('suppresses realm-error evictions for a cooldown after a recovery, so a corpse trap cannot cascade', async () => {
     const first = withWasmClientLock(() => new Promise<never>(() => {}));
     const firstRejects = expectRejection(first, { name: 'WasmClientPoisonedError' });
@@ -503,10 +505,10 @@ describe('realm error fast path', () => {
 describe('watchdog pause and yield', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    // Start each test a full day later than the previous one, so a prior
-    // test's recovery stamp can never hold this test inside the realm-error
-    // cooldown window.
-    jest.setSystemTime(new Date(Date.now() + ++fakeDayOffset * 86_400_000));
+    // Drop any recovery stamp left by an earlier test, so its cooldown cannot
+    // suppress this test's trap. Fake timers restart the monotonic clock at 0
+    // on every install, which puts a prior stamp in this test's future.
+    __resetRecoveryCooldownForTests();
   });
 
   afterEach(() => {
@@ -736,10 +738,10 @@ describe('watchdog pause and yield', () => {
 describe('poisoned client recovery', () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    // Start each test a full day later than the previous one, so a prior
-    // test's recovery stamp can never hold this test inside the realm-error
-    // cooldown window.
-    jest.setSystemTime(new Date(Date.now() + ++fakeDayOffset * 86_400_000));
+    // Drop any recovery stamp left by an earlier test, so its cooldown cannot
+    // suppress this test's trap. Fake timers restart the monotonic clock at 0
+    // on every install, which puts a prior stamp in this test's future.
+    __resetRecoveryCooldownForTests();
   });
 
   afterEach(() => {

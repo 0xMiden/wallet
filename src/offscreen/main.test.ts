@@ -101,13 +101,39 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     if (next) next();
     else locked = false;
   };
+  // Issue #775: eviction is not cancellation. The real lock rejects the WAITER
+  // with a poisoned error and releases the mutex, while the operation keeps
+  // running — which is the only state in which a corpse and its successor are
+  // both live. `g.__off.evictHolder()` reproduces exactly that, so the offscreen
+  // behaviours that depend on it (a stamp under the corpse's own id, a sign the
+  // corpse must not get) are reachable from a test. Exported off the mock module
+  // rather than the `__off` control object, whose contents are replaced per test.
+  let evictCurrent: (() => void) | null = null;
   const withWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
     await acquire();
-    try {
-      return await op();
-    } finally {
+    let settled = false;
+    const releaseOnce = (): void => {
+      if (settled) return;
+      settled = true;
       release();
+    };
+    const evicted = new Promise<never>((_resolve, reject) => {
+      evictCurrent = () => {
+        // The operation is deliberately NOT awaited or cancelled here.
+        releaseOnce();
+        reject(new Error('WASM client poisoned (realm-error): evicted by the test harness'));
+      };
+    });
+    try {
+      return await Promise.race([op(), evicted]);
+    } finally {
+      releaseOnce();
     }
+  };
+  const __evictHolder = (): void => {
+    const evict = evictCurrent;
+    evictCurrent = null;
+    if (evict) evict();
   };
   // Mirrors the real yieldWasmClientLock: release the lock, run the (WASM-free)
   // op, then reacquire before resolving — so a second op can win the lock while a
@@ -135,6 +161,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
     isWasmClientBusy,
+    __evictHolder,
     getCurrentWasmLockHold: () => hold,
     onWasmClientPoisoned: (listener: () => void) => {
       g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
@@ -2063,12 +2090,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  // The `if (!op_id) return;` guard in `postStageEvent`: an untagged stamp is
-  // undeliverable (the SW maps a stamp to its row purely through the op_id), so
-  // there is nothing to do but drop it. Deliberately NOT the loud failure the sign
-  // stub raises for the same condition — a stamp is telemetry, a signature is the
-  // transaction.
-  it('a stage stamp fired with no OFFSCREEN_CALL in flight (no ambient op_id) is dropped, not posted', async () => {
+  // The settled guard in `postStageEvent`. The stamp is addressed correctly — it
+  // carries the id of the dispatch that fired it — but it is about a step whose
+  // outcome the SW already has, and replaying it would rewind that row's stage
+  // (or, for 'submitting', re-arm may-have-submitted on a row already
+  // adjudicated). Deliberately NOT the loud failure the sign stub raises for a
+  // missing id: a stamp is telemetry, a signature is the transaction.
+  it('a stage stamp fired after its dispatch settled is dropped, not posted', async () => {
     await loadModule();
     // Capture the `onStage` hook the send dispatch hands the client, then let the
     // op finish — which clears the ambient op_id back to null.
@@ -2099,9 +2127,88 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(() => capturedOnStage!('proving')).not.toThrow();
     await flush();
 
-    // Nothing crossed the bus — in particular no event with a null/undefined op_id,
-    // which the SW would have to filter out on the far side.
+    // Nothing crossed the bus — in particular nothing addressed to a row the SW
+    // has already been told the outcome of.
     expect(posted).toEqual([]);
+  });
+
+  // The other half of the same rule (issue #775): a dispatch that is STILL
+  // RUNNING keeps stamping, and does so under its OWN id even after a successor
+  // has taken over the ambient one. Reading the ambient id at post time is what
+  // put an evicted send's 'submitting' stamp on the successor's row — and
+  // `stageStampFor` turns that into `markMayHaveSubmitted`, so the wallet
+  // refused to retry a send that had never been broadcast.
+  it('a still-running evicted dispatch stamps under its own op_id, not the successor ambient one', async () => {
+    await loadModule();
+    // AFTER loadModule: it resets the module registry, so an earlier import
+    // would hand back a different mock instance with its own lock state.
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      if (m?.type === 'OFFSCREEN_STAGE_EVENT') posted.push(`${m.stage}|${m.op_id}`);
+      return undefined;
+    });
+
+    // The first send parks mid-flight, holding its onStage hook.
+    let capturedOnStage: ((s: string) => void) | undefined;
+    let releaseFirst!: () => void;
+    const firstParked = new Promise<void>(resolve => {
+      releaseFirst = resolve;
+    });
+    G.__off.clientSendTransaction = jest.fn(async (_tx: unknown, onStage?: (s: string) => void) => {
+      capturedOnStage = onStage;
+      await firstParked;
+      return { serialize: () => new Uint8Array([1]) };
+    });
+    const firstResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-displaced',
+        method: 'sendTransaction',
+        argsB64: [encodeArg({ accountId: 'a', amount: '1', extraInputs: {} })]
+      }),
+      {},
+      firstResponse
+    );
+    await flush();
+
+    // Recovery evicts it: the waiter fails and the mutex frees, but the send is
+    // still in there, still holding an onStage hook.
+    miden.__evictHolder();
+    await flush();
+    expect(firstResponse.mock.calls[0][0].ok).toBe(false);
+
+    // The successor now owns the lock and the ambient id.
+    let finishSuccessor!: (result: unknown) => void;
+    G.__off.clientSendTransaction = jest.fn(
+      () =>
+        new Promise(resolve => {
+          finishSuccessor = resolve;
+        })
+    );
+    const secondResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-successor',
+        method: 'sendTransaction',
+        argsB64: [encodeArg({ accountId: 'a', amount: '1', extraInputs: {} })]
+      }),
+      {},
+      secondResponse
+    );
+    await flush();
+
+    capturedOnStage!('submitting');
+    await flush();
+
+    // Its own row — which is genuinely may-have-submitted — and not the
+    // successor's, which has broadcast nothing.
+    expect(posted).toEqual(['submitting|op-displaced']);
+
+    releaseFirst();
+    finishSuccessor({ serialize: () => new Uint8Array([2]) });
+    await flush();
+    expect(secondResponse.mock.calls[0][0].ok).toBe(true);
   });
 });
 

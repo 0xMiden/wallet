@@ -2,7 +2,13 @@
 // forms a cycle (via `speculation-manager`), and the re-exported poison
 // bindings below must already be initialized when the cycle re-enters this
 // module — see `wasm-client-poison.ts`.
-import { WASM_LOCK_PAUSED_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError } from './wasm-client-poison';
+import {
+  WASM_LOCK_MIN_WATCHDOG_MS,
+  WASM_LOCK_PAUSED_WATCHDOG_MS,
+  WASM_LOCK_WATCHDOG_MS,
+  WasmClientPoisonedError,
+  bumpWasmClientGeneration
+} from './wasm-client-poison';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -131,9 +137,29 @@ interface LockHolder {
   /** Depth of `withWasmLockWatchdogPaused` brackets currently open. */
   pauseCount: number;
   watchdogTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Unpaused wall-clock this hold has already spent, and when the current
+   * unpaused segment began (`null` while a pause bracket is open). Together they
+   * make the normal ceiling a bound on the HOLD rather than on the current
+   * segment: re-arming the full ceiling at every bracket close would let a flow
+   * that opens and closes brackets in a loop run forever unwatched, which is the
+   * stop-the-clock behaviour the relaxed pause exists to avoid.
+   */
+  unpausedElapsedMs: number;
+  segmentStartedAt: number | null;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
   abort: (err: Error) => void;
   aborted: Promise<never>;
+}
+
+/**
+ * Monotonic-where-available clock for the lock's own bookkeeping (the recovery
+ * cooldown, the watchdog's elapsed accounting). `Date.now()` is wall-clock, so
+ * an NTP correction or a manual clock change can expire a window early or
+ * stretch it; every consumer here only ever measures a short local interval.
+ */
+function monotonicNow(): number {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now();
 }
 
 /**
@@ -242,11 +268,25 @@ function isTrapShaped(error: unknown, rawMessage?: unknown, rawFilename?: unknow
  * timers): a negative delta counts as expired.
  */
 const REALM_ERROR_COOLDOWN_MS = 10_000;
-let lastRecoveryAt = 0;
+// Null, not 0: on the monotonic clock 0 IS a valid stamp (it is the time origin),
+// so a sentinel of 0 would silently disarm the cooldown for a recovery in the
+// realm's first millisecond.
+let lastRecoveryAt: number | null = null;
 
 function inRecoveryCooldown(): boolean {
-  const sinceRecovery = Date.now() - lastRecoveryAt;
-  return lastRecoveryAt !== 0 && sinceRecovery >= 0 && sinceRecovery < REALM_ERROR_COOLDOWN_MS;
+  if (lastRecoveryAt === null) return false;
+  const sinceRecovery = monotonicNow() - lastRecoveryAt;
+  return sinceRecovery >= 0 && sinceRecovery < REALM_ERROR_COOLDOWN_MS;
+}
+
+/**
+ * Clear the cooldown stamp. Test-only: the stamp is monotonic-clock based, and
+ * jest's fake timers restart that clock at 0 on every install, so a stamp left
+ * by an earlier test lands in the next test's future. Production has one clock
+ * per realm and never needs this.
+ */
+export function __resetRecoveryCooldownForTests(): void {
+  lastRecoveryAt = null;
 }
 
 /** Holders currently suspended inside a `yieldWasmClientLock` window. */
@@ -276,6 +316,9 @@ export function onWasmClientPoisoned(listener: WasmClientPoisonedListener): () =
 }
 
 function notifyWasmClientPoisoned(): void {
+  // Bumped first: a listener may synchronously start work that reads the
+  // generation, and every branch that notifies has already replaced the client.
+  bumpWasmClientGeneration();
   for (const listener of poisonedListeners) {
     try {
       listener();
@@ -313,16 +356,26 @@ function recoverFromTrap(cause: unknown): void {
     recoverFromWedgedHolder(currentHolder, 'realm-error', cause);
   } else if (yieldedHolderCount > 0) {
     // A holder is suspended mid-yield (e.g. awaiting an offscreen prove).
-    // Disposing now would pull the client out from under it when it reacquires
-    // — and past its point-of-no-return that would falsely Fail a healthy
-    // transaction. Leave recovery to the suspended flow's own failure path.
-    console.error('[miden-client] WASM trap while a holder is mid-yield — not disposing:', cause);
+    // TERMINATING the client would pull it out from under that flow when it
+    // reacquires — past its point-of-no-return that would falsely Fail a
+    // transaction that may well have landed. But leaving the singleton in
+    // place is not an option either: the trap aborted the module, and nothing
+    // else in this realm ever disposes it, so every later getMidenClient()
+    // would be handed the dead client — a permanently poisoned realm with no
+    // second recovery path (the suspended flow's own failure just rejects that
+    // flow). So DETACH instead: future callers rebuild, the suspended flow
+    // keeps the reference it is already using, and it fails on its own next
+    // call exactly as it would have anyway.
+    console.error('[miden-client] WASM trap while a holder is mid-yield — detaching client singletons:', cause);
+    lastRecoveryAt = monotonicNow();
+    midenClientSingleton.detachAllInstances();
+    notifyWasmClientPoisoned();
   } else {
     // No holder to evict, but the trap still aborted the module instance —
     // dispose so the next getMidenClient() constructs a fresh client instead
     // of handing out the poisoned one.
     console.error('[miden-client] WASM trap with no lock holder — disposing client singletons:', cause);
-    lastRecoveryAt = Date.now();
+    lastRecoveryAt = monotonicNow();
     midenClientSingleton.disposeAllInstances();
     notifyWasmClientPoisoned();
   }
@@ -366,10 +419,37 @@ function ensureRealmErrorListener(): void {
  */
 function armWatchdogFor(holder: LockHolder): void {
   if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
-  const ceiling = holder.pauseCount > 0 ? WASM_LOCK_PAUSED_WATCHDOG_MS : WASM_LOCK_WATCHDOG_MS;
+  let ceiling: number;
+  if (holder.pauseCount > 0) {
+    // A pause is a fresh relaxed ceiling: the wait it brackets is the thing
+    // that is legitimately unbounded, so unpaused time already spent is not
+    // charged against it.
+    ceiling = WASM_LOCK_PAUSED_WATCHDOG_MS;
+  } else {
+    // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
+    // hold rather than the segment since the last transition. Floored well above
+    // zero so a hold that has already exhausted its budget still gets a slice to
+    // finish in rather than being evicted the instant a bracket closes.
+    ceiling = Math.max(WASM_LOCK_WATCHDOG_MS - holder.unpausedElapsedMs, WASM_LOCK_MIN_WATCHDOG_MS);
+  }
   holder.watchdogTimer = setTimeout(() => {
     recoverFromWedgedHolder(holder, 'watchdog');
   }, ceiling);
+}
+
+/**
+ * Close the hold's current unpaused segment (a pause is opening, or the hold is
+ * yielding the mutex), banking what it spent running.
+ */
+function endUnpausedSegment(holder: LockHolder): void {
+  if (holder.segmentStartedAt === null) return;
+  holder.unpausedElapsedMs += Math.max(monotonicNow() - holder.segmentStartedAt, 0);
+  holder.segmentStartedAt = null;
+}
+
+/** Start a new unpaused segment (the hold is running again). */
+function startUnpausedSegment(holder: LockHolder): void {
+  if (holder.segmentStartedAt === null) holder.segmentStartedAt = monotonicNow();
 }
 
 function beginHold(): LockHolder {
@@ -377,7 +457,15 @@ function beginHold(): LockHolder {
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
   });
-  const holder: LockHolder = { killed: false, pauseCount: 0, watchdogTimer: null, abort, aborted };
+  const holder: LockHolder = {
+    killed: false,
+    pauseCount: 0,
+    watchdogTimer: null,
+    unpausedElapsedMs: 0,
+    segmentStartedAt: monotonicNow(),
+    abort,
+    aborted
+  };
   // A non-null holder here means the mutex admitted two owners at once — the
   // invariant this type documents is broken, and the WASM client is about to be
   // double-borrowed. Unobservable before, so say so loudly rather than
@@ -415,7 +503,7 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // mid-yield (not currently holding the lock).
   if (holder.killed || holder !== currentHolder) return;
   holder.killed = true;
-  lastRecoveryAt = Date.now();
+  lastRecoveryAt = monotonicNow();
   if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
   holder.watchdogTimer = null;
   currentHolder = null;
@@ -546,6 +634,7 @@ export async function withWasmLockWatchdogPaused<T>(
   // the relaxed timer, or a flow that opens brackets in a loop would keep
   // pushing the bound out and get the old stop-the-clock behaviour back.
   if (holder.pauseCount === 1) {
+    endUnpausedSegment(holder);
     armWatchdogFor(holder);
   }
   try {
@@ -554,6 +643,7 @@ export async function withWasmLockWatchdogPaused<T>(
     if (!holder.killed) {
       holder.pauseCount--;
       if (holder.pauseCount === 0 && holder === currentHolder) {
+        startUnpausedSegment(holder);
         armWatchdogFor(holder);
       }
     }
@@ -599,6 +689,8 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     clearTimeout(holder.watchdogTimer);
     holder.watchdogTimer = null;
   }
+  // Not running while yielded, so this time is not charged against the ceiling.
+  endUnpausedSegment(holder);
   currentHolder = null;
   yieldedHolderCount++;
   wasmClientMutex.release();
@@ -612,7 +704,8 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
       currentHolder = holder;
       // Back on the clock — at the relaxed ceiling if the resumed flow is still
       // inside a pause bracket (a yield nested in a pause), the normal one
-      // otherwise.
+      // otherwise, minus what this hold has already spent running.
+      if (holder.pauseCount === 0) startUnpausedSegment(holder);
       armWatchdogFor(holder);
     } else {
       // Defensive: a holder cannot currently be killed while suspended, but if
@@ -647,14 +740,23 @@ class MidenClientSingleton {
   private initializingPromiseWithOptions: Promise<MidenClientInterface> | null = null;
 
   /**
-   * Bumped by every dispose. A creation that was already in flight captures the
-   * value at its start and refuses to install its client if it no longer
-   * matches — otherwise it would write a client built before the dispose into
-   * the slot the dispose just cleared, handing later callers exactly the stale
-   * instance the dispose existed to get rid of (issue #775: recovery disposes
-   * from a timer / error listener, so a `getMidenClient()` is likely in flight).
+   * Bumped by every dispose, PER SLOT. A creation that was already in flight
+   * captures its own slot's value at its start and refuses to install its
+   * client if it no longer matches — otherwise it would write a client built
+   * before the dispose into the slot the dispose just cleared, handing later
+   * callers exactly the stale instance the dispose existed to get rid of (issue
+   * #775: recovery disposes from a timer / error listener, so a
+   * `getMidenClient()` is likely in flight).
+   *
+   * Two counters, not one, because the slots have unrelated lifetimes:
+   * `getInstanceWithOptions` disposes its own slot on EVERY call (options must
+   * be re-applied), which is routine rather than a recovery. Sharing one counter
+   * let that routine refresh invalidate an unrelated in-flight no-options
+   * create, which then freed a perfectly healthy client, handed the terminated
+   * instance to its caller anyway, and left its memoized promise uncleared.
    */
   private generation = 0;
+  private generationWithOptions = 0;
 
   /**
    * Get or create the singleton MidenClientInterface instance.
@@ -727,14 +829,14 @@ class MidenClientSingleton {
       return this.initializingPromiseWithOptions;
     }
 
-    const startedAt = this.generation;
+    const startedAt = this.generationWithOptions;
     const creating: Promise<MidenClientInterface> = (async () => {
       try {
         const client = await MidenClientInterface.create(options);
         // See getInstance: a client built before a dispose must not be
         // installed afterwards. This slot matters more, because it is the first
         // await of every signed (guardian) write.
-        if (startedAt !== this.generation) {
+        if (startedAt !== this.generationWithOptions) {
           this.freeGuarded(client);
           return client;
         }
@@ -744,7 +846,7 @@ class MidenClientSingleton {
         // Self-heal a transient startup failure instead of poisoning the
         // memoized promise (resilience gap 7 — see getInstance above), without
         // clearing a successor a mid-creation dispose let somebody else install.
-        if (startedAt === this.generation) this.initializingPromiseWithOptions = null;
+        if (startedAt === this.generationWithOptions) this.initializingPromiseWithOptions = null;
       }
     })();
     this.initializingPromiseWithOptions = creating;
@@ -753,7 +855,7 @@ class MidenClientSingleton {
   }
 
   disposeInstanceWithOptions(): void {
-    this.generation++;
+    this.generationWithOptions++;
     // Cleared UNCONDITIONALLY, outside the instance guard. A with-options
     // creation that is still in flight leaves `instanceWithOptions` null, so the
     // guard below never runs — and the pending promise would then be returned
@@ -804,6 +906,30 @@ class MidenClientSingleton {
     // after this reset starts its own fresh creation instead of rejoining the stale one.
     this.initializingPromise = null;
     this.disposeInstanceWithOptions();
+  }
+
+  /**
+   * Clear every slot WITHOUT freeing the clients in them (issue #775).
+   *
+   * For the one recovery case where terminating would hit a flow that is still
+   * legitimately using its client: a trap observed while a holder is suspended
+   * inside `yieldWasmClientLock`. That flow is past the mutex and holds a direct
+   * reference, so `free()` would fail it — possibly after its point of no
+   * return. Detaching still gets the poisoned instance out of the way for every
+   * FUTURE caller, which is the part that must not be skipped: nothing else in a
+   * realm ever disposes the singleton, so leaving it installed hands the dead
+   * client to everyone from then on.
+   *
+   * The detached instance is collected with the realm; the suspended flow fails
+   * on its own next call against the aborted module, exactly as it would have.
+   */
+  detachAllInstances(): void {
+    this.generation++;
+    this.generationWithOptions++;
+    this.instance = null;
+    this.initializingPromise = null;
+    this.instanceWithOptions = null;
+    this.initializingPromiseWithOptions = null;
   }
 }
 

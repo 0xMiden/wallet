@@ -209,7 +209,11 @@ export class SpeculationManager {
   }
 
   private async executeAndProve(params: SpeculationParams): Promise<void> {
-    const client = await this.getClient();
+    // Resolved INSIDE the lock: recovery can dispose the client singletons at any
+    // moment (it runs from a timer and an error listener), so a reference taken
+    // before queueing for the mutex can be terminated by the time we own it
+    // (issue #775). The resolve is a memoized singleton read, so paying it here
+    // costs nothing.
     // MUST wrap in withWasmClientLock. executeAndProveForSpeculation does
     // `inner.executeTransaction(...)` (touches SW WASM, requires the lock for
     // serialization) and then `yieldWasmClientLock(() => proveViaOffscreen(...))`
@@ -219,7 +223,7 @@ export class SpeculationManager {
     // acquire() at the end leaves the lock permanently held by us when this
     // function returns, deadlocking every subsequent withWasmClientLock
     // (including the user's actual send-on-Confirm).
-    const entry = await withWasmClientLock(() => client.executeAndProveForSpeculation(params));
+    const entry = await withWasmClientLock(async () => (await this.getClient()).executeAndProveForSpeculation(params));
     // If we were marked stale while running, throw away the result.
     if (this.active?.stale) return;
     this.completed = entry;

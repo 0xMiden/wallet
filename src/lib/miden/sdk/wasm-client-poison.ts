@@ -54,6 +54,45 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
 export const WASM_LOCK_PAUSED_WATCHDOG_MS = 1_800_000;
 
 /**
+ * Floor on a re-armed normal ceiling (issue #775).
+ *
+ * The normal ceiling is charged against time the hold spent RUNNING, so a hold
+ * that has already used its budget across several pause brackets would
+ * otherwise be re-armed at (or below) zero and evicted the instant its last
+ * bracket closes — killing a flow at the one moment it is most likely to be
+ * finishing legitimate work. 30 seconds is long enough for a post-sign submit
+ * or apply to complete and short enough to keep the bound meaningful.
+ */
+export const WASM_LOCK_MIN_WATCHDOG_MS = 30_000;
+
+/**
+ * Realm-local count of how many times the WASM client under this realm has been
+ * replaced by lock recovery (issue #775).
+ *
+ * The `onWasmClientPoisoned` listener in `miden-client.ts` is the right tool for
+ * a module that must DROP a resource the instant recovery fires. A module that
+ * only needs to notice staleness on next access is better served reading this
+ * counter, and deliberately does not import `miden-client` to do it: that module
+ * pulls in the whole SDK, so an eager `onWasmClientPoisoned(...)` at import time
+ * makes every consumer's module graph — and every test double of it — depend on
+ * the hook existing. This counter lives in the dependency-free module for the
+ * same reason the error class does.
+ *
+ * Realm-local, like the listener set: it counts recoveries this realm performed.
+ */
+let generation = 0;
+
+/** Called by recovery, once per poisoning, alongside notifying the listeners. */
+export function bumpWasmClientGeneration(): void {
+  generation++;
+}
+
+/** Read the current generation; compare a later read to detect a recovery. */
+export function wasmClientGeneration(): number {
+  return generation;
+}
+
+/**
  * The named error a wedged lock holder is rejected with when recovery evicts
  * it (issue #775). `reason` says which mechanism fired: `'watchdog'` (the
  * holder ran past `WASM_LOCK_WATCHDOG_MS`) or `'realm-error'` (an uncaught

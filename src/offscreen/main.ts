@@ -58,7 +58,7 @@ import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransa
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
-  getCurrentWasmLockHold,
+  type WasmLockHold,
   onWasmClientPoisoned,
   withWasmClientLock,
   withWasmLockWatchdogPaused,
@@ -345,9 +345,17 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 //
 // The staged send drives execute → prove → submit itself so the UI can time each
 // step; those stamps live on the SW's transaction ROW, which this realm knows
-// nothing about. So the stamp reverses across the bus tagged with the ambient
-// op_id — the SAME attribution the sign stub uses — and the SW maps it back to the
-// row via the stage callback it registered for that op.
+// nothing about. So the stamp reverses across the bus tagged with an op_id, and
+// the SW maps it back to the row via the stage callback it registered for that op.
+//
+// The op_id is PASSED IN, captured once per dispatch (see `dispatchContext`) —
+// deliberately not read from the ambient `currentOpId` at post time, which the
+// sign stub has to do because the SDK invokes it with no context of its own. A
+// stamp is not attribution-neutral: `stageStampFor` turns a 'submitting' stamp
+// into `markMayHaveSubmitted(txId)`, so an evicted dispatch that kept running
+// and stamped under the ambient id would mark the SUCCESSOR's row as
+// possibly-broadcast and make the wallet refuse to retry a send that never
+// happened (issue #775).
 //
 // Three ways this deliberately differs from `offscreenSignViaSW`, all because a
 // stamp is telemetry and a signature is the transaction:
@@ -356,14 +364,18 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 //   2. NEVER THROWS. A `sendMessage` that rejects (no receiver) or throws
 //      synchronously (a torn-down port) is swallowed — losing a stamp costs one
 //      blank duration in the UI; throwing here would fail a funds-moving send.
-//   3. A MISSING ambient op_id is skipped, not fatal. Signing fails loud without
-//      one because an untagged signature is a bug; an untagged stamp is simply
+//   3. A MISSING op_id is skipped, not fatal. Signing fails loud without one
+//      because an untagged signature is a bug; an untagged stamp is simply
 //      undeliverable, so there is nothing to do but drop it.
-function postStageEvent(stage: ITransactionStage): void {
-  // Read at POST time (not captured at dispatch) so the stamp always carries the
-  // id of the op actually executing.
-  const op_id = currentOpId;
-  if (!op_id) return;
+//
+// A stamp from a dispatch that has already SETTLED is dropped too. Binding the
+// id fixes attribution but not time: an evicted dispatch keeps running, and a
+// stamp it fires afterwards is correctly addressed to a row the SW has already
+// moved past — 'proving' arriving after the row completed would rewind the UI,
+// and 'submitting' would set may-have-submitted on a row already adjudicated.
+function postStageEvent(context: DispatchContext, stage: ITransactionStage): void {
+  const { op_id } = context;
+  if (!op_id || context.settled) return;
   const event: OffscreenStageEvent = { target: SW_TARGET, type: OFFSCREEN_STAGE_EVENT, op_id, stage };
   try {
     // `Promise.resolve(...)` tolerates a mock/polyfilled sendMessage that returns a
@@ -392,6 +404,49 @@ function postStageEvent(stage: ITransactionStage): void {
  * entry serializes its own result so the transport only base64-encodes bytes
  * (design §1.4 rule 1: pass `serialize()` bytes where the SDK exposes them). */
 type DispatchFn = (client: MidenClientInterface, ...args: any[]) => Promise<Uint8Array | null>;
+
+/**
+ * One dispatch's own identity: the op it serves and the WASM lock hold it runs
+ * under, plus whether it has settled.
+ *
+ * It exists because none of the three can be read safely later. `currentOpId` is
+ * overwritten by the next op, and `getCurrentWasmLockHold()` returns whoever
+ * holds the mutex NOW — which for an evicted dispatch that kept running is the
+ * successor. Anything read at that point silently belongs to somebody else: a
+ * stage stamp lands on the successor's row, and a watchdog pause silences the
+ * successor's backstop (issue #775).
+ */
+type DispatchContext = {
+  readonly op_id: string;
+  readonly hold: WasmLockHold | null;
+  /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
+  settled: boolean;
+};
+
+/**
+ * The context of the dispatch currently being STARTED. Published by `handleCall`
+ * immediately before it invokes the dispatch, with no await in between, so a
+ * dispatch that takes it in its own first synchronous statement provably gets
+ * its OWN identity.
+ */
+let startingDispatch: DispatchContext | null = null;
+
+/**
+ * Take the identity of the dispatch being started. MUST be called from a
+ * dispatch's first synchronous statement — see {@link startingDispatch}. Cleared
+ * on read so a later (invalid) call cannot pick up somebody else's identity.
+ */
+function dispatchContext(): DispatchContext {
+  const context = startingDispatch;
+  startingDispatch = null;
+  if (!context) {
+    // Only reachable if a dispatch reads this after an await, or outside
+    // `handleCall` entirely. Fail loud rather than guess an identity: guessing is
+    // exactly the bug this replaces.
+    throw new Error('offscreen dispatch: no dispatch context (read it in the first statement of the dispatch)');
+  }
+  return context;
+}
 
 const DISPATCH: Record<string, DispatchFn> = {
   getAccount: async (client, accountId: string) => {
@@ -611,6 +666,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       extraInputs: { recallBlocks?: number };
     }
   ) => {
+    // Bound to THIS op before any await, so a stamp fired late (an evicted
+    // dispatch still running) carries its own op_id rather than the successor's
+    // — see `postStageEvent` (issue #775).
+    const context = dispatchContext();
     const tx = { ...dto, amount: BigInt(dto.amount) } as unknown as SendTransaction;
     // The per-step stage stamps (PR #524) are the ONE piece of this write the
     // caller still needs mid-flight, so they reverse to the SW as they happen
@@ -622,7 +681,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // `isOffscreenAvailable()` is false (the `isInOffscreenDocument()` recursion
     // guard), so `shouldUseOffscreenProver()` returns false and the prove runs on
     // THIS doc's pooled WASM; that choice moves the prove, not the stamping.
-    const result = await client.sendTransaction(tx, postStageEvent);
+    const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
     return result.serialize() as Uint8Array;
   },
 
@@ -683,15 +742,16 @@ const DISPATCH: Record<string, DispatchFn> = {
   // boundaries itself too. Fire-and-forget (see `postStageEvent`): a lost stamp
   // costs a blank duration, never the transaction.
   guardianPipeline: async (client, accountId: string, trBytes: Uint8Array, delegateTransaction?: boolean) => {
-    // This op's own lock hold, captured before any await so it is provably ours
-    // (issue #775). Passing it to the watchdog pauses below means that if this
-    // op is ever evicted and keeps running, its pause cannot silence the
-    // watchdog of whichever holder took the lock after it.
-    const hold = getCurrentWasmLockHold();
+    // This op's own id and lock hold, taken before any await so both are
+    // provably ours (issue #775). The hold is what keeps a pause from silencing
+    // the watchdog of whichever holder took the lock after an eviction; the id
+    // is what keeps a late 'submitting' stamp off the successor's row.
+    const context = dispatchContext();
+    const { hold } = context;
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
-    postStageEvent('executing');
+    postStageEvent(context, 'executing');
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
-    postStageEvent('proving');
+    postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
       // Local proving is deliberately unbounded — pause this realm's lock
@@ -712,7 +772,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         );
       }
     }
-    postStageEvent('submitting');
+    postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();
     return executedTx.result.serialize() as Uint8Array;
@@ -748,13 +808,13 @@ const DISPATCH: Record<string, DispatchFn> = {
     // the sign stub reads this op's id. Local capture makes it immune to the
     // interloper also overwriting `reassertCurrentOpId`.
     const reassertOpId = reassertCurrentOpId;
-    // This op's own lock hold, captured before the first yield so it is provably
+    // This op's own lock hold, taken before the first yield so it is provably
     // ours (issue #775). Without it, a yield performed after this op had been
     // evicted would release whichever holder owns the mutex NOW — popping a
     // waiter into a concurrent WASM call alongside that live holder, then
     // leaving the mutex owned by nobody when this loop reacquired. The loop is
     // not cancelled by the eviction, so it would do that on every poll.
-    const hold = getCurrentWasmLockHold();
+    const { hold } = dispatchContext();
     const timeout = 60_000;
     const interval = 5_000;
     const start = Date.now();
@@ -934,7 +994,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
-    const resultBytes = await withWasmClientLock(async () => {
+    const resultBytes = await withWasmClientLock(async hold => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
       // the ops most likely to be queued are the ones waiting behind the holder
@@ -962,10 +1022,23 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // non-promise; the response is intentionally ignored.
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
       void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      // Published for the dispatch to take in its first statement — the only
+      // point at which "the op that owns this hold" is knowable (issue #775).
+      // No await between here and the call, so what it takes is provably ours.
+      const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
+      startingDispatch = context;
       try {
         return await dispatch(client, ...args);
       } finally {
-        currentOpId = null;
+        // Closes the window for late stage stamps: whatever the dispatch does
+        // after this point, its stamps are about a step the SW has already been
+        // told the outcome of (see `postStageEvent`).
+        context.settled = true;
+        // Only if it is still OURS. An evicted dispatch keeps running and can
+        // settle long after a successor installed its own id; clearing blindly
+        // would leave the healthy successor with no ambient id, so its
+        // mid-execute sign would fail on the no-ambient-id guard (issue #775).
+        if (currentOpId === msg.op_id) currentOpId = null;
       }
     });
     sendResponse({
