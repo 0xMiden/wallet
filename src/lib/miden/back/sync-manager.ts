@@ -4,7 +4,7 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
-import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES } from 'lib/miden/sync-backoff';
+import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -64,6 +64,12 @@ let queuedForcedSync: Promise<void> | null = null;
 // Circuit-breaker state. Module-level is fine — the SW process is the only
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
 let consecutiveSyncFailures = 0;
+// On the monotonic clock (`monotonicNowMs`), like the inline loop's: a wall-clock
+// deadline stepped backwards keeps this window "open" for the size of the step,
+// and while the alarm keeps firing, every attempt inside it is skipped — so the
+// user-visible outcome is a wallet that stops syncing, same as on mobile. Safe to
+// hold monotonically because the window is module state that dies with the SW
+// realm; it is never persisted across a restart.
 let syncBackoffUntilMs = 0;
 // How many times the breaker has tripped in a row (drives the exponential
 // backoff); reset by any successful sync.
@@ -98,7 +104,7 @@ export function doSync(force = false): Promise<void> {
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
   // the backoff window. Returning resolved-void here keeps the existing contract
   // for callers (triggerSync, alarm) that don't distinguish success from skip.
-  if (!force && Date.now() < syncBackoffUntilMs) {
+  if (!force && monotonicNowMs() < syncBackoffUntilMs) {
     return Promise.resolve();
   }
   inFlight = runSync().finally(() => {
@@ -166,7 +172,7 @@ async function runSync(): Promise<void> {
         }
         breakerTripCount++;
         const backoffMs = computeSyncBackoffMs(breakerTripCount);
-        syncBackoffUntilMs = Date.now() + backoffMs;
+        syncBackoffUntilMs = monotonicNowMs() + backoffMs;
         consecutiveSyncFailures = 0;
         console.warn(
           `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`

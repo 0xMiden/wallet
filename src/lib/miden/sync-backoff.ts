@@ -17,12 +17,15 @@
  * time — which is the right bias on the platform where the sync loop is the
  * only sync driver and a wedged hold blocks the whole app's WASM access.
  *
- * Nor is the CLOCK shared, for the same structural reason. The SW reads its
- * deadline as a skip check while its own driver keeps ticking, so a clock step
- * costs it skipped attempts; the inline loop sleeps out the remainder on the
- * timer that is its only driver, so a backward step there would stall syncing
- * outright. Hence `monotonicNowMs` plus the `MAX_SYNC_BACKOFF_MS` clamp on the
- * inline side.
+ * Both DO share the clock (`monotonicNowMs`) and for a plainer reason than the
+ * shape of their drivers suggests. It is tempting to argue that the SW can keep
+ * `Date.now()` because it only reads the deadline as a skip check while its
+ * alarm keeps firing — but a backward clock step holds that check true for the
+ * size of the step, and an attempt skipped is an attempt not made, so the
+ * user-visible outcome is the same stalled wallet the inline loop would get.
+ * The inline loop needs one extra guard the SW does not, though: it SLEEPS the
+ * remainder on the timer that is its only driver, so that remainder is clamped
+ * to `MAX_SYNC_BACKOFF_MS` and cannot become an arbitrarily long stall.
  *
  * This module is dependency-free so the frontend hook can import it without
  * dragging in the service worker's vault/intercom graph.
@@ -35,6 +38,30 @@
  * 3s cadence.
  */
 export const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
+
+/**
+ * Consecutive sync WATCHDOG evictions before the inline loop stops probing on
+ * its own (issue #777).
+ *
+ * A watchdog eviction on the sync path is not just a failure, it is proof that
+ * the realm's sync is unrecoverable in-process: the node accepted the request
+ * and never answered, and the SDK memoises that never-settling promise in a
+ * module-level map the wallet cannot reach, so every later `syncState()` joins
+ * it and parks for a full ceiling too. Each such cycle costs two minutes of the
+ * whole app's WASM access plus a client rebuild. The breaker spaces the cycle
+ * out; only this ends it.
+ *
+ * Deliberately one MORE than the failure streak rather than the same count.
+ * Giving up needs strictly more evidence than backing off does: at exactly the
+ * streak the fuse would blow on the third fast probe, before the breaker's first
+ * window had ever been served — so the loop would never actually test the one
+ * hypothesis that matters, that waiting does not help. At streak + 1 it opens a
+ * window, waits it out, probes again, and only then concludes. One eviction can
+ * be a slow node having a bad minute (the recorded healthy worst case is 30-60s
+ * on mobile, well inside the ceiling); four in a row, spanning a served backoff
+ * window, is not.
+ */
+export const MAX_CONSECUTIVE_WATCHDOG_EVICTIONS = MAX_CONSECUTIVE_SYNC_FAILURES + 1;
 
 // Circuit-breaker backoff: EXPONENTIAL with jitter (gap 14). Each consecutive
 // trip roughly doubles the wait (capped at BACKOFF_MAX_MS) so a sustained outage

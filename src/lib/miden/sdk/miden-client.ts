@@ -717,6 +717,13 @@ export interface WasmClientLockOptions {
  * minimum: a non-positive ceiling cannot be a considered request to tighten, so
  * the safe reading of it is a bug in the caller, and honouring it as "evict as
  * soon as allowed" would tear down healthy holds at 30 s.
+ *
+ * One consequence of the lower bound worth stating: the once-per-hold finishing
+ * grace credits `normalCeilingMs - WASM_LOCK_MIN_WATCHDOG_MS` back to the
+ * ledger, so a hold clamped AT the minimum gets its whole budget back rather
+ * than a slice, and its total unpaused bound is `ceiling +
+ * WASM_LOCK_MIN_WATCHDOG_MS` — 60 s at the minimum, 150 s at the sync ceiling.
+ * Still once per hold, so still bounded, just less tight than the name suggests.
  */
 function resolveNormalCeilingMs(requestedMs: number | undefined): number {
   if (requestedMs === undefined || !Number.isFinite(requestedMs) || requestedMs <= 0) {

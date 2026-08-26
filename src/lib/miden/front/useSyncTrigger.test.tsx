@@ -751,6 +751,140 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  // The fuse (#777). Once the realm's sync is parked, the SDK hands every later
+  // `syncState()` the SAME dead promise — its in-flight map is module-level and
+  // the wallet cannot reach it — so each further probe is GUARANTEED to park for
+  // the full ceiling and be evicted: two minutes of the whole app's WASM access
+  // plus a client rebuild, per cycle, forever. The breaker spaces that cycle out
+  // but never ends it. These four tests pin the loop giving up, the two ways out
+  // of that state, and the cost of each.
+  //
+  // Drives the loop to exactly the fuse threshold, returning the probe count.
+  // Four evictions, not three: the fuse needs strictly more evidence than the
+  // breaker, so the third eviction only opens the first 30s window and the
+  // FOURTH — the probe that waited that window out — is what concludes.
+  const driveToBlownFuse = async () => {
+    for (const step of [0, 3_000, 3_000, 30_000]) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(step);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+  };
+
+  it('mobile/desktop: stops probing on its own after repeated watchdog evictions (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // Advancing well past the largest backoff the curve can produce must buy no
+    // further automatic probe at all — that is the difference between spacing
+    // the evict-rebuild cycle out and ending it.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    unmount();
+  });
+
+  it('mobile/desktop: the breaker still serves its first window before the fuse blows (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+
+    // Three evictions on the 3s cadence open a window but must NOT fuse: giving
+    // up here would mean never testing whether waiting helps, which is the only
+    // hypothesis that separates a parked sync from a node having a bad minute.
+    for (const step of [0, 3_000, 3_000]) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(step);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    unmount();
+  });
+
+  it('mobile/desktop: a Retry after the fuse blows buys exactly one probe, not a fresh streak (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // The user's Retry (or an app foreground) still gets through — that is the
+    // affordance the fuse relies on for recovery.
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    // But it is a GRANT of one probe, not a reset of the fuse: that probe was
+    // evicted too, so the loop goes straight back to not probing. Resetting here
+    // would have bought a whole fresh streak of two-minute evictions per Retry.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    unmount();
+  });
+
+  it('mobile/desktop: a successful sync un-fuses the loop and restores the 3s cadence (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // The node comes back before the user's Retry, so the granted probe
+    // succeeds. The fuse must not survive that — otherwise a wallet that has
+    // recovered still needs a Retry for every single sync from then on.
+    evictEveryLockHold = false;
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+
+    unmount();
+  });
+
   it('extension: clears the interval on unmount', async () => {
     jest.useFakeTimers();
     mockIsExtension.mockReturnValue(true);

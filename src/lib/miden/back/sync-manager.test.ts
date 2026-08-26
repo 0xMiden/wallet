@@ -765,6 +765,11 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       let fakeNow = 1_000_000;
       const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      // The backoff deadline is held on the MONOTONIC clock (#777 — a wall-clock
+      // deadline stepped backwards keeps the window open for the size of the
+      // step, and every attempt inside it is skipped), so driving this test's
+      // clock means driving `performance.now` too, not just `Date.now`.
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
       // Pin the jitter. `computeSyncBackoffMs` adds 0-20% of the base to
       // de-sync wallets, so the real backoff is 30_000-36_000ms — and the 35s
       // this test advances by lands INSIDE that range whenever Math.random()
@@ -794,6 +799,7 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       expect(mockClient.syncState).toHaveBeenCalledTimes(1);
 
       nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
       randSpy.mockRestore();
     });
   });
