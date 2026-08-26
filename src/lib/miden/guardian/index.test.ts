@@ -79,9 +79,11 @@ const mockBuildUpdateSignersTransactionRequest = jest.fn(async (..._args: unknow
   request: { kind: 'request' },
   salt: { toHex: () => 'salt-hex' }
 }));
+// `free` on the default anchor so the ordinary cases exercise a successful
+// release rather than `freeChainAnchor`'s swallow-and-warn branch.
 const mockExecuteForSummary = jest.fn(async (..._args: unknown[]) => ({
   summary: { serialize: () => new Uint8Array([0xab]) },
-  anchor: { kind: 'anchor' }
+  anchor: { kind: 'anchor', free: jest.fn() }
 }));
 const mockChainAnchorToBase64 = jest.fn((_anchor: unknown) => 'anchor-b64');
 
@@ -810,7 +812,7 @@ describe('MultisigService', () => {
       // The anchor from execution has to be serialized onto the proposal: the
       // multisig client refuses to execute a proposal whose metadata carries no
       // chainAnchor, so dropping it strands the proposal permanently.
-      expect(mockChainAnchorToBase64).toHaveBeenCalledWith({ kind: 'anchor' });
+      expect(mockChainAnchorToBase64).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
       // Proposal label is cosmetic; on-chain effect is dictated by targetSignerCommitments.
       expect(multisig.createProposal).toHaveBeenCalledWith(
         expect.any(Number),
@@ -829,6 +831,141 @@ describe('MultisigService', () => {
         commitmentHex: '0xnewhotcommit'
       });
       expect(result.proposal).toEqual({ kind: 'custom', id: 'proposal-id' });
+    });
+
+    // #784 follow-up: the captured anchor is a WASM object holding a partial
+    // blockchain. Its only job here is to be serialized onto the proposal —
+    // once `chainAnchorToBase64` has the wire form, the live object must be
+    // released, like every SDK-side producer does.
+    //
+    // The stub models the ONE way that release can go wrong: wasm-bindgen's
+    // `free()` zeroes `__wbg_ptr`, so a later `serialize()` hands a null pointer
+    // to rust. Asserting only "free was called" would hold just as well for a
+    // free that ran FIRST, i.e. for a use-after-free on every hot-key rotation.
+    //
+    // `freeThrows` models the other half: wasm-bindgen's generated `free()` has
+    // no null-pointer guard, so a disposed module (a #775 lock eviction) makes
+    // it throw for real. That throw lands in a `finally`, so only
+    // `freeChainAnchor`'s swallow keeps it from replacing whatever the block
+    // was already carrying — a successful rotation included.
+    const makeTrackedAnchor = (freeThrows = false): { kind: string; freed: boolean; free: jest.Mock } => {
+      const anchor = {
+        kind: 'anchor',
+        freed: false,
+        free: jest.fn(() => {
+          anchor.freed = true;
+          if (freeThrows) throw new Error('null pointer passed to rust');
+        })
+      };
+      return anchor;
+    };
+    const rejectSerializingAFreedAnchor = (): void => {
+      mockChainAnchorToBase64.mockImplementationOnce(a => {
+        if ((a as { freed?: boolean }).freed) throw new Error('null pointer passed to rust');
+        return 'anchor-b64';
+      });
+    };
+
+    it('frees the captured chain anchor only AFTER it is serialized onto the proposal', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+
+      const anchor = makeTrackedAnchor();
+      rejectSerializingAFreedAnchor();
+      mockExecuteForSummary.mockResolvedValueOnce({
+        summary: { serialize: () => new Uint8Array([0xab]) },
+        anchor
+      });
+      mockGenerateHotKey.mockResolvedValueOnce({
+        ciphertext: 'cx',
+        publicKeyHex: 'pk',
+        commitmentHex: '0xnewhotcommit'
+      });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await service.createReplaceHotKeyProposal(account);
+
+      expect(mockChainAnchorToBase64).toHaveBeenCalledWith(anchor);
+      expect(anchor.free).toHaveBeenCalledTimes(1);
+      // What proves the ordering is the ABSENCE of the stub's null-pointer
+      // throw above; this is belt-and-braces that the wire form still lands on
+      // the proposal (also covered by the main creation test).
+      expect(multisig.createProposal).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.any(String),
+        expect.objectContaining({ chainAnchor: 'anchor-b64' })
+      );
+    });
+
+    // The `finally` half. Upstream's plainer serialize-then-free would leak here,
+    // which is the whole reason this call site does not copy it. The anchor's
+    // `free()` throws too, so the assertion below is load-bearing for the
+    // swallow: a raw `anchor.free()` here would surface the null-pointer error
+    // in place of the real one.
+    it('frees the captured chain anchor even when building the wire payload throws', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+
+      const anchor = makeTrackedAnchor(true);
+      mockExecuteForSummary.mockResolvedValueOnce({
+        summary: {
+          serialize: () => {
+            throw new Error('summary serialize failed');
+          }
+        },
+        anchor
+      });
+      mockGenerateHotKey.mockResolvedValueOnce({
+        ciphertext: 'cx',
+        publicKeyHex: 'pk',
+        commitmentHex: '0xnewhotcommit'
+      });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      // Releasing the anchor must not replace the reason the proposal failed.
+      await expect(service.createReplaceHotKeyProposal(account)).rejects.toThrow('summary serialize failed');
+
+      expect(anchor.free).toHaveBeenCalledTimes(1);
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    // The expensive direction of the same guard: here there is no in-flight
+    // error for the free to replace, so an unswallowed throw would INVENT one
+    // and fail a rotation that had already succeeded — after `generateHotKey()`
+    // burned a Secure Enclave / StrongBox key, which the retry then burns
+    // again. Reclaiming a few hundred kilobytes is not worth that.
+    it('completes the rotation even when releasing the anchor fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+
+      const anchor = makeTrackedAnchor(true);
+      mockExecuteForSummary.mockResolvedValueOnce({
+        summary: { serialize: () => new Uint8Array([0xab]) },
+        anchor
+      });
+      mockGenerateHotKey.mockResolvedValueOnce({
+        ciphertext: 'cx',
+        publicKeyHex: 'pk',
+        commitmentHex: '0xnewhotcommit'
+      });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      const result = await service.createReplaceHotKeyProposal(account);
+
+      expect(anchor.free).toHaveBeenCalledTimes(1);
+      expect(result.proposal).toEqual({ kind: 'custom', id: 'proposal-id' });
+      expect(multisig.createProposal).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.any(String),
+        expect.objectContaining({ chainAnchor: 'anchor-b64' })
+      );
+      warn.mockRestore();
     });
 
     it('handles secureHotKey commitments without 0x prefix by adding it', async () => {

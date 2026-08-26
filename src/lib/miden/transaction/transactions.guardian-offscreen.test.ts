@@ -1831,6 +1831,28 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
     expect(mockDispatchGuardianPipeline.mock.calls[0][2]).toBe(true);
   });
+
+  // #784: the co-signatures were collected over a summary that binds the
+  // proposal's reference block, so the offscreen realm must execute AT that
+  // block. The anchor crosses in its wire form — the proposal metadata's base64
+  // string — and is decoded offscreen-side (a WASM ChainAnchor cannot cross the
+  // message boundary).
+  it('crosses the proposal chain anchor to dispatchGuardianPipeline in its wire-form base64 (#784)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('on-send-anchored', row);
+    service.createSendProposal.mockResolvedValue({
+      id: 'prop',
+      nonce: 7,
+      metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+    } as never);
+
+    await generateTransaction(buildTx('on-send-anchored', row) as never, signCallback, false, provider as never);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(mockDispatchGuardianPipeline.mock.calls[0][5]).toBe('BwcH');
+  });
 });
 
 // ─── PR #524 × #260: the guardian leaf's per-step stage stamps, on BOTH flags ──
