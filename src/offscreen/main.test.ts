@@ -64,6 +64,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Note: {
       deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
     },
+    // #784: the guardianPipeline DISPATCH decodes the crossed wire-form anchor
+    // back into a ChainAnchor before pinning executeRequest to it.
+    ChainAnchor: {
+      deserialize: (...a: any[]) => g.__off.deserializeChainAnchor(...a)
+    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -257,6 +262,9 @@ function resetControl() {
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
+    // #784: ChainAnchor.deserialize(anchorBytes) → the anchor the guardianPipeline
+    // DISPATCH pins executeRequest to. Echoes the bytes; free() is a per-test spy.
+    deserializeChainAnchor: jest.fn((b: Uint8Array) => ({ __anchorFromBytes: Array.from(b), free: jest.fn() })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
@@ -2044,6 +2052,54 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-g');
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
+  });
+
+  // #784: the co-signatures in the crossed request were bound to a summary that
+  // pins the proposal's reference block, so this realm must execute AT that
+  // block. The anchor crossed in wire form (base64 → string arg); it is decoded
+  // here — a WASM ChainAnchor cannot cross the message boundary — pinned into
+  // executeRequest's options, and freed once execution is done with it.
+  it('guardianPipeline: decodes the crossed chain anchor in-realm, pins executeRequest to it, and frees it (#784)', async () => {
+    await loadModule();
+    const anchor = { __anchor: true, free: jest.fn() };
+    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        // 'BwcH' = base64 of [7, 7, 7]: the anchor bytes the decode must consume.
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.deserializeChainAnchor).toHaveBeenCalledTimes(1);
+    expect(Array.from(G.__off.deserializeChainAnchor.mock.calls[0][0])).toEqual([7, 7, 7]);
+    const [acct, , opts] = G.__off.guardianExecuteRequest.mock.calls[0];
+    expect(acct).toBe('acc');
+    expect(opts).toEqual({ anchor });
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline: executes unanchored when no chain anchor crossed (#784)', async () => {
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+    expect(G.__off.guardianExecuteRequest.mock.calls[0][2]).toBeUndefined();
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
   it('guardianPipeline (delegated): proves with an EXPLICIT remote prover under the bounded wait, never a local prover, then submits/applies', async () => {

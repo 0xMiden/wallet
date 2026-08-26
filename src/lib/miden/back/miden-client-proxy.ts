@@ -881,9 +881,19 @@ export function dispatchGuardianPipeline(
   trBytes: Uint8Array,
   delegateTransaction: boolean | undefined,
   signCallback: RawSignCallback,
-  onStage?: StageCallback
+  onStage?: StageCallback,
+  // #784: the proposal's chain anchor, in its wire form (the metadata's base64
+  // string). It crosses as-is — a WASM ChainAnchor cannot survive the message
+  // boundary — and the offscreen dispatch decodes it in-realm to pin
+  // executeRequest to the reference block the co-signatures were bound to.
+  chainAnchorB64?: string
 ): Promise<TransactionResult> {
-  return dispatchOffscreenWrite('guardianPipeline', [accountId, trBytes, delegateTransaction], signCallback, onStage);
+  return dispatchOffscreenWrite(
+    'guardianPipeline',
+    [accountId, trBytes, delegateTransaction, chainAnchorB64],
+    signCallback,
+    onStage
+  );
 }
 
 /**

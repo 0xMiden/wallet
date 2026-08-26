@@ -1,4 +1,5 @@
 import {
+  ChainAnchor,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -24,6 +25,7 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
+import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
 
 import {
@@ -1035,7 +1037,8 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  setStage: (stage: ITransactionStage) => Promise<void>
+  setStage: (stage: ITransactionStage) => Promise<void>,
+  chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   const options: MidenClientCreateOptions = {
     signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
@@ -1049,7 +1052,21 @@ const runGuardianPipeline = async (
   return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
     await setStage('executing');
-    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
+    // #784: execute AT the proposal's anchored reference block, not the current
+    // sync height. The co-signatures were collected over a summary that binds
+    // that block's commitment (protocol 0.16), so an unanchored execute after
+    // the chain advanced derives a different summary and the kernel rejects the
+    // transaction as unauthorized. Decoded in-realm from the wire-form base64
+    // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
+    // as soon as executeRequest is done with it — the rest of the pipeline
+    // never touches it.
+    const anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
+    let executedTx;
+    try {
+      executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
+    } finally {
+      anchor?.free();
+    }
     await setStage('proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -1484,6 +1501,22 @@ const generateGuardianTransaction = async (
   try {
     const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
 
+    // #784: the proposal carries the ChainAnchor of the reference block its
+    // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
+    // pins executeRequest to it so the co-signed summary reproduces even when
+    // the chain advanced during the guardian round-trip — without it, guardian
+    // writes fail as "transaction is unauthorized" at a rate that scales with
+    // that window (measured 4.5%→35% as the round-trip grew under load). The
+    // anchor↔summary binding was already validated by `signProposal` (inside
+    // `signAndCreateTransactionRequest`), which also THROWS on a proposal with
+    // no anchor — so the fallback below cannot be reached by a proposal that
+    // just passed signing; it only keeps a mocked/legacy service on the old
+    // (racy, but mostly-working) unanchored behavior instead of bricking it.
+    const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
+    if (!chainAnchorB64) {
+      console.warn('[Guardian] proposal has no chain anchor — executing at the current sync height (#784)');
+    }
+
     await setTransactionStage(transaction.id, 'sending');
     if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
       // Offscreen leaf (issue #260, slice 6a). The fully-signed, guardian-co-
@@ -1530,7 +1563,8 @@ const generateGuardianTransaction = async (
         tr.serialize(),
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id)
+        stageStampFor(transaction.id),
+        chainAnchorB64
       );
     } else {
       result = await runGuardianPipeline(
@@ -1538,7 +1572,8 @@ const generateGuardianTransaction = async (
         tr,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id)
+        stageStampFor(transaction.id),
+        chainAnchorB64
       );
     }
   } catch (error) {

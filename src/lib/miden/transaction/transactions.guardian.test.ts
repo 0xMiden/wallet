@@ -140,6 +140,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
+// #784: the guardian leaf decodes the proposal's base64 chain anchor back into
+// a WASM ChainAnchor before pinning executeRequest to it.
+// eslint-disable-next-line no-var
+var mockChainAnchorDeserialize = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -150,6 +154,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     WasmWebClient: {
       createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
+    },
+    ChainAnchor: {
+      deserialize: (...a: unknown[]) => mockChainAnchorDeserialize(...a)
     }
   };
 });
@@ -396,6 +403,138 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createSendProposal).toHaveBeenCalledWith('recipient', 'faucet', 1000n, 'Public');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-1', undefined);
     expect(multisigService.sync).toHaveBeenCalled();
+  });
+
+  // #784: a guardian co-signature is bound to a TransactionSummary that (since
+  // protocol 0.16) pins the reference block commitment. Executing at the current
+  // sync height instead of the proposal's anchored block makes the kernel reject
+  // the transaction as unauthorized whenever the chain advanced during the
+  // guardian round-trip — so the leaf must pin executeRequest to the proposal's
+  // chain anchor.
+  it('Guardian send: pins executeRequest to the proposal chain anchor and frees the decoded anchor (#784)', async () => {
+    const txId = 'send-guardian-anchored';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    // 'BwcH' is base64 for the bytes [7, 7, 7] — distinctive enough to assert
+    // the decode consumed exactly the proposal's wire-form anchor.
+    const anchor = { free: jest.fn(), blockNum: () => 42 };
+    mockChainAnchorDeserialize.mockReturnValue(anchor);
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({
+        id: 'prop-anchored',
+        metadata: { proposalType: 'p2id', description: 'send', chainAnchor: 'BwcH' }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const clientApi = makeClientApi(result);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    const provider = makeGuardianProvider(true);
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    );
+
+    // The base64 anchor from the proposal metadata was decoded in-realm...
+    expect(mockChainAnchorDeserialize).toHaveBeenCalledTimes(1);
+    expect(Array.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array)).toEqual([7, 7, 7]);
+    // ...execution was pinned to it...
+    expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    const anchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
+    expect(anchoredExecuteArgs[2]).toEqual({ anchor });
+    // ...and the decoded WASM object was released once the pipeline finished.
+    expect(anchor.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('Guardian send: executes unanchored when the proposal metadata has no chain anchor (#784)', async () => {
+    const txId = 'send-guardian-unanchored';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      displayMessage: 'Queued',
+      displayIcon: 'DEFAULT',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: false,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-plain' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const clientApi = makeClientApi(result);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: clientApi
+    });
+
+    const provider = makeGuardianProvider(true);
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      provider
+    );
+
+    expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
+    expect(clientApi.transactions.executeRequest).toHaveBeenCalledTimes(1);
+    const unanchoredExecuteArgs = clientApi.transactions.executeRequest.mock.calls[0] as unknown[];
+    expect(unanchoredExecuteArgs[2]).toBeUndefined();
   });
 
   // The note type used to be hardcoded Private here regardless of the row, so a
