@@ -49,6 +49,18 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
  * late merely leaves the wallet lockless a little longer. On the observed
  * freeze cadence (a 3s loop), 2 minutes still cuts recovery from 5 minutes to
  * 2 while keeping a healthy margin over every recorded legitimate sync.
+ *
+ * What this ceiling buys, precisely: the MUTEX back, not the sync. The SDK
+ * memoises an in-flight sync in a module-level map keyed by database name and
+ * serialises it under a same-keyed lock, and neither is reachable from the
+ * wallet's client singleton — so replacing the client does not free a sync that
+ * never answered, and each later `syncState()` joins the same dead promise.
+ * Recovering the mutex is still the difference between #777's frozen wallet and
+ * a working one, because balance reads, sends and claims all queue on the mutex
+ * and none of them is the sync. Full sync recovery needs the upstream
+ * miden-client fix arming the transport deadline the wasm `ApiClient` currently
+ * drops; until then the exponential breaker is what keeps the residual
+ * evict-and-rebuild cycle from running at the 3s cadence.
  */
 export const WASM_LOCK_SYNC_WATCHDOG_MS = 120_000;
 

@@ -46,12 +46,24 @@ jest.mock('lib/store', () => {
 const mockSyncState = jest.fn(async (..._args: unknown[]) => {});
 const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ syncState: mockSyncState }));
 const wasmLockOptionsSeen: Array<unknown> = [];
+// When true, every lock hold is evicted the way the real watchdog evicts one:
+// `withWasmClientLock` races the operation against the abort, so the CALLER sees
+// a rejection while the operation itself keeps running (#775 — an evicted hold
+// is abandoned, not cancelled). Reproducing that split is the only way to test
+// what the loop does when an abandoned sync settles after the loop gave up.
+let evictEveryLockHold = false;
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   // In .tsx `<T>` parses as JSX — the trailing comma disambiguates it as a generic.
   withWasmClientLock: async <T,>(fn: () => Promise<T>, options?: unknown) => {
     wasmLockOptionsSeen.push(options);
-    return fn();
+    const running = fn();
+    if (evictEveryLockHold) {
+      // Mirrors the real lock parking a handler on the abandoned operation.
+      running.catch(() => {});
+      throw new Error('WASM client poisoned (watchdog): held the WASM client lock past its watchdog ceiling');
+    }
+    return running;
   }
 }));
 
@@ -82,6 +94,15 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
   classifySyncError: (...args: unknown[]) => mockClassifySyncError(...args)
 }));
 
+// Partially mocked: the hook reads the real ceiling constant, but the poison
+// predicate is stubbed so a test can present an eviction without constructing
+// one through the real lock.
+const mockIsWasmClientPoisonedError = jest.fn((..._args: unknown[]) => false);
+jest.mock('lib/miden/sdk/wasm-client-poison', () => ({
+  ...jest.requireActual('lib/miden/sdk/wasm-client-poison'),
+  isWasmClientPoisonedError: (...args: unknown[]) => mockIsWasmClientPoisonedError(...args)
+}));
+
 const mockRequestNotesRefresh = jest.fn();
 jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
@@ -107,6 +128,21 @@ describe('useSyncTrigger', () => {
     mockSyncState.mockResolvedValue(undefined);
     mockIsLikelyNetworkError.mockReturnValue(true);
     mockClassifySyncError.mockReturnValue('node');
+    mockIsWasmClientPoisonedError.mockReturnValue(false);
+    evictEveryLockHold = false;
+    // Every mobile/desktop test pushes here; reset centrally so the tests that
+    // read it can assert on position rather than depending on being the only
+    // writer since the last manual reset.
+    wasmLockOptionsSeen.length = 0;
+  });
+
+  // The breaker tests install fake timers and stub `Math.random`. Tearing those
+  // down in the test body means one failed assertion leaks both into every later
+  // test in the file, turning a single real failure into a cascade — and a
+  // pinned `Math.random` is global, so the damage is not limited to timing.
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
   });
 
   it('does nothing when wallet status is not Ready', () => {
@@ -342,12 +378,17 @@ describe('useSyncTrigger', () => {
   // circuit breaker (sync-manager.ts, gap 14).
   it('mobile/desktop: takes the WASM lock with the sync watchdog ceiling (#777)', async () => {
     const { WASM_LOCK_SYNC_WATCHDOG_MS } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
-    wasmLockOptionsSeen.length = 0;
 
     const { unmount } = render(<HookHost />);
 
     await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
-    expect(wasmLockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+    // Every hold, not just the first: the ceiling is per-hold, so a loop that
+    // passed it once and then dropped it would still leave the wallet's whole
+    // WASM access parked behind an unbounded sync on the very next tick.
+    expect(wasmLockOptionsSeen.length).toBeGreaterThan(0);
+    for (const options of wasmLockOptionsSeen) {
+      expect(options).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+    }
     unmount();
   });
 
@@ -401,10 +442,10 @@ describe('useSyncTrigger', () => {
     jest.useRealTimers();
   });
 
-  it('mobile/desktop: a successful probe resets the breaker back to the 3s cadence (#777)', async () => {
+  it('mobile/desktop: a successful probe resets the breaker back to the 3s cadence AND rewinds the schedule (#777)', async () => {
     jest.useFakeTimers();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const rand = jest.spyOn(Math, 'random').mockReturnValue(0);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
     mockSyncState
       .mockRejectedValueOnce(new Error('x'))
       .mockRejectedValueOnce(new Error('x'))
@@ -437,10 +478,34 @@ describe('useSyncTrigger', () => {
     });
     expect(mockSyncState).toHaveBeenCalledTimes(5);
 
-    rand.mockRestore();
-    warn.mockRestore();
+    // And the ESCALATION is rewound too, not just the cadence. Failing three
+    // more times must reopen at the BASE window (30s), which is only true if the
+    // success cleared the trip count — clearing the failure streak alone
+    // restores the 3s cadence identically, so a test that stops above would
+    // pass with the trip-count reset deleted and the next outage would open at
+    // 60s, having silently inherited the previous one's escalation.
+    mockSyncState.mockRejectedValue(new Error('x'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(8);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(8);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(9);
+
     unmount();
-    jest.useRealTimers();
   });
 
   it('mobile/desktop: requestImmediateSync probes right through an open backoff window (#777)', async () => {
@@ -474,6 +539,126 @@ describe('useSyncTrigger', () => {
     warn.mockRestore();
     unmount();
     jest.useRealTimers();
+  });
+
+  it('mobile/desktop: an evicted sync that settles late cannot reset the breaker (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    // The sync itself SUCCEEDS; the hold is what gets evicted for overrunning
+    // the ceiling. So the abandoned callback runs to completion a microtask
+    // after the loop has already counted the eviction as a failure. Assigning
+    // the breaker resets inside that callback let a node slow enough to be
+    // evicted on every tick zero the streak from a hold the loop had given up
+    // on — the breaker could then never trip, and the 3s cadence this backoff
+    // exists to stop would continue indefinitely.
+    evictEveryLockHold = true;
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // Three evictions must have opened a window, despite three late successes.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    unmount();
+  });
+
+  it('mobile/desktop: a guard-skipped tick keeps an open backoff window instead of resetting to 3s (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockSyncState.mockRejectedValue(new Error('HTTP 429'));
+
+    const { unmount } = render(<HookHost />);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // The window is open. Enter the send flow, so the tick that ends it is
+    // guard-skipped — it runs no probe, so it must not be able to cancel the
+    // window either. Carrying the backoff as a per-run delay instead of a
+    // deadline let exactly this hand the node back the 3s cadence.
+    window.location.hash = '#/send';
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // Still inside the send flow: ticks keep skipping, and no probe escapes.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // Leaving the flow, the loop resumes on the flat cadence — the window it
+    // waited out is spent, not inherited.
+    window.location.hash = '';
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    unmount();
+  });
+
+  it('mobile/desktop: a watchdog eviction raises the connectivity banner, so Retry stays reachable (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    // A poison error's message is closed wallet-authored text, so the transport
+    // heuristic cannot match it. Without the explicit poison check the #777 hang
+    // is the one failure that backs off SILENTLY — and the banner's Retry is the
+    // only affordance that probes through an open window, so a silent backoff
+    // leaves the user no way out of it.
+    mockIsLikelyNetworkError.mockReturnValue(false);
+    mockIsWasmClientPoisonedError.mockReturnValue(true);
+    evictEveryLockHold = true;
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    // Below the streak threshold nothing is surfaced yet (#596 — a lone blip
+    // must not flap the banner).
+    expect(mockMarkConnectivityIssue).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockMarkConnectivityIssue).toHaveBeenCalledWith('node');
+
+    unmount();
   });
 
   it('extension: clears the interval on unmount', async () => {

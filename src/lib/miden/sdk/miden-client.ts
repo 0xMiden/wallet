@@ -169,6 +169,10 @@ interface LockHolder {
    * `withWasmClientLock`'s options so a wedge is recovered on the operation's
    * own budget instead of the 5-minute last resort. Holder-scoped so it
    * survives pause brackets and yields, and never leaks to the next hold.
+   *
+   * Always within `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]` —
+   * `resolveNormalCeilingMs` clamps whatever the caller asked for, so the rest
+   * of the watchdog arithmetic can treat this as a sane finite budget.
    */
   normalCeilingMs: number;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
@@ -670,9 +674,47 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  * client — merely releasing the mutex would double-borrow it under the next
  * holder. The paused/yielded ceilings are NOT affected: a pause bracket still
  * relaxes to `WASM_LOCK_PAUSED_WATCHDOG_MS`.
+ *
+ * The value is CLAMPED, never trusted — see `resolveNormalCeilingMs`.
  */
 export interface WasmClientLockOptions {
   watchdogMs?: number;
+}
+
+/**
+ * Resolve a caller's requested ceiling to a usable one: anything that is not a
+ * positive finite number is treated as no request at all, and a real request is
+ * clamped into `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]`.
+ *
+ * The option only ever TIGHTENS the last-resort backstop, and this is what makes
+ * that true rather than merely documented. Three ways an unchecked value broke
+ * the #775 contract, all reachable the moment a ceiling is computed rather than
+ * written as a literal:
+ *   - Above the default it WIDENED the ceiling, so `withWasmClientLock` would
+ *     hand out longer unwatched holds than the backstop allows. That is the
+ *     pre-#775 wedge reached through the fix's own escape hatch, which is
+ *     exactly what `WASM_LOCK_PAUSED_WATCHDOG_MS` refuses to do by design.
+ *   - Below `WASM_LOCK_MIN_WATCHDOG_MS` it fell into `armWatchdogFor`'s
+ *     one-shot grace branch on the FIRST arm. The hold still got a 30 s timer,
+ *     so the mistake was invisible — but it had spent, before any pause bracket
+ *     existed, the finishing slice a post-sign submit needs, and banked a
+ *     `normalCeilingMs - 30_000` ledger that goes negative below the slice.
+ *   - `NaN` survived into that ledger and reached `setTimeout(fn, NaN)` at the
+ *     next transition, which fires on the next macrotask: an instant eviction
+ *     of a holder that had done nothing wrong, plus a client replacement.
+ *     `Infinity` coerces identically, so the value a caller would reach for to
+ *     switch the watchdog OFF is the one that fires it immediately.
+ *
+ * Zero and negative fall back to the DEFAULT rather than clamping up to the
+ * minimum: a non-positive ceiling cannot be a considered request to tighten, so
+ * the safe reading of it is a bug in the caller, and honouring it as "evict as
+ * soon as allowed" would tear down healthy holds at 30 s.
+ */
+function resolveNormalCeilingMs(requestedMs: number | undefined): number {
+  if (requestedMs === undefined || !Number.isFinite(requestedMs) || requestedMs <= 0) {
+    return WASM_LOCK_WATCHDOG_MS;
+  }
+  return Math.min(Math.max(requestedMs, WASM_LOCK_MIN_WATCHDOG_MS), WASM_LOCK_WATCHDOG_MS);
 }
 
 /**
@@ -689,7 +731,7 @@ export async function withWasmClientLock<T>(
   options?: WasmClientLockOptions
 ): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold(options?.watchdogMs);
+  const holder = beginHold(resolveNormalCeilingMs(options?.watchdogMs));
   try {
     const running = operation(holder);
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse

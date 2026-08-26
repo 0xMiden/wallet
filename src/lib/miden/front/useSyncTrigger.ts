@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES } from 'lib/miden/sync-backoff';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
@@ -105,6 +105,13 @@ export function useSyncTrigger() {
     // like the streak: a remount starts fresh on the 3s cadence, which is the
     // right bias (a remount usually means the user came back).
     let breakerTripCount = 0;
+    // Wall-clock end of the open backoff window (#777), 0 when none is open.
+    // A DEADLINE rather than a one-shot delay, matching `syncBackoffUntilMs` in
+    // the SW path: a tick the guards skip (send flow, generating-tx page) does
+    // not run a probe, so it must not be able to cancel a window either — with
+    // a one-shot delay it silently reset the cadence to 3s and the wallet went
+    // straight back to probing a node it had just decided to back off from.
+    let syncBackoffUntilMs = 0;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
@@ -114,11 +121,6 @@ export function useSyncTrigger() {
       }
 
       isRunning = true;
-      // Flat 3s by default; a tripped breaker stretches THIS reschedule to the
-      // backoff window (#777). Guard-skipped ticks (send flow, generating-tx
-      // page) keep the flat cadence — they never reach the network, so they
-      // must neither serve nor inflate a window.
-      let nextDelayMs = SYNC_INTERVAL_MS;
       try {
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
         // a tx is being generated, to avoid queuing sync behind a long prove.
@@ -139,19 +141,32 @@ export function useSyncTrigger() {
             // would otherwise hold the lock until the 5-minute last resort —
             // on mobile that is the whole app's WASM access. Expiry evicts the
             // hold and replaces the client; the next tick syncs on a fresh one.
-            await withWasmClientLock(
+            const synced = await withWasmClientLock(
               async () => {
                 const client = await getMidenClient();
-                if (!client || cancelled) return;
+                if (!client || cancelled) return false;
                 await client.syncState();
-                // Sync genuinely went through — break the failure streak. Kept
-                // inside the lock callback so an unmount that flips `cancelled`
-                // before the sync (early return above) can't falsely reset it.
-                consecutiveSyncFailures = 0;
-                breakerTripCount = 0;
+                return true;
               },
               { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
             );
+            // Break the failure streak only on a sync that genuinely went
+            // through. Reported OUT of the lock callback rather than assigned
+            // inside it, because an eviction ABANDONS that callback without
+            // cancelling it (#775): a sync that overran the ceiling and then
+            // settled would run these resets late, after the catch below had
+            // already counted the eviction as a failure — zeroing the streak
+            // from a hold the loop had given up on. A node slow enough to be
+            // evicted every time would then never trip the breaker at all,
+            // and keep the 3s cadence this backoff exists to stop. The flag
+            // still distinguishes a real sync from the `!client || cancelled`
+            // early return, which is why the reset is not simply unconditional
+            // after the await.
+            if (synced) {
+              consecutiveSyncFailures = 0;
+              breakerTripCount = 0;
+              syncBackoffUntilMs = 0;
+            }
             clearReachabilityIssues();
             // The sync just imported any new notes; surface them NOW instead of
             // waiting out the claimable-notes SWR interval (up to 5s) — the note
@@ -175,16 +190,26 @@ export function useSyncTrigger() {
             // matching the service-worker path (#273). markConnectivityIssue is
             // idempotent, so re-marking on each further failure while it's up is a
             // no-op; a later successful sync resets the streak and clears it (#596).
-            if (isLikelyNetworkError(error) && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
+            // A watchdog eviction is transport-shaped in every way that matters
+            // to the user: on the sync path it means the node stopped answering
+            // and the parked gRPC-web fetch had to be torn off the lock. Its
+            // message is a closed wallet-authored string, so it matches none of
+            // `isLikelyNetworkError`'s tokens — the same reason the SW path
+            // special-cases its own synthetic `Sync timeout` alongside that
+            // predicate. Without this the #777 hang is the one failure that
+            // backs off SILENTLY: no banner, and therefore no Retry, which is
+            // the only affordance that probes through an open window.
+            const transportShaped = isLikelyNetworkError(error) || isWasmClientPoisonedError(error);
+            if (transportShaped && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
               markConnectivityIssue(classifySyncError(error));
             }
             // The breaker (#777): a sustained failure streak stops the flat 3s
-            // hammering — mirroring the SW path's exponential schedule — so an
-            // idle wallet backs off a rate-limiting node instead of feeding it
-            // the burst that precedes the freeze. Counted per FAILED ATTEMPT,
-            // not per tick, so windows only grow while probes actually fail.
+            // hammering so an idle wallet backs off a rate-limiting node
+            // instead of feeding it the burst that precedes the freeze.
+            // Counted per FAILED ATTEMPT, not per tick, so windows only grow
+            // while probes actually fail.
             if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
-              nextDelayMs = computeSyncBackoffMs(++breakerTripCount);
+              syncBackoffUntilMs = Date.now() + computeSyncBackoffMs(++breakerTripCount);
             }
           } finally {
             useWalletStore.getState().setSyncStatus(false);
@@ -193,10 +218,19 @@ export function useSyncTrigger() {
       } finally {
         isRunning = false;
         if (!cancelled) {
+          // Flat 3s, or the rest of an open backoff window if one outlasts it.
+          // Reading the deadline here rather than carrying a per-run delay is
+          // what makes a guard-skipped tick harmless: it reschedules on
+          // whatever is LEFT of the window instead of resetting to 3s.
+          //
           // `retryAfterCurrentRun` (a banner Retry or app foreground) probes
-          // straight through an open backoff window — user-driven, and the
-          // probe's own outcome decides what happens next.
-          const delay = retryAfterCurrentRun ? 0 : nextDelayMs;
+          // straight through an open window — user-driven, and the probe's own
+          // outcome decides what happens next. The window is deliberately left
+          // standing rather than cleared, exactly as the SW path's `force`
+          // bypasses `syncBackoffUntilMs` without resetting it: one punch-
+          // through should not hand the node back the 3s cadence.
+          const backoffRemainingMs = syncBackoffUntilMs - Date.now();
+          const delay = retryAfterCurrentRun ? 0 : Math.max(SYNC_INTERVAL_MS, backoffRemainingMs);
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);
         }

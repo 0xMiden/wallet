@@ -1,13 +1,23 @@
 /**
  * Shared sync circuit-breaker parameters (gap 14, issue #777).
  *
- * One state machine, two drivers: the extension service worker's `doSync`
+ * Two drivers, one set of parameters: the extension service worker's `doSync`
  * (`back/sync-manager.ts`) skips attempts while inside the backoff window, and
- * the mobile/desktop inline loop (`front/useSyncTrigger.ts`) stretches its
- * self-scheduling delay to the same window. Both must trip on the same streak
- * and back off on the same schedule, or the two platforms drift apart in how
- * hard they hammer a rate-limiting node — the suspected #777 trigger. This
- * module is dependency-free so the frontend hook can import it without
+ * the mobile/desktop inline loop (`front/useSyncTrigger.ts`) reschedules itself
+ * onto the remainder of that window. Both trip on the same streak
+ * (`MAX_CONSECUTIVE_SYNC_FAILURES`) and draw every window from the same curve
+ * (`computeSyncBackoffMs`), so neither platform can quietly end up hammering a
+ * rate-limiting node harder than the other — the suspected #777 trigger.
+ *
+ * What is deliberately NOT shared is the RE-TRIP rule, so don't read the two as
+ * one state machine. The SW zeroes its failure streak when it opens a window,
+ * so it takes another full streak to escalate; the inline loop leaves the streak
+ * standing, so every further failed probe escalates immediately. The inline loop
+ * is therefore the stricter of the two — one probe per window, doubling each
+ * time — which is the right bias on the platform where the sync loop is the
+ * only sync driver and a wedged hold blocks the whole app's WASM access.
+ *
+ * This module is dependency-free so the frontend hook can import it without
  * dragging in the service worker's vault/intercom graph.
  */
 
