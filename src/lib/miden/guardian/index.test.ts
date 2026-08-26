@@ -831,6 +831,33 @@ describe('MultisigService', () => {
       expect(result.proposal).toEqual({ kind: 'custom', id: 'proposal-id' });
     });
 
+    // #784 follow-up: the captured anchor is a WASM object holding a partial
+    // blockchain. Its only job here is to be serialized onto the proposal —
+    // once `chainAnchorToBase64` has the wire form, the live object must be
+    // released, like every SDK-side producer does.
+    it('frees the captured chain anchor once it is serialized onto the proposal', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+
+      const anchor = { kind: 'anchor', free: jest.fn() };
+      mockExecuteForSummary.mockResolvedValueOnce({
+        summary: { serialize: () => new Uint8Array([0xab]) },
+        anchor
+      });
+      mockGenerateHotKey.mockResolvedValueOnce({
+        ciphertext: 'cx',
+        publicKeyHex: 'pk',
+        commitmentHex: '0xnewhotcommit'
+      });
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+
+      await service.createReplaceHotKeyProposal(account);
+
+      expect(mockChainAnchorToBase64).toHaveBeenCalledWith(anchor);
+      expect(anchor.free).toHaveBeenCalledTimes(1);
+    });
+
     it('handles secureHotKey commitments without 0x prefix by adding it', async () => {
       // Defensive: not all commitment producers may prefix. We normalize.
       const multisig = makeMultisig({ threshold: 1 });

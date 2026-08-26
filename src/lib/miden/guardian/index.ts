@@ -23,6 +23,7 @@ import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 
@@ -517,11 +518,19 @@ export class MultisigService {
       // be synced to and derives a different summary, so the collected
       // signatures no longer verify.
       const { summary, anchor } = await executeForSummary(webClient, this.accountId, request, getEffectiveRpcUrl());
-      return {
-        summaryBase64: u8ToB64(summary.serialize()),
-        saltHex: salt.toHex(),
-        chainAnchor: chainAnchorToBase64(anchor)
-      };
+      // The live anchor's only job is to be serialized onto the proposal; once
+      // the wire form exists, release the WASM object (it holds a partial
+      // blockchain) instead of leaving it to the finalizer — the same
+      // serialize-then-free every multisig-client proposal creator does (#784).
+      try {
+        return {
+          summaryBase64: u8ToB64(summary.serialize()),
+          saltHex: salt.toHex(),
+          chainAnchor: chainAnchorToBase64(anchor)
+        };
+      } finally {
+        freeChainAnchor(anchor);
+      }
     });
     const metadata: ProposalMetadata = {
       proposalType: 'add_signer',
