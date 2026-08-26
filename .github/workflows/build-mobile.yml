@@ -83,11 +83,15 @@ jobs:
         working-directory: android
         run: ./gradlew assembleDebug
 
+      - name: Resolve artifact version
+        id: artifact_version
+        uses: ./.github/actions/artifact-version
+
       - name: Compute artifact name
         id: name
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION="${{ steps.artifact_version.outputs.version }}"
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           FILE="MidenWallet-Android-${VERSION}-${ENV_CAP}.apk"
@@ -159,11 +163,15 @@ jobs:
             -derivedDataPath ios/DerivedData \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Resolve artifact version
+        id: artifact_version
+        uses: ./.github/actions/artifact-version
+
       - name: Compute artifact name
         id: name
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION="${{ steps.artifact_version.outputs.version }}"
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           FILE="MidenWallet-iOS-${VERSION}-${ENV_CAP}.zip"
