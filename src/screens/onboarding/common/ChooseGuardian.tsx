@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianAvailability } from 'app/hooks/useGuardianAvailability';
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
@@ -59,6 +60,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // Providers that run a Guardian on the active network, resolved to their
   // endpoint on it.
   const options = useMemo(() => getGuardianOptionsForNetwork(), []);
+
+  // Liveness ping per provider so an operator that's down right now is marked
+  // offline on its card. Advisory only: an offline card stays selectable — the
+  // outage may be transient, and account creation against it fails loudly with
+  // its own error anyway.
+  const endpoints = useMemo(() => options.map(o => o.endpoint), [options]);
+  const availability = useGuardianAvailability(endpoints);
 
   // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
@@ -137,6 +145,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
+            const isOffline = availability[option.endpoint] === 'offline';
             // GUARDIAN_LOGOS is keyed by provider id with no compile-time tie to
             // GUARDIAN_OPTIONS, so the old `GUARDIAN_LOGOS[option.id]!` + destructure
             // threw "Cannot destructure property 'Logo' of undefined" for any option
@@ -159,17 +168,30 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
                 >
-                  {(isCurrent || isDefault) && (
+                  {/* One strip slot: an offline verdict is the actionable fact, so it
+                      wins over the current/default badge while the outage lasts. */}
+                  {isOffline ? (
                     <div
-                      className={cn(
-                        'flex h-8 w-full shrink-0 items-center justify-center',
-                        isCurrent ? 'bg-grey-200 text-heading-gray dark:bg-grey-700' : 'bg-primary-500 text-pure-white'
-                      )}
+                      data-testid="guardian-offline-banner"
+                      className="flex h-8 w-full shrink-0 items-center justify-center bg-red-500 text-pure-white"
                     >
-                      <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
+                      <span className="text-sm font-semibold">{t('guardianOfflineLabel')}</span>
                     </div>
+                  ) : (
+                    (isCurrent || isDefault) && (
+                      <div
+                        className={cn(
+                          'flex h-8 w-full shrink-0 items-center justify-center',
+                          isCurrent
+                            ? 'bg-grey-200 text-heading-gray dark:bg-grey-700'
+                            : 'bg-primary-500 text-pure-white'
+                        )}
+                      >
+                        <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
+                      </div>
+                    )
                   )}
-                  <div className="flex flex-1 items-center justify-center">
+                  <div className={cn('flex flex-1 items-center justify-center', isOffline && 'opacity-50')}>
                     {logoEntry ? (
                       <logoEntry.Logo className={clsx(guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)} />
                     ) : (

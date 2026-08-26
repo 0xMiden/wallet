@@ -22,6 +22,14 @@ jest.mock('lib/miden-chain/constants', () => ({
   getGuardianOptionsForNetwork: (...args: unknown[]) => mockGetGuardianOptions(...args)
 }));
 
+// Availability hook — controlled per-test so the offline-banner branches are
+// exercised without real network pings (the real hook fans out HTTP requests
+// to every provider endpoint on mount).
+const mockUseGuardianAvailability = jest.fn();
+jest.mock('app/hooks/useGuardianAvailability', () => ({
+  useGuardianAvailability: (...args: unknown[]) => mockUseGuardianAvailability(...args)
+}));
+
 // Haptics — no-op mock so we can assert taps trigger feedback without dragging
 // in the Capacitor plugin.
 const mockHapticLight = jest.fn();
@@ -126,6 +134,7 @@ const isHighlighted = (btn: HTMLElement) => btn.className.includes('border-prima
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetGuardianOptions.mockReturnValue(allOptions());
+  mockUseGuardianAvailability.mockReturnValue({});
   mockIsValidGuardianUrl.mockReturnValue(true);
   mockSanitizeGuardianUrl.mockImplementation((v: string) => v.trim().replace(/\/+$/, ''));
 });
@@ -460,6 +469,61 @@ describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () =>
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(document.activeElement).not.toBe(input);
+  });
+});
+
+describe('ChooseGuardianScreen — offline banner', () => {
+  it('pings the resolved provider endpoints', () => {
+    render(<ChooseGuardianScreen />);
+    expect(mockUseGuardianAvailability).toHaveBeenCalledWith([OZ.endpoint, GATEWAY.endpoint, LAMBDA.endpoint]);
+  });
+
+  it('shows the offline banner only on providers reported offline', () => {
+    mockUseGuardianAvailability.mockReturnValue({
+      [OZ.endpoint]: 'online',
+      [GATEWAY.endpoint]: 'offline'
+      // LAMBDA absent => still checking
+    });
+    render(<ChooseGuardianScreen />);
+
+    const banners = screen.getAllByTestId('guardian-offline-banner');
+    expect(banners).toHaveLength(1);
+    expect(banners[0]).toHaveTextContent('guardianOfflineLabel');
+    // The banner sits inside the Gateway card (the button carrying its endpoint).
+    expect(banners[0]!.closest('button')).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
+  });
+
+  it('renders no offline banner while pings are still checking or all online', () => {
+    render(<ChooseGuardianScreen />);
+    expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
+
+    mockUseGuardianAvailability.mockReturnValue({
+      [OZ.endpoint]: 'online',
+      [GATEWAY.endpoint]: 'online',
+      [LAMBDA.endpoint]: 'online'
+    });
+    render(<ChooseGuardianScreen />);
+    expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
+  });
+
+  it('replaces the default badge with the offline banner while that provider is down', () => {
+    // OZ is the default selection AND offline — the strip slot shows offline.
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    render(<ChooseGuardianScreen />);
+
+    expect(screen.getByTestId('guardian-offline-banner')).toBeInTheDocument();
+    expect(screen.queryByText('default')).not.toBeInTheDocument();
+  });
+
+  it('keeps an offline provider selectable and submittable', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [, gwBtn] = optionButtons(container);
+
+    fireEvent.click(gwBtn!);
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
   });
 });
 

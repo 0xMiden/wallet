@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Advanced — recover with your seed phrase only. No guardian co-signer.",
   "guardianOperatedBy": "Operated by:",
   "guardianLocation": "Location:",
+  "guardianOfflineLabel": "Offline",
   "whatIsAGuardian": "What is a Guardian?",
   "guardianInfoDescription": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
   "guardianInfoWhatItDoesTitle": "What it does",
