@@ -157,6 +157,15 @@ export interface NetworkFaultControls {
    * without reaching into the container. Reset by `armGuardian`/`clear`.
    */
   guardianFaultHits(): number;
+  /**
+   * How many requests the armed NETWORK policy set has faulted since it was
+   * armed (summed across policies). The network-seam counterpart of
+   * `guardianFaultHits` — an op that "survived" an outage with zero hits proves
+   * the fault never reached it (a false green). Reset by `armNetwork`/`clear`.
+   * Only counts route-seam targets; fetch-layer targets (node/prover/transport)
+   * are counted in their own realms (see fetch-faults.ts).
+   */
+  networkFaultHits(): number;
   /** Disarm everything — all subsequent requests pass through untouched. */
   clear(): void;
 }
@@ -328,6 +337,9 @@ export function installNetworkFaults(
     },
     guardianFaultHits() {
       return guardianHits;
+    },
+    networkFaultHits() {
+      return networkHits.reduce((sum, n) => sum + n, 0);
     },
     clear() {
       networkPolicies = [];

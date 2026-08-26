@@ -74,6 +74,13 @@ export interface GuardianFaultTestApi {
    * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /**
+   * How many requests the armed network-fault policy set has faulted (route-seam
+   * targets only — guardians and the other HTTP services). The false-green guard
+   * for `armNetworkFault`, mirroring `guardianFaultHits`. See
+   * `NetworkFaultControls.networkFaultHits`.
+   */
+  networkFaultHits(): number;
   clearFaults(): Promise<void>;
 }
 
@@ -609,6 +616,7 @@ async function launchWalletInstance(
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      networkFaultHits: () => faults.networkFaultHits(),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves
