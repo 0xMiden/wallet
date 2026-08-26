@@ -18,6 +18,7 @@
 - [FIX][all] The Import Wallet screen now explains which words it does not recognise, instead of showing the untranslated string 'importSeedPhraseError'.
 - [FIX][all] A transaction whose completion time is missing or unreadable no longer takes the whole activity list down with it; the row is grouped under today instead.
 - [FIX][e2e] `killBrowser()` specs no longer fail with "Object with guid handle@… was not bound in the connection": the screen-change capture handler polls a handle-free boolean instead of `waitForFunction`, `killBrowser()` closes the page before the browser, and the async page-network capture listener is guarded.
+- [FIX][e2e] The mobile screen-capture poll no longer turns a slow WebView into a failed spec. It read the app's screen key on a fixed 250ms interval without waiting for the previous read, and on iOS each read is a CDP `execute_script` against the app's single JS main thread — so whenever a read outlasted the interval, ticks enqueued faster than the WebView could drain them and the spec's own evals timed out behind the backlog as "WebView/RWI wedged". Observed on a `Mobile E2E (devnet)` failure that left 1047 unanswered calls outstanding against one wallet while its sibling stayed under 155. The poll now waits for each read to finish before scheduling the next, so at most one is ever in flight and a slow WebView is reported as itself.
 
 ### Features
 
