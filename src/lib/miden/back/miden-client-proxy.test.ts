@@ -2691,6 +2691,65 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
     }
   );
 
+  // Issue #775, the other half of the same funds-critical rule. An offscreen-realm
+  // lock eviction has no error CODE — it is identified by its CLASS, and the SW's
+  // kill classifiers (`cancelTransactionAfterPipelineStopped`'s may-have-submitted
+  // crossing, `tryCompleteKilledConsume`'s node adjudication) key off exactly that.
+  // Rebuilt as a bare `Error` it reads as an ordinary pre-submit failure, and for a
+  // send that lets Retry mint a second payment while the abandoned offscreen op is
+  // still able to submit.
+  it.each(writeCases)(
+    '$name: a poison-eviction offscreen reply rejects with a WasmClientPoisonedError, not a bare Error',
+    async ({ invoke }) => {
+      const { midenClientProxy } = await loadProxy(true);
+      const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+      fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+        ok: false,
+        op_id: env.op_id,
+        error: 'WASM client poisoned (realm-error): uncaught realm error while holding the WASM client lock',
+        errorName: 'WasmClientPoisonedError',
+        errorReason: 'realm-error'
+      }));
+
+      const p = invoke(midenClientProxy).catch((e: unknown) => e);
+      await flush();
+      fireReady();
+      const err = await p;
+
+      expect(isWasmClientPoisonedError(err)).toBe(true);
+      expect((err as { reason?: string }).reason).toBe('realm-error');
+    }
+  );
+
+  it('a poison reply whose errorReason is missing or garbled is still classified as an eviction', async () => {
+    // The classification is what protects the funds; the mechanism name is only
+    // diagnostic. An older or malformed payload must therefore degrade to "some
+    // eviction happened", never to "an ordinary failure".
+    const { midenClientProxy } = await loadProxy(true);
+    const { isWasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: false,
+      op_id: env.op_id,
+      error: 'WASM client poisoned',
+      errorName: 'WasmClientPoisonedError',
+      errorReason: 'not-a-known-reason'
+    }));
+
+    const p = midenClientProxy
+      .sendTransaction(
+        sendTx() as any,
+        jest.fn(async () => new Uint8Array())
+      )
+      .catch((e: unknown) => e);
+    await flush();
+    fireReady();
+    const err = await p;
+
+    expect(isWasmClientPoisonedError(err)).toBe(true);
+    // Falls back to the mechanism that bounds every wedge.
+    expect((err as { reason?: string }).reason).toBe('watchdog');
+  });
+
   it('an ok:false reply with NO errorCode still rejects (abort/undefined-code path unchanged)', async () => {
     const { midenClientProxy } = await loadProxy(true);
     const { extractSdkErrorCode } = await import('../sdk/sdk-error-code');

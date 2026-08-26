@@ -1,7 +1,8 @@
 // This import must stay ABOVE the `./miden-client-interface` one: that import
-// forms a cycle (via `speculation-manager`), and the re-exported poison
-// bindings below must already be initialized when the cycle re-enters this
-// module — see `wasm-client-poison.ts`.
+// forms a cycle (via `speculation-manager`), and the poison bindings this
+// module's own body reads — the three ceilings in `armWatchdogFor`, the error
+// class in `recoverFromWedgedHolder` — must already be initialized when the
+// cycle re-enters this module. See `wasm-client-poison.ts`.
 import {
   WASM_LOCK_MIN_WATCHDOG_MS,
   WASM_LOCK_PAUSED_WATCHDOG_MS,
@@ -11,8 +12,6 @@ import {
 } from './wasm-client-poison';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
-
-export { WASM_LOCK_WATCHDOG_MS, WasmClientPoisonedError };
 
 /**
  * Simple async mutex to prevent concurrent WASM client operations.
@@ -195,11 +194,17 @@ let currentHolder: LockHolder | null = null;
 /**
  * The hold that currently owns the mutex, or `null` when it is free.
  *
- * Safe to call at the very START of a locked operation's body — no `await` has
- * elapsed since the hold was created, so the value IS this flow's own hold.
- * Capturing it later is meaningless: by then an eviction may have handed the
- * slot to somebody else, which is the whole ambiguity {@link WasmLockHold}
- * exists to resolve.
+ * Two legitimate uses, and the difference between them is the whole point:
+ *
+ * - To LEARN this flow's own hold, call it at the very START of a locked
+ *   operation's body. No `await` has elapsed since the hold was created, so the
+ *   value provably IS this flow's. Capturing it any later is meaningless — by
+ *   then an eviction may have handed the slot to somebody else, which is the
+ *   ambiguity {@link WasmLockHold} exists to resolve.
+ * - To ASK whether this flow still owns the mutex, compare it against a hold
+ *   captured earlier, at any time. That is the reverse question and it is
+ *   exactly what an abandoned-but-still-running flow needs, since a stale
+ *   identity is the only thing distinguishing it from a healthy owner.
  */
 export function getCurrentWasmLockHold(): WasmLockHold | null {
   return currentHolder;
@@ -236,8 +241,20 @@ function isTrapShaped(error: unknown, rawMessage?: unknown, rawFilename?: unknow
   if (typeof WebAssembly !== 'undefined' && error instanceof WebAssembly.RuntimeError) {
     return true;
   }
+  // A rejection reason is not always an `Error`: a trap that crosses a worker
+  // boundary, or one JavaScriptCore surfaces itself, can arrive as a bare string
+  // (the shape `onRealmRejection` passes with no `rawMessage`). Reading only
+  // `Error.message` left that case with an empty string, so the whole predicate
+  // was dead for it and the wedge waited out the 5-minute — or, mid-prove,
+  // 30-minute — watchdog instead of being evicted in milliseconds.
   const message =
-    typeof rawMessage === 'string' && rawMessage.length > 0 ? rawMessage : error instanceof Error ? error.message : '';
+    typeof rawMessage === 'string' && rawMessage.length > 0
+      ? rawMessage
+      : typeof error === 'string'
+        ? error
+        : error instanceof Error
+          ? error.message
+          : '';
   // No bare "wasm" match here: on mobile the whole React app shares the realm,
   // and an unrelated error merely mentioning wasm must not evict a holder.
   //
@@ -304,12 +321,12 @@ export function __resetRecoveryCooldownForTests(): void {
 let yieldedHolderCount = 0;
 
 /**
- * Realm-local listeners run after recovery has disposed the client singletons
+ * Realm-local listeners run after recovery has replaced the client singletons
  * (issue #775).
  *
  * `midenClientSingleton` is not the only place a realm keeps a client: the
  * offscreen document builds its own via `MidenClientInterface.create()` and
- * caches it in a module-local, so `disposeAllInstances()` reaches nothing there
+ * caches it in a module-local, so `replaceClientSingletons()` reaches nothing there
  * and the next call would be handed the same trapped client — defeating
  * recovery in the one realm where the recorded #775 trap happened. A realm with
  * its own client registers here to drop it.
@@ -345,12 +362,12 @@ function notifyWasmClientPoisoned(): void {
  * offscreen prove, while the 1 s sync holds the mutex and can be the one
  * evicted — is past the mutex and holds a direct client reference. `free()`ing
  * under it fails a transaction that may already have landed, so those cases
- * detach-and-mark instead and accept the untermed instance. Nobody mid-yield,
+ * poison-in-place instead and accept the untermed instance. Nobody mid-yield,
  * and terminating is both safe and the tidier outcome.
  */
 function replaceClientSingletons(): void {
   if (yieldedHolderCount > 0) {
-    midenClientSingleton.detachAllInstances();
+    midenClientSingleton.poisonAllInstances();
   } else {
     midenClientSingleton.disposeAllInstances();
   }
@@ -395,7 +412,10 @@ function recoverFromTrap(cause: unknown): void {
     // flow). So DETACH instead: future callers rebuild, the suspended flow
     // keeps the reference it is already using, and it fails on its own next
     // call exactly as it would have anyway.
-    console.error('[miden-client] WASM trap while a holder is mid-yield — detaching client singletons:', cause);
+    console.error(
+      '[miden-client] WASM trap while a holder is mid-yield — poisoning client singletons in place:',
+      cause
+    );
     lastRecoveryAt = monotonicNow();
     replaceClientSingletons();
   } else {
@@ -463,7 +483,18 @@ function armWatchdogFor(holder: LockHolder): void {
       // finish in rather than evicting it the instant the bracket closes — the
       // wait it just came out of was the legitimately unbounded one. Once only,
       // so a flow looping over brackets cannot renew the grace forever.
+      //
+      // Credited to the LEDGER, not just to this timer. The slice has to survive
+      // the hold's next transition, and the transition that follows it in
+      // practice is a yield: `proveLocallyViaOffscreen` comes out of the sign
+      // pause, runs the rest of execute, then yields around the offscreen prove.
+      // Overriding only the timer left `unpausedElapsedMs` past the ceiling, so
+      // the resume re-armed at `max(negative, 0)` — evicting the flow on the
+      // next macrotask, which lands between `markSubmitting()` and the actual
+      // submit. Writing the ledger back to "one slice left" makes the resume
+      // re-arm on the unspent remainder of the grace instead.
       holder.graceUsed = true;
+      holder.unpausedElapsedMs = WASM_LOCK_WATCHDOG_MS - WASM_LOCK_MIN_WATCHDOG_MS;
       ceiling = WASM_LOCK_MIN_WATCHDOG_MS;
     } else {
       ceiling = Math.max(remaining, 0);
@@ -556,7 +587,23 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   holder.watchdogTimer = null;
   currentHolder = null;
   const error = new WasmClientPoisonedError(reason, cause);
-  console.error('[miden-client] evicting wedged WASM lock holder:', error);
+  // The forensic record for a mechanism that fires rarely, in the field, on a
+  // device whose console nobody can read live (mobile especially). The error's
+  // own message deliberately names no ceiling, because the ceiling that applied
+  // depends on the pause accounting — so the live numbers have to be HERE or
+  // they exist nowhere. `mode` says whether the client was terminated or only
+  // marked, which decides whether some other flow kept a working reference.
+  console.error('[miden-client] evicting wedged WASM lock holder:', {
+    reason,
+    runningMs: Math.round(
+      holder.unpausedElapsedMs + (holder.segmentStartedAt === null ? 0 : monotonicNow() - holder.segmentStartedAt)
+    ),
+    pauseDepth: holder.pauseCount,
+    graceUsed: holder.graceUsed,
+    yieldedHolders: yieldedHolderCount,
+    mode: yieldedHolderCount > 0 ? 'poison-in-place' : 'free',
+    error
+  });
   holder.abort(error);
   // A trap aborts the WASM module instance — every later call against it
   // fails, so releasing the mutex alone would hand the next operation a dead
@@ -646,13 +693,16 @@ export async function tryWithWasmClientLock<T>(
 
 /**
  * Run `operation` with the current lock holder's watchdog relaxed to
- * `WASM_LOCK_PAUSED_WATCHDOG_MS` (issue #775). Mirrors
- * `pauseDeadline`/`resumeDeadline` in `miden-client-proxy.ts` in that the close
- * of the bracket re-arms the FULL normal ceiling from scratch, with no
- * elapsed-time accounting. For the two legitimately unbounded waits inside a
- * hold: a keystore sign round-trip (blocks on user authentication) and a local
- * prove (the fallback when delegated proving is down — capping it at the normal
- * ceiling would leave nothing to fall back to).
+ * `WASM_LOCK_PAUSED_WATCHDOG_MS` (issue #775). For the two legitimately
+ * unbounded waits inside a hold: a keystore sign round-trip (blocks on user
+ * authentication) and a local prove (the fallback when delegated proving is
+ * down — capping it at the normal ceiling would leave nothing to fall back to).
+ *
+ * UNLIKE `pauseDeadline`/`resumeDeadline` in `miden-client-proxy.ts`, the close
+ * does NOT restart the full ceiling: it re-arms only this hold's unspent normal
+ * budget (`LockHolder.unpausedElapsedMs`), plus one `WASM_LOCK_MIN_WATCHDOG_MS`
+ * finishing slice if that budget already ran out. Restarting from scratch is
+ * what let a flow opening and closing brackets in a loop run forever unwatched.
  *
  * "Relaxed", not "stopped": these waits are also where a trap is most likely,
  * and on the realms where the listener cannot see one (the SDK method worker
@@ -976,8 +1026,8 @@ class MidenClientSingleton {
    * mutex and holds a direct reference, so `free()` would fail it — possibly
    * after its point of no return.
    *
-   * Marking is not optional, and is the difference between this and a bare
-   * detach. The corpse-detecting guards — `yieldLockUnlessDisposed`,
+   * Marking is not optional, and is why this is not called a detach. The
+   * corpse-detecting guards — `yieldLockUnlessDisposed`,
    * `wrapSignWithWatchdogPause`, `proveWithFallback`'s local-prove pause, and
    * `Vault.spawn`'s re-resolve — all key off `isDisposed`. Dropping the
    * reference without marking hides the client from future callers while
@@ -988,7 +1038,7 @@ class MidenClientSingleton {
    * worker lives until the realm goes away — the accepted cost of not failing a
    * flow that may already have submitted.
    */
-  detachAllInstances(): void {
+  poisonAllInstances(): void {
     bumpWasmClientGeneration();
     this.generation++;
     this.generationWithOptions++;

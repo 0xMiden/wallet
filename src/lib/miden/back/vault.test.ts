@@ -1042,6 +1042,26 @@ describe('Vault.spawn', () => {
     mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
     await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
   });
+
+  it('re-resolves the client when lock recovery disposed the one spawn resolved before taking the lock (#775)', async () => {
+    // spawn() resolves a client at step 5 and only reaches the create path after
+    // queueing for the WASM mutex. Recovery runs from a timer and an error
+    // listener, so it can dispose that client while spawn waits — and a disposed
+    // client's every call throws, which here means a wallet creation that fails
+    // for a reason the user cannot act on. The `liveClient()` re-resolve exists
+    // so the rebuild recovery already performed is what the create path uses.
+    const disposed = { isDisposed: true, network: 'devnet', createMidenWallet: jest.fn() };
+    mockGetMidenClient.mockImplementationOnce(async () => disposed as never);
+
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw');
+
+    expect(vault).toBeDefined();
+    // The corpse was never called; the rebuilt client did the work.
+    expect(disposed.createMidenWallet).not.toHaveBeenCalled();
+    expect(mockCreateMidenWallet).toHaveBeenCalled();
+    // Once at step 5, once more from inside the lock after finding it disposed.
+    expect(mockGetMidenClient).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('Vault.spawnFromMidenClient', () => {

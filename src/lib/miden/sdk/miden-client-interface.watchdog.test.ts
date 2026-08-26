@@ -238,6 +238,60 @@ describe('miden-client-interface watchdog pauses', () => {
     await opRejects;
   });
 
+  it('does not pause on behalf of a DISPOSED client — an evicted corpse cannot relax the successor holder it no longer owns', async () => {
+    // The corpse case the `liveness` argument exists for. `pauseWatchdogForLocalProve`
+    // reaches for whichever hold is ambient at the moment it runs, and an evicted
+    // flow keeps running — so by the time its prove starts, the lock is a healthy
+    // successor's. Pausing there would hand that innocent holder the 30-minute
+    // ceiling on a wait it never asked to be shielded for, which is the pre-#775
+    // wedge reached through the fix's own escape hatch.
+    installSdkMocks(jest.fn());
+    const { proveWithFallback } = await import('./miden-client-interface');
+    const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
+
+    const dead = { disposed: true };
+    const op = withWasmClientLock(async () => {
+      await proveWithFallback(
+        async (_prover, attempt) => attempt.pauseWatchdogForLocalProve(() => new Promise<never>(() => {})),
+        false,
+        dead
+      );
+    });
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    // Still on the NORMAL clock despite being inside a would-be pause bracket:
+    // evicted at the normal ceiling, not shielded to the paused one.
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(isWasmClientBusy()).toBe(false);
+    await opRejects;
+  });
+
+  it('does not pause a DISPOSED client\u2019s keystore sign either — same corpse argument as the prove', async () => {
+    const fakeClient = { terminate: jest.fn() };
+    const createMock = jest.fn(async (_options?: { keystore?: { sign?: WiredSign } }) => fakeClient);
+    installSdkMocks(createMock);
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
+
+    const rawSign = jest.fn(() => new Promise<Uint8Array>(() => {}));
+    const client = await MidenClientInterface.create({ signCallback: rawSign });
+    const wiredSign = createMock.mock.calls[0]?.[0]?.keystore?.sign;
+    if (!wiredSign) throw new Error('create() was not called with a wired keystore sign callback');
+    // Exactly what recovery does to a client held across a yield: marked, not freed,
+    // so its calls keep working and the flow keeps running as a corpse.
+    client.markPoisoned();
+
+    const op = withWasmClientLock(() => wiredSign(new Uint8Array([2]), new Uint8Array([3])));
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(isWasmClientBusy()).toBe(false);
+    expect(rawSign).toHaveBeenCalledTimes(1);
+    await opRejects;
+  });
+
   it('does not pause the watchdog for a delegated prove attempt', async () => {
     installSdkMocks(jest.fn());
     const { proveWithFallback } = await import('./miden-client-interface');

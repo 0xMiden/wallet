@@ -109,12 +109,21 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // corpse must not get) are reachable from a test. Exported off the mock module
   // rather than the `__off` control object, whose contents are replaced per test.
   let evictCurrent: (() => void) | null = null;
-  const withWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+  // Issue #775: each hold gets an IDENTITY, mirroring the real module, because the
+  // behaviours under test turn on whether a yielding flow still owns the mutex.
+  // A single shared token cannot express that — with one, an evicted flow's yield
+  // still queues on `acquire()` and therefore can never observe a successor
+  // holding the lock, which is the entire hazard.
+  let currentHold: object | null = null;
+  const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>): Promise<T> => {
     await acquire();
+    const hold = { mock: 'wasm-lock-hold' };
+    currentHold = hold;
     let settled = false;
     const releaseOnce = (): void => {
       if (settled) return;
       settled = true;
+      if (currentHold === hold) currentHold = null;
       release();
     };
     const evicted = new Promise<never>((_resolve, reject) => {
@@ -125,7 +134,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
       };
     });
     try {
-      return await Promise.race([op(), evicted]);
+      return await Promise.race([op(hold), evicted]);
     } finally {
       releaseOnce();
     }
@@ -138,20 +147,22 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // Mirrors the real yieldWasmClientLock: release the lock, run the (WASM-free)
   // op, then reacquire before resolving — so a second op can win the lock while a
   // commit-wait sleeps, proving the yield actually releases it.
-  const yieldWasmClientLock = async <T>(op: () => Promise<T>): Promise<T> => {
+  //
+  // A caller whose hold is no longer current has been EVICTED, and the real module
+  // then runs the op without touching the mutex at all: releasing would hand away
+  // a lock somebody else owns, and reacquiring would deadlock a flow nobody is
+  // waiting on. So an evicted flow resumes IMMEDIATELY after its sleep, while the
+  // successor still holds the lock — the window the corpse guards exist for.
+  const yieldWasmClientLock = async <T>(op: () => Promise<T>, hold?: object): Promise<T> => {
+    if (hold !== undefined && hold !== currentHold) return op();
     release();
     try {
       return await op();
     } finally {
       await acquire();
+      if (hold !== undefined) currentHold = hold;
     }
   };
-  // Issue #775: the real module hands each hold an identity so a yield/pause can
-  // prove it still owns the lock. This mutex has a single anonymous hold, so a
-  // constant token is enough — what matters is that the offscreen dispatches can
-  // capture and pass something, and that the realm-poisoned hook exists for
-  // main.ts to register its client disposer on.
-  const hold = { mock: 'wasm-lock-hold' };
   // Test hook: true while the shared lock is held (used to assert the commit-wait
   // yielded it during the sleep).
   const isWasmClientBusy = (): boolean => locked;
@@ -162,7 +173,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     yieldWasmClientLock,
     isWasmClientBusy,
     __evictHolder,
-    getCurrentWasmLockHold: () => hold,
+    getCurrentWasmLockHold: () => currentHold,
     onWasmClientPoisoned: (listener: () => void) => {
       g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
       g.__off.poisonedListeners.push(listener);
@@ -1138,6 +1149,97 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       // op1 is still pending (never committed); no dangling assertion needed — the
       // realm-reset in afterEach tears it down.
       expect(r1).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('an EVICTED commit-wait stops re-asserting its op_id, so the live successor keeps its own (#775)', async () => {
+    // The mirror image of follow-up #2, and the reason that re-assert is
+    // conditional. The eviction rejects the SW-side caller but does not stop this
+    // loop — the corpse keeps polling every 5 s for up to a minute. Re-asserting
+    // unconditionally means each of those polls stamps a dead op's id over
+    // whoever is genuinely running, and the ambient id is what tags a reverse-IPC
+    // sign. The SW pauses the WRITE DEADLINE of the op a sign is tagged with, so
+    // a live write's sign attributed to the corpse leaves the real write's
+    // deadline running while it waits on the user.
+    await loadModule();
+    // AFTER loadModule: it resets the module registry, so an earlier import would
+    // hand back a different mock instance with its own lock state.
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    jest.useFakeTimers();
+    try {
+      // The corpse must be evicted while it is RUNNING and owns the lock, which
+      // is the only state eviction actually targets — a holder suspended in a
+      // yield is not the eviction target. Park its first poll to hold it there.
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      let polls = 0;
+      G.__off.clientTransactionsList = jest.fn(async () => {
+        if (++polls === 1) await firstPoll;
+        return [G.__off.pendingStatus];
+      });
+      let releaseSuccessor!: (v: unknown) => void;
+      G.__off.clientConsumeNoteId = jest.fn(
+        () =>
+          new Promise(resolve => {
+            releaseSuccessor = resolve;
+          })
+      );
+      const signOpIds: string[] = [];
+      G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+        if (m?.type === OFFSCREEN_SIGN_REQUEST) {
+          signOpIds.push(m.op_id);
+          return { ok: true, sign_id: m.sign_id, signatureB64: Buffer.from([7]).toString('base64') };
+        }
+        return undefined;
+      });
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-evicted', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Evict exactly as lock recovery does: the SW-side caller's promise rejects
+      // and the mutex frees, while the poll loop carries on running.
+      miden.__evictHolder();
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(r1).toHaveBeenCalledTimes(1);
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+
+      // A live successor takes the now-free lock and parks mid-execute, so it is
+      // the genuine owner of the ambient id for the whole window that follows.
+      const r2 = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op2-live',
+          method: 'consumeNoteId',
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        }),
+        {},
+        r2
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Let the corpse out of its parked poll. Its hold is stale now, so its
+      // yield runs the sleep WITHOUT the mutex and it resumes straight into the
+      // re-assert while the successor is still holding — several polls' worth of
+      // chances to stamp its dead id over the live one.
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(15_000);
+
+      const signCb = G.__off.createOptions[0].signCallback;
+      await signCb(new Uint8Array([8]), new Uint8Array([8]));
+      expect(signOpIds).toEqual(['op2-live']);
+
+      releaseSuccessor({ serialize: () => new Uint8Array([9]) });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(r2.mock.calls[0][0].ok).toBe(true);
     } finally {
       jest.useRealTimers();
     }
@@ -2554,6 +2656,41 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     // unreadable reason simply drops, where the SW's own fallback covers it.
     expect(resp.errorName).toBe('WasmClientPoisonedError');
     expect(resp.errorReason).toBeUndefined();
+  });
+
+  it('still answers the SW when EVERY field of the thrown value throws on read', async () => {
+    // The worst case of the same hazard: `name`, `message` and the code the
+    // classifier reads are all hostile accessors. There is nothing left to
+    // report, but the one thing that must still happen is the reply — a silent
+    // catch here is indistinguishable to the SW from a wedged realm, and it pays
+    // the full per-op deadline before killing the document to find out.
+    await loadModule();
+    G.__off.clientGetAccount = jest.fn(async () => {
+      // eslint-disable-next-line no-throw-literal
+      throw {
+        get name(): string {
+          throw new Error('hostile name');
+        },
+        get message(): string {
+          throw new Error('hostile message');
+        },
+        get errorCode(): string {
+          throw new Error('hostile code');
+        }
+      };
+    });
+    const r = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-all-hostile' }), {}, r);
+    await flush();
+
+    const resp = r.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.op_id).toBe('op-all-hostile');
+    // A placeholder rather than a crash, and no class claimed for a value that
+    // would not name one.
+    expect(typeof resp.error).toBe('string');
+    expect(resp.errorName).toBeUndefined();
+    expect(resp.errorCode).toBeUndefined();
   });
 
   it('leaves the ambient op_id clear when the evicted op unwinds, so a corpse sign has nothing to borrow', async () => {

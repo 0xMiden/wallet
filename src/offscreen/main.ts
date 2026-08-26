@@ -59,6 +59,7 @@ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
   type WasmLockHold,
+  getCurrentWasmLockHold,
   onWasmClientPoisoned,
   withWasmClientLock,
   withWasmLockWatchdogPaused,
@@ -300,7 +301,15 @@ function newSignId(): string {
  */
 type SignLiveness = { poisoned: boolean };
 
-/** Liveness of the client currently in `clientPromise` — the one to mark on poison. */
+/**
+ * Liveness of the most recently CREATED client — the one to mark on poison.
+ *
+ * Deliberately not "the one in `clientPromise`": `reloadEndpointOverrides()`
+ * clears that slot without touching this, so between a reload and the next
+ * `getOrCreateClient()` this names a client no longer installed. That is still
+ * the right target, because it is the client any in-flight dispatch is running
+ * on, and a trap aborts the WASM module they all share.
+ */
 let currentSignLiveness: SignLiveness | null = null;
 
 const makeOffscreenSignViaSW =
@@ -814,7 +823,8 @@ const DISPATCH: Record<string, DispatchFn> = {
     // waiter into a concurrent WASM call alongside that live holder, then
     // leaving the mutex owned by nobody when this loop reacquired. The loop is
     // not cancelled by the eviction, so it would do that on every poll.
-    const { hold } = dispatchContext();
+    const context = dispatchContext();
+    const { hold } = context;
     const timeout = 60_000;
     const interval = 5_000;
     const start = Date.now();
@@ -838,8 +848,18 @@ const DISPATCH: Record<string, DispatchFn> = {
       // Release the offscreen WASM mutex for the WASM-free inter-poll sleep only, so
       // other ops run during it; `yieldWasmClientLock` reacquires before we resume.
       await yieldWasmClientLock(() => new Promise(resolve => setTimeout(resolve, interval)), hold);
-      // An interloper op that ran during the sleep cleared `currentOpId`; restore it.
-      reassertOpId();
+      // An interloper op that ran during the sleep cleared `currentOpId`; restore
+      // it — but only while this flow still OWNS the lock. Eviction rejects the
+      // SW-side caller without stopping this loop, so a corpse keeps polling for
+      // up to a minute, and its yield no longer touches the mutex (the hold is
+      // stale), so it resumes here with a successor genuinely holding. Stamping
+      // its dead id back would route that successor's reverse-IPC sign to the
+      // wrong op — pausing a write deadline that is not the signing op's, and
+      // letting a corpse's sign failure land a `locked` reason in the successor's
+      // slot. Comparing the captured hold against the current one is the only
+      // question that distinguishes the two; `context.settled` cannot, because an
+      // evicted dispatch has NOT settled — that is what makes it a corpse.
+      if (getCurrentWasmLockHold() === context.hold) reassertOpId();
     }
   }
 };
@@ -850,7 +870,7 @@ let clientPromise: Promise<MidenClientInterface> | null = null;
 /**
  * Drop this realm's client when lock recovery declares it poisoned (issue #775).
  *
- * Recovery's own `disposeAllInstances()` reaches only `midenClientSingleton`,
+ * Recovery's own `replaceClientSingletons()` reaches only `midenClientSingleton`,
  * and this document deliberately does NOT use it — the client here is built with
  * `signCallback` + `useWorker:false` and cached in `clientPromise` above. Without
  * this hook recovery would release the mutex and then hand the next
@@ -1072,11 +1092,25 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // requeue → double-spend). `undefined` for a code-less error keeps the reply
     // shape unchanged (mirrors the flag-off path).
     const errorName = errorNameOf(err);
+    // Guarded for the same reason `errorName` is: both reads touch a value of
+    // unknown provenance, and `message` can be an accessor that throws just as
+    // `name` can. A throw escaping here skips `sendResponse` entirely, which the
+    // SW cannot distinguish from a wedged realm — it waits out the per-op
+    // deadline and closes the document rather than getting the failure it is
+    // owed. A placeholder string is worth strictly more than that.
+    let error = 'offscreen call failed (error details unreadable)';
+    let errorCode: string | undefined;
+    try {
+      error = String((err as { message?: string })?.message ?? err);
+      errorCode = extractSdkErrorCode(err);
+    } catch {
+      /* unreadable error object — the reply below still carries the class */
+    }
     sendResponse({
       ok: false,
       op_id: msg?.op_id,
-      error: String((err as { message?: string })?.message ?? err),
-      errorCode: extractSdkErrorCode(err),
+      error,
+      errorCode,
       // The error CLASS, for the classifications that key off it rather than off
       // a code — today `WasmClientPoisonedError` from this realm's own lock
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and

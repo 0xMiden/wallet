@@ -11,13 +11,12 @@ import {
   __resetRecoveryCooldownForTests,
   isWasmClientBusy,
   tryWithWasmClientLock,
-  WasmClientPoisonedError,
   WasmLockHold,
   withWasmClientLock,
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from './miden-client';
-import { poisonReasonOf } from './wasm-client-poison';
+import { poisonReasonOf, WasmClientPoisonedError } from './wasm-client-poison';
 
 /**
  * Attach a rejection expectation NOW — so the eviction's rejection always has
@@ -167,16 +166,21 @@ describe('wasm lock watchdog', () => {
     });
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
-    // 299 s of running time: still inside the ceiling, budget nearly gone.
+    // 299 s of running time: still inside the 300 s ceiling, 1 s of budget left.
     await jest.advanceTimersByTimeAsync(299_000);
     expect(isWasmClientBusy()).toBe(true);
     openBracket();
-    // First close → the one grace slice. 25 s of it is spent below.
+    // The first close finds 1 s left — under the slice — so it grants the one
+    // grace: the ledger is rewritten to "30 s remaining". 25 s of that is spent
+    // in the sleep below, leaving 5 s.
     await jest.advanceTimersByTimeAsync(25_000);
     expect(isWasmClientBusy()).toBe(true);
-    // Second close re-arms on the EXHAUSTED remainder, not another slice, so the
-    // eviction lands promptly instead of 30 s later.
-    await jest.advanceTimersByTimeAsync(1_000);
+    // The second close re-arms on that 5 s REMAINDER rather than granting a
+    // fresh 30 s. So the hold dies at 5 s, not at 30 — which is what stops a
+    // flow looping over brackets from living forever unwatched.
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;
     expect(isWasmClientBusy()).toBe(false);
   });
@@ -568,7 +572,7 @@ describe('watchdog pause and yield', () => {
     jest.useRealTimers();
   });
 
-  it('withWasmLockWatchdogPaused stops the clock, and resume re-arms the full ceiling from scratch', async () => {
+  it('withWasmLockWatchdogPaused relaxes the ceiling, and the close returns the hold to its remaining normal budget', async () => {
     let releasePause!: () => void;
     const pauseGate = new Promise<void>(resolve => {
       releasePause = resolve;
@@ -588,7 +592,11 @@ describe('watchdog pause and yield', () => {
 
     releasePause();
     await jest.advanceTimersByTimeAsync(0);
-    // Re-armed from scratch: a full fresh budget, not "remaining time".
+    // The bracket opened at ~0 ms, so this hold has spent no RUNNING time and
+    // its remaining budget is the whole normal ceiling. The paused 600 s are not
+    // charged. (The accounting that distinguishes "remaining" from "from
+    // scratch" is exercised by the two grace tests above, which burn running
+    // time first.)
     await jest.advanceTimersByTimeAsync(299_999);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);
@@ -931,7 +939,7 @@ describe('poisoned client recovery', () => {
     expect(nextRan).toBe(true);
   });
 
-  it('does not dispose on a trap while a holder is suspended mid-yield, but does detach and mark it', async () => {
+  it('does not free a client on a trap while a holder is suspended mid-yield — poisons it in place', async () => {
     const { mod, free, create, markPoisoned } = await loadIsolated();
     const clientBefore = await mod.getMidenClient();
 
@@ -955,7 +963,7 @@ describe('poisoned client recovery', () => {
     expect(free).not.toHaveBeenCalled();
     // Marking is the half that must still happen: every corpse guard
     // (`yieldLockUnlessDisposed`, the sign and local-prove pauses, `Vault`'s
-    // re-resolve) reads `isDisposed`, so a detach that only drops the reference
+    // re-resolve) reads `isDisposed`, so dropping the reference without marking
     // would leave the suspended flow looking like a healthy owner — free to
     // release a successor's mutex on its next yield.
     expect(markPoisoned).toHaveBeenCalledTimes(1);
@@ -968,7 +976,7 @@ describe('poisoned client recovery', () => {
     await op;
   });
 
-  it('evicting a wedged holder while another is mid-yield detaches rather than freeing under it', async () => {
+  it('evicting a wedged holder while another is mid-yield poisons in place rather than freeing under it', async () => {
     // The shape that makes this reachable: a send holds the lock, yields it
     // around its offscreen prove, and the 1 s sync takes the lock and wedges.
     // The eviction target is the sync, but the client is SHARED — freeing it

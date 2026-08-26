@@ -26,9 +26,10 @@
  * timeout-less HTTP round-trips, and a cold-restore probes accounts on-chain
  * under one hold. The known legitimately UNBOUNDED waits — keystore sign
  * round-trips (user authentication) and local prove attempts (the fallback
- * when delegated proving is down) — pause the watchdog entirely via
- * `withWasmLockWatchdogPaused`, mirroring `pauseDeadline`/`resumeDeadline` in
- * `miden-client-proxy.ts`.
+ * when delegated proving is down) — relax the watchdog to
+ * `WASM_LOCK_PAUSED_WATCHDOG_MS` via `withWasmLockWatchdogPaused`. They do NOT
+ * switch it off: that made the backstop optional, which is the pre-#775 wedge
+ * reached through the fix's own escape hatch.
  */
 export const WASM_LOCK_WATCHDOG_MS = 300_000;
 
@@ -54,7 +55,8 @@ export const WASM_LOCK_WATCHDOG_MS = 300_000;
 export const WASM_LOCK_PAUSED_WATCHDOG_MS = 1_800_000;
 
 /**
- * Floor on a re-armed normal ceiling (issue #775).
+ * One-shot finishing slice for a hold whose normal budget ran out inside a
+ * pause bracket (issue #775).
  *
  * The normal ceiling is charged against time the hold spent RUNNING, so a hold
  * that has already used its budget across several pause brackets would
@@ -62,6 +64,12 @@ export const WASM_LOCK_PAUSED_WATCHDOG_MS = 1_800_000;
  * bracket closes — killing a flow at the one moment it is most likely to be
  * finishing legitimate work. 30 seconds is long enough for a post-sign submit
  * or apply to complete and short enough to keep the bound meaningful.
+ *
+ * NOT a standing floor, despite the name: it is granted once per hold and
+ * credited to the hold's ledger (see `LockHolder.graceUsed` and
+ * `armWatchdogFor`), so later re-arms see only what is left of it. Granting it
+ * at every bracket close would let a loop of brackets renew it forever, which
+ * is the unbounded-unwatched-hold case `unpausedElapsedMs` exists to close.
  */
 export const WASM_LOCK_MIN_WATCHDOG_MS = 30_000;
 
@@ -82,7 +90,11 @@ export const WASM_LOCK_MIN_WATCHDOG_MS = 30_000;
  */
 let generation = 0;
 
-/** Called by recovery, once per poisoning, alongside notifying the listeners. */
+/**
+ * Called once per client REPLACEMENT, from whichever singleton method performed
+ * it — not only from recovery. An endpoint change replaces the client too, and a
+ * cache keyed on the old one is just as stale either way.
+ */
 export function bumpWasmClientGeneration(): void {
   generation++;
 }
@@ -92,28 +104,6 @@ export function wasmClientGeneration(): number {
   return generation;
 }
 
-/**
- * The named error a wedged lock holder is rejected with when recovery evicts
- * it (issue #775). `reason` says which mechanism fired: `'watchdog'` (the
- * holder ran past `WASM_LOCK_WATCHDOG_MS`) or `'realm-error'` (an uncaught
- * WASM-trap-shaped error surfaced on the realm while the lock was held —
- * detection in milliseconds, `cause` carries the trap).
- *
- * The message is a CLOSED SET of wallet-authored text. It deliberately does not
- * interpolate the cause's message, only the cause's `name`, which is checked
- * against a small allow-list before use. The transaction pipeline is full of
- * classifiers that pattern-match error TEXT and then decide whether money
- * moved, and several of them flatten the whole `cause` chain: the funds-relevant
- * one is `isLockedError` ("wallet is locked | vault is null/locked/unavailable |
- * not initialized"), whose verdict REQUEUES the row on the argument that a
- * locked vault is strictly pre-submit. That argument is false for an eviction —
- * the abandoned pipeline can still submit — so a trap whose text happened to
- * contain "not initialized" (the SDK's own "Client not initialized" is exactly
- * that shape) would have requeued a send into a second payment. Keeping the
- * foreign text off `message` closes that whole class rather than one classifier.
- * The trap itself is not lost: it stays on `cause`, which is what the recovery
- * `console.error` and the devtools cause chain print.
- */
 /** Which mechanism evicted the holder. See {@link WasmClientPoisonedError}. */
 export type WasmClientPoisonReason = 'watchdog' | 'realm-error';
 
@@ -142,6 +132,28 @@ function causeLabel(cause: unknown): string {
   return SAFE_CAUSE_NAMES.has(cause.name) ? cause.name : 'unrecognized error name';
 }
 
+/**
+ * The named error a wedged lock holder is rejected with when recovery evicts
+ * it (issue #775). `reason` says which mechanism fired: `'watchdog'` (the holder
+ * ran past whatever ceiling its pause state called for — see `armWatchdogFor`)
+ * or `'realm-error'` (an uncaught WASM-trap-shaped error surfaced on the realm
+ * while the lock was held — detection in milliseconds, `cause` carries the trap).
+ *
+ * The message is a CLOSED SET of wallet-authored text. It deliberately does not
+ * interpolate the cause's message, only the cause's `name`, which is checked
+ * against a small allow-list before use. The transaction pipeline is full of
+ * classifiers that pattern-match error TEXT and then decide whether money
+ * moved, and several of them flatten the whole `cause` chain: the funds-relevant
+ * one is `isLockedError` ("wallet is locked | vault is null/locked/unavailable |
+ * not initialized"), whose verdict REQUEUES the row on the argument that a
+ * locked vault is strictly pre-submit. That argument is false for an eviction —
+ * the abandoned pipeline can still submit — so a trap whose text happened to
+ * contain "not initialized" (the SDK's own "Client not initialized" is exactly
+ * that shape) would have requeued a send into a second payment. Keeping the
+ * foreign text off `message` closes that whole class rather than one classifier.
+ * The trap itself is not lost: it stays on `cause`, which is what the recovery
+ * `console.error` and the devtools cause chain print.
+ */
 export class WasmClientPoisonedError extends Error {
   readonly reason: WasmClientPoisonReason;
 
