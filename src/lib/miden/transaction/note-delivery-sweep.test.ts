@@ -1,21 +1,11 @@
 /**
- * Tests for the private-note delivery sweep.
+ * Tests for the private-note delivery sweep: when it pushes again, when it stops,
+ * and how it reads each outcome.
  *
- * The sweep exists because a transport ACK is not a delivery: the recipient reaches
- * a private note only through the transport, and a note can be ACKed by the wallet,
- * committed on chain, and still never stored — which is what cost 14 notes on
- * 2026-08-24. A re-push that is ACCEPTED detects and repairs exactly that, landing
- * the note at a fresh `seq` above every recipient cursor.
- *
- * A re-push that is REJECTED as a duplicate repairs nothing: the transport already
- * holds the note, and under `id BLOB NOT NULL UNIQUE` it takes no new `seq`, so a
- * recipient whose cursor already passed it (note-transport-service#77) stays stuck.
- * It is still worth reading, because it proves the original relay arrived — so the
- * row must not be condemned as `undelivered` — but it is NOT delivery.
- *
- * These tests pin down when the sweep pushes again, when it stops, how it reads each
- * outcome, and — just as importantly — when it must neither invent a delivery
- * problem nor claim a delivery it cannot prove.
+ * The distinction most of them pin down is that an ACCEPTED re-push both detects and
+ * repairs a silently-lost note, whereas one REJECTED as a duplicate repairs nothing
+ * — it only proves the original relay arrived. So the row must be neither condemned
+ * as `undelivered` nor promoted to `confirmed`. `note-delivery-sweep.ts` has the why.
  */
 
 import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types';
@@ -181,9 +171,8 @@ describe('sweepNoteDeliveries', () => {
 
   it('does not condemn a never-ACKed row when the re-push is rejected as a duplicate', async () => {
     rows.push(row({ noteDelivery: 'pending' }));
-    // The transport inserts against `notes.id BLOB PRIMARY KEY` with no `ON
-    // CONFLICT`, so re-pushing a note it already holds is rejected. That proves the
-    // original relay reached the transport, so the row must not be downgraded.
+    // A duplicate rejection proves the original relay reached the transport, so the
+    // row must not be downgraded on the strength of it.
     mockRelayById.mockRejectedValue(
       new Error('Failed to store note: ConstraintViolation("UNIQUE constraint failed: notes.id")')
     );
@@ -346,6 +335,24 @@ describe('sweepNoteDeliveries', () => {
 
     expect(mockIsConsumed).not.toHaveBeenCalled();
     expect(mockRelayById).not.toHaveBeenCalled();
+  });
+
+  it('never schedules the next attempt in the past, however long the sweep ran', async () => {
+    // Every relay carries a 45-second deadline, so a sweep with several slow rows can
+    // outlive a whole backoff step. A schedule derived from the sweep's START would
+    // then be stamped in the past and the row re-pushed on the very next cycle,
+    // burning the attempt budget back to back — which is what these delays exist to
+    // prevent. Stamping from the clock at write time keeps the spread intact.
+    rows.push(row());
+    let clock = NOW;
+    jest.spyOn(Date, 'now').mockImplementation(() => clock * 1000);
+    mockRelayById.mockImplementation(async () => {
+      clock += 2 * 60 * 60;
+    });
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(clock);
   });
 
   it('drains a backlog oldest-send-first', async () => {

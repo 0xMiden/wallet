@@ -90,7 +90,7 @@ const SWEEPABLE: INoteDeliveryState[] = ['pending', 'relayed', 'undelivered'];
  * been proven delivered. Ordered oldest-first so a backlog drains in the order the
  * sends happened.
  */
-const dueRows = async (at: number): Promise<ITransaction[]> => {
+const candidateRows = async (at: number): Promise<ITransaction[]> => {
   const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
   return rows
     .filter(row => (row.relayAttempts ?? 1) < MAX_RELAY_ATTEMPTS)
@@ -137,21 +137,15 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  *     push tells the sender nothing at all — but it is NOT proof of delivery, and
  *     the row stays `relayed` too.
  *
- * That second point is the easy mistake to make here, so it is worth being explicit
- * about why a duplicate-rejection must not be promoted to `confirmed`. "The bytes
- * are on the transport" is precisely the #77 state described above: the note is
- * stored and the recipient still cannot reach it. Worse, under the UNIQUE key a
- * re-push of a stored note is rejected rather than re-inserted, so it takes no new
- * `seq` and cannot lift the note above a cursor that has already passed it — a
- * rejection means this sweep did NOT repair anything. Reading it as success would
- * therefore retire exactly the rows exhibiting the bug, drop their remaining
- * attempts, and (since `confirmed` renders as "the recipient has received and spent
- * this private note") tell the user a note they may never see was spent. `confirmed`
- * stays exclusive to the nullifier.
- *
- * What the rejection IS good for is not raising a false alarm: it means the original
- * relay demonstrably reached the transport, so the row must not be downgraded to
- * `undelivered` on the strength of a "failed" re-push.
+ * That second reading is the easy mistake here: "the bytes are on the transport" is
+ * precisely the #77 state above — stored and still unreachable — and since a
+ * rejection takes no new `seq`, it repairs nothing. Promoting it to `confirmed`
+ * would retire exactly the rows exhibiting the bug, drop their remaining attempts,
+ * and (since `confirmed` renders as "the recipient has received and spent this
+ * private note") claim a note the recipient may never see was spent. `confirmed`
+ * stays exclusive to the nullifier. What the rejection IS good for is not raising a
+ * false alarm: the original relay demonstrably reached the transport, so the row
+ * must not be downgraded to `undelivered` either.
  *
  * Either way the recipient's next fetch is no worse off, and the hint is re-derived
  * from the note's stored `expected_height` on every call, so a late re-push is as
@@ -160,11 +154,18 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * Failures are swallowed per row on purpose: this runs as maintenance behind
  * transactions that have already landed, so one row's transport error must not stop
  * the rest of the sweep or surface as a transaction failure. The attempt is still
- * counted and the row still records `undelivered`, so nothing is hidden.
+ * counted, and only a row that never held an ACK records `undelivered` — one that
+ * did, or whose push was rejected as a duplicate, keeps reading `relayed`.
  */
 export const sweepNoteDeliveries = async (): Promise<void> => {
+  // Eligibility is judged against one snapshot so a single pass is internally
+  // consistent. Schedules, though, are stamped from the clock at WRITE time: each
+  // row's relay carries a 45-second deadline, so a sweep with a few slow rows can
+  // outlive a backoff step, and a `nextRelayAt` derived from the sweep's start would
+  // then land in the past — re-pushing on the very next cycle and collapsing exactly
+  // the spread these delays exist to create.
   const at = nowSeconds();
-  const rows = await dueRows(at);
+  const rows = await candidateRows(at);
 
   for (const row of rows) {
     const target = relayTargetOf(row);
@@ -182,7 +183,7 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       // nothing. Attempts start at 1 to count that original relay.
       await Repo.transactions.where({ id: row.id }).modify(tx => {
         tx.relayAttempts = row.relayAttempts ?? 1;
-        tx.nextRelayAt = at + backoffFor(1);
+        tx.nextRelayAt = nowSeconds() + backoffFor(1);
       });
       continue;
     }
@@ -277,7 +278,7 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
     await recordNoteDelivery(row.id, outcome);
     await Repo.transactions.where({ id: row.id }).modify(tx => {
       tx.relayAttempts = attempts;
-      tx.nextRelayAt = at + backoffFor(attempts);
+      tx.nextRelayAt = nowSeconds() + backoffFor(attempts);
     });
   }
 };

@@ -408,16 +408,9 @@ export interface ITransaction {
   /**
    * Earliest time (unix seconds) the sweep may re-push this row's private note.
    *
-   * A re-push is worth doing because the transport declares `id BLOB NOT NULL
-   * UNIQUE` and inserts without `ON CONFLICT`, so exactly one of two things
-   * happens. The push is ACCEPTED, meaning the note was ABSENT from the transport
-   * and now sits at a fresh `seq` above every recipient cursor — that is the
-   * silent-loss case, detected and repaired in one step. Or it is REJECTED,
-   * meaning the transport already holds the bytes: nothing was repaired and no new
-   * `seq` was taken, so a recipient whose cursor has already passed the note is no
-   * better off. Only the accepted case is a repair; a rejection is evidence about
-   * the original push, not a fix. An accepted re-push costs the recipient nothing
-   * either way, since imports dedupe on the details commitment.
+   * Spread wide on purpose, and stamped from the clock when the row is written
+   * rather than when the sweep began. See `note-delivery-sweep.ts` for what each
+   * re-push outcome does and does not prove.
    */
   nextRelayAt?: number;
   /**

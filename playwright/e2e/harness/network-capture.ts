@@ -303,7 +303,11 @@ export async function attachServiceWorkerFetchCapture(
         // never finishes arriving from delaying the request being observed. The URL
         // pattern mirrors `isSendNoteUrl`, the canonical copy; this function cannot
         // close over module scope.
-        let bodySource: BodyInit | Request | null | undefined;
+        // Held as `unknown` and narrowed by `instanceof` below on purpose: this file
+        // type-checks with both the DOM and the Node fetch typings in scope, so a
+        // written-out union naming `Request` picks one of the two declarations and
+        // then rejects the other one's `clone()`.
+        let bodySource: unknown;
         try {
           if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
             const isRequest = typeof input !== 'string' && !(input instanceof URL);
@@ -321,7 +325,19 @@ export async function attachServiceWorkerFetchCapture(
             else if (bodySource instanceof ArrayBuffer) bytes = new Uint8Array(bodySource);
             else if (ArrayBuffer.isView(bodySource))
               bytes = new Uint8Array(bodySource.buffer, bodySource.byteOffset, bodySource.byteLength);
-            else if (bodySource instanceof Request) bytes = new Uint8Array(await bodySource.arrayBuffer());
+            else if (bodySource instanceof Request) {
+              // The only unbounded step here. A buffered body resolves in a
+              // microtask, but a streaming one need never finish arriving, and both
+              // call sites await this between the fetch settling and the wrapper
+              // returning — so an unbounded read would let the capture wedge the
+              // very request it is observing. Give it a ceiling and drop the body.
+              const buffered = await Promise.race([
+                bodySource.arrayBuffer(),
+                new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1000))
+              ]);
+              if (!buffered) return undefined;
+              bytes = new Uint8Array(buffered);
+            }
             if (!bytes || bytes.length === 0 || bytes.length > 8192) return undefined;
             let bin = '';
             for (const b of bytes) bin += String.fromCharCode(b);
