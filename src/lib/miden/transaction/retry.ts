@@ -385,7 +385,8 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // live transaction to Queued and — worse — clear the NEW attempt's
     // `requestBytes` on the strength of the OLD attempt's stage, dropping the
     // double-send guard for a submit that may since have landed.
-    if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return;
+    // `false`, so Dexie skips the put rather than re-writing the unchanged clone.
+    if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return false;
     dbTx.status = ITransactionStatus.Queued;
     dbTx.initiatedAt = Math.floor(Date.now() / 1000);
     dbTx.processingStartedAt = undefined;
@@ -399,6 +400,11 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     // a failed receipt stays up until the user acts on it.
     dbTx.stageTimestamps = undefined;
     dbTx.nextEligibleAt = undefined;
+    // A deliberate retry earns a fresh unauthorized-retry budget. Carrying the
+    // spent deadline over would make the new attempt terminal on its FIRST
+    // unauthorized failure, so a row that had exhausted its budget would behave
+    // worse under Retry than an identical send the user initiated from scratch.
+    dbTx.unauthorizedRetryUntil = undefined;
     dbTx.error = undefined;
     dbTx.rawError = undefined;
     dbTx.displayMessage = undefined;
@@ -461,6 +467,7 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
         dbTx.mayHaveSubmitted = true;
       }
     }
+    return undefined;
   });
 };
 

@@ -86,10 +86,51 @@ describe('isApplyAfterSubmitError', () => {
     expect(isApplyAfterSubmitError(123)).toBe(false);
   });
 
+  it('requires both phrases to come from the SAME error, not two joined ones', () => {
+    // A verdict of `true` here means "the write DID reach the chain", which
+    // marks the row Completed. Assembling that verdict out of two unrelated
+    // errors — a wrapper that happens to mention the mempool, an inner failure
+    // that happens to mention the store — reports a send that never submitted
+    // as money sent. Each half alone is already rejected above; the point of
+    // this case is that concatenating them must not manufacture a match.
+    const split = new Error("was accepted into the node's mempool at block 9", {
+      cause: new Error('the local store update failed')
+    });
+    expect(isApplyAfterSubmitError(split)).toBe(false);
+  });
+
   it('stops walking a self-referential cause chain', () => {
     const err: Error & { cause?: unknown } = new Error('loop');
     err.cause = err;
     expect(isApplyAfterSubmitError(err)).toBe(false);
+  });
+
+  it('survives an error whose message or cause is a throwing accessor', () => {
+    // These are classifiers, so they run on the failure path. One that throws
+    // while inspecting an error converts a handled failure into an unhandled one
+    // at the worst possible moment — and the rejections reaching them cross a
+    // realm boundary and a wasm-bindgen shim, so their shapes are not this
+    // codebase's to guarantee.
+    const throwingMessage = {};
+    Object.defineProperty(throwingMessage, 'message', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    expect(() => isApplyAfterSubmitError(throwingMessage)).not.toThrow();
+    expect(isApplyAfterSubmitError(throwingMessage)).toBe(false);
+
+    const throwingCause: Error & { cause?: unknown } = new Error(REAL_APPLY_AFTER_SUBMIT_MESSAGES[0]);
+    Object.defineProperty(throwingCause, 'cause', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+    // The throw costs the rest of the chain, not the node already in hand: this
+    // error's own message classifies it, and a throwing `cause` must not take
+    // that away.
+    expect(() => isApplyAfterSubmitError(throwingCause)).not.toThrow();
+    expect(isApplyAfterSubmitError(throwingCause)).toBe(true);
   });
 
   it('never classifies a lock-recovery poison error as apply-after-submit, even via its cause chain (#775)', () => {

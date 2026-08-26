@@ -184,6 +184,10 @@ export const initiateConsumeNotesTransaction = async (
         if (manualRetry && liveOrCompleted.status === ITransactionStatus.Queued && liveOrCompleted.nextEligibleAt) {
           await Repo.transactions.where({ id: liveOrCompleted.id }).modify((dbTx: ITransaction) => {
             dbTx.nextEligibleAt = undefined;
+            // Same reasoning as the cooldown above: a deliberate tap earns a
+            // fresh unauthorized-retry budget, or the row stays terminal on its
+            // next unauthorized failure however long the user waits.
+            dbTx.unauthorizedRetryUntil = undefined;
           });
         }
         continue;
