@@ -69,12 +69,15 @@ export const INJECTION_SCRIPT = `
       // Intentionally NOT logging payload — this runs inside the dApp
       // page and would leave wallet request breadcrumbs visible via
       // Safari Web Inspector on any device that ever attaches to it.
-      window.mobileApp.postMessage(message);
-      return;
-    }
+    window.mobileApp.postMessage(message);
+    return;
+  }
 
-    // Fallback for testing in regular browser
-    window.postMessage({ __midenNative: true, ...message }, '*');
+    // Fallback for testing in regular browser. Scope the target origin: this
+    // script is injected into arbitrary third-party dApp pages, and '*' would
+    // expose wallet request payloads to every listener on the page (including
+    // cross-origin iframes). Mirrors lib/adapter/client.ts.
+    window.postMessage({ __midenNative: true, ...message }, window.location.origin);
   }
 
   // Make request to wallet
