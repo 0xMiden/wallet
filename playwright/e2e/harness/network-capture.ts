@@ -5,17 +5,34 @@ import type { TimelineRecorder } from './timeline-recorder';
 import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
 import type { NetworkCategory } from './types';
 
+/**
+ * How a URL is classified into a network category.
+ *
+ * The transport arm matches the gRPC SERVICE PATH from its proto
+ * (`package miden_note_transport; service MidenNoteTransport`) rather than a host,
+ * so capture follows the service wherever it is pointed.
+ * A host list cannot: `MIDEN_NOTE_TRANSPORT_URL` is a build-time override, so the
+ * endpoint is whatever the build baked, and traffic to an unlisted host is
+ * classified `other` and dropped with no signal that anything went unrecorded.
+ *
+ * That is not hypothetical. The localnet transport is configured as
+ * `http://127.0.0.1:57292` (`environments.ts`, `networks-config.ts`) while this
+ * list only ever named `localhost:57292` — so transport was the ONE category
+ * silently uncaptured on localnet, since rpc and prover happen to be configured as
+ * `localhost` and matched. Both spellings are now accepted as a fallback, but the
+ * path is what makes the classification robust.
+ */
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
-  rpc: /rpc\.(testnet|devnet)\.miden\.io|localhost:57291/,
-  transport: /transport\.miden\.io|localhost:57292/,
-  prover: /tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/,
+  rpc: /rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/,
+  transport: /miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/,
+  prover: /tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/,
   other: /.*/
 };
 
 /** Prefix used by the SW fetch wrapper so the console stream can be demuxed. */
 export const SW_FETCH_LOG_PREFIX = '[E2E_NET] ';
 
-function classifyUrl(url: string): NetworkCategory {
+export function classifyUrl(url: string): NetworkCategory {
   for (const [category, pattern] of Object.entries(ENDPOINT_PATTERNS)) {
     if (category !== 'other' && pattern.test(url)) {
       return category as NetworkCategory;
@@ -24,7 +41,7 @@ function classifyUrl(url: string): NetworkCategory {
   return 'other';
 }
 
-function isMidenRelated(url: string): boolean {
+export function isMidenRelated(url: string): boolean {
   return classifyUrl(url) !== 'other';
 }
 
@@ -233,13 +250,20 @@ export async function attachServiceWorkerFetchCapture(
       g.__e2e_fetch_wrapped = true;
 
       const origFetch: typeof fetch = g.fetch.bind(g);
+      // Mirrors ENDPOINT_PATTERNS / classifyUrl in this module, which is the
+      // canonical copy — this runs as source text inside evaluate() and cannot
+      // import it. Keep the two in step; `network-capture.test.ts` pins the
+      // behaviour they must agree on. The transport arm matches the gRPC SERVICE
+      // PATH rather than a host, so capture follows a build-time
+      // MIDEN_NOTE_TRANSPORT_URL override to any host or port.
       const HOST_PATTERN =
-        /rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|localhost:(57291|57292|5005[12])/;
+        /miden_note_transport\.MidenNoteTransport\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
 
       function classify(url: string): string {
-        if (/rpc\.(testnet|devnet)\.miden\.io|localhost:57291/.test(url)) return 'rpc';
-        if (/tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/.test(url)) return 'prover';
-        if (/transport\.miden\.io|localhost:57292/.test(url)) return 'transport';
+        if (/rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/.test(url)) return 'rpc';
+        if (/tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/.test(url)) return 'prover';
+        if (/miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(url))
+          return 'transport';
         return 'other';
       }
 
