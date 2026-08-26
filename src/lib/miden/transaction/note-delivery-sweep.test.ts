@@ -133,18 +133,79 @@ describe('sweepNoteDeliveries', () => {
     expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
   });
 
-  it('arms an old row from its send time, so a late first sighting is due at once', async () => {
+  it('arms an old row from its original relay, so a late first sighting is due at once', async () => {
     // The wait exists because the original relay just happened — which is false for a
     // row first seen hours later (wallet closed, or first sync since the send). Arming
     // another full wait from now would push its only attempts toward the far end of
     // the sweep window, or past it, leaving a genuinely lost note never re-pushed.
-    rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 3 * 60 * 60 }));
+    rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 3 * 60 * 60, completedAt: NOW - 3 * 60 * 60 }));
 
     await sweepNoteDeliveries();
 
     expect(mockRelayById).not.toHaveBeenCalled();
     expect(rows[0]!.nextRelayAt).toBeLessThanOrEqual(NOW);
   });
+
+  it('still makes a slow send serve the wait, measuring it from the relay and not the queue', async () => {
+    // `initiatedAt` is stamped when the transaction is QUEUED, so a send that waited
+    // in the FIFO and then proved and submitted can be many minutes older than its
+    // relay. Anchoring on that would arm the row due-now and re-push it while the
+    // original relay may still be in flight — an attempt spent against the identical
+    // conditions the wait exists to avoid.
+    rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 40 * 60, completedAt: NOW - 5 }));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it('waits from now when the send has not reached its terminal write', async () => {
+    // No `completedAt` means the relay is still in flight, so the wait starts now
+    // however old the row's queue timestamp is.
+    rows.push(row({ nextRelayAt: undefined, initiatedAt: NOW - 40 * 60, completedAt: undefined }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.nextRelayAt).toBeGreaterThan(NOW);
+  });
+
+  it('cannot be parked in the future by a clock that moved backwards', async () => {
+    // A row written before an NTP correction (or a user changing the clock) carries a
+    // future timestamp. Its negative age passes the window filter, so without the
+    // clamp it would sit as a candidate, armed for a date it may never reach.
+    rows.push(
+      row({ nextRelayAt: undefined, initiatedAt: NOW + 365 * 24 * 60 * 60, completedAt: NOW + 365 * 24 * 60 * 60 })
+    );
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.nextRelayAt).toBeLessThanOrEqual(NOW + 300);
+  });
+
+  // `importDb` fills this store from a user-supplied backup file, and this counter is
+  // the only thing bounding how often a private note body goes back on the wire. A
+  // value that never reaches the cap would re-push on every backoff step for the whole
+  // window.
+  it.each([[0], [-1]])('counts up from a nonsensical relayAttempts of %p so the row still retires', async attempts => {
+    rows.push(row({ relayAttempts: attempts }));
+
+    await sweepNoteDeliveries();
+
+    expect(rows[0]!.relayAttempts).toBe(2);
+  });
+
+  it.each([[Number.NEGATIVE_INFINITY], [Number.NaN]])(
+    'treats a non-finite relayAttempts of %p as spent',
+    async attempts => {
+      rows.push(row({ relayAttempts: attempts }));
+
+      await sweepNoteDeliveries();
+
+      expect(mockRelayById).not.toHaveBeenCalled();
+      expect(mockRecord).not.toHaveBeenCalled();
+    }
+  );
 
   it('leaves a row alone until its scheduled time', async () => {
     rows.push(row({ nextRelayAt: NOW + 60 }));
@@ -236,7 +297,10 @@ describe('sweepNoteDeliveries', () => {
   it.each([
     ['the Display spelling', 'grpc error: status: AlreadyExists, message: "note stored"'],
     ['the Debug spelling', 'Status { code: AlreadyExists, message: "note stored" }'],
-    ['a gRPC-web trailer', 'unexpected trailer: grpc-status: 6, grpc-message: note already stored'],
+    [
+      'a gRPC-web trailer',
+      'unexpected trailer: grpc-status: 6, grpc-message: Some entity that we attempted to create already exists'
+    ],
     ['the numeric code', 'rpc failed: code: 6, message: the note already exists']
   ])('reads a proper AlreadyExists status the same way — %s', async (_label, message) => {
     // So a service that starts returning a distinguishable status keeps working
@@ -291,7 +355,15 @@ describe('sweepNoteDeliveries', () => {
     ['an SDK account-tree collision', 'account ID prefix already exists in the tree'],
     ['an SDK asset-vault collision', 'the non-fungible asset already exists in the asset vault'],
     ['a Dexie/IndexedDB constraint error', 'ConstraintError: Key already exists in the object store'],
-    ['a bare constraint violation', 'ConstraintViolation']
+    ['a bare constraint violation', 'ConstraintViolation'],
+    // A numeric 6 is only trusted alongside the message, because it also turns up in
+    // header dumps and quoted earlier responses whose real status is something else.
+    ['a header dump quoting an earlier status', 'retried after grpc-status: 6; actual grpc-status: 13 internal'],
+    ['a UNIQUE violation naming another table', 'UNIQUE constraint failed: tags.id'],
+    [
+      'a UNIQUE violation on another table that mentions ours far later',
+      'UNIQUE constraint failed: tags.id — while storing the row that carries notes.id and its metadata blob'
+    ]
   ])('still reports undelivered for %s', async (_label, message) => {
     rows.push(row({ noteDelivery: 'pending' }));
     mockRelayById.mockRejectedValue(new Error(message));
@@ -342,7 +414,22 @@ describe('sweepNoteDeliveries', () => {
 
     await sweepNoteDeliveries();
 
-    expect(warn.mock.calls.map(call => String(call[0]))).toContainEqual(expect.stringContaining('attempts exhausted'));
+    expect(warn.mock.calls.filter(call => String(call[0]).includes('attempts exhausted'))).toHaveLength(1);
+  });
+
+  it('does not announce exhaustion for a row the nullifier just retired', async () => {
+    // The receipt check exits before the attempt is even counted, so a row confirmed
+    // on its last eligible cycle has not exhausted anything — it succeeded.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rows.push(row({ relayAttempts: MAX_RELAY_ATTEMPTS - 1 }));
+    mockIsConsumed.mockResolvedValue(true);
+
+    await sweepNoteDeliveries();
+
+    expect(mockRecord).toHaveBeenCalledWith('tx-1', 'confirmed');
+    expect(warn.mock.calls.map(call => String(call[0]))).not.toContainEqual(
+      expect.stringContaining('attempts exhausted')
+    );
   });
 
   it('does not announce exhaustion while attempts remain', async () => {

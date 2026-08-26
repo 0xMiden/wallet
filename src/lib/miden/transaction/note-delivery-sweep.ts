@@ -19,11 +19,10 @@ export const MAX_RELAY_ATTEMPTS = 4;
 
 /**
  * Delay in seconds before each subsequent attempt, indexed by attempts already
- * made. Spread wide on purpose: the failures this defends against are races
- * (a recipient's cursor advancing past a stored note, a transport that accepts and
- * loses), and retrying immediately would re-run the same race under the same
- * conditions. An hour of coverage across three re-pushes costs nothing and spans
- * far more independent fetch cycles than a tight retry would.
+ * made. Spread wide on purpose: the failure this defends against is a transport that
+ * accepted a note and did not store it, and retrying immediately would re-run the
+ * same race against the same conditions. An hour of coverage across three re-pushes
+ * costs nothing and spans far more independent chances than a tight retry would.
  */
 const RELAY_BACKOFF_SECONDS = [60, 300, 1_800];
 
@@ -73,14 +72,18 @@ const isAlreadyStoredRejection = (error: unknown): boolean => {
     // The uniqueness collision on `notes.id`, in either spelling this path produces:
     // SQLite's own `UNIQUE constraint failed: notes.id` (which is what the deployed
     // service passes through today) and diesel's `Unique constraint violation`.
-    /\bunique constraint (?:failed|violation)\b[^)]*\bnotes\.id\b/i.test(message) ||
+    // `[^.]` rather than a length bound: it stops the match from stepping over a
+    // DIFFERENT dotted column on its way to this one, which a message naming several
+    // tables would otherwise satisfy.
+    /\bunique constraint (?:failed|violation)\b[^.]{0,40}\bnotes\.id\b/i.test(message) ||
     // A service that starts returning a proper gRPC status keeps working unchanged.
-    // Tonic spells it three ways depending on how it reaches us: `status:
-    // AlreadyExists` (Display), `Status { code: AlreadyExists` (Debug), and the
-    // numeric `grpc-status: 6` of a gRPC-web trailer.
+    // Tonic spells it two ways — `status: AlreadyExists` (Display) and `Status {
+    // code: AlreadyExists` (Debug) — and a gRPC-web trailer carries the numeric 6.
+    // The numeric form has to be paired with the message, because a bare `6` also
+    // appears in header dumps and quoted earlier responses whose real status is
+    // something else entirely.
     /\b(?:status|code):\s*AlreadyExists\b/i.test(message) ||
-    /\bgrpc-status:\s*6\b/i.test(message) ||
-    /\bcode:\s*6\b.*\balready exists\b/i.test(message)
+    /\b(?:grpc-status|code):\s*6\b.*\balready exists\b/i.test(message)
   );
 };
 
@@ -93,6 +96,21 @@ const backoffFor = (attempts: number): number => {
 const SWEEPABLE: INoteDeliveryState[] = ['pending', 'relayed', 'undelivered'];
 
 /**
+ * Attempts already made on a row, normalized.
+ *
+ * Read defensively because this counter is the only thing bounding how often a
+ * private note body goes back on the wire, and it arrives from a store that
+ * `importDb` populates from a user-supplied backup file. A hand-edited `0`, a
+ * negative, or a non-finite value would otherwise never reach the cap and would
+ * re-push on every backoff step for the whole window.
+ */
+const attemptsOf = (row: ITransaction): number => {
+  const stored = Math.trunc(row.relayAttempts ?? 1);
+  if (!Number.isFinite(stored)) return MAX_RELAY_ATTEMPTS;
+  return Math.min(Math.max(stored, 1), MAX_RELAY_ATTEMPTS);
+};
+
+/**
  * Rows the sweep should look at: a private send that has a landed note and has not
  * been proven delivered. Ordered oldest-first so a backlog drains in the order the
  * sends happened.
@@ -100,7 +118,7 @@ const SWEEPABLE: INoteDeliveryState[] = ['pending', 'relayed', 'undelivered'];
 const candidateRows = async (at: number): Promise<ITransaction[]> => {
   const rows = await Repo.transactions.where('noteDelivery').anyOf(SWEEPABLE).toArray();
   return rows
-    .filter(row => (row.relayAttempts ?? 1) < MAX_RELAY_ATTEMPTS)
+    .filter(row => attemptsOf(row) < MAX_RELAY_ATTEMPTS)
     .filter(row => at - (row.initiatedAt ?? 0) <= RELAY_WINDOW_SECONDS)
     .sort((a, b) => (a.initiatedAt ?? 0) - (b.initiatedAt ?? 0));
 };
@@ -118,12 +136,15 @@ const relayTargetOf = (row: ITransaction): { noteId: string; recipient: string }
  * What a re-push can and cannot fix — worth stating precisely, because there are TWO
  * silent losses here and this instrument only reaches one of them.
  *
- * The one it repairs: a note that was ACKed and never stored. `SendNoteResponse` is
- * an empty message, so an ACK is not evidence of storage, and the 2026-08-24 stress
- * run lost 14 notes exactly that way — committed on chain, ACKed, absent from the
- * service, no error anywhere for the wallet to react to. A re-push closes that in one
- * step: a note the transport does not hold is accepted and stored at a fresh `seq`,
- * above every recipient cursor.
+ * The one it repairs: a note that was accepted and never stored. `SendNoteResponse`
+ * is an empty message — no `seq`, no id, nothing to check — so a 200 is not evidence
+ * of storage. The 2026-08-24 stress run lost 14 notes (53 TST) that were committed on
+ * chain and reported as sent while absent from the service, with no error anywhere for
+ * the wallet to react to. Which hop dropped them was never established, because
+ * nothing recorded that hop (which is why `playwright/e2e/harness/transport-wire.ts`
+ * now exists); an accepted push that was never persisted is one of the candidates. A
+ * re-push closes it in one step: a note the transport does not hold is accepted and
+ * stored at a fresh `seq`, above every recipient cursor.
  *
  * The one it does NOT repair: a note that IS stored but sits below the recipient's
  * cursor. The transport hands out an opaque pagination cursor that the recipient
@@ -195,14 +216,24 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       // as the original relay would spend an attempt against identical conditions and
       // prove nothing. Attempts start at 1 to count that original relay.
       //
-      // The delay is measured from the SEND, not from now, because "the original
-      // relay just happened" is only true when the row is fresh. A row first sighted
-      // hours later — the wallet was closed, or this is the first sync since — has
-      // already served the wait, and arming another one from now would push its only
-      // attempts toward the far end of `RELAY_WINDOW_SECONDS`, or past it.
+      // The delay is measured from the ORIGINAL RELAY, not from now, because "it just
+      // happened" is only true when the row is fresh. A row first sighted hours later
+      // — the wallet was closed, or this is the first sync since — has already served
+      // the wait, and arming another one from now would push its only attempts toward
+      // the far end of `RELAY_WINDOW_SECONDS`, or past it.
+      //
+      // `completedAt` is the anchor, NOT `initiatedAt`: the latter is stamped when the
+      // transaction was queued, so on a slow send (FIFO wait plus prove plus submit)
+      // it can precede the relay by more than the whole delay — which would arm the
+      // row due-now and re-push it while the original relay is possibly still in
+      // flight, spending an attempt on exactly the identical conditions this wait
+      // exists to avoid. No `completedAt` means the terminal write has not run yet, so
+      // the relay IS still in flight and the wait starts now. Clamped to now so a
+      // clock that moved backwards cannot park the row in the future.
       await Repo.transactions.where({ id: row.id }).modify(tx => {
-        tx.relayAttempts = row.relayAttempts ?? 1;
-        tx.nextRelayAt = Math.max(nowSeconds(), (row.initiatedAt ?? nowSeconds()) + backoffFor(1));
+        const now = nowSeconds();
+        tx.relayAttempts = attemptsOf(row);
+        tx.nextRelayAt = Math.min(row.completedAt ?? now, now) + backoffFor(1);
       });
       continue;
     }
@@ -225,13 +256,13 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
       console.warn('[noteDeliverySweep] could not read delivery receipt; re-pushing anyway', {
         txId: row.id,
         noteId: target.noteId,
-        attempts: (row.relayAttempts ?? 1) + 1,
+        attempts: attemptsOf(row) + 1,
         priorState: row.noteDelivery,
         error
       });
     }
 
-    const attempts = (row.relayAttempts ?? 1) + 1;
+    const attempts = attemptsOf(row) + 1;
     let outcome: INoteDeliveryState = 'relayed';
     try {
       await midenClientProxy.relayPrivateNoteById(target.noteId, target.recipient);
@@ -304,10 +335,12 @@ export const sweepNoteDeliveries = async (): Promise<void> => {
 
     if (attempts >= MAX_RELAY_ATTEMPTS) {
       // Last attempt: the row drops out of the candidate set after this, so nothing
-      // will look at it again — not even the nullifier check that could still have
-      // retired it as `confirmed`. Say so once, here, because `relayed` renders as
-      // nothing at all in history: without this line, a note the transport holds and
-      // nobody ever consumed leaves no trace anywhere of having been given up on.
+      // looks at it again — not even the nullifier check that could still have retired
+      // it as `confirmed`. Worth one line whatever the outcome was, because `relayed`
+      // renders as nothing at all in history, so a row that ends here leaves no other
+      // trace of where it stopped. (Aging past `RELAY_WINDOW_SECONDS` is the other
+      // exit and is deliberately silent: those rows are old enough that a re-push
+      // could not have worked anyway.)
       console.warn('[noteDeliverySweep] attempts exhausted; no further re-push or receipt check', {
         txId: row.id,
         noteId: target.noteId,

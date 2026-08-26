@@ -178,7 +178,7 @@ export async function attachServiceWorkerFetchCapture(
         const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
         const status: number = parsed.status ?? 0;
         const err: string | undefined = parsed.err;
-        // Gated the same way as the page-side decode below. The producer only ever
+        // Gated the same way as the page-side decode above. The producer only ever
         // sets `reqBody` for a transport SendNote today, but `decodeSendNoteBody`
         // accepts any message shaped like one, so without this gate widening the
         // producer would start fabricating `sentNotes` on unrelated traffic.
