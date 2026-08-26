@@ -298,14 +298,19 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport ACCEPTED the note. Deliberately not terminal:
- *                     an accepted note is not a received one. The transport hands
- *                     back an opaque pagination cursor that the recipient persists
- *                     verbatim, so a cursor that advances past a stored note makes
- *                     it unreachable for that recipient forever, with the send
- *                     reporting success (note-transport-service#77). `relayed`
- *                     therefore means "believed to be in flight" and keeps the row
- *                     eligible for the re-push sweep.
+ *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
+ *                     the push, or it rejected a re-push as a duplicate, which is
+ *                     itself evidence the body is already there. Deliberately not
+ *                     terminal, for two separate reasons. An empty
+ *                     `SendNoteResponse` means acceptance is not proof of storage, so
+ *                     the row stays eligible for the re-push sweep, which tests
+ *                     exactly that. And even a genuinely stored note can be
+ *                     unreachable: the recipient's opaque pagination cursor never
+ *                     goes back, so one that advanced past the note leaves it
+ *                     invisible forever (note-transport-service#77) — a case NO
+ *                     re-push can repair (see `note-delivery-sweep.ts`) and only the
+ *                     nullifier can settle. `relayed` therefore means "believed to be
+ *                     in flight", never "delivered".
  *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
@@ -406,13 +411,11 @@ export interface ITransaction {
   /**
    * Earliest time (unix seconds) the sweep may re-push this row's private note.
    *
-   * A re-push is worth doing because the transport stores notes with an
-   * append-only insert — no upsert, no dedupe by note id — so every push lands a
-   * row with a FRESH cursor position, which is by construction above whatever
-   * cursor the recipient has already persisted. That makes a re-push the direct
-   * antidote to a note the recipient's cursor skipped, and it costs the
-   * recipient nothing: imports dedupe on the details commitment, so a note they
-   * already hold is a no-op.
+   * Spread wide on purpose. Stamped from the clock at write time rather than from
+   * when the sweep began, except for the first arming, which is measured from the
+   * original relay (`completedAt`) so a row first seen long afterwards does not have
+   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
+   * outcome does and does not prove.
    */
   nextRelayAt?: number;
   /**
