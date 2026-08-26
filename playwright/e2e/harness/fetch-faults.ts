@@ -96,7 +96,15 @@ async function applyToRealm(realm: Worker, wire: FetchFaultWire[]): Promise<void
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const g = globalThis as any;
             g.__E2E_NET_FAULTS = cfg;
-            g.__E2E_NET_FAULT_HITS = {};
+            // PRESERVED across a re-arm, zeroed only by `clear()`. The wrapper
+            // captures this object and increments it before it hangs, so
+            // replacing it here orphaned exactly the hits a `hang` spec needs:
+            // those specs re-arm defensively (MV3 can restart the SW and lose the
+            // config) and, by the very coalescing they are testing, no NEW fetch
+            // follows the re-arm — so `hits()` read a fresh empty map and the
+            // "did the fault actually land" check failed for the case it exists
+            // to prove. Cumulative-per-arm was never what any caller wanted.
+            g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return { wrapped: !!(globalThis as any).__e2e_fetch_wrapped, url: (globalThis as any).location?.href };
           }, wire)
@@ -139,7 +147,7 @@ export interface FetchFaultControls {
    * contributes 0 rather than throwing.
    */
   hits(): Promise<number>;
-  /** Clear faults in every realm. */
+  /** Clear faults in every realm, and zero the hit counters. */
   clear(): Promise<void>;
 }
 
@@ -198,9 +206,36 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
     return perRealm.reduce((total, n) => total + n, 0);
   };
 
+  const clearAll = async (): Promise<void> => {
+    await applyAll([]);
+    // Zero the hit map here, since `arm` deliberately preserves it. Best effort
+    // in the same way arming is: a realm that cannot be evaluated keeps its
+    // count, which at worst makes a later `hits()` assertion pass on stale
+    // evidence — so a spec that cares should read `hits()` for a delta, or clear
+    // before it arms.
+    const realms: Worker[] = page.workers().filter(w => NETWORK_WORKER_RE.test(w.url()));
+    const sw = getServiceWorker();
+    if (sw) realms.push(sw);
+    await Promise.all(
+      realms.map(async realm => {
+        try {
+          await Promise.race([
+            realm.evaluate(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (globalThis as any).__E2E_NET_FAULT_HITS = {};
+            }),
+            new Promise<void>((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 3_000))
+          ]);
+        } catch {
+          // busy or gone — leave the stale count rather than hang the suite
+        }
+      })
+    );
+  };
+
   return {
     arm: (wire: FetchFaultWire[]) => applyAll(wire),
     hits: readHits,
-    clear: () => applyAll([])
+    clear: clearAll
   };
 }

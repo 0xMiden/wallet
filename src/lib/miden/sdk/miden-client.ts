@@ -652,6 +652,10 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
     ),
     pauseDepth: holder.pauseCount,
     graceUsed: holder.graceUsed,
+    // Without this, a 2-minute sync-ceiling kill and a hold that had barely
+    // started on the 5-minute backstop produce indistinguishable records —
+    // `runningMs` alone cannot say which bound was in force (#777).
+    normalCeilingMs: holder.normalCeilingMs,
     yieldedHolders: yieldedHolderCount,
     mode: yieldedHolderCount > 0 ? 'poison-in-place' : 'free',
     error

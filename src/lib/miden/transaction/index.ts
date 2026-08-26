@@ -97,7 +97,7 @@ import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, poisonReasonOf } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -806,7 +806,17 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
 
   // sync: true — this resolves ONE killed tx and wants the freshest possible note
   // state before deciding (the background reaper rides AutoSync and passes false).
-  const verdict = await verifyConsumeLanded(consumeTx, true);
+  //
+  // Except after a watchdog eviction, where the thing that was just evicted IS
+  // the sync (#777). The SDK memoises an in-flight sync in a module-level map the
+  // wallet cannot reach, so a second call joins the same never-settling promise
+  // and buys nothing but another full ceiling of the whole app's WASM access —
+  // while the user is waiting on a consume verdict. Skipping it costs only
+  // freshness, and the last-synced note state is already the authority here: the
+  // sync is best-effort inside `verifyConsumeLanded` for exactly that reason, and
+  // a stale read degrades to 'unknown', which is funds-safe.
+  const freshSyncWorthTrying = !(isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog');
+  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
   if (verdict === 'processing') return true;
@@ -2199,8 +2209,22 @@ export const generateTransactionsLoop = async (
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
-  // Import any notes needed for queued transactions
-  await importAllNotes();
+  // Import any notes needed for queued transactions.
+  //
+  // Isolated from the rest of the lap. This runs BEFORE the try below, so an
+  // error here used to abort the whole lap and land in the caller's bare catch:
+  // no queued transaction picked up, no row failed, nothing but a log line —
+  // every lap, for as long as a note stayed in the import queue. That matters
+  // more now that the queue's own trailing `syncState()` can be evicted (#775,
+  // and #777 makes evictions on the sync path far likelier), because a poisoned
+  // import pass would then block the user from sending at all. A note that
+  // cannot be imported must delay only the transactions that need it — which the
+  // queue already handles by carrying the note to a later pass.
+  try {
+    await importAllNotes();
+  } catch (e) {
+    logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
+  }
 
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();

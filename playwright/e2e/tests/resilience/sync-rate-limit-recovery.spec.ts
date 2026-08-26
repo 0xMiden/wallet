@@ -212,8 +212,12 @@ test.describe('infra resilience — the SW sync path under node faults (characte
         await midenCli.mint(faucetId, addressA, Number(MINT_2_BASE_UNITS), 'public');
         await midenCli.sync();
 
-        // Drivers, not assertions (see the header). Two of them: the second
-        // proves the first's abandoned call did not wedge the SW's driver.
+        // Drivers, not assertions (see the header). Two of them so the second
+        // has to be ACCEPTED after the first was abandoned — but note that is
+        // not itself evidence: `triggerSync` caps its wait well below the SW's
+        // own sync timeout, so both calls return on time whether or not the sync
+        // behind them finished. The balance-read settle below is the assertion
+        // that actually distinguishes a wedged realm from a slow one.
         await walletA.armNetworkFault({ target: 'node', path: SYNC_RPC_PATH, mode: 'hang' });
         await walletA.triggerSync(true);
         await walletA.triggerSync(true);

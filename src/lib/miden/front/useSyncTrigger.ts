@@ -144,6 +144,13 @@ export function useSyncTrigger() {
     // exactly as it does through an ordinary backoff window, so nothing here
     // needs a separate forced-probe grant.
     let autoProbeFused = false;
+    // Whether the NEXT run was asked for by the user (banner Retry, app
+    // foreground) rather than the timer. Granted by `retryNow`, consumed by the
+    // run it precedes. Its only job is to keep a user's attempt from escalating
+    // the breaker; it grants no other privilege, because a forced run needs
+    // none — it punches through an open window via `retryAfterCurrentRun`, and
+    // nothing gates the probe on the fuse.
+    let forceNextRun = false;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
@@ -152,6 +159,8 @@ export function useSyncTrigger() {
         return;
       }
 
+      const forced = forceNextRun;
+      forceNextRun = false;
       isRunning = true;
       try {
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
@@ -263,8 +272,25 @@ export function useSyncTrigger() {
             // instead of feeding it the burst that precedes the freeze.
             // Counted per FAILED ATTEMPT, not per tick, so windows only grow
             // while probes actually fail.
+            //
+            // A user-FORCED probe (banner Retry, app foreground) can open or
+            // re-arm a window but never ESCALATES one. Without that exemption a
+            // forced probe reached this arm like any other failure, so three
+            // Retry taps against a down node walked the user's own wallet from
+            // 30s to 240s of enforced silence — the escalation is meant to
+            // measure how long the node has been failing, not how many times the
+            // user asked.
+            //
+            // Note this deliberately does NOT mirror the SW path, which zeroes
+            // its streak when a window opens (`sync-manager.ts`) and so fires
+            // three fast probes between windows. That is the burst #777 exists
+            // to stop: one sync tick already issues SyncChainMmr, SyncNotes and
+            // SyncTransactions back-to-back, which is the three-429s-in-20ms
+            // signature the incident recorded. Keeping the streak latched gives
+            // one probe per window, which is what a breaker is for.
             if (consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
-              syncBackoffUntilMs = monotonicNowMs() + computeSyncBackoffMs(++breakerTripCount);
+              if (!forced) breakerTripCount++;
+              syncBackoffUntilMs = monotonicNowMs() + computeSyncBackoffMs(Math.max(1, breakerTripCount));
             }
             // Blow the fuse only on a repeated WATCHDOG eviction, which is the
             // one failure that proves the realm's sync is unrecoverable rather
@@ -284,6 +310,18 @@ export function useSyncTrigger() {
                       'succeeds (#777)'
                   );
                 }
+                // The fuse writes a DEADLINE on the same window the breaker
+                // uses, rather than being a flag the scheduler turns into a
+                // fresh delay each run. Same reason the breaker keeps a
+                // deadline: a tick the guards skip must be able to serve out a
+                // wait, not restart it. As a per-run delay, every skipped tick
+                // re-armed the full cadence — so a user who opened the send flow
+                // while fused pushed their next probe out by another half hour
+                // each time the loop ticked past the guard, which is the
+                // never-syncs-again failure this cadence exists to avoid.
+                // Always longer than any window the curve can produce, so
+                // overwriting the breaker's is the intended precedence.
+                syncBackoffUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
               }
             } else {
               consecutiveWatchdogEvictions = 0;
@@ -313,15 +351,17 @@ export function useSyncTrigger() {
           // The monotonic clock makes that hard to reach; the clamp makes it
           // impossible, and costs nothing when the deadline is sane.
           //
-          // A fused loop still probes, just far more slowly — the fuse is a
-          // cadence, applied here rather than as a guard on the probe, so it is
-          // the same kind of thing as a backoff window and recovers the same
-          // way. `Math.max` over the remainder rather than replacing it: a fuse
-          // that blew mid-window must not SHORTEN a wait the breaker had
-          // already decided on.
+          // A fused loop still probes, just far more slowly. It needs nothing of
+          // its own here: the fuse writes an ordinary (much longer) window, so
+          // it schedules, punches through and expires by exactly the same rules.
+          // All the flag does at this point is raise the ceiling the remainder is
+          // clamped to — the fused window is legitimately longer than anything
+          // the curve can produce, so clamping it to the curve's maximum would
+          // silently shorten the very wait it was set to take.
+          const windowCeilingMs = autoProbeFused ? FUSED_SYNC_PROBE_INTERVAL_MS : MAX_SYNC_BACKOFF_MS;
           const backoffRemainingMs =
-            syncBackoffUntilMs === null ? 0 : Math.min(syncBackoffUntilMs - monotonicNowMs(), MAX_SYNC_BACKOFF_MS);
-          const idleMs = Math.max(autoProbeFused ? FUSED_SYNC_PROBE_INTERVAL_MS : SYNC_INTERVAL_MS, backoffRemainingMs);
+            syncBackoffUntilMs === null ? 0 : Math.min(syncBackoffUntilMs - monotonicNowMs(), windowCeilingMs);
+          const idleMs = Math.max(SYNC_INTERVAL_MS, backoffRemainingMs);
           const delay = retryAfterCurrentRun ? 0 : idleMs;
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);
@@ -331,6 +371,7 @@ export function useSyncTrigger() {
 
     const retryNow = () => {
       if (cancelled) return;
+      forceNextRun = true;
       if (isRunning) {
         retryAfterCurrentRun = true;
         return;

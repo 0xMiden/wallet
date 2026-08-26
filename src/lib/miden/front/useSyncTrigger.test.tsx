@@ -516,6 +516,90 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: a user Retry can re-arm the breaker window but never escalates it (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    mockSyncState.mockRejectedValue(new Error('x'));
+
+    const { unmount } = render(<HookHost />);
+
+    // Three failures on the 3s cadence open the base 30s window.
+    for (const step of [0, 3_000, 3_000]) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(step);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(3);
+
+    // The user taps Retry three times against a node that is still down. Each
+    // punches through the open window and fails. The escalation must not follow:
+    // it measures how long the NODE has been failing, not how many times the
+    // user asked, and three taps otherwise walked the wallet from 30s to the
+    // 300s cap — the user's own attempt to fix it making it four times worse.
+    for (let tap = 0; tap < 3; tap++) {
+      await act(async () => {
+        requestImmediateSync();
+        await jest.advanceTimersByTimeAsync(0);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+
+    // Still the BASE window, measured from the last forced failure.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(29_999);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(7);
+
+    unmount();
+  });
+
+  it('mobile/desktop: a guard-skipped tick serves out the fused window instead of restarting it (#777)', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const prevEnv = process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_TEST = 'true';
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // Most of the fused window elapses…
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(FUSED_SYNC_PROBE_INTERVAL_MS - 60_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    // …and then a run happens that the guards skip — the user opened the send
+    // flow, or foregrounded the app while on the generating-transaction page.
+    // As a per-run delay rather than a deadline, the fuse re-armed its FULL
+    // cadence here, so every such tick pushed the next probe out by another half
+    // hour and a user who kept touching the wallet was never probed again.
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+
+    // The remainder is what is left of the window, not a fresh one.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    unmount();
+    process.env.MIDEN_E2E_TEST = prevEnv;
+  });
+
   it('mobile/desktop: clamps an over-large window remainder so a clock anomaly cannot stop syncing (#777)', async () => {
     jest.useFakeTimers();
     jest.spyOn(console, 'warn').mockImplementation(() => {});

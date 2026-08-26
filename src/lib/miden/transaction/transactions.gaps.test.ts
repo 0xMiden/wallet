@@ -668,6 +668,37 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
+    // `importAllNotes` runs before the lap's try, so its rejection used to abort
+    // the whole lap: nothing picked up, nothing failed, one log line in a caller's
+    // bare catch — every lap, for as long as the note stayed in the queue. The
+    // import's own trailing `syncState()` can now be evicted by the watchdog,
+    // which turns "one note won't import" into "this wallet cannot send", and it
+    // does so silently.
+    const { importAllNotes } = require('../activity/notes');
+    importAllNotes.mockRejectedValueOnce(new Error('poisoned import sync'));
+    txStore.push({
+      id: 'queued-behind-a-bad-import',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 100,
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([9])
+    });
+    const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
+
+    await generateTransactionsLoop(
+      jest.fn(async () => new Uint8Array()),
+      false,
+      guardianProvider
+    );
+
+    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
+  });
+
   it('returns undefined when there are no queued or in-progress transactions', async () => {
     const guardianProvider: any = { getGuardianClient: async () => null };
     const result = await generateTransactionsLoop(jest.fn(), false, guardianProvider);
@@ -1036,6 +1067,49 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       expect(row.displayMessage).toBe('Received');
     } finally {
       restore();
+    }
+  });
+
+  it('does not re-enter the sync it was just evicted from when adjudicating (#777)', async () => {
+    // The adjudication normally opens with a fresh sync so the note state is
+    // current. When the kill IS a sync watchdog eviction, that fresh sync is the
+    // worst possible next move: the SDK coalesces concurrent syncs onto one
+    // in-flight promise, and the promise the watchdog abandoned is still the
+    // in-flight one — so the "fresh" sync re-attaches to a dead promise and parks
+    // the wallet's only WASM lock for another full ceiling. The last-synced note
+    // state answers the question well enough (a consumed note cannot un-consume),
+    // so on that one kill shape it reads without syncing.
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const syncsFor = async (id: string, killError: Error) => {
+      const syncState = jest.fn(async () => {});
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState,
+        consumeNoteId: jest.fn(async () => {
+          throw killError;
+        }),
+        getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+      });
+      pushConsume(id);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+      return syncState.mock.calls.length;
+    };
+
+    // Counted relative to the abort leg rather than absolutely: the point is that
+    // the adjudication's own sync is skipped, not how many syncs the surrounding
+    // lap happens to do.
+    const abortSyncs = await syncsFor('nk-sync-abort', new OperationAbortedError('op-kill', 'deadline'));
+    const poisonSyncs = await syncsFor('nk-sync-poison', new WasmClientPoisonedError('watchdog'));
+
+    expect(poisonSyncs).toBeLessThan(abortSyncs);
+    // Both rows still get adjudicated — skipping the sync must not skip the read.
+    for (const id of ['nk-sync-abort', 'nk-sync-poison']) {
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
     }
   });
 
