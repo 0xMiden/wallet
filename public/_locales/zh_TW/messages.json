@@ -2512,6 +2512,18 @@
     "message": "該操作者與您帳戶的鏈上guardian不符。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
+  "connectivityGuardianTitle": {
+    "message": "Guardian 無法連線",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "您的 guardian 目前無法回應，因此無法進行交易共同簽署。",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "切換 Guardian",
+    "englishSource": "Switch Guardian"
+  },
   "revealHotKey": {
     "message": "顯示裝置金鑰",
     "englishSource": "Reveal device key"

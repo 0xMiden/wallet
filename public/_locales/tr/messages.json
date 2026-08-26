@@ -2512,6 +2512,18 @@
     "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
+  "connectivityGuardianTitle": {
+    "message": "Guardian erişilemez",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "guardian'ınız yanıt vermiyor, bu nedenle işlemler ortak imzalanamıyor.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Guardian'e geçin",
+    "englishSource": "Switch Guardian"
+  },
   "revealHotKey": {
     "message": "Cihaz anahtarını göster",
     "englishSource": "Reveal device key"
