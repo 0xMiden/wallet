@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "高级 — 仅使用 seed phrase 进行恢复。没有监护人共同签署人。",
   "guardianOperatedBy": "營運單位：",
   "guardianLocation": "地點：",
+  "guardianOfflineLabel": "離線",
   "whatIsAGuardian": "什麼是「Guardian」？",
   "guardianInfoDescription": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
   "guardianInfoWhatItDoesTitle": "功能說明",

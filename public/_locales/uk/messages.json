@@ -2040,6 +2040,10 @@
     "message": "Місцезнаходження:",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "Офлайн",
+    "englishSource": "Offline"
+  },
   "whatIsAGuardian": {
     "message": "Що таке «Guardian»?",
     "englishSource": "What is a Guardian?"

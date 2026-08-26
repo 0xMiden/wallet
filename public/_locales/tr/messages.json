@@ -2040,6 +2040,10 @@
     "message": "Konum:",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "Çevrimdışı",
+    "englishSource": "Offline"
+  },
   "whatIsAGuardian": {
     "message": "Guardian nedir?",
     "englishSource": "What is a Guardian?"

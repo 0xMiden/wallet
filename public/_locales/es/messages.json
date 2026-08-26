@@ -2040,6 +2040,10 @@
     "message": "Ubicación:",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "Sin conexión",
+    "englishSource": "Offline"
+  },
   "whatIsAGuardian": {
     "message": "¿Qué es un «Guardian»?",
     "englishSource": "What is a Guardian?"

@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Erweitert – nur mit Ihrem seed phrase wiederherstellen. Kein Vormund, Mitunterzeichner.",
   "guardianOperatedBy": "Betreiber:",
   "guardianLocation": "Standort:",
+  "guardianOfflineLabel": "Offline",
   "whatIsAGuardian": "Was ist ein „Guardian“?",
   "guardianInfoDescription": "Ein „Guardian“ ist ein unabhängiger Dienst, der <b>jede Transaktion</b> aus Ihrer Wallet mitunterzeichnet und so ein Sicherheitsnetz bietet, ohne dass Sie die Selbstverwahrung aufgeben müssen.",
   "guardianInfoWhatItDoesTitle": "Was es bewirkt",

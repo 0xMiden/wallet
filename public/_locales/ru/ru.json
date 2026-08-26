@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Расширенный — восстанавливайте только с помощью seed phrase. Нет со-подписавшего опекуна.",
   "guardianOperatedBy": "Оператор:",
   "guardianLocation": "Местоположение:",
+  "guardianOfflineLabel": "Офлайн",
   "whatIsAGuardian": "Что такое «Guardian»?",
   "guardianInfoDescription": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",
   "guardianInfoWhatItDoesTitle": "Для чего это нужно",

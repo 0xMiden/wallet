@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Avanzado: recupera solo con tu seed phrase. Sin tutor aval.",
   "guardianOperatedBy": "Gestionado por:",
   "guardianLocation": "Ubicación:",
+  "guardianOfflineLabel": "Sin conexión",
   "whatIsAGuardian": "¿Qué es un «Guardian»?",
   "guardianInfoDescription": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",
   "guardianInfoWhatItDoesTitle": "Para qué sirve",

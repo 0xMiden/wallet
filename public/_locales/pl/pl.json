@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Zaawansowane — odzyskaj tylko za pomocą seed phrase. Brak współsygnatariusza opiekuna.",
   "guardianOperatedBy": "Operator:",
   "guardianLocation": "Lokalizacja:",
+  "guardianOfflineLabel": "Offline",
   "whatIsAGuardian": "Czym jest „Guardian”?",
   "guardianInfoDescription": "Guardian to niezależna usługa, która <b>współpodpisuje każdą transakcję</b> z Twojego portfela, zapewniając dodatkową ochronę bez rezygnacji z samodzielnego przechowywania środków.",
   "guardianInfoWhatItDoesTitle": "Jak to działa",

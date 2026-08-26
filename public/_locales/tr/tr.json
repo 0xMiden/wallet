@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Gelişmiş — yalnızca seed phrase ile kurtarın. Veli ortak imzalayan yok.",
   "guardianOperatedBy": "İşletmeci:",
   "guardianLocation": "Konum:",
+  "guardianOfflineLabel": "Çevrimdışı",
   "whatIsAGuardian": "Guardian nedir?",
   "guardianInfoDescription": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",
   "guardianInfoWhatItDoesTitle": "Ne işe yarar?",

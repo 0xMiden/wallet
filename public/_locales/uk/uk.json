@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Додатково — відновлюйте лише за допомогою seed phrase. Немає співпідписанта опікуна.",
   "guardianOperatedBy": "Оператор:",
   "guardianLocation": "Місцезнаходження:",
+  "guardianOfflineLabel": "Офлайн",
   "whatIsAGuardian": "Що таке «Guardian»?",
   "guardianInfoDescription": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
   "guardianInfoWhatItDoesTitle": "Як це працює",

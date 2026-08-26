@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Avançado — recupere apenas com seu seed phrase. Nenhum guardião fiador.",
   "guardianOperatedBy": "Operado por:",
   "guardianLocation": "Localização:",
+  "guardianOfflineLabel": "Offline",
   "whatIsAGuardian": "O que é um “Guardian”?",
   "guardianInfoDescription": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
   "guardianInfoWhatItDoesTitle": "O que ele faz",

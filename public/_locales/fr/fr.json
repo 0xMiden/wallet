@@ -435,6 +435,7 @@
   "noGuardianOptionSubtitle": "Avancé : récupérez avec votre seed phrase uniquement. Aucun tuteur cosignataire.",
   "guardianOperatedBy": "Exploité par :",
   "guardianLocation": "Lieu :",
+  "guardianOfflineLabel": "Hors ligne",
   "whatIsAGuardian": "Qu’est-ce qu’un «Guardian» ?",
   "guardianInfoDescription": "Un « Guardian » est un service indépendant qui <b>cosigne chaque transaction</b> depuis votre portefeuille, ajoutant ainsi un filet de sécurité sans que vous ayez à renoncer à la gestion autonome de vos actifs.",
   "guardianInfoWhatItDoesTitle": "Fonctionnalités",

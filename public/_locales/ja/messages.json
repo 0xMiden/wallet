@@ -2040,6 +2040,10 @@
     "message": "場所：",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "オフライン",
+    "englishSource": "Offline"
+  },
   "whatIsAGuardian": {
     "message": "Guardianとは何ですか？",
     "englishSource": "What is a Guardian?"
