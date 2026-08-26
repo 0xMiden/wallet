@@ -122,6 +122,23 @@ async function applyToRealm(realm: Worker, wire: FetchFaultWire[]): Promise<void
 export interface FetchFaultControls {
   /** Push a wire config to the SW + every current and future page-worker. */
   arm(wire: FetchFaultWire[]): Promise<void>;
+  /**
+   * Total injections recorded across every armed realm since `arm`, read from
+   * the in-realm `__E2E_NET_FAULT_HITS` counter the fetch wrapper maintains.
+   *
+   * The point is falsifiability, and it matters most for `hang`. Arming is
+   * BEST EFFORT by design (`applyToRealm` gives up after four bounded attempts
+   * so a busy or torn-down realm cannot hang the suite), and the SDK spawns its
+   * network worker lazily — so "the fault never landed" is a real outcome, not a
+   * hypothetical. A spec that arms a hang and then asserts something did NOT
+   * happen passes identically in that case, which makes its strongest-looking
+   * assertion the one most able to go green for the wrong reason. Asserting a
+   * non-zero count first turns that into a failure.
+   *
+   * Best effort in the same way arming is: a realm that cannot be evaluated
+   * contributes 0 rather than throwing.
+   */
+  hits(): Promise<number>;
   /** Clear faults in every realm. */
   clear(): Promise<void>;
 }
@@ -158,8 +175,32 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
     await Promise.all(realms.map(r => applyToRealm(r, wire)));
   };
 
+  const readHits = async (): Promise<number> => {
+    const realms: Worker[] = page.workers().filter(w => NETWORK_WORKER_RE.test(w.url()));
+    const sw = getServiceWorker();
+    if (sw) realms.push(sw);
+    const perRealm = await Promise.all(
+      realms.map(async realm => {
+        try {
+          return await Promise.race([
+            realm.evaluate(() => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const hits = (globalThis as any).__E2E_NET_FAULT_HITS as Record<string, number> | undefined;
+              return Object.values(hits ?? {}).reduce((total: number, n: number) => total + n, 0);
+            }),
+            new Promise<number>((_, reject) => setTimeout(() => reject(new Error('evaluate timeout')), 3_000))
+          ]);
+        } catch {
+          return 0;
+        }
+      })
+    );
+    return perRealm.reduce((total, n) => total + n, 0);
+  };
+
   return {
     arm: (wire: FetchFaultWire[]) => applyAll(wire),
+    hits: readHits,
     clear: () => applyAll([])
   };
 }

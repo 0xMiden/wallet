@@ -51,8 +51,10 @@ const SYNC_TIMEOUT_MS = 30_000;
 // a row we skip sync attempts for the backoff window, then allow one probe. A
 // successful sync resets the counter. Protects both the wasm client and the
 // RPC backend from being hammered when the network (or the node) is flapping.
-// The parameters are shared with the mobile/desktop inline loop (#777) —
-// see `lib/miden/sync-backoff`; re-exported here for existing importers.
+// The parameters are shared with the mobile/desktop inline loop (#777) — see
+// `lib/miden/sync-backoff`. Re-exported so this module's own test can keep
+// asserting the curve through the path that consumes it; new callers should
+// import from `sync-backoff` directly.
 export { computeSyncBackoffMs };
 
 // Concurrent doSync() callers join the in-flight sync instead of being dropped.
@@ -69,8 +71,10 @@ let consecutiveSyncFailures = 0;
 // and while the alarm keeps firing, every attempt inside it is skipped — so the
 // user-visible outcome is a wallet that stops syncing, same as on mobile. Safe to
 // hold monotonically because the window is module state that dies with the SW
-// realm; it is never persisted across a restart.
-let syncBackoffUntilMs = 0;
+// realm; it is never persisted across a restart. `null` rather than 0 for "no
+// window": 0 is a real stamp on this clock (it is the time origin), so the
+// sentinel has to be outside the number domain — see `monotonicNowMs`.
+let syncBackoffUntilMs: number | null = null;
 // How many times the breaker has tripped in a row (drives the exponential
 // backoff); reset by any successful sync.
 let breakerTripCount = 0;
@@ -104,7 +108,7 @@ export function doSync(force = false): Promise<void> {
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
   // the backoff window. Returning resolved-void here keeps the existing contract
   // for callers (triggerSync, alarm) that don't distinguish success from skip.
-  if (!force && monotonicNowMs() < syncBackoffUntilMs) {
+  if (!force && syncBackoffUntilMs !== null && monotonicNowMs() < syncBackoffUntilMs) {
     return Promise.resolve();
   }
   inFlight = runSync().finally(() => {
@@ -139,7 +143,7 @@ async function runSync(): Promise<void> {
         await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
       });
       consecutiveSyncFailures = 0;
-      syncBackoffUntilMs = 0;
+      syncBackoffUntilMs = null;
       breakerTripCount = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We

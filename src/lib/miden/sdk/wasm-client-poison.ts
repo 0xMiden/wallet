@@ -21,10 +21,12 @@
  * listener catches an actual trap in milliseconds. Generous because evicting a
  * holder whose operation is merely SLOW is worse than waiting: the abandoned
  * operation is not cancelled, and several un-paused holds are not tightly
- * bounded — the inline `syncState` has no JS-level timeout (its caller's 30s
- * timeout only stops waiting), guardian flows hold the lock across
- * timeout-less HTTP round-trips, and a cold-restore probes accounts on-chain
- * under one hold. The known legitimately UNBOUNDED waits — keystore sign
+ * bounded — guardian flows hold the lock across timeout-less HTTP round-trips,
+ * and a cold-restore probes accounts on-chain under one hold. (Pure-sync holds
+ * used to be on this list, and were the #777 freeze; they now carry
+ * `WASM_LOCK_SYNC_WATCHDOG_MS` instead. The service worker's sync hold still
+ * relies on this backstop — its 30s `withTimeout` stops the WAIT but does not
+ * release the mutex.) The known legitimately UNBOUNDED waits — keystore sign
  * round-trips (user authentication) and local prove attempts (the fallback
  * when delegated proving is down) — relax the watchdog to
  * `WASM_LOCK_PAUSED_WATCHDOG_MS` via `withWasmLockWatchdogPaused`. They do NOT

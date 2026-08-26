@@ -40,8 +40,8 @@
 export const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
 
 /**
- * Consecutive sync WATCHDOG evictions before the inline loop stops probing on
- * its own (issue #777).
+ * Consecutive sync WATCHDOG evictions before the inline loop drops to the fused
+ * probe cadence (issue #777).
  *
  * A watchdog eviction on the sync path is not just a failure, it is proof that
  * the realm's sync is unrecoverable in-process: the node accepted the request
@@ -49,7 +49,7 @@ export const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
  * module-level map the wallet cannot reach, so every later `syncState()` joins
  * it and parks for a full ceiling too. Each such cycle costs two minutes of the
  * whole app's WASM access plus a client rebuild. The breaker spaces the cycle
- * out; only this ends it.
+ * out but never stops growing it; only this ends the fast cycle.
  *
  * Deliberately one MORE than the failure streak rather than the same count.
  * Giving up needs strictly more evidence than backing off does: at exactly the
@@ -62,6 +62,31 @@ export const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
  * window, is not.
  */
 export const MAX_CONSECUTIVE_WATCHDOG_EVICTIONS = MAX_CONSECUTIVE_SYNC_FAILURES + 1;
+
+/**
+ * Probe cadence once the fuse has blown (issue #777) — a STRETCH, not a stop.
+ *
+ * An earlier shape parked automatic probes entirely and waited for a user
+ * gesture. That was wrong in both directions. It over-trusted the gesture: the
+ * only foreground kick is mobile-only (`useForegroundRefresh` returns unless
+ * `isMobile()`), while this loop also drives desktop, and the connectivity
+ * banner's Retry is dismissible for the lifetime of an active issue — so a
+ * fused desktop wallet could have no automatic and no reachable manual way
+ * back. And it over-trusted the diagnosis: what the fuse observes is a sync
+ * that has not answered yet, which is not the same as one that never will. A
+ * parked gRPC-web fetch can still be torn down by the OS or answered late, and
+ * once the SDK's in-flight entry clears, an ordinary probe works again. Nothing
+ * in the realm reports that moment, so the only way to find it is to look.
+ *
+ * 30 minutes: an order of magnitude above the breaker's ceiling, which is the
+ * point — the breaker's job is to stop hammering a rate-limiting node, and its
+ * schedule would keep paying a parked sync's price (a full ceiling of the whole
+ * app's WASM access, plus a client the SDK cannot free while the abandoned sync
+ * references it) every few minutes forever. At this cadence that price is paid
+ * once per half hour, bounded and self-healing, with no dependence on a UI
+ * affordance existing on the platform the user is holding.
+ */
+export const FUSED_SYNC_PROBE_INTERVAL_MS = 30 * 60_000;
 
 // Circuit-breaker backoff: EXPONENTIAL with jitter (gap 14). Each consecutive
 // trip roughly doubles the wait (capped at BACKOFF_MAX_MS) so a sustained outage

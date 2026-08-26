@@ -157,6 +157,16 @@ export interface NetworkFaultControls {
    * without reaching into the container. Reset by `armGuardian`/`clear`.
    */
   guardianFaultHits(): number;
+  /**
+   * How many requests the armed NETWORK policies have faulted since they were
+   * armed, summed across the set. Same purpose as `guardianFaultHits`, and it
+   * matters most for the `hang` mode: a spec that arms a hang and then asserts
+   * something did NOT happen passes identically when the fault never matched a
+   * single request, so without this the strongest-looking assertion in the suite
+   * is also the one most able to go green for the wrong reason. Reset by
+   * `armNetwork`/`clear`.
+   */
+  networkFaultHits(): number;
   /** Disarm everything — all subsequent requests pass through untouched. */
   clear(): void;
 }
@@ -328,6 +338,9 @@ export function installNetworkFaults(
     },
     guardianFaultHits() {
       return guardianHits;
+    },
+    networkFaultHits() {
+      return networkHits.reduce((total, hits) => total + hits, 0);
     },
     clear() {
       networkPolicies = [];

@@ -480,7 +480,8 @@ describe('watchdog ceiling clamp (issue #777)', () => {
     );
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
-    // Burn all but 1 s of the clamped budget inside the bracket's shadow.
+    // Burn all but 1 s of the clamped budget BEFORE the bracket opens, so the
+    // whole 29 s is unpaused time and the bracket itself is empty.
     await jest.advanceTimersByTimeAsync(WASM_LOCK_MIN_WATCHDOG_MS - 1_000);
     expect(isWasmClientBusy()).toBe(true);
     openBracket();

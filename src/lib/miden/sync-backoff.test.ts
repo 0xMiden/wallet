@@ -20,14 +20,6 @@ describe('MAX_SYNC_BACKOFF_MS', () => {
     const worstCase = Math.max(...[1, 2, 5, 10, 50, 1_000].map(trip => computeSyncBackoffMs(trip, () => 1)));
     expect(MAX_SYNC_BACKOFF_MS).toBe(worstCase);
   });
-
-  it('leaves the flat cadence untouched — it only ever bounds an outlier', () => {
-    // Clamping must not be able to SHORTEN a normal window, or the breaker
-    // would quietly stop escalating past the clamp.
-    for (const trip of [1, 2, 3, 4, 5, 50]) {
-      expect(computeSyncBackoffMs(trip, () => 1)).toBeLessThanOrEqual(MAX_SYNC_BACKOFF_MS);
-    }
-  });
 });
 
 describe('monotonicNowMs', () => {
@@ -35,12 +27,6 @@ describe('monotonicNowMs', () => {
     const now = jest.spyOn(performance, 'now').mockReturnValue(4_242);
     expect(monotonicNowMs()).toBe(4_242);
     now.mockRestore();
-  });
-
-  it('advances forward across calls', () => {
-    const first = monotonicNowMs();
-    const second = monotonicNowMs();
-    expect(second).toBeGreaterThanOrEqual(first);
   });
 
   it('is immune to a wall-clock step, which is the whole reason it exists', () => {

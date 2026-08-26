@@ -218,11 +218,21 @@ test.describe('infra resilience — the SW sync path under node faults (characte
         await walletA.triggerSync(true);
         await walletA.triggerSync(true);
 
-        // Falsifiability — the check the hang leg previously had none of, and
-        // the reason it could pass with the fault never reaching a single sync
-        // RPC. Discovery REQUIRES a completed sync round-trip, so note #2 must
-        // be invisible even though note #1 was discovered on this same wallet
-        // minutes earlier.
+        // Falsifiability, part one: the fault ACTUALLY FIRED. Arming is best
+        // effort — `applyToRealm` gives up after four bounded attempts rather
+        // than risk hanging on a busy realm, and the SDK's network worker is
+        // spawned lazily — so "never armed" is a real outcome. Every assertion
+        // below is an ABSENCE, and an absence is exactly what an unarmed fault
+        // also produces, so without this the leg's strongest-looking check is
+        // its least trustworthy.
+        expect(
+          await walletA.networkFaultHits(),
+          'the hang fault injected into zero requests — it never reached a sync RPC, so nothing below is evidence'
+        ).toBeGreaterThan(0);
+
+        // Falsifiability, part two: discovery REQUIRES a completed sync
+        // round-trip, so note #2 must be invisible even though note #1 was
+        // discovered on this same wallet minutes earlier.
         const pendingUnderHang = await pendingNoteTotal(walletA.page, TOKEN);
         expect(
           pendingUnderHang,

@@ -11,8 +11,12 @@
  * The `unmock` is load-bearing, not cargo cult: `__mocks__/lib/miden/sdk/
  * miden-client.ts` is a ROOT manual mock, so every test that reaches this module
  * by its `lib/...` path — including through `sync-lock.ts`'s own import —
- * silently gets a pass-through stub with no watchdog at all. Without this line
- * the eviction below cannot happen and the test would pass vacuously.
+ * silently gets a pass-through stub with no watchdog at all, and the module's
+ * test-only helpers are absent from it. So without this line the suite does not
+ * go quietly vacuous — it fails outright on the first `beforeEach`
+ * (`__resetRecoveryCooldownForTests is not a function`), which is the right
+ * failure mode: it cannot be deleted and leave a green suite that no longer
+ * tests a watchdog.
  */
 /* eslint-disable import/first */
 jest.unmock('lib/miden/sdk/miden-client');
@@ -54,9 +58,18 @@ describe('syncUnderBoundedLock (#777)', () => {
   });
 
   it('runs the proxy sync under the WASM lock and releases it', async () => {
+    // Asserted DURING the sync as well as after: `isWasmClientBusy()` is false
+    // at both ends of an unlocked call too, so the release assertion alone would
+    // pass for a helper that never took the lock.
+    let busyDuringSync: boolean | undefined;
+    mockSyncState.mockImplementationOnce(async () => {
+      busyDuringSync = isWasmClientBusy();
+    });
+
     await syncUnderBoundedLock();
 
     expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(busyDuringSync).toBe(true);
     expect(isWasmClientBusy()).toBe(false);
   });
 

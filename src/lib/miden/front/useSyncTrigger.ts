@@ -10,6 +10,7 @@ import {
 } from 'lib/miden/sdk/wasm-client-poison';
 import {
   computeSyncBackoffMs,
+  FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_SYNC_FAILURES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS,
@@ -132,19 +133,17 @@ export function useSyncTrigger() {
     // ceiling and be evicted again, and each eviction costs two minutes of the
     // whole app's WASM access plus a client rebuild the SDK cannot free while
     // the abandoned sync still references it. The breaker spaces that cycle out
-    // but never ends it. After this many in a row the loop stops probing on its
-    // own and waits for a signal that something might have changed.
+    // but its ceiling still pays that price every few minutes forever. After
+    // this many in a row the loop drops to `FUSED_SYNC_PROBE_INTERVAL_MS`.
     let consecutiveWatchdogEvictions = 0;
-    // Set when the loop has given up on automatic probes; cleared by a success
-    // or by an effect remount. NOT permanent from the user's side: a banner
-    // Retry and every app foreground both force one probe through
-    // (`useForegroundRefresh`), so a node that recovers is picked up the next
-    // time the user opens the wallet, without them knowing any of this.
+    // Set when the loop has stopped believing automatic probes are worth their
+    // cost; cleared by any successful sync or an effect remount. It throttles
+    // the CADENCE, it does not gate the probe — see the constant's docstring for
+    // why a full stop was wrong in both directions. A banner Retry or app
+    // foreground still punches through immediately via `retryAfterCurrentRun`,
+    // exactly as it does through an ordinary backoff window, so nothing here
+    // needs a separate forced-probe grant.
     let autoProbeFused = false;
-    // One forced probe, granted by `retryNow` and spent by the run it unblocks.
-    // A grant rather than a fuse reset so a Retry against a still-dead sync buys
-    // exactly one more attempt instead of another full streak of them.
-    let forceNextRun = false;
 
     const runAndSchedule = async () => {
       if (cancelled) return;
@@ -153,8 +152,6 @@ export function useSyncTrigger() {
         return;
       }
 
-      const forced = forceNextRun;
-      forceNextRun = false;
       isRunning = true;
       try {
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
@@ -168,7 +165,7 @@ export function useSyncTrigger() {
         // sets that flag any more, so the guard was permanently false. The two
         // remaining checks (the generating-transaction route and the send flow) are
         // what actually keep a sync from queueing behind a long prove.
-        if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused() && (!autoProbeFused || forced)) {
+        if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused()) {
           useWalletStore.getState().setSyncStatus(true);
           try {
             // The sync-specific watchdog ceiling (#777): on wasm32 the SDK's
@@ -246,12 +243,16 @@ export function useSyncTrigger() {
             // backs off SILENTLY: no banner, and therefore no Retry, which is
             // the only affordance that probes through an open window.
             //
-            // The other poison reason is deliberately excluded. A `realm-error`
-            // eviction is a WASM trap in this realm, not an unreachable node, so
-            // `classifySyncError`'s only verdict ('node') would tell the user
-            // something false — and it needs no banner anyway: the client is
-            // replaced in milliseconds and the next 3s tick syncs on a fresh
-            // one, which is precisely the case Retry cannot improve on.
+            // The other poison reason is deliberately excluded from the BANNER
+            // only. A `realm-error` eviction is a WASM trap in this realm, not
+            // an unreachable node, so `classifySyncError`'s only verdict
+            // ('node') would tell the user something false, and Retry — the
+            // affordance the banner exists to offer — cannot improve on a client
+            // that was already replaced in milliseconds. It still counts toward
+            // the failure streak and so can still trip the breaker: a realm that
+            // traps on every sync should not be probed every 3s either. What it
+            // must not do is blow the fuse, which is why the check below is
+            // narrower than this one.
             const transportShaped =
               isLikelyNetworkError(error) || (isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog');
             if (transportShaped && consecutiveSyncFailures >= MAX_CONSECUTIVE_SYNC_FAILURES) {
@@ -270,16 +271,19 @@ export function useSyncTrigger() {
             // than merely failing: the node accepted the request and never
             // answered, and the SDK will hand the same dead promise to every
             // later probe. Any other error — including a `realm-error` eviction,
-            // which recovers on the next tick — resets the count, so an ordinary
-            // outage keeps retrying on the breaker's schedule as before.
+            // whose client IS replaced in milliseconds — resets the count, so an
+            // ordinary outage keeps retrying on the breaker's schedule as before.
             if (isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog') {
               if (++consecutiveWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
-                autoProbeFused = true;
-                console.warn(
-                  `[useSyncTrigger] ${consecutiveWatchdogEvictions} consecutive sync watchdog evictions — ` +
-                    "the realm's sync is parked and cannot be recovered in-process; pausing automatic probes " +
-                    'until a foreground or Retry (#777)'
-                );
+                if (!autoProbeFused) {
+                  autoProbeFused = true;
+                  console.warn(
+                    `[useSyncTrigger] ${consecutiveWatchdogEvictions} consecutive sync watchdog evictions — ` +
+                      "the realm's sync is parked and replacing the client cannot reach it; dropping automatic " +
+                      `probes to one per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one ` +
+                      'succeeds (#777)'
+                  );
+                }
               }
             } else {
               consecutiveWatchdogEvictions = 0;
@@ -309,15 +313,15 @@ export function useSyncTrigger() {
           // The monotonic clock makes that hard to reach; the clamp makes it
           // impossible, and costs nothing when the deadline is sane.
           //
-          // A fused loop keeps ticking at the slowest cadence rather than
-          // stopping dead. Every one of those ticks is a no-op (the guard above
-          // skips the probe), so it costs nothing — but keeping the timer chain
-          // alive means the fuse is a pause the structure can come back from,
-          // not a torn-down loop, and a bug in the fuse condition degrades to
-          // slow syncing instead of none.
+          // A fused loop still probes, just far more slowly — the fuse is a
+          // cadence, applied here rather than as a guard on the probe, so it is
+          // the same kind of thing as a backoff window and recovers the same
+          // way. `Math.max` over the remainder rather than replacing it: a fuse
+          // that blew mid-window must not SHORTEN a wait the breaker had
+          // already decided on.
           const backoffRemainingMs =
             syncBackoffUntilMs === null ? 0 : Math.min(syncBackoffUntilMs - monotonicNowMs(), MAX_SYNC_BACKOFF_MS);
-          const idleMs = autoProbeFused ? MAX_SYNC_BACKOFF_MS : Math.max(SYNC_INTERVAL_MS, backoffRemainingMs);
+          const idleMs = Math.max(autoProbeFused ? FUSED_SYNC_PROBE_INTERVAL_MS : SYNC_INTERVAL_MS, backoffRemainingMs);
           const delay = retryAfterCurrentRun ? 0 : idleMs;
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);
@@ -327,7 +331,6 @@ export function useSyncTrigger() {
 
     const retryNow = () => {
       if (cancelled) return;
-      forceNextRun = true;
       if (isRunning) {
         retryAfterCurrentRun = true;
         return;
