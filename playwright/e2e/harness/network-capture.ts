@@ -3,6 +3,7 @@ import type { BrowserContext, Page, Request, Response as PwResponse, Worker } fr
 import type { FetchFaultWire } from './network-faults';
 import type { TimelineRecorder } from './timeline-recorder';
 import type { NetworkCategory } from './types';
+import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
 
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
   rpc: /rpc\.(testnet|devnet)\.miden\.io|localhost:57291/,
@@ -83,6 +84,10 @@ export function attachNetworkCapture(
       const response = await request.response();
       const status = response?.status() ?? 0;
       const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
+      // Identity of the notes this push carried. Without it the timeline can say a
+      // SendNote happened but not WHICH note, which is precisely what a
+      // silently-undelivered note needs in order to be correlated after the fact.
+      const sentNotes = category === 'transport' && isSendNoteUrl(url) ? decodeSendNoteBody(request.postDataBuffer()) : [];
 
       timeline.emit({
         category: 'network_request',
@@ -95,6 +100,7 @@ export function attachNetworkCapture(
           status,
           responseBody,
           networkCategory: category,
+          ...(sentNotes.length > 0 ? { sentNotes } : {}),
           timing: request.timing(),
           source: 'page'
         }
@@ -171,6 +177,7 @@ export async function attachServiceWorkerFetchCapture(
         const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
         const status: number = parsed.status ?? 0;
         const err: string | undefined = parsed.err;
+        const sentNotes = decodeSendNoteBase64(parsed.reqBody);
         if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
           // eslint-disable-next-line no-console
           console.log(
@@ -192,6 +199,7 @@ export async function attachServiceWorkerFetchCapture(
             durationMs: parsed.durationMs,
             err,
             networkCategory: parsed.category,
+            ...(sentNotes.length > 0 ? { sentNotes } : {}),
             source: 'service_worker'
           }
         });
@@ -277,7 +285,31 @@ export async function attachServiceWorkerFetchCapture(
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
-          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm }));
+          // Carry the request body for transport pushes ONLY. It is the sole way to
+          // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
+          // other category would add real log volume for no diagnostic gain.
+          let reqBody: string | undefined;
+          try {
+            if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url) && init?.body) {
+              const raw = init.body;
+              const bytes =
+                raw instanceof Uint8Array
+                  ? raw
+                  : raw instanceof ArrayBuffer
+                    ? new Uint8Array(raw)
+                    : ArrayBuffer.isView(raw)
+                      ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+                      : undefined;
+              if (bytes && bytes.length <= 8192) {
+                let bin = '';
+                for (const b of bytes) bin += String.fromCharCode(b);
+                reqBody = btoa(bin);
+              }
+            }
+          } catch {
+            // capture is diagnostic; never let it disturb the fetch it wraps
+          }
+          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody }));
           return res;
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
