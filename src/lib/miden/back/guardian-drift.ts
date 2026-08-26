@@ -6,9 +6,14 @@ import { midenClientProxy } from './miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
 
 interface GuardianDriftVault {
-  getAccount(
-    pk: string
-  ): Promise<{ guardianOperatorCommitment?: string; guardianSyncStatus?: GuardianSyncStatus } | undefined>;
+  getAccount(pk: string): Promise<
+    | {
+        guardianEndpoint?: string;
+        guardianOperatorCommitment?: string;
+        guardianSyncStatus?: GuardianSyncStatus;
+      }
+    | undefined
+  >;
   setGuardianEndpoint(pk: string, endpoint: string): Promise<unknown>;
   setGuardianOperatorCommitment(pk: string, commitment: string): Promise<unknown>;
   setGuardianSyncStatus(pk: string, status: GuardianSyncStatus): Promise<unknown>;
@@ -71,6 +76,26 @@ export async function resolveGuardianDrift(
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
     await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
     return { status: 'in-sync', changed: true };
+  }
+
+  // Not a built-in operator — but before asking the user for a URL, check the
+  // one already STORED on the account. A deliberate in-wallet switch to a
+  // custom operator persists the new endpoint (completeSwitchGuardianTransaction
+  // → setGuardianEndpoint) but nothing advances the commitment baseline, so
+  // this tick sees "drift" for a switch the user just completed and flagged
+  // every custom-URL rotation `needs-user-input`. If the stored endpoint's own
+  // pubkey commitment matches on-chain, the account is already pointed at the
+  // right guardian: affirm in-sync and advance the baseline (same write order
+  // as the branches above). Only a stored endpoint that DOESN'T match — a
+  // genuine out-of-band switch to an unknown operator — falls through to the
+  // banner.
+  if (account.guardianEndpoint) {
+    const storedEndpointMatches = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
+    if (storedEndpointMatches) {
+      await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+      await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
+      return { status: 'in-sync', changed: true };
+    }
   }
 
   await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');

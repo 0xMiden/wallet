@@ -66,13 +66,14 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  */
 export const isGuardianUnreachableError = (err: unknown): boolean => {
   if (isLikelyNetworkError(err)) return true;
-  // A gateway/proxy 5xx without a parsed guardian error body also means the
-  // guardian itself could not be reached. Duck-typed like the other guardian
-  // error checks (see isGuardianAuthRejection) so it survives duplicate-package
-  // error-class instances.
+  // Any 5xx also counts as the guardian being effectively down: a gateway/proxy
+  // 502-504 means it could not be reached, and a 500 from the guardian itself
+  // means the operator is crashing — either way it cannot serve the account.
+  // Duck-typed like the other guardian error checks (see isGuardianAuthRejection)
+  // so it survives duplicate-package error-class instances.
   if (typeof err !== 'object' || err === null) return false;
   const status = 'status' in err ? err.status : undefined;
-  return status === 502 || status === 503 || status === 504;
+  return typeof status === 'number' && status >= 500 && status <= 599;
 };
 
 const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);

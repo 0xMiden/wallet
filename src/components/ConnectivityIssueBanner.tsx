@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useMemo } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -6,18 +6,29 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { ConnectivityCategory } from 'lib/miden/activity/connectivity-state';
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
+import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
-import { getIntercom } from 'lib/store';
+import { getIntercom, useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 
 export interface ConnectivityIssueBannerProps {
   className?: string;
 }
 
+/**
+ * `guardian` is a banner-local category, NOT part of the shared
+ * connectivity-state snapshot: the outage flag lives in guardian-sync's own
+ * realm-local subscription (the sync loop and this banner share the frontend
+ * realm), so routing it through the SW-owned snapshot would only add a
+ * cross-realm writer to a key with single-writer rules.
+ */
+type BannerCategory = ConnectivityCategory | 'guardian';
+
 interface BannerView {
-  category: ConnectivityCategory;
+  category: BannerCategory;
   iconName: IconName;
   iconColor: string;
   titleKey: string;
@@ -31,23 +42,30 @@ interface BannerView {
  * at once (e.g. node down + prover down) but a stack of three banners is
  * worse UX than picking the most actionable one. Priority:
  *
- *   network > node > prover > resolving
+ *   network > node > guardian > prover > resolving
  *
  * Reasoning: if the user is offline, fixing that fixes everything else, so
  * surface that. If the node is unreachable, that masks the prover signal
- * (we can't know prover health if we can't sync). Prover is the lowest hard
- * category — it just means transactions go local, which still works.
- * `resolving` only renders when nothing else is active.
+ * (we can't know prover health if we can't sync) — and the guardian signal
+ * too, since guardian sync fails on a dead node as well. A down guardian
+ * outranks the prover: it blocks every co-signed transaction and has a real
+ * remedy (switch operators), while a prover failure just means transactions
+ * go local, which still works. `resolving` only renders when nothing else is
+ * active.
  */
-function pickActiveCategory(state: ReturnType<typeof useConnectivityState>['state']): ConnectivityCategory | null {
+function pickActiveCategory(
+  state: ReturnType<typeof useConnectivityState>['state'],
+  guardianDown: boolean
+): BannerCategory | null {
   if (state.network.active) return 'network';
   if (state.node.active) return 'node';
+  if (guardianDown) return 'guardian';
   if (state.prover.active) return 'prover';
   if (state.resolving.active) return 'resolving';
   return null;
 }
 
-const VIEWS: Record<ConnectivityCategory, BannerView> = {
+const VIEWS: Record<BannerCategory, BannerView> = {
   network: {
     category: 'network',
     iconName: IconName.WarningFill,
@@ -63,6 +81,18 @@ const VIEWS: Record<ConnectivityCategory, BannerView> = {
     titleKey: 'connectivityNodeTitle',
     bodyKey: 'connectivityNodeBody',
     ctaKey: 'connectivityRetrySync'
+  },
+  guardian: {
+    category: 'guardian',
+    iconName: IconName.WarningFill,
+    iconColor: '#FEA644',
+    titleKey: 'connectivityGuardianTitle',
+    bodyKey: 'connectivityGuardianBody',
+    // Routes to Rotate Guardian rather than retrying: the flag only arms after
+    // the sync loop has already retried past its threshold, and the direct
+    // on-chain switch fallback makes the rotation work while the operator is
+    // down. The flag self-clears the moment the guardian answers again.
+    ctaKey: 'connectivityGuardianCta'
   },
   prover: {
     category: 'prover',
@@ -86,11 +116,32 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
   const { t } = useTranslation();
   const { state, dismiss } = useConnectivityState();
 
-  const active = useMemo(() => pickActiveCategory(state), [state]);
+  // Guardian-outage flag for the CURRENT account, live from the sync loop
+  // (armed after a threshold of consecutive server-down sync failures, cleared
+  // by any guardian response — see guardian-sync.ts). Dismissal is
+  // session-local: the flag clearing resets it, so a NEW outage re-surfaces
+  // the banner rather than inheriting an old dismiss.
+  const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
+  const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
+  );
+  const [guardianDismissed, setGuardianDismissed] = useState(false);
+  useEffect(() => {
+    if (!guardianOutage) setGuardianDismissed(false);
+  }, [guardianOutage]);
+
+  const active = useMemo(
+    () => pickActiveCategory(state, guardianOutage && !guardianDismissed),
+    [guardianDismissed, guardianOutage, state]
+  );
   const view = active ? VIEWS[active] : null;
 
-  const onRetry = useCallback(() => {
+  const onCta = useCallback(() => {
     hapticLight();
+    if (view?.category === 'guardian') {
+      navigate('/rotate-guardian');
+      return;
+    }
     if (!isExtension()) {
       requestImmediateSync();
       return;
@@ -100,11 +151,15 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
     void getIntercom()
       .request({ type: WalletMessageType.SyncRequest, force: true })
       .catch(() => {});
-  }, []);
+  }, [view]);
 
   const onDismiss = useCallback(() => {
     if (!view) return;
     hapticLight();
+    if (view.category === 'guardian') {
+      setGuardianDismissed(true);
+      return;
+    }
     dismiss(view.category);
   }, [dismiss, view]);
 
@@ -125,7 +180,7 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
       {view.ctaKey && (
         <button
           type="button"
-          onClick={onRetry}
+          onClick={onCta}
           className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100"
         >
           {t(view.ctaKey)}

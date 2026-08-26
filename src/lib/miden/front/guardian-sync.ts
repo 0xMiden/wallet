@@ -1,5 +1,6 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -84,6 +85,70 @@ const rateLimitedUntil = new Map<string, number>();
 export const SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS = 30_000;
 /** Ceiling on a server-provided cooldown, so one bad header can't park syncing. */
 export const SYNC_RATE_LIMIT_MAX_COOLDOWN_MS = 120_000;
+
+// --- Guardian sync outage (server unreachable / 5xx) -------------------------
+//
+// Consecutive sync failures that classify as the guardian being DOWN
+// (connection refused / DNS / timeout, or any 5xx — `isGuardianUnreachableError`)
+// arm a per-account outage flag once they cross the threshold. The home view
+// subscribes to it and surfaces a "guardian unreachable" prompt whose CTA
+// routes to Rotate Guardian — the direct on-chain switch fallback
+// (guardian/direct-switch.ts) makes that rotation work even while the outgoing
+// guardian stays down. Any response that proves the server is ALIVE — a
+// successful sync, a 401, a 429 — clears the flag; a non-server error (e.g. a
+// local WASM failure) resets only the count, so one interleaved local hiccup
+// mid-outage doesn't flap the banner off while the server is still down.
+//
+// Session-local by design: the counter rebuilds in ~threshold × 3s after a
+// popup reopen, and a stale flag can't outlive the outage it described.
+
+/** Consecutive down-classified sync failures before the outage flag arms (~3s ticks). */
+export const GUARDIAN_SYNC_OUTAGE_THRESHOLD = 6;
+
+const consecutiveServerFailures = new Map<string, number>();
+const outageAccounts = new Set<string>();
+const outageListeners = new Set<() => void>();
+
+const notifyOutageListeners = (): void => {
+  for (const listener of outageListeners) listener();
+};
+
+/** Subscribe to outage-flag changes (useSyncExternalStore-compatible). */
+export function subscribeGuardianSyncOutage(listener: () => void): () => void {
+  outageListeners.add(listener);
+  return () => {
+    outageListeners.delete(listener);
+  };
+}
+
+/** Is this account's guardian currently flagged as down? */
+export function isGuardianSyncOutage(accountPublicKey: string): boolean {
+  return outageAccounts.has(accountPublicKey);
+}
+
+function recordGuardianServerFailure(accountPublicKey: string): void {
+  const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
+  consecutiveServerFailures.set(accountPublicKey, fails);
+  if (fails >= GUARDIAN_SYNC_OUTAGE_THRESHOLD && !outageAccounts.has(accountPublicKey)) {
+    console.warn(
+      `[Guardian Sync] guardian unreachable for ${accountPublicKey} (${fails} consecutive failures) — surfacing the switch-guardian prompt`
+    );
+    outageAccounts.add(accountPublicKey);
+    notifyOutageListeners();
+  }
+}
+
+/** The server answered (success, 401, 429) — it is alive, so the outage is over. */
+function clearGuardianServerFailures(accountPublicKey: string): void {
+  consecutiveServerFailures.delete(accountPublicKey);
+  if (outageAccounts.delete(accountPublicKey)) notifyOutageListeners();
+}
+
+/** Test-only: reset the outage tracking between cases. */
+export function __resetGuardianSyncOutageForTest(): void {
+  consecutiveServerFailures.clear();
+  outageAccounts.clear();
+}
 
 /**
  * Re-register the account's CURRENT on-chain signer set on the guardian,
@@ -208,9 +273,10 @@ export async function syncGuardianAccounts(): Promise<void> {
 
       // Sync succeeded → the account is authorized; clear any accumulated
       // self-heal state so a future divergence starts its persistence count
-      // fresh.
+      // fresh, and stand down the guardian-unreachable prompt.
       consecutiveAuthFailures.delete(account.publicKey);
       selfHealState.delete(account.publicKey);
+      clearGuardianServerFailures(account.publicKey);
 
       // Best-effort: a drift-check failure must never break the sync loop.
       await useWalletStore
@@ -250,6 +316,8 @@ export async function syncGuardianAccounts(): Promise<void> {
       // to repair a genuinely-stale allowlist, and only a bounded number of
       // times.
       if (isGuardianAuthRejection(error)) {
+        // A 401 is the server answering — the guardian is up.
+        clearGuardianServerFailures(account.publicKey);
         clearGuardianServiceFor(account.publicKey);
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
@@ -261,8 +329,10 @@ export async function syncGuardianAccounts(): Promise<void> {
         }
       } else if (isGuardianRateLimited(error)) {
         // Back off for as long as the guardian asked, and say so once rather than
-        // every 3s. A 429 is not an auth problem, so the failure count resets.
+        // every 3s. A 429 is not an auth problem, so the failure count resets —
+        // and it proves the server is up, so the outage flag clears too.
         consecutiveAuthFailures.delete(account.publicKey);
+        clearGuardianServerFailures(account.publicKey);
         const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
         const cooldown = Math.min(
           Math.max(askedMs, SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS),
@@ -274,8 +344,18 @@ export async function syncGuardianAccounts(): Promise<void> {
         );
         continue;
       } else {
-        // Non-auth error (e.g. network) — don't accumulate auth-failure count.
+        // Non-auth error — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);
+        if (isGuardianUnreachableError(error)) {
+          // Server down (connection refused / timeout / 5xx): count it toward
+          // the outage threshold that surfaces the switch-guardian prompt.
+          recordGuardianServerFailure(account.publicKey);
+        } else {
+          // A local failure (e.g. WASM) says nothing about the server: reset
+          // the consecutive count, but keep an already-armed outage flag —
+          // only a response from the guardian clears it.
+          consecutiveServerFailures.delete(account.publicKey);
+        }
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }

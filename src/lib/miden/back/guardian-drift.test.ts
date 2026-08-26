@@ -141,6 +141,43 @@ it('flags needs-user-input when no built-in operator matches', async () => {
   expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
+it('affirms in-sync when the STORED endpoint matches on-chain — a deliberate custom-URL switch must not flag needs-user-input', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(true);
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://custom.guardian'
+  });
+  const order = trackWriteOrder(vault);
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+
+  expect(verifyEndpointMatchesCommitment).toHaveBeenCalledWith('https://custom.guardian', 'customC');
+  // Endpoint is already correct — only status + baseline are written, in that
+  // order (commitment LAST, mirroring the other branches).
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+  expect(order).toEqual(['status:resolving', 'status:in-sync', 'commitment']);
+});
+
+it('still flags needs-user-input when the stored endpoint does NOT match on-chain (genuine out-of-band switch)', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(false);
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://stale.guardian'
+  });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
+
+  expect(verifyEndpointMatchesCommitment).toHaveBeenCalledWith('https://stale.guardian', 'customC');
+  expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'needs-user-input');
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+});
+
 it('returns in-sync without any reads or writes when the account is not in the vault', async () => {
   const vault = makeVault(undefined);
 

@@ -8,7 +8,15 @@
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
-import { SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, syncGuardianAccounts, zustandProvider } from './guardian-sync';
+import {
+  __resetGuardianSyncOutageForTest,
+  GUARDIAN_SYNC_OUTAGE_THRESHOLD,
+  isGuardianSyncOutage,
+  subscribeGuardianSyncOutage,
+  SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
+  syncGuardianAccounts,
+  zustandProvider
+} from './guardian-sync';
 
 const storeState: {
   accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean; hotPublicKey?: string }>;
@@ -529,5 +537,102 @@ describe('syncGuardianAccounts — 429 back-off', () => {
     }
     expect(mockReRegister).not.toHaveBeenCalled();
     nowSpy.mockRestore();
+  });
+});
+
+describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
+  const guardianAccount = (publicKey: string) => ({ publicKey, type: WalletType.Guardian, hotPublicKey: 'hot' });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    __resetGuardianSyncOutageForTest();
+    storeState.accounts = [];
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+  });
+
+  const runSyncs = async (times: number) => {
+    for (let i = 0; i < times; i++) await syncGuardianAccounts();
+  };
+
+  it('arms only after the threshold of consecutive server-down failures, and clears on the next success', async () => {
+    const pk = 'outage-arm-clear';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD - 1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    sync.mockResolvedValue(undefined);
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+  });
+
+  it('counts a 5xx response as the guardian being down', async () => {
+    const pk = 'outage-5xx';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn().mockRejectedValue(Object.assign(new Error('internal server error'), { status: 500 }))
+    });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+  });
+
+  it('a 401 proves the server is up — it never arms the outage and clears an armed one', async () => {
+    const pk = 'outage-401';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    sync.mockRejectedValue(Object.assign(new Error('nope'), { __authRejection: true }));
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+  });
+
+  it('a local (non-server) failure resets the consecutive count so mixed errors never arm it', async () => {
+    const pk = 'outage-mixed';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD - 1);
+    sync.mockRejectedValue(new Error('recursive use of an object')); // local WASM failure
+    await runSyncs(1);
+    sync.mockRejectedValue(new Error('Failed to fetch'));
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD - 1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+  });
+
+  it('notifies subscribers when the flag arms and when it clears', async () => {
+    const pk = 'outage-subscribe';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    const listener = jest.fn();
+    const unsubscribe = subscribeGuardianSyncOutage(listener);
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    sync.mockResolvedValue(undefined);
+    await runSyncs(1);
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    sync.mockRejectedValue(new Error('Failed to fetch'));
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });

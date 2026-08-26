@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
@@ -40,11 +40,27 @@ jest.mock('lib/miden/front/useSyncTrigger', () => ({
 
 // The SW poke goes through the store's intercom client. Expose a spyable
 // `request` so we can assert the SyncRequest payload and drive its resolve /
-// reject paths.
+// reject paths. `useWalletStore` feeds the current-account pubkey the
+// guardian-outage lookup keys on.
 const mockRequest = jest.fn();
 jest.mock('lib/store', () => ({
-  getIntercom: () => ({ request: mockRequest })
+  getIntercom: () => ({ request: mockRequest }),
+  useWalletStore: (selector: (s: { currentAccount: { publicKey: string } }) => unknown) =>
+    selector({ currentAccount: { publicKey: 'acct-1' } })
 }));
+
+// Guardian-outage flag: a mutable holder so tests can arm/clear it and fire
+// the subscription like the real sync loop does.
+const guardianOutage = { accounts: new Set<string>(), listeners: new Set<() => void>() };
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  isGuardianSyncOutage: (pk: string) => guardianOutage.accounts.has(pk),
+  subscribeGuardianSyncOutage: (listener: () => void) => {
+    guardianOutage.listeners.add(listener);
+    return () => guardianOutage.listeners.delete(listener);
+  }
+}));
+
+jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 // Message-type enum: only `SyncRequest` is referenced by the component.
 jest.mock('lib/shared/types', () => ({
@@ -106,6 +122,8 @@ function setState(active: Partial<Record<Category, boolean>> = {}) {
 describe('ConnectivityIssueBanner', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    guardianOutage.accounts.clear();
+    guardianOutage.listeners.clear();
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
     setState({});
@@ -178,6 +196,62 @@ describe('ConnectivityIssueBanner', () => {
     setState({ prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-prover')).toBeInTheDocument();
+  });
+
+  // -- guardian outage ------------------------------------------------------
+  it('renders the guardian banner with the Switch Guardian CTA when the current account is flagged', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.getByText('connectivityGuardianTitle')).toBeInTheDocument();
+    expect(screen.getByText('connectivityGuardianBody')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'connectivityGuardianCta' }));
+    expect(mockHapticLight).toHaveBeenCalled();
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/rotate-guardian');
+    // The guardian CTA is a route, never a sync poke.
+    expect(mockRequestImmediateSync).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not render the guardian banner for an outage on a DIFFERENT account', () => {
+    guardianOutage.accounts.add('someone-else');
+    const { container } = render(<ConnectivityIssueBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('node outranks guardian (a dead node masks the guardian signal); guardian outranks prover', () => {
+    guardianOutage.accounts.add('acct-1');
+    setState({ node: true, prover: true });
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-node')).toBeInTheDocument();
+
+    setState({ prover: true });
+    guardianOutage.listeners.forEach(listener => listener());
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('guardian dismiss is banner-local (no shared-category dismiss) and the banner clears with the flag', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  it('clears the guardian banner when the sync loop stands the flag down', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
   });
 
   // -- onRetry --------------------------------------------------------------
