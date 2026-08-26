@@ -45,12 +45,19 @@ export function extractSdkErrorCode(err: unknown): string | undefined {
 const MAX_CAUSE_DEPTH = 5;
 
 /**
- * Flattens an error's own message plus its `cause` chain into one string, so a
- * text match still fires when the SDK error has been wrapped (the offscreen bus
- * re-wraps it as `Offscreen call 'X' failed: <message>`, and callers may attach
- * a cause).
+ * An error's own message plus each message down its `cause` chain, one entry per
+ * link and in order, so a text match still fires when the SDK error has been
+ * wrapped (the offscreen bus re-wraps it as `Offscreen call 'X' failed:
+ * <message>`, and callers may attach a cause).
+ *
+ * Kept as separate entries rather than joined into one blob because it matters,
+ * for some classifiers, WHICH link a phrase came from: a classifier requiring
+ * two phrases can be satisfied by two unrelated errors once they are joined,
+ * assembling a match that describes no single failure. A single-phrase
+ * classifier can use `.some()` over these just as safely, so nothing needs the
+ * joined form.
  */
-function errorMessageChain(err: unknown): string {
+export function errorMessageParts(err: unknown): string[] {
   const parts: string[] = [];
   let current: unknown = err;
   for (let depth = 0; depth <= MAX_CAUSE_DEPTH && current != null; depth++) {
@@ -60,10 +67,29 @@ function errorMessageChain(err: unknown): string {
     }
     if (typeof current !== 'object') break;
     const node = current as { message?: unknown; cause?: unknown };
-    if (typeof node.message === 'string') parts.push(node.message);
-    current = node.cause;
+    // Property reads are guarded: `message`/`cause` can be accessors, and a
+    // classifier that throws while classifying an error turns a handled failure
+    // into an unhandled one at the worst possible moment.
+    let message: unknown;
+    try {
+      message = node.message;
+    } catch {
+      message = undefined;
+    }
+    if (typeof message === 'string') parts.push(message);
+    // Read separately from `message`: sharing one guard would let a throwing
+    // `cause` discard the message this node already yielded, so an error that
+    // classifies perfectly well on its own text would stop being recognised
+    // because of a property nothing has looked at yet.
+    let cause: unknown;
+    try {
+      cause = node.cause;
+    } catch {
+      break;
+    }
+    current = cause;
   }
-  return parts.join(' | ');
+  return parts;
 }
 
 /**
@@ -95,5 +121,14 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   // submitted (issue #775). Checked first, mirroring isLockedError.
   if (isWasmClientPoisonedError(err)) return false;
   if (extractSdkErrorCode(err) === 'ApplyTransactionAfterSubmitFailed') return true;
-  return /accepted into the node's mempool[\s\S]*local store update failed/i.test(errorMessageChain(err));
+  // Both phrases must come from the SAME error in the chain, not from the
+  // flattened join. On the flattened form the `[\s\S]*` spans the separator, so
+  // a wrapper contributing "accepted into the node's mempool" and an unrelated
+  // inner error contributing "local store update failed" assemble a match out of
+  // two errors that never described one event — and this classifier's verdict is
+  // that the write DID reach the chain, which marks the row Completed. A
+  // never-submitted write reported as success is the worse direction of the two.
+  return errorMessageParts(err).some(part =>
+    /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
+  );
 }

@@ -298,14 +298,19 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     nothing. This is the state the wallet previously had no way
  *                     to represent, which is why an interrupted relay was
  *                     indistinguishable from a successful one.
- *   - `relayed`     — the transport ACCEPTED the note. Deliberately not terminal:
- *                     an accepted note is not a received one. The transport hands
- *                     back an opaque pagination cursor that the recipient persists
- *                     verbatim, so a cursor that advances past a stored note makes
- *                     it unreachable for that recipient forever, with the send
- *                     reporting success (note-transport-service#77). `relayed`
- *                     therefore means "believed to be in flight" and keeps the row
- *                     eligible for the re-push sweep.
+ *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
+ *                     the push, or it rejected a re-push as a duplicate, which is
+ *                     itself evidence the body is already there. Deliberately not
+ *                     terminal, for two separate reasons. An empty
+ *                     `SendNoteResponse` means acceptance is not proof of storage, so
+ *                     the row stays eligible for the re-push sweep, which tests
+ *                     exactly that. And even a genuinely stored note can be
+ *                     unreachable: the recipient's opaque pagination cursor never
+ *                     goes back, so one that advanced past the note leaves it
+ *                     invisible forever (note-transport-service#77) — a case NO
+ *                     re-push can repair (see `note-delivery-sweep.ts`) and only the
+ *                     nullifier can settle. `relayed` therefore means "believed to be
+ *                     in flight", never "delivered".
  *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
@@ -370,19 +375,46 @@ export interface ITransaction {
    * screen derives per-step durations from these persisted stamps rather than
    * observing live `stage` transitions — a Dexie `liveQuery` coalesces rapid
    * adjacent stage writes, which would otherwise drop a step's start/end and
-   * leave its duration blank. First-entry-wins: a stage re-set on requeue keeps
-   * the original entry time (the meaningful boundary for step timing).
+   * leave its duration blank. First-entry-wins WITHIN one attempt: a stage
+   * re-entered during the same run keeps its original entry time (the meaningful
+   * boundary for step timing). A requeue clears the whole map, so the next
+   * attempt records its own boundaries rather than the first attempt's.
    */
   stageTimestamps?: Partial<Record<ITransactionStage, number>>;
   /**
    * Earliest time (unix seconds) this Queued tx may be re-selected by the
-   * processing loop. Set when a transient guardian pending-delta 409 requeues
-   * the tx, so a persistently-conflicting op backs off and yields its slot to
-   * other accounts instead of being re-picked every cycle as the oldest row
-   * (head-of-line starvation). Absent ⇒ always eligible (backward compatible);
+   * processing loop. Set by every arm that requeues rather than fails — the
+   * guardian pending-delta 409, a 429 rate limit, a remote-prover outage, a
+   * locked-wallet deferral and an unauthorized-at-execution retry — so a
+   * persistently-conflicting op backs off and yields its slot to other accounts
+   * instead of being re-picked every cycle as the oldest row (head-of-line
+   * starvation). Absent ⇒ always eligible (backward compatible);
    * `MAX_QUEUED_AGE` remains the terminal cap.
    */
   nextEligibleAt?: number;
+  /**
+   * Deadline (unix seconds) after which an execution-`unauthorized` guardian
+   * failure stops being retried and becomes terminal. Stamped on the FIRST such
+   * requeue and never RESTARTED by a later one, so the budget covers the whole
+   * retry sequence rather than renewing each cycle.
+   *
+   * It is not fixed, though: a requeue down an UNRELATED arm (409, 429, prover
+   * outage) pushes it out by that arm's own cooldown. The budget is a wall clock
+   * and those waits are not retry attempts, so charging them against it would
+   * let a single rate limit — which can park a row for 300s, longer than the
+   * whole budget — leave a row with nothing left for its next genuine race. So
+   * the floor is the budget; the ceiling is the budget plus whatever unrelated
+   * backoff the row waited out, and `MAX_QUEUED_AGE` from `initiatedAt` remains
+   * the terminal cap above both.
+   *
+   * Deliberately its own field rather than an offset from `initiatedAt`: that
+   * clock starts at ENQUEUE, so a row that waited behind a deep queue — the
+   * sustained-load case this retry exists for — would arrive with its whole
+   * budget already spent and never retry at all. An absolute deadline also
+   * avoids comparing against a timestamp whose unit or origin the row does not
+   * control. Absent ⇒ not yet retried for this reason (backward compatible).
+   */
+  unauthorizedRetryUntil?: number;
   /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
@@ -406,13 +438,11 @@ export interface ITransaction {
   /**
    * Earliest time (unix seconds) the sweep may re-push this row's private note.
    *
-   * A re-push is worth doing because the transport stores notes with an
-   * append-only insert — no upsert, no dedupe by note id — so every push lands a
-   * row with a FRESH cursor position, which is by construction above whatever
-   * cursor the recipient has already persisted. That makes a re-push the direct
-   * antidote to a note the recipient's cursor skipped, and it costs the
-   * recipient nothing: imports dedupe on the details commitment, so a note they
-   * already hold is a no-op.
+   * Spread wide on purpose. Stamped from the clock at write time rather than from
+   * when the sweep began, except for the first arming, which is measured from the
+   * original relay (`completedAt`) so a row first seen long afterwards does not have
+   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
+   * outcome does and does not prove.
    */
   nextRelayAt?: number;
   /**

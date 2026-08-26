@@ -2,19 +2,37 @@ import type { BrowserContext, Page, Request, Response as PwResponse, Worker } fr
 
 import type { FetchFaultWire } from './network-faults';
 import type { TimelineRecorder } from './timeline-recorder';
+import { decodeSendNoteBase64, decodeSendNoteBody, isSendNoteUrl } from './transport-wire';
 import type { NetworkCategory } from './types';
 
+/**
+ * How a URL is classified into a network category.
+ *
+ * The transport arm matches the gRPC SERVICE PATH from its proto
+ * (`package miden_note_transport; service MidenNoteTransport`) rather than a host,
+ * so capture follows the service wherever it is pointed.
+ * A host list cannot: `MIDEN_NOTE_TRANSPORT_URL` is a build-time override, so the
+ * endpoint is whatever the build baked, and traffic to an unlisted host is
+ * classified `other` and dropped with no signal that anything went unrecorded.
+ *
+ * That is not hypothetical. The localnet transport is configured as
+ * `http://127.0.0.1:57292` (`environments.ts`, `networks-config.ts`) while this
+ * list only ever named `localhost:57292` — so transport was the ONE category
+ * silently uncaptured on localnet, since rpc and prover happen to be configured as
+ * `localhost` and matched. Both spellings are now accepted as a fallback, but the
+ * path is what makes the classification robust.
+ */
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
-  rpc: /rpc\.(testnet|devnet)\.miden\.io|localhost:57291/,
-  transport: /transport\.miden\.io|localhost:57292/,
-  prover: /tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/,
+  rpc: /rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/,
+  transport: /miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/,
+  prover: /tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/,
   other: /.*/
 };
 
 /** Prefix used by the SW fetch wrapper so the console stream can be demuxed. */
 export const SW_FETCH_LOG_PREFIX = '[E2E_NET] ';
 
-function classifyUrl(url: string): NetworkCategory {
+export function classifyUrl(url: string): NetworkCategory {
   for (const [category, pattern] of Object.entries(ENDPOINT_PATTERNS)) {
     if (category !== 'other' && pattern.test(url)) {
       return category as NetworkCategory;
@@ -23,7 +41,7 @@ function classifyUrl(url: string): NetworkCategory {
   return 'other';
 }
 
-function isMidenRelated(url: string): boolean {
+export function isMidenRelated(url: string): boolean {
   return classifyUrl(url) !== 'other';
 }
 
@@ -83,6 +101,11 @@ export function attachNetworkCapture(
       const response = await request.response();
       const status = response?.status() ?? 0;
       const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
+      // Identity of the notes this push carried. Without it the timeline can say a
+      // SendNote happened but not WHICH note, which is precisely what a
+      // silently-undelivered note needs in order to be correlated after the fact.
+      const sentNotes =
+        category === 'transport' && isSendNoteUrl(url) ? decodeSendNoteBody(request.postDataBuffer()) : [];
 
       timeline.emit({
         category: 'network_request',
@@ -95,6 +118,7 @@ export function attachNetworkCapture(
           status,
           responseBody,
           networkCategory: category,
+          ...(sentNotes.length > 0 ? { sentNotes } : {}),
           timing: request.timing(),
           source: 'page'
         }
@@ -171,6 +195,14 @@ export async function attachServiceWorkerFetchCapture(
         const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
         const status: number = parsed.status ?? 0;
         const err: string | undefined = parsed.err;
+        // Gated the same way as the page-side decode above. The producer only ever
+        // sets `reqBody` for a transport SendNote today, but `decodeSendNoteBody`
+        // accepts any message shaped like one, so without this gate widening the
+        // producer would start fabricating `sentNotes` on unrelated traffic.
+        const sentNotes =
+          parsed.category === 'transport' && isSendNoteUrl(String(parsed.url ?? ''))
+            ? decodeSendNoteBase64(parsed.reqBody)
+            : [];
         if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
           // eslint-disable-next-line no-console
           console.log(
@@ -192,6 +224,7 @@ export async function attachServiceWorkerFetchCapture(
             durationMs: parsed.durationMs,
             err,
             networkCategory: parsed.category,
+            ...(sentNotes.length > 0 ? { sentNotes } : {}),
             source: 'service_worker'
           }
         });
@@ -217,13 +250,20 @@ export async function attachServiceWorkerFetchCapture(
       g.__e2e_fetch_wrapped = true;
 
       const origFetch: typeof fetch = g.fetch.bind(g);
+      // Mirrors ENDPOINT_PATTERNS / classifyUrl in this module, which is the
+      // canonical copy — this runs as source text inside evaluate() and cannot
+      // import it. Keep the two in step; `network-capture.test.ts` pins the
+      // behaviour they must agree on. The transport arm matches the gRPC SERVICE
+      // PATH rather than a host, so capture follows a build-time
+      // MIDEN_NOTE_TRANSPORT_URL override to any host or port.
       const HOST_PATTERN =
-        /rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|localhost:(57291|57292|5005[12])/;
+        /miden_note_transport\.MidenNoteTransport\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
 
       function classify(url: string): string {
-        if (/rpc\.(testnet|devnet)\.miden\.io|localhost:57291/.test(url)) return 'rpc';
-        if (/tx-prover\.(testnet|devnet)\.miden\.io|localhost:5005[12]/.test(url)) return 'prover';
-        if (/transport\.miden\.io|localhost:57292/.test(url)) return 'transport';
+        if (/rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/.test(url)) return 'rpc';
+        if (/tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/.test(url)) return 'prover';
+        if (/miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(url))
+          return 'transport';
         return 'other';
       }
 
@@ -272,17 +312,84 @@ export async function attachServiceWorkerFetchCapture(
           }
         }
 
-        const start = performance.now();
         const realm = (g.location && g.location.href) || 'unknown';
+
+        // Carry the request body for transport pushes ONLY. It is the sole way to
+        // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
+        // other category would add real log volume for no diagnostic gain.
+        //
+        // The body has to be SECURED before the fetch but READ after it. The SDK's
+        // gRPC-web transport calls `fetch(request, initWithSignal)`, so the body
+        // lives on the Request rather than on `init`, and the fetch disturbs that
+        // stream — hence the `clone()`, which is synchronous and tees the stream so
+        // the bytes stay readable afterwards. Reading it only once the fetch has
+        // settled keeps capture out of the measured `durationMs`; it does NOT keep a
+        // slow read off the caller's critical path, which is what the ceiling in
+        // `encodeBody` is for. The URL pattern mirrors `isSendNoteUrl`, the canonical
+        // copy; this function cannot close over module scope.
+        // Held as `unknown` and narrowed by `instanceof` below on purpose: this file
+        // type-checks with both the DOM and the Node fetch typings in scope, so a
+        // written-out union naming `Request` picks one of the two declarations and
+        // then rejects the other one's `clone()`.
+        let bodySource: unknown;
+        try {
+          if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
+            const isRequest = typeof input !== 'string' && !(input instanceof URL);
+            bodySource = init?.body ?? (isRequest ? input.clone() : undefined);
+          }
+        } catch {
+          // capture is diagnostic; never let it disturb the fetch it wraps
+        }
+
+        const encodeBody = async (): Promise<string | undefined> => {
+          try {
+            if (!bodySource) return undefined;
+            let bytes: Uint8Array | undefined;
+            if (bodySource instanceof Uint8Array) bytes = bodySource;
+            else if (bodySource instanceof ArrayBuffer) bytes = new Uint8Array(bodySource);
+            else if (ArrayBuffer.isView(bodySource))
+              bytes = new Uint8Array(bodySource.buffer, bodySource.byteOffset, bodySource.byteLength);
+            else if (bodySource instanceof Request) {
+              // The only unbounded step here. A buffered body resolves in a
+              // microtask, but a streaming one need never finish arriving, and both
+              // call sites await this between the fetch settling and the wrapper
+              // returning — so an unbounded read would let the capture wedge the
+              // very request it is observing. Give it a ceiling and drop the body.
+              const buffered = await Promise.race([
+                bodySource.arrayBuffer(),
+                new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1000))
+              ]);
+              if (!buffered) return undefined;
+              bytes = new Uint8Array(buffered);
+            }
+            if (!bytes || bytes.length === 0 || bytes.length > 8192) return undefined;
+            let bin = '';
+            for (const b of bytes) bin += String.fromCharCode(b);
+            return btoa(bin);
+          } catch {
+            return undefined;
+          }
+        };
+
+        const start = performance.now();
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
-          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm }));
+          const reqBody = await encodeBody();
+          console.log(
+            prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody })
+          );
           return res;
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
           const errStr = err instanceof Error ? err.message : String(err);
-          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm }));
+          // A push that threw is at least as diagnostic as one that returned 200 —
+          // a real transport failure is exactly when you need to know which note —
+          // so the identity has to ride along here too.
+          const reqBody = await encodeBody();
+          console.log(
+            prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm, reqBody })
+          );
           throw err;
         }
       };

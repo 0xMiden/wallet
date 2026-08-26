@@ -1426,7 +1426,11 @@ describe('generateTransaction — Guardian routing', () => {
         noteType: 'public',
         extraInputs: { recallBlocks: 25 },
         delegateTransaction: true,
-        initiatedAt: Math.floor(Date.now() / 1000)
+        initiatedAt: Math.floor(Date.now() / 1000),
+        // Seeded on the ROW — see the recallable-send case below. Asserting
+        // "undefined after the requeue" against a row that never carried bytes
+        // pins nothing.
+        requestBytes: new Uint8Array([81, 82, 83])
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
@@ -1504,7 +1508,12 @@ describe('generateTransaction — Guardian routing', () => {
         noteType: 'public',
         extraInputs: { recallBlocks: 25 },
         delegateTransaction: false,
-        initiatedAt: Math.floor(Date.now() / 1000)
+        initiatedAt: Math.floor(Date.now() / 1000),
+        // Seeded on the ROW, which is what the clear acts on. Without this the
+        // assertion below ("no bytes after the requeue") is true because the
+        // pipeline never persisted any, so deleting the whole clear leaves this
+        // test green — it would pin nothing.
+        requestBytes: new Uint8Array([91, 92, 93])
       });
 
       mockBuildSendTransactionRequest.mockReturnValue({ serialize: () => requestBytes });
@@ -2718,6 +2727,66 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
+  it('a 429 cooldown does not eat the unauthorized-retry budget it parks on top of', async () => {
+    // The unauthorized budget is a wall clock, so any backoff for an unrelated
+    // reason spends it. That matters here more than anywhere: a rate limit and an
+    // unauthorized race come from the SAME overloaded guardian, so the row that
+    // raced is exactly the row likely to be rate-limited next — and a 429 can
+    // park it for 300s against a 180s budget, leaving nothing for the retry the
+    // budget exists to fund. The deadline moves with the delay.
+    jest.useFakeTimers();
+    try {
+      const txId = 'consume-rate-limited-budget';
+      const deadline = Math.floor(Date.now() / 1000) + 120;
+      txStore.push({
+        id: txId,
+        type: 'consume',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        noteId: 'note-429-budget',
+        unauthorizedRetryUntil: deadline
+      });
+
+      const rateLimited = { status: 429, code: 'rate_limit_exceeded', meta: { retryable: true, retryAfterSecs: 45 } };
+      const multisigService = {
+        createConsumeNotesProposal: jest.fn(async () => {
+          throw rateLimited;
+        }),
+        signAndCreateTransactionRequest: jest.fn(),
+        sync: jest.fn(async () => {})
+      };
+      mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+      mockGetMidenClient.mockResolvedValue({
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+
+      const pending = generateTransaction(
+        {
+          id: txId,
+          type: 'consume',
+          accountId: 'guardian-acc',
+          noteId: 'note-429-budget',
+          delegateTransaction: false
+        } as never,
+        jest.fn(async () => new Uint8Array([1])),
+        false,
+        makeGuardianProvider(true)
+      );
+      await jest.runAllTimersAsync();
+      await pending;
+
+      const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+      expect(row.status).toBe(ITransactionStatus.Queued);
+      // Pushed out by exactly the cooldown this requeue imposes — not left where
+      // it was, and not reset to a fresh window either.
+      expect(Number(row.unauthorizedRetryUntil)).toBe(deadline + 45);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('Guardian replace-hot-key: a 429 is NOT requeued — structural ops must not re-mint a hot key (#617)', async () => {
     // Same exclusion as the 409 case: requeueing a structural op re-runs its
     // proposal creator, which has already minted a hardware hot key.
@@ -2842,6 +2911,79 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row.stage).toBe('submitting');
     expect(row.status).toBe(ITransactionStatus.Failed);
     expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it('Guardian send: an "unauthorized" execution failure requeues instead of failing', async () => {
+    // The guardian co-signs a TransactionSummary bound to the account state and
+    // block commitment it saw. If that state moves before the local
+    // executeRequest recomputes the summary, execution rejects the signature:
+    // "transaction is unauthorized". Execution is where it dies — before prove
+    // and submit — so nothing reached the chain and a fresh proposal against
+    // fresh state succeeds. Terminal-failing loses a recoverable transfer to a
+    // transient race that gets likelier as guardian round-trips slow down.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-unauthorized-at-execute';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.executeRequest.mockRejectedValue(
+      new Error(
+        'failed to execute transaction: transaction execution failed: ' +
+          'transaction is unauthorized with summary TransactionSummary { nonce_delta: 1 }'
+      )
+    );
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    // Prove execution was actually REACHED and that nothing was submitted —
+    // without these the test would pass for any earlier crash.
+    expect(client.transactions.executeRequest).toHaveBeenCalled();
+    expect(client.transactions.submitProven).not.toHaveBeenCalled();
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    expect(row.processingStartedAt).toBeUndefined();
+    expect(typeof row.nextEligibleAt).toBe('number');
     warnSpy.mockRestore();
   });
 

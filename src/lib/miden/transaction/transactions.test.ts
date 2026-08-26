@@ -253,6 +253,39 @@ describe('transactions utilities', () => {
       expect(mockTransactionsWhere).toHaveBeenCalledWith({ id: 'tx-1' });
       expect(mockModify).toHaveBeenCalled();
     });
+
+    it('refuses to fail a row that completed between the read and the write', async () => {
+      // The finalized guard above it is a read in its own Dexie transaction, so
+      // it only rejects a row that was ALREADY terminal. A pipeline that commits
+      // Completed in the gap — a user cancel racing its own finishing send — was
+      // overwritten with Failed, turning a settled send into a reported failure.
+      // The guarded `onlyIfStatus` path cannot cover this: it is the callers that
+      // pass nothing that need it.
+      const dbTx: Record<string, unknown> = {
+        id: 'tx-1',
+        status: ITransactionStatus.Completed,
+        displayIcon: 'SUCCESS'
+      };
+      const mockModify = jest.fn((fn: (t: Record<string, unknown>) => unknown) => fn(dbTx));
+      mockTransactionsWhere
+        .mockReturnValueOnce({
+          first: jest.fn().mockResolvedValueOnce({ id: 'tx-1', status: ITransactionStatus.GeneratingTransaction })
+        })
+        .mockReturnValueOnce({ modify: mockModify });
+
+      const applied = await cancelTransaction({ id: 'tx-1' } as Transaction, new Error('late failure'));
+
+      expect(applied).toBe(false);
+      expect(dbTx.status).toBe(ITransactionStatus.Completed);
+      expect(dbTx.displayIcon).toBe('SUCCESS');
+      expect(dbTx.error).toBeUndefined();
+      // `false`, not a bare `return`. Dexie skips the put on exactly that value
+      // and treats `undefined` as "modified", re-putting the unchanged clone and
+      // firing a `liveQuery` event for a write that changed nothing. Nothing
+      // else can catch that: the clone equals the row, so every field assertion
+      // above passes either way.
+      expect(mockModify.mock.results[0]?.value).toBe(false);
+    });
   });
 
   describe('updateTransactionStatus', () => {
@@ -349,6 +382,38 @@ describe('transactions utilities', () => {
       await expect(updateTransactionStatus('tx-1', ITransactionStatus.Completed, {})).rejects.toThrow(
         'Transaction already in a finalized state'
       );
+    });
+
+    it('refuses to overwrite a row that went terminal between the read and the write', async () => {
+      // The read above and the write below are separate Dexie transactions, and
+      // the terminal writer is no longer always inside the loop lock: the requeue
+      // wake's ceiling can fail a stale row from outside it. Lose that race
+      // without a write-time check and this writes Completed over the Failed —
+      // leaving `error`, `displayIcon: 'FAILED'` and `completedAt` in place,
+      // since nothing on the success path clears them. The user sees a FAILED
+      // icon and an expiry message on a send that actually went through.
+      const row: Record<string, unknown> = { id: 'tx-1', status: ITransactionStatus.GeneratingTransaction };
+      mockTransactionsWhere.mockReturnValueOnce({ first: jest.fn().mockResolvedValueOnce({ ...row }) });
+      let callbackResult: unknown;
+      mockTransactionsWhere.mockReturnValueOnce({
+        modify: jest.fn(async (cb: (t: Record<string, unknown>) => unknown) => {
+          row.status = ITransactionStatus.Failed;
+          row.error = 'Transaction expired';
+          row.displayIcon = 'FAILED';
+          callbackResult = cb(row);
+        })
+      });
+
+      await expect(updateTransactionStatus('tx-1', ITransactionStatus.Completed, {})).rejects.toThrow(
+        'Transaction already in a finalized state'
+      );
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayIcon).toBe('FAILED');
+      // `false`, not a bare `return`: Dexie only skips the put on that exact
+      // value, so a bare return would re-put the clone and fire a `liveQuery`
+      // event for a write that changed nothing. Invisible in the field
+      // assertions above, since the clone matches the row either way.
+      expect(callbackResult).toBe(false);
     });
   });
 
@@ -609,7 +674,10 @@ describe('transactions utilities', () => {
       const modify = jest.fn(async (cb: (t: Record<string, unknown>) => void) => {
         cb(rowRef);
       });
-      const rowRef: Record<string, unknown> = { nextEligibleAt: Math.floor(Date.now() / 1000) + 300 };
+      const rowRef: Record<string, unknown> = {
+        nextEligibleAt: Math.floor(Date.now() / 1000) + 300,
+        unauthorizedRetryUntil: Math.floor(Date.now() / 1000) - 60
+      };
       const backedOff = {
         id: 'backed-off-tx',
         type: 'consume',
@@ -628,6 +696,10 @@ describe('transactions utilities', () => {
       expect(mockTransactionsAdd).not.toHaveBeenCalled();
       expect(modify).toHaveBeenCalled();
       expect(rowRef.nextEligibleAt).toBeUndefined();
+      // Same argument for the unauthorized budget: a row whose window expired
+      // while it sat here would otherwise get no automatic attempt at all on the
+      // retry the user just asked for.
+      expect(rowRef.unauthorizedRetryUntil).toBeUndefined();
     });
 
     it('grows the backoff with each failure: a gap that clears one failure still blocks after several', async () => {

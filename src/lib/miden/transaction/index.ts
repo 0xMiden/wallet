@@ -25,14 +25,16 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { isMobile } from 'lib/platform';
+import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
 
 import {
   cancelStaleQueuedTransactions,
   cancelStuckTransactions,
+  cancelTransaction,
   cancelTransactionAfterPipelineStopped,
+  MAX_QUEUED_AGE,
   verifyConsumeLanded
 } from './cancel';
 import {
@@ -46,9 +48,11 @@ import {
   completeSwitchGuardianTransaction,
   completeUpdateProcedureThresholdTransaction
 } from './complete';
+import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
 import {
   isGuardianCanonicalizationError,
+  isGuardianUnauthorizedExecutionError,
   isLockedError,
   markMayHaveSubmitted,
   readLastAuthReason,
@@ -267,6 +271,85 @@ const RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 30;
 // tx up; MAX_QUEUED_AGE stays the terminal cap.
 const LOCKED_REQUEUE_COOLDOWN_SEC = 15;
 
+// Cooldown (seconds) applied to a tx requeued after the guardian's co-signature
+// was rejected at execution ("transaction is unauthorized"). The bound state
+// moved between the guardian signing and the local execute, so the retry only
+// needs the account to settle — a block or two — before a fresh proposal is
+// signed against the current state. Matched to the pending-delta cooldown: same
+// class of transient race, and the same starvation constraint applies (it must
+// stay comfortably above the loop's ~5s poll so the requeued row doesn't get
+// re-picked every cycle). Unlike that path, MAX_QUEUED_AGE is not what ends it:
+// UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC below caps it far sooner, so a
+// signature that is genuinely — rather than racily — unauthorized fails with
+// that reason instead of ageing out under a generic one.
+const UNAUTHORIZED_EXECUTION_REQUEUE_COOLDOWN_SEC = 15;
+
+// How long after its FIRST unauthorized failure a row stays retryable (stamped
+// on the row as `unauthorizedRetryUntil`, not measured from `initiatedAt` — see
+// that field's doc for why enqueue time is the wrong clock).
+//
+// The race this arm exists for clears once the account settles — a block or two —
+// so a row still being rejected minutes later is not racing: it is genuinely
+// unauthorized (a rotated-out hot key, a missing co-signature, a threshold that
+// no longer holds), and no number of retries will change that. Without a bound,
+// those rows would ride the cooldown all the way to MAX_QUEUED_AGE, holding the
+// user on a progress screen for 30 minutes and then reporting a generic
+// "expired" INSTEAD of the reason they actually got — strictly worse than the
+// terminal failure this arm replaced. A handful of attempts at the cooldown
+// below, then the real error surfaces.
+const UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC = 180;
+
+// Spread added to each cooldown, as full jitter over a window wider than the
+// base. The trigger for this failure is guardian latency under load, so the
+// wallets hitting it are hitting it together; a narrow spread would march them
+// back in near-lockstep and help hold the guardian in the degraded state that
+// caused the failure.
+//
+// It does NOT reliably outlast the candidate quarantine left by the failed
+// attempt's `abandonCandidate`, which is an intent rather than an immediate
+// release: `withGuardianConflictRetry` budgets 12 x 5s for that window, so a
+// draw anywhere in this range can still land inside it. That is survivable
+// rather than free — the retry earns a 409 and spends conflict-retry attempts
+// waiting out the quarantine, which is what that budget is for — and widening
+// this range past a minute to avoid it would cost every retry the delay, on a
+// three-minute budget. The decorrelation argument above is what justifies the
+// width; outlasting the quarantine is not claimed.
+const UNAUTHORIZED_EXECUTION_JITTER_SEC = 40;
+
+/**
+ * The jittered cooldown an unauthorized-at-execution requeue waits, in seconds.
+ *
+ * Pure, and takes the draw as an argument, so the boundary values can be pinned
+ * without a `Math.random` spy. That is not cosmetic: a constant-returning spy
+ * left in place across an assertion failure makes jest's own source-map sort —
+ * which uses `Math.random` to pick its pivot — degenerate, and the run dies with
+ * `RangeError: Maximum call stack size exceeded` INSTEAD of printing which
+ * expectation failed. The two tests pinning this range are the ones that would
+ * report nothing, so the range moved out of them and into a unit test.
+ */
+export const unauthorizedRequeueCooldownSec = (draw: number): number =>
+  UNAUTHORIZED_EXECUTION_REQUEUE_COOLDOWN_SEC + Math.floor(draw * UNAUTHORIZED_EXECUTION_JITTER_SEC);
+
+// The unauthorized-execution arm's requeue set: the pending-conflict set MINUS
+// `earn-deposit`. Derived rather than restated so a type added there is picked
+// up here too, with the one exclusion made explicit.
+//
+// `earn-deposit` is result-awaiting (`isResultAwaitingRow`): its caller reads
+// `resultBytes` / `outputNoteIds` back off the finished row, so a requeue leaves
+// that caller waiting on a row that will not finish this cycle — the same hang
+// the post-submit branch above deliberately fails the row to avoid. Its
+// collateral note is bound to an allocator mandate rather than being a transfer
+// that can simply be rebuilt, so failing it (and letting the user re-initiate)
+// is the honest outcome.
+// Exported for its test: this set is what stands between a structural op and a
+// retry that would re-mint a hot key, and it is derived rather than written out,
+// so nothing else pins its membership. A behavioural test cannot cover the
+// structural types here — they fail before reaching the leaf for unrelated
+// reasons — which would leave both directions of the set free to drift.
+export const UNAUTHORIZED_EXECUTION_REQUEUEABLE: ReadonlySet<ITransactionType> = new Set<ITransactionType>(
+  [...REQUEUEABLE_ON_PENDING_CONFLICT].filter(type => type !== 'earn-deposit')
+);
+
 const MIN_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC;
 const MAX_RATE_LIMIT_REQUEUE_COOLDOWN_SEC = 300;
 
@@ -312,19 +395,268 @@ const stageStampFor =
     }
   };
 
+/** Pending liveness wakes, keyed by transaction id, so each row has at most one. */
+const requeueWakes = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Delay before retrying a wake that could not drive its row. */
+const REQUEUE_WAKE_REARM_MS = 3000;
+
+/**
+ * Absolute ceiling on how long one row's wake chain may keep re-arming, measured
+ * from the first wake. NOT the functional bound — the chain normally ends when
+ * the row leaves Queued — just a last resort for a row that never does, and the
+ * only thing bounding a chain whose row read keeps failing. Sized above
+ * `MAX_QUEUED_AGE` so the reaper, which needs one of these laps to run at all,
+ * gets its chance first.
+ */
+const MAX_REQUEUE_WAKE_LIFETIME_MS = (MAX_QUEUED_AGE + 60) * 1000;
+
+/**
+ * Keep a requeued row moving, OFF-extension only.
+ *
+ * The extension has a service worker driving the queue on its own timer, so a
+ * Queued row is always picked back up. Mobile and desktop do not: the only
+ * driver for a send is the generating-transaction screen's interval, cleared on
+ * unmount, and the screen's own copy invites the user to leave. Before this arm
+ * existed a failure here ended the row terminally inside the same call, so
+ * nothing needed to come back for it; now it is Queued, and without a wake it
+ * would sit untouched until the next app launch's orphan recovery — a send that
+ * silently does nothing, which is worse than the failure it replaced.
+ *
+ * A single fire is not enough, because firing does not imply progress. The wake
+ * can be swallowed three ways that all look identical from here:
+ * `safeGenerateTransactionsLoop` takes the loop lock with `ifAvailable` and
+ * returns when another driver holds it; `generateTransactionsLoop` returns early
+ * while any row is in flight; and it services the oldest ELIGIBLE row, which may
+ * not be ours. A one-shot timer that lands on any of those leaves the row in
+ * exactly the state the wake exists to prevent. So the wake re-checks its own
+ * row afterwards and re-arms while the row is still waiting, which also covers
+ * the case where the retry requeues again for a DIFFERENT reason (a 409 or 429
+ * from the same overloaded guardian) and returns down an arm that schedules no
+ * wake of its own.
+ *
+ * Re-arming stops as soon as the row leaves Queued — completed, failed, or
+ * cancelled by the user.
+ *
+ * It is NOT bounded by a count of attempts. A count is the wrong bound twice
+ * over: every one of the three ways a wake gets swallowed above can repeat, so
+ * lock contention alone could spend a fixed budget without the row ever being
+ * looked at; and a count decrements across successive requeues, so a row that
+ * legitimately retried twice would arrive at its third attempt with less
+ * liveness cover than its first.
+ *
+ * So the chain is paced by the row's STATE, not by any clock of its own: it
+ * re-arms for as long as the row is still Queued, and the only other exit is an
+ * absolute ceiling that exists so a row nothing will ever move cannot leave
+ * timers running for the life of the process. That ceiling RESOLVES the row
+ * rather than walking away from it — off-extension this chain is the only
+ * driver, so it expires the row itself when the reaper's own predicate would,
+ * and hands over to a chain starting from now when the id has meanwhile been
+ * retried into a younger incarnation (see the ceiling block below).
+ *
+ * Every time-based bound tried here was wrong, in both directions. A ceiling
+ * captured at chain start expired while the row was still
+ * retryable, because `requeueTransactionForRetry` pushes `unauthorizedRetryUntil`
+ * out by the cooldown of any unrelated backoff — two rate limits outlive it. And
+ * stopping at the row's own queue age abandoned it on exactly the lap that
+ * failed to do the work, since the reaper that age refers to runs inside the
+ * loop this wake drives. Both produced the same silent no-op the wake exists to
+ * prevent; only "is the row still waiting?" answers it.
+ */
+function scheduleRequeueWake(
+  txId: string,
+  delayMs: number,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider,
+  chainStartedAt: number = Date.now()
+): void {
+  if (isExtension()) return;
+  const existing = requeueWakes.get(txId);
+  if (existing !== undefined) clearTimeout(existing);
+  const hardExpiresAt = chainStartedAt + MAX_REQUEUE_WAKE_LIFETIME_MS;
+  const timer = setTimeout(() => {
+    requeueWakes.delete(txId);
+    void (async () => {
+      try {
+        await safeGenerateTransactionsLoop(signCallback, false, guardianProvider);
+      } catch (e) {
+        console.warn(`[Guardian] requeue wake for ${txId} failed to drive the loop`, e);
+      }
+      if (Date.now() >= hardExpiresAt) {
+        // Stopping here is not enough: off-extension this chain is the ONLY thing
+        // that will ever drive the row, so a ceiling that merely returns strands a
+        // row that is still Queued. The reaper cannot be relied on to have run —
+        // it lives inside `generateTransactionsLoop` behind an `ifAvailable` lock,
+        // and one legitimate holder can keep that lock for
+        // `WASM_LOCK_PAUSED_WATCHDOG_MS` (30 min) across a watchdog-paused local
+        // prove, which is the delegated-prover-down path this file has its own
+        // requeue arm for. Past `reapsAt` the laps are 3s apart, so the reaper's
+        // guaranteed window is only about a minute against that.
+        //
+        // So produce the terminal state directly instead of asserting it and
+        // walking away — but only for a row the reaper ITSELF would expire, by
+        // its own predicate rather than by this chain's clock. The two can
+        // disagree: `requeueFailedTransaction` refreshes `initiatedAt` on the
+        // SAME row id, and this map is keyed by id, so a user who cancels and
+        // retries mid-chain gets a NEW incarnation that an old chain would
+        // otherwise expire minutes into its own life, told it "expired after
+        // being queued too long". Re-deriving the age keeps the claim above
+        // honest — this adds no outcome the reaper would not have produced.
+        //
+        // `cancelTransaction` takes no lock (Dexie plus a notifier that no-ops
+        // off-extension), so it cannot block against the holder, and it refuses
+        // to downgrade a row that finished in the meantime.
+        try {
+          const stranded = await Repo.transactions.where({ id: txId }).first();
+          const strandedAgeSec = stranded ? Math.floor(Date.now() / 1000) - stranded.initiatedAt : 0;
+          // An unusable stamp counts as stale, not as fresh: a row whose
+          // `initiatedAt` is absent or non-numeric is one
+          // `cancelStaleQueuedTransactions` skips FOREVER, since its filter is a
+          // `>` comparison that NaN loses. Routing that row to the hand-over
+          // below would re-arm a chain whose ceiling reaches this same verdict
+          // every 31 minutes for the life of the process, so the ceiling ends it
+          // — the row's last chance, which is what a ceiling is for. Tested on
+          // the FIELD, matching the `reapsAt` calculation below, rather than on
+          // the subtraction: `Date.now()/1000 - "1700000000"` coerces to a finite
+          // number, so a difference-based test would silently disagree with
+          // `reapsAt` on exactly the input this reasoning is about.
+          //
+          // A NEGATIVE age is a clock that moved backwards, not a corrupt stamp,
+          // and its MAGNITUDE is what matters — the rule `pipelineMayStillBeRunning`
+          // already states for this same arithmetic: a small skew stays live,
+          // erring toward funds safety, while a wildly inconsistent stamp is
+          // treated as telling us nothing. A one-second NTP correction must not
+          // expire a row a user retried a moment ago and be reported to them as
+          // "queued too long".
+          const adoptable =
+            Number.isFinite(stranded?.initiatedAt) &&
+            strandedAgeSec <= MAX_QUEUED_AGE &&
+            strandedAgeSec >= -MAX_QUEUED_AGE;
+          if (stranded?.status === ITransactionStatus.Queued && !adoptable) {
+            // Guarded on Queued at WRITE time, not just here. Unlike
+            // `cancelStaleQueuedTransactions` — which does the same thing from
+            // inside the loop lock, where no other driver can be picking rows up
+            // — this runs outside it, and the row is long past `nextEligibleAt`
+            // by now, so a concurrent lap could advance it to
+            // `GeneratingTransaction` between this read and the write. Failing
+            // that row would report a failure for a pipeline still running, and
+            // one that can still submit.
+            const expired = await cancelTransaction(
+              stranded,
+              TRANSACTION_EXPIRED_ERROR,
+              'Failed',
+              ITransactionStatus.Queued
+            );
+            // Reported from the return value rather than asserted, because the
+            // guard above can legitimately decline: this is the log a future
+            // investigation reads to find out whether the row actually ended
+            // here or was taken over by a driver that got to it first.
+            console.warn(
+              `[Guardian] requeue wake for ${txId} hit its absolute ceiling; ` +
+                (expired ? 'expired the row' : 'another driver had already taken it')
+            );
+            // A DECLINED expiry is not an ending. The claimant's attempt can
+            // finish by requeueing rather than completing, and the arms that do
+            // that schedule no wake — so returning here would leave a Queued row
+            // with no driver off-extension, the strand this ceiling was made to
+            // resolve. Hand over to a chain starting from now instead: it costs
+            // one timer, and if the claimant does finish the row the next lap
+            // reads a terminal status and stops.
+            if (!expired) {
+              scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider);
+            }
+            return;
+          }
+          if (stranded?.status === ITransactionStatus.Queued) {
+            // Younger than the reaper's cap: a fresh incarnation of this id, so
+            // this chain's clock is measuring someone else's transaction. It
+            // still needs a driver, and off-extension a send has no other
+            // guaranteed one — the flows that call
+            // `startBackgroundTransactionProcessing` drive their own operations,
+            // not this row — so hand over to a chain that starts from now rather
+            // than abandoning it on an inherited deadline.
+            console.warn(`[Guardian] requeue wake for ${txId} adopted a newer row; restarting its chain`);
+            scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider);
+            return;
+          }
+        } catch (e) {
+          console.warn(`[Guardian] requeue wake for ${txId} could not expire its row at the ceiling`, e);
+        }
+        console.warn(`[Guardian] requeue wake for ${txId} hit its absolute ceiling; stopping`);
+        return;
+      }
+      let row;
+      try {
+        row = await Repo.transactions.where({ id: txId }).first();
+      } catch (e) {
+        // A read failure is not a reason to abandon the row — that read is the
+        // only thing standing between it and being stranded — so come back.
+        // Bounded by the ceiling checked above, so a read that never recovers
+        // cannot re-arm forever.
+        console.warn(`[Guardian] requeue wake for ${txId} could not read its row; retrying`, e);
+        scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider, chainStartedAt);
+        return;
+      }
+      if (
+        row === undefined ||
+        row.status === ITransactionStatus.Completed ||
+        row.status === ITransactionStatus.Failed
+      ) {
+        return;
+      }
+      if (row.status !== ITransactionStatus.Queued) {
+        // In flight under another driver. NOT a reason to stop: that attempt can
+        // end by requeueing rather than finishing, through the pending-delta
+        // (409), rate-limit (429), prover-outage or locked-wallet arms — none of
+        // which schedules a wake, since only the unauthorized arm does. Stopping
+        // here on `GeneratingTransaction` would hand the row back to a queue
+        // with no driver off-extension, which is the strand this chain exists to
+        // prevent, and the row would look healthy on the way there. So watch it
+        // to a terminal state instead; the drive above is a cheap no-op while a
+        // row is in flight (`generateTransactionsLoop` returns early), and the
+        // ceiling still bounds the watching.
+        scheduleRequeueWake(txId, REQUEUE_WAKE_REARM_MS, signCallback, guardianProvider, chainStartedAt);
+        return;
+      }
+      // Still Queued, so keep coming back. The stops are the row reaching a
+      // TERMINAL state or vanishing (checked above) and the absolute ceiling —
+      // deliberately not the row's own age. Age looks like the natural bound, because a row past
+      // MAX_QUEUED_AGE is one `cancelStaleQueuedTransactions` will fail as
+      // expired, but that reaper runs INSIDE `generateTransactionsLoop`, which
+      // this wake is what drives off-extension, and the drive above takes the
+      // loop lock with `ifAvailable` — a lap that loses it to a long-running
+      // pipeline reaps nothing. Stopping on age would then abandon the row on
+      // exactly the lap that failed to do the work, leaving it Queued forever
+      // with nothing to reap it. So age only paces the wait; it never ends it.
+      const reapsAt = Number.isFinite(row.initiatedAt)
+        ? (row.initiatedAt + MAX_QUEUED_AGE) * 1000 + REQUEUE_WAKE_REARM_MS
+        : hardExpiresAt;
+      // Come back when the row is next eligible — or at the reap boundary if
+      // that comes first, since past it the row needs a drive to be reaped and
+      // waiting out a long cooldown first would only delay that.
+      const waitMs = Math.max(Math.min((row.nextEligibleAt ?? 0) * 1000, reapsAt) - Date.now(), REQUEUE_WAKE_REARM_MS);
+      scheduleRequeueWake(txId, waitMs, signCallback, guardianProvider, chainStartedAt);
+    })();
+  }, delayMs);
+  requeueWakes.set(txId, timer);
+}
+
 /**
  * Return a value-moving tx to the Queued state for a later generateTransactionsLoop
  * cycle instead of terminal-failing it, backing it off with `nextEligibleAt` so it
  * doesn't starve other accounts' queued txs. Shared by the guardian pending-delta
- * 409 requeue and the remote-prover-outage requeue (#419). Clearing
- * `processingStartedAt` avoids cancelStuckTransactions reaping it as stalled;
- * cancelStaleQueuedTransactions (MAX_QUEUED_AGE) remains the terminal cap.
+ * 409 requeue, the remote-prover-outage requeue (#419) and the guardian
+ * unauthorized-at-execution requeue. Clearing `processingStartedAt` avoids
+ * cancelStuckTransactions reaping it as stalled; cancelStaleQueuedTransactions
+ * (MAX_QUEUED_AGE) is the backstop for callers that set no cap of their own —
+ * the unauthorized arm sets a much shorter one via `unauthorizedRetryUntil`.
  */
 async function requeueTransactionForRetry(
   txId: string,
   txType: ITransactionType,
   stage: ITransactionStage,
-  cooldownSec: number
+  cooldownSec: number,
+  extraValues?: { unauthorizedRetryUntil?: number }
 ): Promise<void> {
   // An earn-deposit's requestBytes freeze an ABSOLUTE reclaim height at build
   // time (syncHeight + recallBlocks); reusing them across a long requeue loop
@@ -346,6 +678,19 @@ async function requeueTransactionForRetry(
   // the only thing stopping the chain from accepting a second payment, so the
   // sticky flag vetoes the clear.
   //
+  // On the unauthorized-at-execution arm that veto is ALWAYS on for a guardian
+  // recallable send, and deliberately so. `generateGuardianTransaction` stamps
+  // `mayHaveSubmitted` before dispatching the leaf for any row carrying bytes —
+  // an over-approximation it makes because the offscreen realm cannot report
+  // where it died — so by the time an unauthorized failure lands here the flag
+  // is set. That arm CAN prove pre-submit from its error text, unlike the stage
+  // gates, but it cannot prove anything about an EARLIER attempt on the same
+  // row, which is what the flag actually records. So the bytes are kept: the
+  // reused serial pins the note id, making a duplicate rejected rather than
+  // paid twice, at the cost of retrying against the reclaim height built on the
+  // first attempt. Reversing that would need the crossing tracked per attempt,
+  // not per row.
+  //
   // Folded into the status write rather than a second `modify`: as two writes, a
   // service-worker death between them left the row Queued with its stale bytes
   // intact — the exact state this clear exists to prevent, and self-perpetuating
@@ -353,6 +698,23 @@ async function requeueTransactionForRetry(
   // `otherValues`, so the undefined lands in the same transaction as the status.
   const row = await Repo.transactions.where({ id: txId }).first();
   const clearRequestBytes = (txType === 'earn-deposit' || txType === 'send') && row?.mayHaveSubmitted !== true;
+  // The unauthorized budget is a wall clock, so time this row spends backing off
+  // for an UNRELATED reason would otherwise be charged against it. That is not
+  // hypothetical arithmetic: a rate limit from the same overloaded guardian can
+  // park a row for 300s, five minutes against a 180s budget, so a row that raced
+  // once and then waited out a 429 would arrive at its next genuine race with
+  // nothing left and fail on the first attempt — while an identical send that
+  // never raced gets the full three minutes. Push the deadline out by whatever
+  // this cooldown costs.
+  //
+  // The unauthorized arm itself must NOT have its value moved, and does not:
+  // `extraValues` is spread AFTER this below, so a caller that passes its own
+  // deadline overwrites what is computed here. That ordering is the guard — keep
+  // the two spreads in this order.
+  const carriedDeadline =
+    row?.unauthorizedRetryUntil !== undefined
+      ? { unauthorizedRetryUntil: row.unauthorizedRetryUntil + cooldownSec }
+      : {};
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     stage,
@@ -362,7 +724,9 @@ async function requeueTransactionForRetry(
     // step timings.
     stageTimestamps: undefined,
     nextEligibleAt: Math.floor(Date.now() / 1000) + cooldownSec,
-    ...(clearRequestBytes ? { requestBytes: undefined } : {})
+    ...(clearRequestBytes ? { requestBytes: undefined } : {}),
+    ...carriedDeadline,
+    ...extraValues
   });
 }
 
@@ -765,6 +1129,103 @@ export const generateTransaction = async (
         await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldown);
         return;
       }
+      // The guardian co-signed a summary bound to state that had moved by the
+      // time `executeRequest` recomputed it, so the account's auth procedure
+      // rejected the signature (see `isGuardianUnauthorizedExecutionError`).
+      // The transfer is untouched and a fresh proposal against fresh state
+      // succeeds, so terminal-failing here loses it to a pure race — one that
+      // gets likelier the slower the guardian's round-trip is.
+      //
+      // This arm deliberately does NOT gate on `stage`, unlike the 429 above,
+      // and the difference is what keeps it alive on the shipping path: the SW
+      // bundle defaults MIDEN_USE_OFFSCREEN_CLIENT to 'true', so the leaf runs
+      // in the offscreen realm, whose stage stamps are replayed as `timingOnly`
+      // and never author `stage` (see `stageStampFor`). A row that died in the
+      // offscreen execute still reads whichever stage the SW stamped last —
+      // 'sending' — so an 'executing' gate would never once fire in production.
+      //
+      // The ERROR ITSELF carries the safety property the stage would have, and
+      // carries it more strongly. `isGuardianUnauthorizedExecutionError` matches
+      // only an execution-time rejection, and in BOTH leaves the execute call
+      // precedes prove and submit and throws out of the pipeline — offscreen,
+      // `guardianPipeline` reaches neither postStageEvent('submitting') nor
+      // `provenTx.submit()`. So the transfer provably never reached the chain
+      // and the retry cannot double-spend, which is the property an op with no
+      // input-note nullifier needs. Structural ops stay excluded via
+      // UNAUTHORIZED_EXECUTION_REQUEUEABLE (a requeue would re-mint a hot key /
+      // register a duplicate delta), as does `earn-deposit`, whose caller is
+      // waiting on the row's result.
+      //
+      // Bounded by age so a row that is genuinely — rather than racily —
+      // unauthorized surfaces that reason instead of ageing out as "expired";
+      // see UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC. The budget runs from the
+      // FIRST unauthorized failure, stamped on the row, not from `initiatedAt`:
+      // enqueue time would leave a row that waited behind a deep queue with no
+      // budget at all, which is precisely the sustained-load case this exists for.
+      //
+      // This is a BACKSTOP, and should stay one. The window it retries across is
+      // closable rather than irreducible: since protocol 0.16 a signed summary
+      // binds the reference block commitment, and the SDK takes the proposer's
+      // anchor through `executeRequest`'s `AnchoredOptions` precisely so the
+      // signed summary reproduces on a client whose sync height has moved. The
+      // proposal already carries that anchor (`chainAnchor` in its metadata);
+      // threading it into both leaves is in review as #786, at zero extra round
+      // trips. Until it lands, every retry here costs a fresh proposal and
+      // co-signature from a guardian that is by construction already loaded —
+      // which is why this arm should shrink when #786 does land, not stay at its
+      // current width.
+      const nowSec = Math.floor(Date.now() / 1000);
+      // Jittered so a fleet that all hit this at the same moment — which is the
+      // shape of the incident, since the trigger is guardian latency under load
+      // — does not re-converge on the guardian in lockstep every cycle and hold
+      // it in the degraded state that caused the failure.
+      const cooldownSec = unauthorizedRequeueCooldownSec(Math.random());
+      const unauthorizedDeadline =
+        currentRow?.unauthorizedRetryUntil ?? nowSec + UNAUTHORIZED_EXECUTION_MAX_RETRY_AGE_SEC;
+      if (
+        isGuardianUnauthorizedExecutionError(error) &&
+        UNAUTHORIZED_EXECUTION_REQUEUEABLE.has(transaction.type) &&
+        // Room for the retry to actually RUN, not merely to be scheduled. The
+        // cooldown is up to 54s against a 180s budget, so a late failure can be
+        // inside the deadline while the attempt it schedules lands outside it —
+        // the row would then sit Queued for most of a minute only to fail on
+        // arrival for a reason it already had. Failing now shows the user the
+        // guardian's actual error a minute sooner and costs no retry that could
+        // have succeeded.
+        nowSec + cooldownSec < unauthorizedDeadline
+      ) {
+        console.warn(
+          '[Guardian] co-signature no longer authorized the executed tx (state moved under it) — ' +
+            `requeueing ${transaction.id} (${transaction.type}) in ${cooldownSec}s, ` +
+            `${unauthorizedDeadline - nowSec}s of retry budget left`,
+          error
+        );
+        await requeueTransactionForRetry(transaction.id, transaction.type, 'creating-proposal', cooldownSec, {
+          unauthorizedRetryUntil: unauthorizedDeadline
+        });
+        // A beat past eligibility, so the loop does not re-read the row while
+        // `nextEligibleAt` still excludes it and go straight back to sleep.
+        scheduleRequeueWake(transaction.id, cooldownSec * 1000 + 1000, signCallback, guardianProvider);
+        return;
+      }
+      // Same error, retries exhausted. Said out loud because the two outcomes are
+      // otherwise indistinguishable downstream: the row fails through the generic
+      // path below either way, so a support log would show a racing transaction
+      // that ran out of budget and a genuinely unauthorized one — a rotated-out
+      // key, a threshold that no longer holds — as the same terminal failure.
+      if (isGuardianUnauthorizedExecutionError(error) && UNAUTHORIZED_EXECUTION_REQUEUEABLE.has(transaction.type)) {
+        // Two ways to get here and they read differently: the budget is spent, or
+        // it has less left than the cooldown a retry would have to wait out.
+        const remaining = unauthorizedDeadline - nowSec;
+        console.warn(
+          `[Guardian] ${transaction.id} (${transaction.type}) still unauthorized with no room left to retry ` +
+            (remaining > 0
+              ? `(${remaining}s of budget left, short of the ${cooldownSec}s cooldown)`
+              : `(budget ended ${-remaining}s ago)`) +
+            " — failing with the guardian's own reason",
+          error
+        );
+      }
       // #260 follow-up #3a: a deadline-killed CONSUME (OperationAbortedError) may
       // have LANDED on chain before the offscreen realm was torn down. Its noteId
       // is known pre-execute, so verify against the node: only 'landed-local'
@@ -978,8 +1439,10 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // key is derived from the same account snapshot the kernel will check it
     // against — a separate client could disagree. Cost: no worker spawn and no
     // second multi-MB wasm instance inside the app-wide lock, which now matters
-    // per requeue cycle rather than once, since a requeued `send` drops its
-    // cached bytes and rebuilds. The proxy read is unlocked by design and this
+    // per requeue cycle rather than once, since a requeued `send` rebuilds
+    // whenever its cached bytes were dropped — which is every requeue except one
+    // on a row already flagged `mayHaveSubmitted` (see
+    // `requeueTransactionForRetry`). The proxy read is unlocked by design and this
     // caller already holds `withWasmClientLock`, as its W2 contract requires.
     //
     // Passed as canonical hex: `walletAccountIdToSdk` strips the composite
@@ -1845,7 +2308,12 @@ export const generateTransactionsLoop = async (
       }
 
       logger.warning('Transaction submitted but local apply failed; marking Completed, sync will reconcile');
-      if (tx && tx.status !== ITransactionStatus.Completed) {
+      // Failed is excluded alongside Completed because `updateTransactionStatus`
+      // throws on EITHER, and this sits in the loop's own catch: a row a
+      // concurrent writer failed in the meantime would turn a handled
+      // apply-after-submit into a throw out of the catch block. Nothing is lost
+      // by skipping — the row already has a terminal state.
+      if (tx && tx.status !== ITransactionStatus.Completed && tx.status !== ITransactionStatus.Failed) {
         // Guardian ops never reach here — they're routed through the guardian branch
         // of `generateTransaction`, whose own catch handles apply-after-submit-failed
         // for value-moving ops (send/consume/swap/execute) by marking Completed, and
