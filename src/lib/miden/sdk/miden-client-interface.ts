@@ -53,7 +53,7 @@ import {
 } from './helpers';
 import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { recordProveTelemetry } from './prove-telemetry';
+import { recordProveMarker, recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
@@ -107,6 +107,11 @@ function recordProveTiming(message: string): void {
   const line = `[prove-timing] ${message}`;
   // eslint-disable-next-line no-console
   console.log(line);
+  // The console above goes nowhere when this runs in the offscreen document —
+  // Playwright cannot attach to that realm — so mirror the marker into
+  // chrome.storage.local, which the service worker (and thus the harness) can
+  // read. Without this a write that never returns leaves no trace at all (#718).
+  recordProveMarker(line);
   try {
     const g = globalThis as unknown as { __PROVE_TIMINGS__?: string[] };
     if (!g.__PROVE_TIMINGS__) g.__PROVE_TIMINGS__ = [];
@@ -1211,7 +1216,14 @@ export class MidenClientInterface {
           TransactionRequest.deserialize(requestBytes)
         );
         await onStage?.('proving');
-        const proven = await attempt.pauseWatchdogForLocalProve(() => executed.prove(prover ? { prover } : {}));
+        // Explicit prover on the delegated path — see `remoteProver`. `prove({})`
+        // selects the SDK's default-prover fallback, which requires an initialized
+        // client and so never dispatches in the offscreen realm (#718).
+        const sendProver = prover ?? remoteProver();
+        const proven = await attempt.pauseWatchdogForLocalProve(() => {
+          const proving = executed.prove(sendProver ? { prover: sendProver } : {});
+          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated send prove') : proving;
+        });
         await onStage?.('submitting');
         // Point of no return: everything below can put this transfer on chain, so a
         // failure past here must NOT be retried with the local prover — the retry
@@ -1338,19 +1350,35 @@ export class MidenClientInterface {
         // local store update failed) is excluded from the retry by
         // `proveWithFallback`'s `isApplyAfterSubmitError` gate, so that row still
         // classifies as landed. Keeping the retry matters because consume is the
-        // wallet's highest-frequency write (auto-claim) and the remote prover's ~10s
-        // deadline is its most common failure.
+        // wallet's highest-frequency write (auto-claim) and a remote prove that misses
+        // its deadline is its most common failure — historically the SDK's own ~10s
+        // one, which the explicit prover below replaces.
         recordProveTiming('consumeNoteId calling SDK client.transactions.consume');
         try {
-          // Opaque whole-op write: it proves internally, so the pause can only be
-          // scoped to the whole call (issue #775).
-          const { result } = await attempt.pauseWatchdogForLocalProve(() =>
-            this.client.transactions.consume({
+          // Delegating means `prover === undefined`, which makes the SDK build its own
+          // remote prover from `proverUrl` — with the ~10s default gRPC deadline, since
+          // `createClient` takes no timeout option. Name ours instead so the deadline is
+          // `DELEGATED_PROVE_TIMEOUT_MS`; see `remoteProver`. Control flow below still
+          // keys off the ORIGINAL `prover` so "delegated" keeps its meaning.
+          //
+          // Opaque whole-op write: it proves internally, so the #775 watchdog pause
+          // can only be scoped to the whole call (a passthrough on the delegated
+          // attempt). The DELEGATED call alone is bounded — a timeout here can land
+          // after submit, which is survivable for THIS caller and no other, for the
+          // same reason it is the only one that already permits a whole-op retry
+          // (see the comment above): the re-run consumes the SAME input notes, so an
+          // attempt that did reach the chain makes the retry fail on the spent
+          // nullifier rather than move funds twice. Local proving is deliberately
+          // left unbounded — it is the fallback, so capping it would leave nothing
+          // to fall back to.
+          const { result } = await attempt.pauseWatchdogForLocalProve(() => {
+            const consuming = this.client.transactions.consume({
               account: accountId,
               notes: targetNoteIds,
-              prover
-            })
-          );
+              prover: prover ?? remoteProver()
+            });
+            return prover === undefined ? withDelegatedProveTimeout(consuming, 'Delegated consume') : consuming;
+          });
           recordProveTiming('consumeNoteId SDK consume returned');
           return result;
         } catch (error) {
@@ -1419,10 +1447,14 @@ export class MidenClientInterface {
         // delegated→local prove fallback; a duplicated swap note is unrecoverable,
         // a failed swap is not.
         attempt.markSubmitting();
-        // Opaque whole-op write: proves internally, so the pause covers the whole
-        // call (issue #775).
+        // Explicit prover on the delegated path for the same reason as the consume
+        // above: the SDK's own remote prover carries a ~10s gRPC deadline. Opaque
+        // whole-op write: proves internally, so the #775 watchdog pause covers the
+        // whole call (a passthrough on the delegated attempt).
         const { result } = await attempt.pauseWatchdogForLocalProve(() =>
-          this.client.transactions.submit(canonicalId, request, { prover })
+          this.client.transactions.submit(canonicalId, request, {
+            prover: prover ?? remoteProver()
+          })
         );
         return result;
       },
@@ -1455,14 +1487,42 @@ export class MidenClientInterface {
         // (dApp custom transactions and the Agglayer bridged-send both land here).
         // Each attempt deserializes its own request — a wasm-bindgen request is
         // consumed by execution, so a shared handle would be moved-from on a retry.
+        recordProveTiming(`newTransaction delegated: calling executeRequest, prover=${prover ? 'set' : 'undefined'}`);
         const executed = await this.client.transactions.executeRequest(
           accountId,
           TransactionRequest.deserialize(requestBytes)
         );
-        const proven = await attempt.pauseWatchdogForLocalProve(() => executed.prove(prover ? { prover } : {}));
+        recordProveTiming('newTransaction delegated: executeRequest returned; proving');
+        // Hand `prove()` an EXPLICIT remote prover rather than letting it fall back to
+        // the client's default. Per the SDK: with an explicit prover this is a pure
+        // computation over the TransactionResult that "works on a bare WebClient that
+        // never ran createClient()", and "only the default-prover fallback requires an
+        // initialized client" — naming a chrome.offscreen document as exactly the
+        // prover-only host that has none. Flag-on, this runs offscreen, so `prove({})`
+        // took the fallback and never dispatched: the earn deposit sat here forever
+        // while the remote prover logged no request at all, holding the WASM mutex and
+        // starving sync (#718). The delegated consume alongside it was unaffected
+        // because it is a whole-op `transactions.consume` on the initialized client.
+        const delegatedProver = prover ?? remoteProver();
+        // Bounded for the same reason as the guardian pipeline's identical
+        // `prove({})` and the delegated consume: a delegated prove has no deadline of
+        // its own, so a remote prover that never answers parks the write forever while
+        // it holds the offscreen WASM mutex — starving sync until its circuit breaker
+        // opens (#718). Observed on the earn deposit, where the prove was never even
+        // dispatched to the prover. Safe to bound HERE specifically because proving
+        // strictly precedes `markSubmitting()`: nothing has been broadcast yet, so the
+        // fallback re-proves locally rather than risking a second submission. The #775
+        // watchdog pause covers the local attempt (a passthrough when delegated).
+        const proven = await attempt.pauseWatchdogForLocalProve(() => {
+          const proving = executed.prove(delegatedProver ? { prover: delegatedProver } : {});
+          return prover === undefined ? withDelegatedProveTimeout(proving, 'Delegated newTransaction prove') : proving;
+        });
+        recordProveTiming('newTransaction delegated: prove returned; submitting');
         attempt.markSubmitting();
         const submitted = await proven.submit();
+        recordProveTiming('newTransaction delegated: submit returned; applying');
         await submitted.apply();
+        recordProveTiming('newTransaction delegated: apply returned');
         return executed.result;
       },
       delegateTransaction,
@@ -1664,6 +1724,50 @@ export class MidenClientInterface {
 }
 
 /**
+ * Client-side ceiling on a DELEGATED prove, after which the wallet stops waiting for the
+ * remote prover and proves locally instead.
+ *
+ * Generous on purpose: a backstop against a prover that has stopped answering, NOT a
+ * latency target. It has to sit well above a legitimately slow proof on a loaded machine,
+ * because expiring early costs the user the remote wait AND a full local re-prove.
+ */
+export const DELEGATED_PROVE_TIMEOUT_MS = 120_000;
+
+/**
+ * Reject once {@link DELEGATED_PROVE_TIMEOUT_MS} passes without a delegated prove
+ * answering.
+ *
+ * The remote prove is awaited on a gRPC call carrying no deadline of its own, so a prover
+ * that accepts a request and then never responds parks that await forever — while the
+ * client lock is STILL HELD, so every later write queues behind a transaction that can
+ * never finish. Only a REJECTION could reach the local-prover fallback; silence could not,
+ * which is the difference between a prover that fails and one that stalls, and is what
+ * turned a single slow proof into an unbounded claim stall (#718).
+ *
+ * Timing out abandons only the RESPONSE — the request itself cannot be cancelled — so
+ * every call site must be one where re-running the work cannot move funds twice. See each
+ * caller for why it qualifies.
+ */
+export function withDelegatedProveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${DELEGATED_PROVE_TIMEOUT_MS}ms waiting for the remote prover`)),
+      DELEGATED_PROVE_TIMEOUT_MS
+    );
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+/**
  * Handed to every `proveWithFallback` callback so it can declare its point of no
  * return. See {@link proveWithFallback} for why that matters.
  */
@@ -1728,6 +1832,39 @@ export interface ProveAttempt {
  * the `hold` comment below). An omissible parameter would make the unsafe
  * variant the shorter one to write.
  */
+/**
+ * The configured remote prover as an EXPLICIT handle, or undefined when no prover
+ * endpoint is resolvable for the effective network (in which case the caller keeps
+ * the SDK's default-prover behaviour).
+ *
+ * Exists because "delegate" is expressed to `proveWithFallback` callbacks as
+ * `prover === undefined`, and passing that straight through to `prove()` selects the
+ * SDK's default-prover fallback — which needs an initialized client and therefore
+ * hangs in the offscreen realm. Naming the prover turns the same call into the pure
+ * computation the SDK documents as safe on a bare client.
+ */
+export function remoteProver(): TransactionProver | undefined {
+  const endpoint = getEffectiveProverUrl();
+  if (!endpoint) return undefined;
+  try {
+    // Name the gRPC deadline. Unset, the SDK applies its own ~10s default, which a
+    // 0.16 consume on a loaded 2-core CI runner routinely exceeds: measured healthy
+    // consumes there took 9.9s and 12.1s, straddling it, which is why the failure
+    // looked non-deterministic. Exceeding it fails the prove with
+    // `DeadlineExceeded: Request timed out`, and the caller then re-proves on the
+    // deliberately unbounded LOCAL prover while holding the offscreen WASM mutex —
+    // turning a proof that was seconds from finishing into a wedged claim (#718).
+    // Aligned with `DELEGATED_PROVE_TIMEOUT_MS` so the transport deadline and our
+    // own ceiling agree, leaving `withDelegatedProveTimeout` as the outer bound
+    // against a prover that stops answering entirely.
+    return TransactionProver.newRemoteProver(endpoint, BigInt(DELEGATED_PROVE_TIMEOUT_MS));
+  } catch {
+    // Never break a prove over prover construction — the caller falls back to the
+    // SDK default, i.e. exactly the previous behaviour.
+    return undefined;
+  }
+}
+
 export async function proveWithFallback<T>(
   fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
   delegateTransaction: boolean | undefined,

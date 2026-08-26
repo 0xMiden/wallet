@@ -94,6 +94,22 @@ export const OFFSCREEN_STAGE_EVENT = 'OFFSCREEN_STAGE_EVENT' as const;
 export const OFFSCREEN_CONNECTIVITY_EVENT = 'OFFSCREEN_CONNECTIVITY_EVENT' as const;
 
 /**
+ * offscreen → SW: one E2E-only `[prove-timing]` breadcrumb (#718).
+ *
+ * Same reason connectivity is REPORTED rather than written here: this realm has no
+ * `chrome.storage` of its own, and it also has no console the harness can attach to
+ * — it is absent from `context.pages()` and Playwright exposes no handle to it. So a
+ * write that never returns left no trace anywhere, and the artifacts could say only
+ * that the row was stuck at `stage=sending`, not which call it was inside.
+ *
+ * The stage stamps already cross this channel and arrive reliably during exactly the
+ * stall being diagnosed, which is why the markers use it too. Fire-and-forget, and
+ * dispatched BEFORE the blocking call each marker announces, so the last one
+ * delivered names where the realm stopped.
+ */
+export const OFFSCREEN_PROVE_MARKER = 'OFFSCREEN_PROVE_MARKER' as const;
+
+/**
  * SW → offscreen request envelope (§1.1 of the design doc).
  *
  * `argsB64` carries the positional arguments, each encoded with
@@ -231,6 +247,20 @@ export interface OffscreenConnectivityEvent {
   type: typeof OFFSCREEN_CONNECTIVITY_EVENT;
   category: ConnectivityCategory;
   active: boolean;
+}
+
+/**
+ * One `[prove-timing]` breadcrumb on its way to the SW-owned storage key.
+ *
+ * `line` is the already-formatted marker, `ts` the epoch ms it was recorded at —
+ * stamped in the recording realm rather than on arrival, since the point of the
+ * trail is when the realm reached each call, not when the message was drained.
+ */
+export interface OffscreenProveMarkerEvent {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_PROVE_MARKER;
+  ts: number;
+  line: string;
 }
 
 /**

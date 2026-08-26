@@ -197,6 +197,15 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 // singleton `getMidenClient`. Delegate `create` to the SAME `g.__off.getMidenClient`
 // control fn so the existing "reuses client" / "S1 retry" assertions keep working;
 // the create options are captured on `g.__off.createOptions` for the new assertions.
+// `remoteProver` / `withDelegatedProveTimeout` must be part of this factory, not
+// omitted: the guardian pipeline names its delegated prover EXPLICITLY and bounds the
+// wait, and both helpers live in this module. A partial mock exporting only
+// `MidenClientInterface` resolves them to `undefined`, so `remoteProver()` throws
+// INSIDE the pipeline's own remote-prove catch — which reads that as "the remote
+// prove failed" and silently re-proves locally. Every delegated guardian prove would
+// then pass its assertions while never delegating at all, hiding precisely the
+// regression these tests exist to catch (the same partial-mock trap that once
+// silenced `sdk/prove-telemetry`; see `offscreen-realm.ts`).
 jest.mock('lib/miden/sdk/miden-client-interface', () => {
   const g = globalThis as any;
   return {
@@ -206,6 +215,14 @@ jest.mock('lib/miden/sdk/miden-client-interface', () => {
         g.__off.order.push('create');
         return g.__off.getMidenClient(opts);
       }
+    },
+    remoteProver: (...a: any[]) => g.__off.remoteProver(...a),
+    // Pass-through: the wrapper's own timeout behaviour is covered in
+    // miden-client-interface.test.ts. What matters here is only that the pipeline
+    // routes its delegated prove THROUGH it, asserted via `guardianProveBounded`.
+    withDelegatedProveTimeout: (p: Promise<unknown>) => {
+      g.__off.guardianProveBounded = true;
+      return p;
     }
   };
 });
@@ -242,6 +259,14 @@ function resetControl() {
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
+    // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
+    // the assertions can tell a real delegation from the SDK default-prover fallback
+    // (`prove({})`) that never dispatches out of this realm. Overridden to
+    // `undefined` by the test covering "no prover endpoint configured".
+    remoteProver: jest.fn(() => ({ __remote: true })),
+    // Set by the `withDelegatedProveTimeout` mock when the pipeline routes its
+    // delegated prove through the bounded wrapper.
+    guardianProveBounded: false,
     // OFFSCREEN_CALL dispatch: the offscreen-owned client's getAccount returns
     // an Account-like object exposing serialize() (the SDK's real serializer).
     clientGetAccount: jest.fn(async (_id: string) => ({ serialize: () => new Uint8Array([10, 20, 30]) })),
@@ -2021,7 +2046,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
   });
 
-  it('guardianPipeline (delegated): proves remote via empty prove({}), never a local prover, then submits/applies', async () => {
+  it('guardianPipeline (delegated): proves with an EXPLICIT remote prover under the bounded wait, never a local prover, then submits/applies', async () => {
     await loadModule();
     const sendResponse = jest.fn();
     capturedListener!(
@@ -2034,10 +2059,42 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    // Delegated success uses the client's default (remote) prover: prove({}).
-    expect(G.__off.guardianProveCalls).toEqual([{}]);
+    // A delegated prove must NAME its remote prover. `prove({})` — the empty form —
+    // selects the SDK's default-prover fallback, which requires an initialized client
+    // and so never dispatches from this prover-only realm: the remote prover logs no
+    // request and the await never settles, hanging the write until the service
+    // worker's deadline kills the document (#718).
+    expect(G.__off.remoteProver).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianProveCalls).toEqual([{ prover: { __remote: true } }]);
+    // ...and it must be BOUNDED, or nothing can convert a silent prover into the
+    // rejection the local fallback needs.
+    expect(G.__off.guardianProveBounded).toBe(true);
     expect(G.__off.newLocalProver).not.toHaveBeenCalled();
     expect(G.__off.guardianApplied).toBe(true);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('guardianPipeline (delegated): falls back to the SDK default prove({}) only when no prover endpoint resolves', async () => {
+    await loadModule();
+    // `remoteProver()` returns undefined when the effective network has no prover
+    // URL. There is nothing to name in that case, so the empty form is correct — it
+    // is the only shape that preserves the pre-existing behaviour for a network
+    // without a prover, and it must NOT become a local prove.
+    G.__off.remoteProver = jest.fn(() => undefined);
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    expect(G.__off.guardianProveCalls).toEqual([{}]);
+    expect(G.__off.guardianProveBounded).toBe(true);
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
@@ -2055,8 +2112,8 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     );
     await flush();
 
-    // First attempt: remote prove({}) threw. Second: local newLocalProver.
-    expect(G.__off.guardianProveCalls[0]).toEqual({});
+    // First attempt: the explicit remote prover threw. Second: local newLocalProver.
+    expect(G.__off.guardianProveCalls[0]).toEqual({ prover: { __remote: true } });
     expect(G.__off.guardianProveCalls[1]).toEqual({ prover: { __local: true } });
     expect(G.__off.newLocalProver).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('delegated guardian prove failed'), expect.any(Error));
@@ -2912,5 +2969,109 @@ describe('offscreen/main — connectivity reports (issue #260 single writer)', (
     expect(posted.map(m => m.active)).toEqual([true, false]);
     // A rejected post is swallowed silently — no reporter-threw warning was logged.
     expect(warnSpy).not.toHaveBeenCalledWith('[connectivity-state] reporter threw:', expect.anything());
+  });
+});
+
+// --- E2E prove markers: what this realm reports while a write is in flight ----
+//
+// The offscreen document is the realm that runs every wallet write and the only one
+// the Playwright harness cannot attach a console to (a hidden target, absent from
+// `context.pages()`). Settle-time prove telemetry cannot cover a write that never
+// returns — it records once a prove FINISHES — so these markers, relayed to the
+// service worker as they happen, are the only record of where a hang stopped (#718).
+//
+// The regression this guards is specifically the GUARDIAN pipeline: it drives the raw
+// `client.client.transactions` API itself rather than going through the instrumented
+// `MidenClientInterface`, so before this it narrated nothing at all — and a guardian
+// write is the wallet's DEFAULT account type.
+describe('offscreen/main — E2E prove markers (#718)', () => {
+  const markerLines = (posted: any[]): string[] =>
+    posted.filter(m => m?.type === 'OFFSCREEN_PROVE_MARKER').map(m => String(m.line));
+
+  function capturePosts(): any[] {
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    return posted;
+  }
+
+  const callReq = (extra: Record<string, unknown>) => ({
+    target: 'offscreen',
+    type: 'OFFSCREEN_CALL',
+    op_id: 'op-markers',
+    deadline_ms: 1000,
+    argsB64: [],
+    ...extra
+  });
+
+  // `PROVE_TIMING_ENABLED` is captured at MODULE LOAD, so the env var has to be set
+  // before the import that `loadModule()` performs — not inside the test body.
+  const withE2EFlag = async (value: string | undefined, run: () => Promise<void>) => {
+    const previous = process.env.MIDEN_E2E_TEST;
+    if (value === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = value;
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) delete process.env.MIDEN_E2E_TEST;
+      else process.env.MIDEN_E2E_TEST = previous;
+    }
+  };
+
+  it('relays a guardian pipeline\u2019s per-call markers to the SW, naming every boundary a hang can stop at', async () => {
+    await withE2EFlag('true', async () => {
+      await loadModule();
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(true)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      const lines = markerLines(posted);
+      // The op ENVELOPE — where a write waits on the WASM mutex, hydrates WASM and
+      // builds the client. Without these a write that never started is
+      // indistinguishable from one wedged inside the SDK.
+      expect(lines.some(l => l.includes("call 'guardianPipeline' op=op-markers entered"))).toBe(true);
+      // The client is resolved INSIDE the lock (issue #775), so the boundaries
+      // are: await the mutex → win it and build/fetch the client → dispatch.
+      expect(lines.some(l => l.includes("call 'guardianPipeline' init ready; awaiting WASM mutex"))).toBe(true);
+      expect(lines.some(l => l.includes("call 'guardianPipeline' won WASM mutex; getting client"))).toBe(true);
+      expect(lines.some(l => l.includes("call 'guardianPipeline' client ready; dispatching"))).toBe(true);
+      // The pipeline's own boundaries, including which prover the delegated prove
+      // named — the distinction between a real delegation and the default-prover
+      // fallback that never dispatches out of this realm.
+      expect(lines.some(l => l.includes('guardianPipeline entered delegateTransaction=true'))).toBe(true);
+      expect(lines.some(l => l.includes('guardianPipeline calling executeRequest'))).toBe(true);
+      expect(lines.some(l => l.includes('guardianPipeline delegated prove, remoteProver=set'))).toBe(true);
+      expect(lines.some(l => l.includes('guardianPipeline prove returned; submitting'))).toBe(true);
+      expect(lines.some(l => l.includes('guardianPipeline apply returned'))).toBe(true);
+      // Every line carries the `[prove-timing]` prefix the harness probe greps for.
+      expect(lines.every(l => l.startsWith('[prove-timing] '))).toBe(true);
+    });
+  });
+
+  it('records nothing at all when the E2E flag is off (production builds)', async () => {
+    await withE2EFlag(undefined, async () => {
+      await loadModule();
+      const posted = capturePosts();
+      capturedListener!(
+        callReq({
+          method: 'guardianPipeline',
+          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false)]
+        }),
+        {},
+        jest.fn()
+      );
+      await flush();
+
+      expect(markerLines(posted)).toEqual([]);
+    });
   });
 });

@@ -1587,7 +1587,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identi
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -1610,7 +1610,7 @@ describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identi
     // serializes in the offscreen doc, keeping the SW free + sign handler unblocked).
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
-    // Exactly one OFFSCREEN_CALL, method consumeNoteId, 90s deadline, MINIMAL DTO.
+    // Exactly one OFFSCREEN_CALL, method consumeNoteId, write deadline, MINIMAL DTO.
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('consumeNoteId');
@@ -1794,7 +1794,7 @@ describe('MidenClientProxy — slice-5a reverse-IPC sign', () => {
 // START (when the op wins the offscreen WASM mutex and posts OFFSCREEN_OP_STARTED
 // → markOpStarted), NOT at dispatch. So queue-wait behind other ops on the single
 // offscreen mutex is off-budget: a write that sits in the queue for longer than
-// its 90s WRITE_DEADLINE is NOT falsely killed before it executes. At dispatch a
+// its WRITE_DEADLINE is NOT falsely killed before it executes. At dispatch a
 // GENEROUS `CRITICAL_DISPATCH_BACKSTOP_MS` backstop is armed instead (defense-in-
 // depth): if the start signal is dropped, the write is eventually reclaimed rather
 // than hanging timer-less until SW eviction. `markOpStarted` REPLACES the backstop
@@ -1819,9 +1819,12 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       // WRITE_DEADLINE (which is off-budget until execution start, flip-prep #3).
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Advance FAR past the real 90s deadline AND past the ~2min worst-case
-      // commit-wait (70s) + sync (45s) queue-wait, but still below the 5min backstop.
-      await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 120_000);
+      // Advance FAR past the real write deadline but still below the backstop —
+      // stated against the backstop itself rather than as a fixed offset from the
+      // deadline, so raising the deadline can't silently push this onto (or past)
+      // the backstop and make the test assert the opposite of its name.
+      expect(__test.writeDeadlineMs()).toBeLessThan(__test.criticalDispatchBackstopMs());
+      await jest.advanceTimersByTimeAsync(__test.criticalDispatchBackstopMs() - 1_000);
       // It was NOT killed: no closeDocument, still in flight — the backstop cannot
       // false-kill a merely-queued write (no false-kill regression).
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
@@ -1850,7 +1853,7 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       // critical write, so a dropped start signal hung the op forever.
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Past the real 90s deadline but below the 5min backstop, with NO start signal:
+      // Past the real write deadline but below the backstop, with NO start signal:
       // still alive — the real deadline is never armed without markOpStarted.
       await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() + 30_000);
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
@@ -1871,9 +1874,9 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
     }
   });
 
-  it('markOpStarted before the backstop REPLACES it with the real WRITE_DEADLINE (kill ~90s from start, not the 5min backstop)', async () => {
+  it('markOpStarted before the backstop REPLACES it with the real WRITE_DEADLINE (kill a full write deadline from start, not the backstop)', async () => {
     // Case (b): the normal path. The op starts before the backstop fires; the real
-    // deadline governs, so the effective kill time is ~90s from start — NOT 5min.
+    // deadline governs, so the effective kill time is a full write deadline from start — NOT the backstop.
     jest.useFakeTimers();
     try {
       const { __test, markOpStarted } = await loadProxy(true);
@@ -1894,13 +1897,13 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       markOpStarted(op_id);
       expect(__test.hasOpTimer(op_id)).toBe(true);
 
-      // Just under the real 90s deadline from start: NOT killed yet ...
+      // Just under the real write deadline from start: NOT killed yet ...
       await jest.advanceTimersByTimeAsync(__test.writeDeadlineMs() - 1_000);
       expect(fakeChrome.offscreen.closeDocument).not.toHaveBeenCalled();
       expect(__test.inFlightSize()).toBe(1);
 
-      // ... crossing the real 90s deadline kills it — the effective budget is ~90s
-      // from start, NOT the 5min backstop (which markOpStarted replaced).
+      // ... crossing the real write deadline kills it — the effective budget is one write deadline
+      // from start, NOT the backstop (which markOpStarted replaced).
       await jest.advanceTimersByTimeAsync(2_000);
       fireReady(); // reopen ready gate after the kill
       await jest.advanceTimersByTimeAsync(0);
@@ -1909,7 +1912,7 @@ describe('MidenClientProxy — slice-flip-prep #3 arm-on-start write deadline', 
       expect(err).toBeInstanceOf(OperationAbortedError);
       expect((err as any).reason).toBe('deadline');
       expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
-      // The kill happened at the ~90s real deadline — WELL below the 5min backstop.
+      // The kill happened at the real write deadline — WELL below the backstop.
       expect(__test.writeDeadlineMs()).toBeLessThan(__test.criticalDispatchBackstopMs());
       expect(__test.inFlightSize()).toBe(0);
     } finally {
@@ -2095,7 +2098,7 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
 // Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF is
 // BYTE-IDENTICAL to production (inline under withWasmClientLock with the wrapped
 // sign options); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
-// serialized TransactionResult out) run on the SHARED critical machinery (90s
+// serialized TransactionResult out) run on the SHARED critical machinery (write-deadline
 // deadline, criticalOp bracketing, op-scoped sign callback). The kill-window /
 // sign-pause / read-downgrade matrix is the SAME shared `dispatchOp` path the
 // slice-5a tests exercise via `__test.dispatchCritical` (method-agnostic); the
@@ -2162,7 +2165,7 @@ describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-iden
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op OFFSCREEN_CALL (minimal DTO, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { midenClientProxy, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     let criticalDuring: boolean | undefined;
@@ -2783,13 +2786,13 @@ describe('MidenClientProxy — offscreen WRITE errorCode preservation (funds-cri
 // crosses is byte-for-byte the same op-shape as a non-guardian write — it reuses
 // `dispatchOffscreenWrite` wholesale. These tests pin the guardian-specific waist:
 // the `guardianPipeline` method name, the [accountId, trBytes, delegate] DTO with
-// the co-signed request crossing as RAW BYTES intact (§4.0), the shared 90s
+// the co-signed request crossing as RAW BYTES intact (§4.0), the shared write-deadline
 // deadline + criticalOp bracketing, the reused OFFSCREEN_SIGN_REQUEST sign channel,
 // the errorCode round-trip, and the retryable abort on a kill.
 describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf offscreen)', () => {
   const trBytes = () => new Uint8Array([0xca, 0xfe, 0xba, 0xbe]);
 
-  it('flag ON → dispatches a whole-op guardianPipeline OFFSCREEN_CALL (accountId + co-signed tr bytes intact + delegate, 90s deadline, criticalOp bracketed) + rehydrates', async () => {
+  it('flag ON → dispatches a whole-op guardianPipeline OFFSCREEN_CALL (accountId + co-signed tr bytes intact + delegate, write deadline, criticalOp bracketed) + rehydrates', async () => {
     const { dispatchGuardianPipeline, __test } = await loadProxy(true);
     const prover = await import('./offscreen-prover');
     const { b64ToBytes } = await import('./offscreen-codec');
@@ -2816,7 +2819,7 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     // offscreen doc serializes, keeping the SW free + the sign handler unblocked).
     expect(G.__px.getMidenClient).not.toHaveBeenCalled();
     expect(G.__px.withWasmClientLock).not.toHaveBeenCalled();
-    // Exactly one OFFSCREEN_CALL, method guardianPipeline, 90s write deadline.
+    // Exactly one OFFSCREEN_CALL, method guardianPipeline, write deadline.
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
     expect(env.method).toBe('guardianPipeline');

@@ -535,6 +535,10 @@ export const initiateReplaceHotKeyTransaction = async (
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
 // createGuardianAccount): changing the guardian requires both device keys.
+// Creation also pins `update_procedure_threshold` to 2 so this override can't be
+// lowered by one signer; that pairing is only reachable at build time, so this
+// self-heal — which repairs pre-0.17 accounts whose hardening tx was dropped —
+// still checks and raises the one procedure it was written for.
 const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 2 } as const;
 
 /**

@@ -8,9 +8,7 @@ import base from './playwright.e2e.config';
 export default defineConfig({
   ...base,
   testDir: './playwright/e2e/tests/swap',
-  // QUARANTINED (#522): swap-guardian.spec.ts creates a guardian account, which fails on
-  // SDK 0.16 — @openzeppelin/miden-multisig-client has no protocol-0.16 release yet (its
-  // guardian_ecdsa MASM references AUTH_UNAUTHORIZED_EVENT, removed in protocol 0.16).
-  // Remove this testIgnore to re-enable once OZ ships a protocol-0.16 client.
-  testIgnore: '**/swap-guardian.spec.ts'
+  // Explicitly clears the base's list rather than inheriting it: that list
+  // ignores `**/swap/**`, so inheriting it here would select nothing at all.
+  testIgnore: undefined
 });

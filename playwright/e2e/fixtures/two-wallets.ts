@@ -27,6 +27,7 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import {
   BLANK_FRAME_WAIT_MS,
   SCREEN_CHANGE_BINDING,
@@ -864,6 +865,10 @@ export const test = base.extend<TwoWalletFixtures>({
     // `failureReport` fixture writes it out after this teardown returns.
     if (failed) {
       failureSnapshots.walletA = await captureFailureSnapshot(steps, timeline, 'A');
+      // Must run while the context is still open: the trail lives in
+      // chrome.storage.local and is read through the service worker. On a write
+      // that never returned this is the only record of where it stopped (#718).
+      await dumpProveTelemetry(instance.walletPage.page, 'wallet A at failure');
     }
 
     if (isAgentic && failed) {

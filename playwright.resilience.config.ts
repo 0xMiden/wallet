@@ -20,16 +20,10 @@ import base from './playwright.e2e.config';
 export default defineConfig({
   ...base,
   testDir: './playwright/e2e/tests/resilience',
-  // Deliberately NOT the base's testIgnore (it excludes this whole directory);
-  // this list is only the 0.16 guardian quarantine (#522), applied at the same
-  // spec-selection layer as playwright.swap.config.ts's: the three
-  // `guardian-*.spec.ts` resilience specs create a guardian account, which fails
-  // on SDK 0.16 (@openzeppelin/miden-multisig-client has no protocol-0.16
-  // release). None of them self-skips, and with the base's `maxFailures: 3` on
-  // localnet their three failures abort the run before `network-faults-policy`
-  // and `node-outage-recovery` — the only automated guard that a node outage
-  // hides no funds — ever execute. Remove this once OZ ships a protocol-0.16
-  // client, so a red run means a real infra-resilience regression.
-  testIgnore: ['**/guardian-*.spec.ts'],
+  // Explicitly clears the base's list rather than inheriting it: that list
+  // ignores both `**/resilience/**` and `**/guardian-*.spec.ts`, so inheriting
+  // it here would select nothing at all. This suite's whole subject is the
+  // resilience directory, guardian specs included.
+  testIgnore: undefined,
   retries: 2
 });

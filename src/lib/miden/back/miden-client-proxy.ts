@@ -172,8 +172,39 @@ function readRecoveryNoteOffset(method: string, parsed: unknown): number | undef
  * pre-submit (the multi-second WASM steps), which is fully safe (nothing on
  * chain); a mid-submit fire is left to node adjudication + `syncState` reconcile
  * (design §4), the same risk profile as today's eviction, now time-bounded.
+ *
+ * Overridable by the build ONLY so the E2E stack can retune it (#718). Every
+ * shipping bundle leaves it at 90s: raising the shipping default on the strength
+ * of a CI timing would trade a visible CI failure for an invisible production
+ * hang, which is the one thing this knob exists to prevent.
+ *
+ * The E2E override is pinned by a window at BOTH ends, so it is not a free knob:
+ *
+ *   slowest legitimate write  <  override  <  Playwright per-test timeout (300s,
+ *                                             playwright.e2e.config.ts)
+ *
+ * Below the per-test timeout, or this deadline can never fire inside a test and
+ * the wedge-reclaim built for exactly that case is dead code there — the spec
+ * always dies first, turning a bounded, logged abort into an unexplained 300s
+ * timeout with no Failed row. An earlier 600s override did precisely that.
+ *
+ * Above the slowest legitimate write — which, on the 0.16 SDK line, is never a
+ * local prove. Local proving does not finish at all in a browser there: it traps a
+ * few milliseconds in on a thread spawn wasm cannot service, and because the trap
+ * leaves its promise unsettled rather than rejected, the prove neither returns nor
+ * throws (see the quarantine note on `send-public-local-prove.spec.ts`). That makes
+ * this deadline the only thing that reclaims the realm afterwards, and it means no
+ * override could have let such a write through — an earlier 180s value was read as
+ * having cut a legitimately-slow local prove short, but that prove had already
+ * crashed and was never going to finish at any deadline. The bound that actually
+ * binds is the delegated one: `DELEGATED_PROVE_TIMEOUT_MS` (120s), plus the execute,
+ * submit and apply around it.
+ *
+ * 240s clears that with margin and stays well under the per-test timeout. It leaves
+ * the healthy case untouched either way — delegated consumes that completed on the
+ * same 2-core runner took 12.1s and 9.9s end to end.
  */
-const WRITE_DEADLINE_MS = 90_000;
+const WRITE_DEADLINE_MS = Number(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000');
 
 /**
  * Per-op deadline (ms) for the private-note transport relay.
@@ -187,7 +218,7 @@ const WRITE_DEADLINE_MS = 90_000;
  *
  * 45s, matching `SYNC_DEADLINE_MS`: the closest peer, being the other op whose
  * budget is dominated by a remote service rather than local WASM. Well below the
- * 90s write ceiling, since no proving happens here.
+ * write ceiling, since no proving happens here.
  *
  * The deadline VALUE is the smaller half of the fix. The relay also dispatches as a
  * `criticalOp`, which is what moves the budget to execution start (`markOpStarted`)

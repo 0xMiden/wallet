@@ -1772,6 +1772,79 @@ describe('generateTransaction — Guardian routing', () => {
     errorSpy.mockRestore();
   });
 
+  it('Guardian send (delegated): a remote prover that never answers falls back on the client-side deadline (#718)', async () => {
+    // The rejection case above is the FRIENDLY failure: the prover says no, and the
+    // catch runs. The stall is the one that hung the wallet — the local E2E prover
+    // aborts a proof past its own `--timeout` and stops responding, so the delegated
+    // `prove` never settles at all. There is no gRPC deadline on that await, so the
+    // pipeline parked forever holding the WASM client lock and every later write
+    // queued behind it. `withDelegatedProveTimeout` has to convert that silence into
+    // the same local re-prove the rejection takes.
+    jest.useFakeTimers();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const txId = 'send-guardian-delegated-stall';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate,
+      sync: jest.fn(async () => {})
+    });
+
+    const client = makeClientApi(result);
+    // The delegated prove NEVER settles — the defining difference from a rejection.
+    client.transactions.prove.mockImplementationOnce(() => new Promise(() => {}));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    const pending = generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    // Let the pipeline reach the delegated prove, then expire the client-side
+    // deadline. Without it this await would never resolve.
+    await jest.advanceTimersByTimeAsync(120_000);
+    await pending;
+
+    expect(client.transactions.prove).toHaveBeenCalledTimes(2);
+    expect(client.transactions.prove).toHaveBeenNthCalledWith(1, result, {});
+    expect(client.transactions.prove).toHaveBeenNthCalledWith(2, result, { prover: 'local-prover' });
+    expect(abandonCandidate).not.toHaveBeenCalled();
+    expect(txStore.find(row => row.id === txId)?.status).toBe(ITransactionStatus.Completed);
+    warnSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
   it('Guardian send (delegated): a prover outage the local fallback cannot rescue REQUEUES instead of terminal-failing (#419)', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const txId = 'send-guardian-prover-outage';

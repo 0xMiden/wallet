@@ -83,7 +83,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       # cargo is needed to install miden-client-cli from crates.io on first run.
       - uses: dtolnay/rust-toolchain@stable
@@ -180,7 +179,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -324,7 +322,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -410,7 +407,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -544,7 +540,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -758,7 +753,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -1017,7 +1011,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -1229,7 +1222,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 

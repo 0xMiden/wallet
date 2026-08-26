@@ -26,8 +26,19 @@ runs:
         rm -rf "${{ runner.temp }}/miden-client"
         git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
         git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
-    - name: Cache node build
-      uses: actions/cache@v4
+    # Split restore/save rather than `actions/cache`. That action saves from a
+    # POST step, and GitHub skips post steps once the job has failed — so the
+    # cache could only ever be written by a fully green run. This node takes
+    # ~36 min to compile cold, which on its own leaves too little of the job's
+    # 60 min for the specs to finish: the job fails, the post step is skipped,
+    # nothing is cached, and the next run starts cold again. The cache was
+    # therefore never populated at all, and the failure it caused was the very
+    # thing preventing it from being populated. Saving here, straight after the
+    # build, breaks the cycle — the compile is what's expensive and it has
+    # already succeeded, whatever the specs go on to do.
+    - name: Restore node build
+      id: node_cache
+      uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
         key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
@@ -42,11 +53,83 @@ runs:
         # bridge-networked guardian containers can reach it via host.docker.internal.
         sed -i 's/^PROVER_PORT=50051$/PROVER_PORT=50052/' "$f"
         sed -i 's|sequencer --rpc.listen "$RPC"|sequencer --rpc.listen "0.0.0.0:57291"|' "$f"
+    - name: Patch block cadence
+      shell: bash
+      # start-test-node.sh HARDCODES the sequencer's `--block.interval 3s
+      # --batch.interval 1s`. MIDEN_NODE_BLOCK_INTERVAL was written when this stack
+      # ran under docker-compose.local.yml, which passed it through; the native
+      # script reads no such variable, so setting it configured NOTHING and the
+      # "fast blocks" leg has been running at 3s the whole time.
+      #
+      # That is worse than a slow leg, because a spec cannot see it. `recall.ts`
+      # sizes a recall window in BLOCKS from this same variable — the only cadence
+      # the process can claim to know — so at 500ms it asks for 360 blocks believing
+      # they take 180s, and against a real 3s cadence they take 18 minutes. The spec
+      # then fails as "the note never became reclaimable", which reads like a product
+      # bug in recall and is nothing of the sort.
+      #
+      # Only patch when the caller asked for a cadence: unset means the leg wants the
+      # script's own 3s, which is exactly what `recallBlocksForWindow` assumes for the
+      # empty case, so the two already agree.
+      run: |
+        [ -n "${MIDEN_NODE_BLOCK_INTERVAL:-}" ] || { echo "No cadence requested; leaving the script's 3s/1s default."; exit 0; }
+        f="${{ runner.temp }}/miden-client/scripts/start-test-node.sh"
+        line='--block.interval 3s --batch.interval 1s'
+        # Verified, not best-effort: a silently-missed sed is the exact failure above,
+        # and it would come back the moment upstream reformats this line.
+        grep -qF -- "$line" "$f" || {
+          echo "::error::start-test-node.sh no longer contains '$line' — the block-cadence patch matched nothing. Update it, or the node runs at a cadence the specs do not expect."
+          exit 1
+        }
+        sed -i "s|$line|--block.interval ${MIDEN_NODE_BLOCK_INTERVAL} --batch.interval ${MIDEN_NODE_BATCH_INTERVAL:-${MIDEN_NODE_BLOCK_INTERVAL}}|" "$f"
+        grep -n -- '--block.interval' "$f"
     - name: Build + start node
       shell: bash
+      # MIDEN_PROVER_TIMEOUT / MIDEN_PROVER_CAPACITY are read by miden-remote-prover's
+      # own clap args, so they reach it through start-test-node.sh without patching the
+      # script. Both defaults (60s, 1) are sized for a dedicated prover host and are
+      # wrong here: this runner has 2 cores shared by validator + sequencer +
+      # ntx-builder + prover + two Chrome instances, and the ntx-builder points at the
+      # SAME prover (tx-prover.url), so the wallet contends with network-transaction
+      # proving for it.
+      #   timeout: a transaction proof that exceeds it is ABORTED server-side. At 60s a
+      #     wallet consume under that load routinely lost, and the wallet's delegated
+      #     prove has no client-side deadline of its own, so the write then hung
+      #     indefinitely holding the offscreen WASM mutex — every later claim queued
+      #     behind it and syncState timed out. That is the whole #718 claim stall.
+      #   capacity: max IN-FLIGHT requests including the one being proved (the prover is
+      #     serial), i.e. 1 means an ntx-builder proof in progress leaves no room for the
+      #     wallet's. Give the two producers their own slots plus headroom.
+      env:
+        MIDEN_PROVER_TIMEOUT: 10m
+        MIDEN_PROVER_CAPACITY: '4'
       run: |
         cd "${{ runner.temp }}/miden-client"
-        ./scripts/start-test-node.sh --background
+        # Retried because bring-up has a startup race we do not own. The script
+        # launches the ntx-builder without waiting for the sequencer's RPC to
+        # listen, and the sequencer's first start rebuilds its account, nullifier
+        # and state-forest trees from SQLite before it binds. On a slow runner that
+        # rebuild outlasts the ntx-builder's connect, which then exits:
+        #   failed to initialize ntx builder ... tcp connect error 127.0.0.1:57291
+        #   Connection refused (os error 111)
+        # and takes the whole job down in setup, before a single spec runs. Our own
+        # "Wait for node RPC" step cannot cover this — it runs after the script has
+        # already given up. A second attempt starts against warm SQLite-derived
+        # RocksDB state, so the sequencer binds promptly.
+        for attempt in 1 2 3; do
+          if ./scripts/start-test-node.sh --background; then exit 0; fi
+          echo "::warning::node bring-up attempt $attempt failed; retrying in 10s"
+          pkill -f 'miden-(validator|node|ntx-builder|remote-prover)' 2>/dev/null || true
+          sleep 10
+        done
+        echo "::error::node bring-up failed after 3 attempts"
+        exit 1
+    - name: Save node build
+      if: steps.node_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/miden-client/target/test-node
+        key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.

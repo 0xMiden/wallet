@@ -84,7 +84,16 @@ services:
     command:
       - |
         set -e
-        seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        # IPv4 explicitly, with a plain `hosts` lookup only as a fallback. The
+        # node binds 0.0.0.0:57291 — v4 only — while Docker Desktop publishes
+        # host.docker.internal as BOTH families and `getent hosts` answers with
+        # the v6 gateway first. Remapping localhost to that address points every
+        # node dial at an address nothing listens on, and the server dies at
+        # startup with "Failed to create network client: ... transport error",
+        # crash-looping behind a healthcheck that still reports healthy. Linux CI
+        # resolves v4 either way, so this only ever changes the macOS outcome.
+        seq_ip=$$(getent ahostsv4 host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        [ -n "$$seq_ip" ] || seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
         if [ -n "$$seq_ip" ]; then
           sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
           if grep -qF "$$seq_ip localhost" /etc/hosts.new; then
@@ -172,7 +181,16 @@ services:
     command:
       - |
         set -e
-        seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        # IPv4 explicitly, with a plain `hosts` lookup only as a fallback. The
+        # node binds 0.0.0.0:57291 — v4 only — while Docker Desktop publishes
+        # host.docker.internal as BOTH families and `getent hosts` answers with
+        # the v6 gateway first. Remapping localhost to that address points every
+        # node dial at an address nothing listens on, and the server dies at
+        # startup with "Failed to create network client: ... transport error",
+        # crash-looping behind a healthcheck that still reports healthy. Linux CI
+        # resolves v4 either way, so this only ever changes the macOS outcome.
+        seq_ip=$$(getent ahostsv4 host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
+        [ -n "$$seq_ip" ] || seq_ip=$$(getent hosts host.docker.internal 2>/dev/null | awk '{print $$1}' | head -n1)
         if [ -n "$$seq_ip" ]; then
           sed "s/^127\.0\.0\.1[[:space:]]\+localhost\$$/$$seq_ip localhost/" /etc/hosts | sed '/^::1[[:space:]]/d' > /etc/hosts.new
           if grep -qF "$$seq_ip localhost" /etc/hosts.new; then

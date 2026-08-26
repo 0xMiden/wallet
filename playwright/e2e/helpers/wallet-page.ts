@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { IdbDumpSource } from './idb-dump';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -11,6 +12,33 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 // forever. This value passes all five checks. The bypass paths accept any value.
 const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
+
+/**
+ * Floor for any claim-drain budget when running against the LOCAL stack (#718).
+ *
+ * Every `claimAllNotes` / `claimNotesByGroup` budget in the specs was tuned
+ * against devnet/testnet, where a consume finishes in seconds — measured, the
+ * whole three-note `multi-claim` journey runs in ~41s there. The local stack packs
+ * a node, sequencer, ntx-builder, prover, guardian, note-transport and two Chrome
+ * instances onto a 2-core CI runner, and the same consume takes minutes. Those
+ * budgets therefore expire while the claim is still legitimately running and
+ * report it as stuck.
+ *
+ * A floor rather than a multiplier: the budgets differ per spec for reasons that
+ * have nothing to do with the stack (note counts, whether a send precedes the
+ * claim), and multiplying would scale a 420s outlier to something no spec timeout
+ * allows. Applies to `localhost` only, so every other network keeps the number its
+ * spec asked for.
+ *
+ * Kept well under the suites' job timeouts on purpose. A floor only ever binds on
+ * a claim that is NOT draining, so raising it spends its whole value on failing
+ * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
+ * cost the very diagnostics a failing run exists to produce.
+ */
+const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+
+/** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
+const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
 
 /**
  * Strip an optional `0x` prefix and lowercase, so a guardian commitment read
@@ -1722,8 +1750,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.waitForStoreReady(3_000);
   }
 
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+  async claimAllNotes(requestedTimeoutMs: number = 120_000): Promise<void> {
     const STABLE_ZERO_THRESHOLD = 2;
+    const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
 
     // Fresh reload + metadata injection + land on /receive. The reload (NOT a
     // client-side navigate) gives a fresh Dexie connection AND resets the
@@ -1855,7 +1884,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(
         `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
+      // The gate above is (b) — a consume that never committed — often enough that
+      // it is worth asking the offscreen document what that consume is doing before
+      // reloading and enqueuing another one. Streams to stdout so a stalled claim is
+      // diagnosable from the live job log instead of from artifacts after the run.
       if (stuckSameCountIters >= 3) {
+        await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
@@ -1984,8 +2018,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * — the two-level claim UI that the top-level "Claim All" (claimAllNotes) never
    * reaches. Chrome desktop only.
    */
-  async claimNotesByGroup(timeoutMs: number = 180_000): Promise<void> {
+  async claimNotesByGroup(requestedTimeoutMs: number = 180_000): Promise<void> {
     const STABLE_ZERO_THRESHOLD = 2;
+    const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
     await this.reloadAndPreparePending();
 
     // Clock starts after reload/prepare — same reasoning as claimAllNotes (#615).

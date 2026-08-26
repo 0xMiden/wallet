@@ -1,5 +1,5 @@
-import { Account, AuthSecretKey, MidenClient, Word } from '@miden-sdk/miden-sdk/lazy';
-import { EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
+import { Account, AuthSecretKey, MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { AccountInspector, EcdsaSigner, MultisigClient } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
@@ -86,23 +86,6 @@ export async function insertGuardianAccountMonotonically(client: MidenClient, ac
   await client.accounts.insert({ account, overwrite: true });
 }
 
-// Re-export the slot names from the package for reading account state
-export const MULTISIG_SLOT_NAMES = {
-  THRESHOLD_CONFIG: 'openzeppelin::multisig::threshold_config',
-  SIGNER_PUBLIC_KEYS: 'openzeppelin::multisig::signer_public_keys',
-  EXECUTED_TRANSACTIONS: 'openzeppelin::multisig::executed_transactions',
-  PROCEDURE_THRESHOLDS: 'openzeppelin::multisig::procedure_thresholds'
-} as const;
-
-// GUARDIAN_SLOT_NAMES is module-private in @openzeppelin/miden-multisig-client
-// (not re-exported), so we re-declare the slot names locally — same pattern
-// as MULTISIG_SLOT_NAMES above.
-export const GUARDIAN_SLOT_NAMES = {
-  SELECTOR: 'openzeppelin::guardian::selector',
-  PUBLIC_KEY: 'openzeppelin::guardian::public_key',
-  SCHEME_ID: 'openzeppelin::guardian::scheme_id'
-} as const;
-
 /**
  * Material the wallet must persist after a Guardian account is created.
  * Hot is held outside the SDK keystore (secure-hot-key facade); cold lives
@@ -125,61 +108,66 @@ export interface CreatedGuardianAccount {
 }
 
 /**
- * Signers live in the SIGNER_PUBLIC_KEYS storage map keyed by their index word
- * (matching @openzeppelin/miden-multisig-client's `signerMapKey`). The hot
- * signer is at index 0, the cold signer at index 1.
+ * Both readers below go through `AccountInspector` rather than reading storage
+ * slots by name. The wallet used to re-declare the slot names locally, which
+ * broke silently when the component moved namespace in multisig-client 0.17
+ * (`openzeppelin::multisig::signer_public_keys` →
+ * `miden::standards::auth::multisig::approver_public_keys`): every read
+ * returned nothing, so a freshly-created Guardian account looked like it had no
+ * signers and every proposal failed with "No signer commitment found in account
+ * storage". The names are deliberately not exported by the package for exactly
+ * this reason — the inspector is the supported, layout-insulated accessor, and
+ * it reads by signer index, so it also keeps the by-key (not by-SMT-order)
+ * semantics the previous code was careful to preserve.
  */
-const signerMapKey = (index: number): Word => new Word(new BigUint64Array([BigInt(index), 0n, 0n, 0n]));
+const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);
+
+/** An absent map entry reads back as the empty word (all zeros) in some SDK builds. */
+const isEmptyWordHex = (unprefixed: string): boolean => /^0*$/.test(unprefixed);
 
 /**
- * Read a signer's commitment from a Guardian account's storage.
+ * Read a signer's commitment from a Guardian account.
  *
  * 3-key accounts store `[hot@0, cold@1]`; legacy single-key Guardian accounts
  * (feature #153) keep the cold/HD key alone at index 0. So for the cold lookup
  * we read index 1 and fall back to index 0 — otherwise activating a migrated
  * legacy account would read a non-existent index 1 and brick it.
- *
- * Commitments MUST be read BY KEY (`getMapItem(signerMapKey(i))`), not by
- * `getMapEntries()[i]` array position: getMapEntries returns the storage SMT's
- * iteration order (key-hash order), which is NOT the signer-index order, so a
- * positional read binds the wrong signer for roughly half of all accounts. The
- * SDK's own reader (multisig-client `AccountInspector.fromAccount`) reads by key
- * for the same reason.
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
-  const storage = account.storage();
+  const noSigner = new Error('No signer commitment found in account storage');
 
-  const readSigner = (index: number): string | undefined => {
-    const value = storage.getMapItem(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS, signerMapKey(index));
-    if (!value) return undefined;
-    const hex = value.toHex();
-    const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
-    // An absent map entry reads back as the empty word (all zeros) in some SDK
-    // builds — treat that as "no signer at this index".
-    return /^0*$/.test(unprefixed) ? undefined : unprefixed;
-  };
-
-  const commitment = getCold ? (readSigner(1) ?? readSigner(0)) : readSigner(0);
-  if (!commitment) {
-    throw new Error('No signer commitment found in account storage');
+  // The inspector throws when the account isn't a guarded multisig or any
+  // signer entry is unreadable; both mean the same thing to callers here.
+  let commitments: string[];
+  try {
+    commitments = AccountInspector.getSignerPublicKeyCommitments(account);
+  } catch {
+    throw noSigner;
   }
+
+  const raw = getCold ? (commitments[1] ?? commitments[0]) : commitments[0];
+  if (raw === undefined) throw noSigner;
+
+  const commitment = stripHexPrefix(raw);
+  if (isEmptyWordHex(commitment)) throw noSigner;
 
   return { commitment };
 }
 
 /**
- * Read the on-chain guardian operator key commitment from the
- * `openzeppelin::guardian::public_key` storage map (index 0) — a SEPARATE
- * slot from the multisig signer slots read by `getSignerDetailsFromAccount`.
+ * Read the on-chain guardian operator key commitment — a SEPARATE storage slot
+ * from the multisig signer keys read by `getSignerDetailsFromAccount`.
  * Returns unprefixed hex, or undefined if absent / the empty (all-zero) word.
  */
 export function getGuardianCommitmentFromAccount(account: Account): string | undefined {
-  const storage = account.storage();
-  const value = storage.getMapItem(GUARDIAN_SLOT_NAMES.PUBLIC_KEY, signerMapKey(0));
-  if (!value) return undefined;
-  const hex = value.toHex();
-  const unprefixed = hex.startsWith('0x') ? hex.slice(2) : hex;
-  return /^0*$/.test(unprefixed) ? undefined : unprefixed;
+  let raw: string;
+  try {
+    raw = AccountInspector.getGuardianPublicKeyCommitment(account);
+  } catch {
+    return undefined;
+  }
+  const unprefixed = stripHexPrefix(raw);
+  return isEmptyWordHex(unprefixed) ? undefined : unprefixed;
 }
 
 const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
@@ -269,13 +257,27 @@ export async function createGuardianAccount(
         signerCommitments: [hot.commitmentHex, coldCommitmentHex],
         guardianCommitment,
         guardianPublicKey: guardianPubkey,
-        guardianEnabled: true,
+        // No `guardianEnabled` since multisig-client 0.17: the builder now
+        // rejects a config without a guardian commitment outright, so every
+        // account it creates is guarded and the flag had nothing left to
+        // select. We only ever passed `true`, so behavior is unchanged.
         storageMode: 'private',
         signatureScheme: 'ecdsa',
         seed: coldSeed,
         procedureThresholds: [
           {
             procedure: 'update_guardian',
+            threshold: 2
+          },
+          // `update_procedure_threshold` edits the overrides, so it has to cost
+          // at least as much as the strictest one it can lower. Left at the
+          // account threshold of 1, the hardening above was decorative: either
+          // single signer could drop `update_guardian` back to 1 and then
+          // switch the guardian alone. Enforced by the builder (and by
+          // `AuthMultisig::new` on the Rust side) since multisig-client 0.17,
+          // which rejects the unguarded shape outright.
+          {
+            procedure: 'update_procedure_threshold',
             threshold: 2
           }
         ]

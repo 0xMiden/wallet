@@ -86,7 +86,7 @@ import {
   walletAccountIdToSdk
 } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -1075,13 +1075,26 @@ const runGuardianPipeline = async (
       // claim timeout), because the guardian pipeline drives the raw client
       // directly and had none of the local fallback the non-guardian path gets
       // for free from `proveWithFallback`. Give it that resilience: on remote
-      // failure, re-prove the SAME executed tx locally. Re-proving is safe
+      // failure — or on a remote that never answers at all, which is a stall the
+      // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
+      // SAME executed tx locally. Re-proving is safe
       // because `proveTransaction` borrows the executed result (only the prover
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
       try {
-        provenTx = await executedTx.prove({});
+        // Safe to bound here in the strongest sense available: this pipeline drives
+        // execute/prove/submit itself, so the deadline provably expires BEFORE any
+        // submit and the local re-prove cannot broadcast twice.
+        // Explicit remote prover rather than `prove({})`: the empty form selects the
+        // SDK's default-prover fallback, which "requires an initialized client" and so
+        // never dispatches from a prover-only realm — the write then hangs until the
+        // deadline below rather than proving in seconds (#718).
+        const delegatedProver = remoteProver();
+        provenTx = await withDelegatedProveTimeout(
+          executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+          'Delegated guardian prove'
+        );
       } catch (proveError) {
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()
@@ -1529,7 +1542,20 @@ const generateGuardianTransaction = async (
       );
     }
   } catch (error) {
-    console.error('Error during Guardian transaction submission or execution', { error });
+    // The message goes in the FORMAT STRING, not only in the object. Chrome
+    // truncates strings nested inside a logged object's preview (~100 chars),
+    // and a guardian write's whole diagnostic value is the executor's reason,
+    // which sits at the END of a long chain: "Offscreen call 'guardianPipeline'
+    // failed: failed to execute transaction: transaction execution failed:
+    // <reason>". Logged only as `{ error }` it is cut mid-prefix — a CI failure
+    // here reported nothing past "transaction executi…", which is the part every
+    // guardian failure shares. The object stays for the stack.
+    console.error(
+      `Error during Guardian transaction submission or execution: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { error }
+    );
     if (isWasmClientPoisonedError(error)) {
       // A lock-recovery eviction ABANDONED this pipeline; its transaction may
       // still land. Abandoning the candidate would retract a co-signature the

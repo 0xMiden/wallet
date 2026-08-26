@@ -28,7 +28,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
-  executeForSummary: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+  executeForSummary: jest.fn(async () => ({
+    summary: { serialize: () => new Uint8Array([1, 2, 3]) },
+    anchor: { __anchor: true }
+  }))
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),

@@ -65,7 +65,8 @@ import {
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from 'lib/miden/sdk/miden-client';
-import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
+import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'lib/miden/sdk/miden-client-interface';
+import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
@@ -83,6 +84,43 @@ const TAG = '[offscreen-prover]';
 // NOT depend on `chrome.offscreen` being absent inside the doc (an unreliable
 // Chrome quirk); the guard reads this deterministic global.
 (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ = true;
+
+// --- E2E-only per-call markers for THIS realm (#718) ------------------------
+//
+// The realm that runs every wallet write is the one realm the Playwright harness
+// cannot attach a console to: the offscreen document is a hidden target, absent
+// from `context.pages()`. `recordProveMarker` is the way out — it relays each line
+// to the service worker, which appends it to `miden_prove_markers_offscreen` for
+// the harness's prove-telemetry probe to read.
+//
+// WHY THIS FILE NEEDS ITS OWN MARKERS, given that `MidenClientInterface` is already
+// instrumented and IS bundled into this realm (it reaches here through the shared
+// `chunks/miden-client.*.js` that `offscreen.js` imports — a `grep offscreen.js`
+// alone misses it and reads as "not instrumented"): the interface's markers only
+// narrate the writes that go THROUGH it. The dispatch table below reaches past it
+// in two places that then narrate nothing at all — `guardianPipeline`, which drives
+// the raw `client.client.transactions` API itself, and the op ENVELOPE in
+// `handleCall`, which is where an op waits on the WASM mutex, builds the client and
+// hydrates WASM. A guardian write — the wallet's DEFAULT account type — is
+// therefore entirely invisible today, which is exactly the write that hangs.
+//
+// Settle-time prove telemetry cannot answer this either: it records once a prove
+// FINISHES, so a prove that never returns contributes nothing and its absence is
+// indistinguishable from "no prove was attempted". These markers are written as
+// they happen, so the LAST one names the call this realm is still sitting in.
+//
+// Gated on the E2E build flag, so production records nothing. Mirrors the identical
+// helper in `sdk/miden-client-interface` and `sdk/native-prover-mobile`; kept local
+// rather than shared because the gate is a build-time constant each bundle folds
+// away on its own, and importing a shared wrapper would defeat that.
+const PROVE_TIMING_ENABLED = process.env.MIDEN_E2E_TEST === 'true';
+
+function recordProveTiming(message: string): void {
+  if (!PROVE_TIMING_ENABLED) return;
+  const line = `[prove-timing] ${TAG} ${message}`;
+  console.log(line);
+  recordProveMarker(line);
+}
 
 // --- Connectivity marks REPORT to the SW, they do not write storage ---------
 //
@@ -333,6 +371,10 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
     throw new Error('offscreen sign: no ambient op_id (sign fired outside an OFFSCREEN_CALL)');
   }
   const sign_id = newSignId();
+  // A sign that never answers stalls the execute step with the WASM mutex held, and
+  // is invisible from the SW side because the op's deadline is PAUSED for the whole
+  // round-trip (design §2.5) — so it cannot even be distinguished from a slow prove.
+  recordProveTiming(`sign requested op=${op_id} sign=${sign_id}`);
   const resp = (await chrome.runtime.sendMessage({
     target: SW_TARGET,
     type: OFFSCREEN_SIGN_REQUEST,
@@ -341,6 +383,7 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
     publicKeyB64: bytesToB64(publicKey),
     signingInputsB64: bytesToB64(signingInputs)
   })) as OffscreenSignResponse | undefined;
+  recordProveTiming(`sign answered op=${op_id} sign=${sign_id} ok=${resp?.ok === true}`);
   if (!resp || !resp.ok) {
     // Throw so the SDK's WebKeyStore captures it (offscreen `lastAuthError`) and
     // the execute fails; the SW-side handler already recorded the classified
@@ -757,12 +800,16 @@ const DISPATCH: Record<string, DispatchFn> = {
     // is what keeps a late 'submitting' stamp off the successor's row.
     const context = dispatchContext();
     const { hold } = context;
+    recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
     postStageEvent(context, 'executing');
+    recordProveTiming('guardianPipeline calling executeRequest');
     const executedTx = await client.client.transactions.executeRequest(accountId, tr);
+    recordProveTiming('guardianPipeline executeRequest returned; proving');
     postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
+      recordProveTiming('guardianPipeline proving with local prover');
       // Local proving is deliberately unbounded — pause this realm's lock
       // watchdog for its duration, like proveWithFallback's local attempts
       // (#775). The delegated attempt stays on the clock.
@@ -772,18 +819,45 @@ const DISPATCH: Record<string, DispatchFn> = {
       );
     } else {
       try {
-        provenTx = await executedTx.prove({});
+        // Explicit remote prover rather than `prove({})`, and BOUNDED — the same fix
+        // the inline `runGuardianPipeline` (transaction/index.ts) and
+        // `MidenClientInterface.newTransaction` already carry. It was missed here, and
+        // here is the copy that actually runs on Chrome: the service-worker bundle
+        // DEFAULTS `MIDEN_USE_OFFSCREEN_CLIENT` to 'true', so a guardian write takes
+        // `dispatchGuardianPipeline` into this realm and the fixed inline pipeline is
+        // dead code on the shipping path. Two independent failures rode on that:
+        //   1. The empty `prove({})` selects the SDK's DEFAULT-PROVER FALLBACK, which
+        //      requires an initialized client and so never dispatches from a
+        //      prover-only realm — the remote prover logs no request at all and the
+        //      await never settles (#718).
+        //   2. There was no client-side ceiling, unlike both fixed call sites, so
+        //      nothing could convert that silence into the rejection the local
+        //      fallback below needs. The write simply held the offscreen WASM mutex
+        //      until the SW's write deadline killed the whole document.
+        // Safe to bound here in the strongest sense available, exactly as inline: this
+        // pipeline drives execute/prove/submit itself, so the deadline provably
+        // expires BEFORE any submit and the local re-prove cannot broadcast twice.
+        const delegatedProver = remoteProver();
+        recordProveTiming(`guardianPipeline delegated prove, remoteProver=${delegatedProver ? 'set' : 'unavailable'}`);
+        provenTx = await withDelegatedProveTimeout(
+          executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+          'Delegated guardian prove'
+        );
       } catch (proveError) {
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
+        recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         provenTx = await withWasmLockWatchdogPaused(
           () => executedTx.prove({ prover: (sdk as any).TransactionProver.newLocalProver() }),
           hold
         );
       }
     }
+    recordProveTiming('guardianPipeline prove returned; submitting');
     postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
+    recordProveTiming('guardianPipeline submit returned; applying');
     await submittedTx.apply();
+    recordProveTiming('guardianPipeline apply returned');
     return executedTx.result.serialize() as Uint8Array;
   },
 
@@ -946,6 +1020,7 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
     const liveness: SignLiveness = { poisoned: false };
     currentSignLiveness = liveness;
     const startedGeneration = wasmClientGeneration();
+    recordProveTiming('getOrCreateClient: creating the offscreen client');
     const created: Promise<MidenClientInterface> = ensureEndpointOverrides()
       .then(() =>
         MidenClientInterface.create({
@@ -954,6 +1029,7 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
         })
       )
       .then(client => {
+        recordProveTiming('getOrCreateClient: client created');
         // A poisoning that lands while this create is in flight nulls the memo
         // synchronously, but a dispatch already awaiting THIS promise is ahead
         // of the poison hook's own `.then(markPoisoned)` in the microtask queue
@@ -1009,6 +1085,15 @@ function reloadEndpointOverrides(): Promise<void> {
 
 async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown) => void): Promise<void> {
   const t = performance.now();
+  // Envelope markers (#718). Everything between here and the dispatch can block
+  // without any existing signal reaching the harness: `ensureInit` hydrates WASM and
+  // brings up the rayon pool, `getOrCreateClient` performs the client's eager RPC
+  // genesis fetch, and `withWasmClientLock` can queue behind another op for as long
+  // as that op runs. Naming each boundary is what separates "the write is stuck in
+  // the SDK" from "the write never started" — the SW-side deadline cannot tell them
+  // apart, because a write's real deadline is armed at execution START and its
+  // dispatch-time backstop is a flat 5 minutes either way.
+  recordProveTiming(`call '${msg?.method}' op=${msg?.op_id} entered`);
   try {
     await ensureInit();
     const dispatch = DISPATCH[msg.method];
@@ -1021,6 +1106,9 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       });
       return;
     }
+    // NOTE: the client is deliberately NOT resolved here — it is resolved inside
+    // the lock below, at execution start (issue #775).
+    recordProveTiming(`call '${msg.method}' init ready; awaiting WASM mutex`);
     const args = msg.argsB64.map(decodeArg);
     // W1: serialize actual WASM entry inside THIS doc's own mutex (design §5,
     // §8-risk-5). The offscreen realm has its own module-level `wasmClientMutex`
@@ -1036,6 +1124,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // that just trapped, so every one of them would run on the poisoned client
       // the poison hook had already dropped (issue #775). Same reasoning as the
       // ambient op_id below: what matters is the state at EXECUTION start.
+      recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await getOrCreateClient();
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
@@ -1057,6 +1146,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // non-promise; the response is intentionally ignored.
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
       void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
+      recordProveTiming(`call '${msg.method}' client ready; dispatching`);
       // Published for the dispatch to take in its first statement — the only
       // point at which "the op that owns this hold" is knowable (issue #775).
       // No await between here and the call, so what it takes is provably ours.
@@ -1074,6 +1164,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         // would leave the healthy successor with no ambient id, so its
         // mid-execute sign would fail on the no-ambient-id guard (issue #775).
         if (currentOpId === msg.op_id) currentOpId = null;
+        recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
     });
     sendResponse({
@@ -1084,6 +1175,16 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     });
   } catch (err) {
     console.error(`${TAG} call '${msg?.method}' failed:`, err);
+    // Telemetry must survive a hostile thrown value whose every getter throws
+    // (the same reason the error extraction below is guarded) — a crash here
+    // would swallow the SW's error response entirely.
+    let failDetail = 'unreadable error';
+    try {
+      failDetail = String((err as { message?: string })?.message ?? err);
+    } catch {
+      /* keep the placeholder */
+    }
+    recordProveTiming(`call '${msg?.method}' FAILED ${failDetail}`);
     // A lock-recovery eviction rejects the WAITER while the dispatch runs on, so
     // the `finally` that clears the ambient id never ran and this op's id is
     // still installed (issue #775). The next op overwrites it with its own, and
