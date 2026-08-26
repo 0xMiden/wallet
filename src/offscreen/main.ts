@@ -67,7 +67,7 @@ import {
 import { MidenClientInterface } from 'lib/miden/sdk/miden-client-interface';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { poisonReasonOf } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -1071,6 +1071,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // round trip classify identically to flag-off (marked Completed, NOT Failed →
     // requeue → double-spend). `undefined` for a code-less error keeps the reply
     // shape unchanged (mirrors the flag-off path).
+    const errorName = errorNameOf(err);
     sendResponse({
       ok: false,
       op_id: msg?.op_id,
@@ -1081,8 +1082,13 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // recovery (issue #775). Without it the SW rebuilds a bare `Error` and
       // treats an abandoned-but-possibly-still-submitting op as an ordinary
       // failure.
-      errorName: errorNameOf(err),
-      errorReason: isWasmClientPoisonedError(err) ? err.reason : undefined
+      errorName,
+      // Read off the ALREADY-GUARDED name rather than re-classifying `err`:
+      // `isWasmClientPoisonedError` reads `.name` unguarded, and a foreign
+      // object with a throwing accessor would escape this catch — leaving the
+      // SW with no reply at all, waiting out its deadline instead of getting
+      // the failure it is owed. `errorNameOf` exists for exactly that reason.
+      errorReason: errorName === 'WasmClientPoisonedError' ? poisonReasonOf(err) : undefined
     });
   }
 }

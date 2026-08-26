@@ -17,6 +17,7 @@ import {
   withWasmLockWatchdogPaused,
   yieldWasmClientLock
 } from './miden-client';
+import { poisonReasonOf } from './wasm-client-poison';
 
 /**
  * Attach a rejection expectation NOW — so the eviction's rejection always has
@@ -145,6 +146,41 @@ describe('wasm lock watchdog', () => {
     expect(isWasmClientBusy()).toBe(false);
   });
 
+  it('grants the post-pause finishing slice ONCE per hold, so a bracket loop cannot run unwatched forever', async () => {
+    // A hold that has already spent its whole running budget gets one 30 s
+    // slice when a bracket closes, so it is not evicted the instant it comes
+    // back. Renewing that slice at every close would hand a flow that loops
+    // over short brackets an unbounded unwatched life — the wedge shape #775 is
+    // about, with the backstop switched off.
+    let openBracket!: () => void;
+    const gate = new Promise<void>(resolve => {
+      openBracket = resolve;
+    });
+    const wedged = withWasmClientLock(async () => {
+      // Burn the whole normal budget running, then take a bracket.
+      await gate;
+      // Two closes in a row: the first earns the grace, the second must not.
+      await withWasmLockWatchdogPaused(async () => {});
+      await new Promise(resolve => setTimeout(resolve, 25_000));
+      await withWasmLockWatchdogPaused(async () => {});
+      await new Promise<never>(() => {});
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    // 299 s of running time: still inside the ceiling, budget nearly gone.
+    await jest.advanceTimersByTimeAsync(299_000);
+    expect(isWasmClientBusy()).toBe(true);
+    openBracket();
+    // First close → the one grace slice. 25 s of it is spent below.
+    await jest.advanceTimersByTimeAsync(25_000);
+    expect(isWasmClientBusy()).toBe(true);
+    // Second close re-arms on the EXHAUSTED remainder, not another slice, so the
+    // eviction lands promptly instead of 30 s later.
+    await jest.advanceTimersByTimeAsync(1_000);
+    await wedgedRejects;
+    expect(isWasmClientBusy()).toBe(false);
+  });
+
   it('never double-releases: a waiter woken by recovery is not overlapped by a later acquirer', async () => {
     const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
     const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
@@ -204,6 +240,23 @@ describe('wasm lock watchdog', () => {
     // The trap is still recoverable for a human, just not through the message.
     expect(poisoned.cause).toBeInstanceOf(WebAssembly.RuntimeError);
     expect((poisoned.cause as Error).message).toBe(causeText);
+  });
+
+  it('reads the poison reason off a hostile value without letting a throwing accessor escape', () => {
+    // Used by the offscreen catch that builds the IPC failure reply, where a
+    // throw would mean the SW never gets a reply at all and waits out its
+    // deadline instead.
+    expect(poisonReasonOf(new WasmClientPoisonedError('watchdog'))).toBe('watchdog');
+    const hostile = {
+      name: 'WasmClientPoisonedError',
+      get reason(): string {
+        throw new Error('accessor from a foreign realm');
+      }
+    };
+    expect(poisonReasonOf(hostile)).toBeUndefined();
+    // An unrecognized reason is dropped rather than forwarded onto the wire.
+    expect(poisonReasonOf({ reason: 'something-else' })).toBeUndefined();
+    expect(poisonReasonOf(null)).toBeUndefined();
   });
 
   it('names the cause class in its message, and refuses an unrecognized name', () => {
@@ -760,18 +813,25 @@ describe('poisoned client recovery', () => {
 
   const loadIsolated = async (freeImpl?: () => void) => {
     const free = jest.fn(freeImpl);
-    const create = jest.fn(async () => ({ free }));
+    const markPoisoned = jest.fn();
+    const create = jest.fn(async () => ({ free, markPoisoned }));
     jest.doMock('./miden-client-interface', () => ({
       MidenClientInterface: class {
         static create = create;
         free = free;
+        markPoisoned = markPoisoned;
       }
     }));
     let mod!: IsolatedLockModule;
+    // The poison module has to come from the SAME isolated registry: its
+    // generation counter is module state, and a plain top-level import would
+    // read a different instance than the one the lock module bumps.
+    let poison!: { wasmClientGeneration: () => number };
     await jest.isolateModulesAsync(async () => {
       mod = require('./miden-client');
+      poison = require('./wasm-client-poison');
     });
-    return { mod, free, create };
+    return { mod, free, create, markPoisoned, poison };
   };
 
   it('after watchdog recovery the next acquirer gets a freshly constructed client, not the disposed one', async () => {
@@ -871,15 +931,15 @@ describe('poisoned client recovery', () => {
     expect(nextRan).toBe(true);
   });
 
-  it('does not dispose on a trap while a holder is suspended mid-yield', async () => {
-    const { mod, free } = await loadIsolated();
-    await mod.getMidenClient();
+  it('does not dispose on a trap while a holder is suspended mid-yield, but does detach and mark it', async () => {
+    const { mod, free, create, markPoisoned } = await loadIsolated();
+    const clientBefore = await mod.getMidenClient();
 
     let releaseYield!: () => void;
     const yieldGate = new Promise<void>(resolve => {
       releaseYield = resolve;
     });
-    const op = mod.withWasmClientLock(() => mod.yieldWasmClientLock(() => yieldGate));
+    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
     await jest.advanceTimersByTimeAsync(0);
 
     // The trap fires while the holder has yielded the lock (offscreen-prove
@@ -893,9 +953,46 @@ describe('poisoned client recovery', () => {
     );
     await jest.advanceTimersByTimeAsync(0);
     expect(free).not.toHaveBeenCalled();
+    // Marking is the half that must still happen: every corpse guard
+    // (`yieldLockUnlessDisposed`, the sign and local-prove pauses, `Vault`'s
+    // re-resolve) reads `isDisposed`, so a detach that only drops the reference
+    // would leave the suspended flow looking like a healthy owner — free to
+    // release a successor's mutex on its next yield.
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    // And the slot is empty, so nobody NEW is handed the trapped client.
+    const clientAfter = await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(clientAfter).not.toBe(clientBefore);
 
     releaseYield();
     await op;
+  });
+
+  it('evicting a wedged holder while another is mid-yield detaches rather than freeing under it', async () => {
+    // The shape that makes this reachable: a send holds the lock, yields it
+    // around its offscreen prove, and the 1 s sync takes the lock and wedges.
+    // The eviction target is the sync, but the client is SHARED — freeing it
+    // fails the send, possibly after it has already submitted.
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+
+    expect(free).not.toHaveBeenCalled();
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+
+    releaseYield();
+    await yielded;
   });
 
   it('recovers even when disposing the trapped client itself throws', async () => {
@@ -924,5 +1021,19 @@ describe('poisoned client recovery', () => {
     await wedgedRejects;
 
     await expect(mod.resetMidenClient()).resolves.toBeUndefined();
+  });
+
+  it('an endpoint-change reset invalidates client-derived caches, exactly as a recovery does', async () => {
+    // `guardian-manager` caches a `MultisigService` built on whatever client was
+    // live at the time and re-validates it by comparing generations. A reset
+    // discards the client just as thoroughly as a trap recovery does, so the
+    // counter has to move for BOTH — it lives on the singleton mutators rather
+    // than on the poison notification for that reason.
+    const { mod, poison } = await loadIsolated();
+    await mod.getMidenClient();
+
+    const before = poison.wasmClientGeneration();
+    await mod.resetMidenClient();
+    expect(poison.wasmClientGeneration()).toBeGreaterThan(before);
   });
 });

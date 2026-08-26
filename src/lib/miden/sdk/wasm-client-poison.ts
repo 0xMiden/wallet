@@ -148,7 +148,11 @@ export class WasmClientPoisonedError extends Error {
   constructor(reason: WasmClientPoisonReason, cause?: unknown) {
     const detail =
       reason === 'watchdog'
-        ? `held the WASM client lock past the ${WASM_LOCK_WATCHDOG_MS}ms watchdog ceiling`
+        ? // No figure: the ceiling actually applied depends on how much of the
+          // hold was spent inside a pause bracket, so naming one constant here
+          // would misreport most evictions. The recovery `console.error` is
+          // where the live numbers belong.
+          'held the WASM client lock past its watchdog ceiling'
         : `uncaught realm error while holding the WASM client lock (cause: ${causeLabel(cause)}; see the cause chain)`;
     super(`WASM client poisoned (${reason}): ${detail}`, cause === undefined ? undefined : { cause });
     this.name = 'WasmClientPoisonedError';
@@ -168,4 +172,24 @@ export function isWasmClientPoisonedError(error: unknown): error is WasmClientPo
     error instanceof WasmClientPoisonedError ||
     (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'WasmClientPoisonedError')
   );
+}
+
+/**
+ * Read the eviction mechanism off a value already identified as a poison error,
+ * without ever letting a property access throw.
+ *
+ * For the offscreen catch that builds the IPC failure reply: everything there
+ * runs on a value of unknown provenance, and a throwing accessor would escape
+ * before `sendResponse`, leaving the SW waiting out its deadline instead of
+ * getting the failure it is owed. Same argument as `errorNameOf`'s guarded read.
+ */
+export function poisonReasonOf(error: unknown): WasmClientPoisonReason | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  let reason: unknown;
+  try {
+    reason = Reflect.get(error, 'reason');
+  } catch {
+    return undefined;
+  }
+  return isWasmClientPoisonReason(reason) ? reason : undefined;
 }

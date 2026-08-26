@@ -2523,6 +2523,39 @@ describe('offscreen/main — WASM lock recovery hook', () => {
     expect(r2.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('still answers the SW when the thrown value has a throwing `reason` accessor', async () => {
+    // The failure reply is built from a value of unknown provenance. Reading
+    // `.reason` (or `.name`) unguarded lets a foreign accessor throw out of the
+    // catch, and then `sendResponse` never runs at all — the SW waits out its
+    // per-op deadline and kills the realm instead of getting the failure it is
+    // owed. Both reads go through the guarded helpers for that reason.
+    await loadModule();
+    G.__off.clientGetAccount = jest.fn(async () => {
+      // Not an Error on purpose: a plain object is what a foreign realm can
+      // throw, and it is the only way to give `reason` a hostile accessor.
+      // eslint-disable-next-line no-throw-literal
+      throw {
+        name: 'WasmClientPoisonedError',
+        message: 'evicted',
+        get reason(): string {
+          throw new Error('accessor from a foreign realm');
+        }
+      };
+    });
+    const r = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-hostile' }), {}, r);
+    await flush();
+
+    const resp = r.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.op_id).toBe('op-hostile');
+    // The class still crosses — that is what makes the SW treat the op as
+    // abandoned-outcome-unknown rather than plainly failed — and the
+    // unreadable reason simply drops, where the SW's own fallback covers it.
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+    expect(resp.errorReason).toBeUndefined();
+  });
+
   it('leaves the ambient op_id clear when the evicted op unwinds, so a corpse sign has nothing to borrow', async () => {
     await loadModule();
     const signed: any[] = [];

@@ -218,7 +218,7 @@ export type RecoveryRangeResult = {
  * the SDK, because those callbacks are built inside `create()` before the
  * instance exists.
  */
-interface ClientLiveness {
+export interface ClientLiveness {
   disposed: boolean;
 }
 
@@ -1715,11 +1715,16 @@ export interface ProveAttempt {
  * guardian pipelines (`runGuardianPipeline`, offscreen `guardianPipeline`) get
  * this right structurally by re-proving the SAME executed transaction; the
  * gate is how the callers that own their whole write reach the same guarantee.
+ *
+ * `liveness` is REQUIRED, not conveniently optional: it is the only thing that
+ * stops an evicted flow's local prove from pausing a successor's watchdog (see
+ * the `hold` comment below). An omissible parameter would make the unsafe
+ * variant the shorter one to write.
  */
 export async function proveWithFallback<T>(
   fn: (prover: TransactionProver | undefined, attempt: ProveAttempt) => Promise<T>,
-  delegateTransaction?: boolean,
-  liveness?: ClientLiveness
+  delegateTransaction: boolean | undefined,
+  liveness: ClientLiveness
 ): Promise<T> {
   recordProveTiming(`withProverFallback entered delegateTransaction=${delegateTransaction}`);
   const shouldDelegate = delegateTransaction === true;
@@ -1760,7 +1765,7 @@ export async function proveWithFallback<T>(
       submitReached = true;
     },
     pauseWatchdogForLocalProve: op =>
-      localProveAttempt && !liveness?.disposed ? withWasmLockWatchdogPaused(op, hold) : op()
+      localProveAttempt && !liveness.disposed ? withWasmLockWatchdogPaused(op, hold) : op()
   };
 
   const startedAt = performance.now();

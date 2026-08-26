@@ -21,6 +21,14 @@ function expectRejection(promise: Promise<unknown>, match: Record<string, unknow
   return expect(promise).rejects.toMatchObject(match);
 }
 
+/**
+ * The liveness `proveWithFallback` requires. A real caller passes its client's
+ * shared record; a live one is what makes the local-prove pause apply, which is
+ * what these tests are about (a disposed one is the corpse case, covered by the
+ * lock module's own suite).
+ */
+const live = { disposed: false };
+
 describe('miden-client-interface watchdog pauses', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -130,14 +138,18 @@ describe('miden-client-interface watchdog pauses', () => {
     const seenProvers: unknown[] = [];
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async (prover, attempt) => {
-        seenProvers.push(prover);
-        // The callback brackets its own prove — see `ProveAttempt`. The pause is
-        // deliberately NOT applied to the whole callback: that would disable the
-        // watchdog across execute → prove → submit → apply.
-        await attempt.pauseWatchdogForLocalProve(() => proveGate);
-        return 'proved';
-      }, false);
+      await proveWithFallback(
+        async (prover, attempt) => {
+          seenProvers.push(prover);
+          // The callback brackets its own prove — see `ProveAttempt`. The pause is
+          // deliberately NOT applied to the whole callback: that would disable the
+          // watchdog across execute → prove → submit → apply.
+          await attempt.pauseWatchdogForLocalProve(() => proveGate);
+          return 'proved';
+        },
+        false,
+        live
+      );
       await new Promise<never>(() => {});
     });
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
@@ -168,12 +180,16 @@ describe('miden-client-interface watchdog pauses', () => {
     const seenProvers: unknown[] = [];
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async (prover, attempt) => {
-        seenProvers.push(prover);
-        if (prover === undefined) throw new Error('remote prover unavailable');
-        await attempt.pauseWatchdogForLocalProve(() => proveGate);
-        return 'proved';
-      }, true);
+      await proveWithFallback(
+        async (prover, attempt) => {
+          seenProvers.push(prover);
+          if (prover === undefined) throw new Error('remote prover unavailable');
+          await attempt.pauseWatchdogForLocalProve(() => proveGate);
+          return 'proved';
+        },
+        true,
+        live
+      );
       await new Promise<never>(() => {});
     });
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
@@ -203,12 +219,16 @@ describe('miden-client-interface watchdog pauses', () => {
     const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async (_prover, attempt) => {
-        await attempt.pauseWatchdogForLocalProve(async () => 'proved');
-        // Stands in for the submit/apply tail, which is not unbounded and so
-        // must not be shielded.
-        await new Promise<never>(() => {});
-      }, false);
+      await proveWithFallback(
+        async (_prover, attempt) => {
+          await attempt.pauseWatchdogForLocalProve(async () => 'proved');
+          // Stands in for the submit/apply tail, which is not unbounded and so
+          // must not be shielded.
+          await new Promise<never>(() => {});
+        },
+        false,
+        live
+      );
     });
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
@@ -224,7 +244,7 @@ describe('miden-client-interface watchdog pauses', () => {
     const { withWasmClientLock, isWasmClientBusy } = await import('./miden-client');
 
     const op = withWasmClientLock(async () => {
-      await proveWithFallback(async () => new Promise<never>(() => {}), true);
+      await proveWithFallback(async () => new Promise<never>(() => {}), true, live);
     });
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
