@@ -118,13 +118,13 @@ export function doSync(force = false): Promise<void> {
   if (!force && syncBackoffUntilMs !== null && monotonicNowMs() < syncBackoffUntilMs) {
     return Promise.resolve();
   }
-  inFlight = runSync().finally(() => {
+  inFlight = runSync(force).finally(() => {
     inFlight = null;
   });
   return inFlight;
 }
 
-async function runSync(): Promise<void> {
+async function runSync(force: boolean): Promise<void> {
   try {
     // Skip if wallet not set up
     const vault = await getVault();
@@ -181,8 +181,15 @@ async function runSync(): Promise<void> {
         if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
           markConnectivityIssue(classifySyncError(err));
         }
-        breakerTripCount++;
-        const backoffMs = computeSyncBackoffMs(breakerTripCount);
+        // A user-FORCED sync (banner Retry, popup open) opens or re-arms a
+        // window but never ESCALATES one, mirroring the frontend loop (#777).
+        // Escalation is meant to measure how long the node has been failing, not
+        // how many times the user asked: without the exemption three Retry taps
+        // against a down node walked the user's own wallet from 30s to 240s of
+        // enforced silence, and Retry is the only affordance that probes through
+        // an open window.
+        if (!force) breakerTripCount++;
+        const backoffMs = computeSyncBackoffMs(Math.max(1, breakerTripCount));
         syncBackoffUntilMs = monotonicNowMs() + backoffMs;
         consecutiveSyncFailures = 0;
         console.warn(

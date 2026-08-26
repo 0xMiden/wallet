@@ -196,26 +196,26 @@ describe('importAllNotes', () => {
     jest.useRealTimers();
   });
 
-  it('clears the processed notes even if syncState throws afterwards', async () => {
+  it('swallows a trailing syncState failure once the queue is committed (#777)', async () => {
     jest.useFakeTimers();
     _g.__notesTest.store['miden-notes-pending-import'] = ['good'];
     _g.__notesTest.midenClient.importNoteBytes.mockReset();
     _g.__notesTest.midenClient.importNoteBytes.mockResolvedValue(undefined);
     _g.__notesTest.midenClient.syncState.mockReset();
     _g.__notesTest.midenClient.syncState.mockRejectedValue(new Error('sync failed'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
-    // Capture the rejection immediately so it is never momentarily unhandled
-    // while fake timers advance.
-    let caught: Error | undefined;
-    const p = importAllNotes().catch((e: Error) => {
-      caught = e;
-    });
+    const p = importAllNotes();
     await jest.advanceTimersByTimeAsync(2100);
-    await p;
-    // The sync failure propagates...
-    expect(caught?.message).toBe('sync failed');
-    // ...but the note was already imported and removed from the queue, so it is
-    // not retried on the next loop iteration.
+    // The tail must NOT reject: the caller reads a throw from here as "a queued
+    // consume's note did not import" and skips the lap, and this sync says nothing
+    // about the queue — the note is already imported and dequeued by now.
+    await expect(p).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[importAllNotes] post-import sync failed; the queue is already committed',
+      expect.objectContaining({ message: 'sync failed' })
+    );
+    warnSpy.mockRestore();
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
 
     _g.__notesTest.midenClient.syncState.mockReset();

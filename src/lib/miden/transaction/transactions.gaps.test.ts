@@ -668,35 +668,42 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
-  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
-    // `importAllNotes` runs before the lap's try, so its rejection used to abort
-    // the whole lap: nothing picked up, nothing failed, one log line in a caller's
-    // bare catch — every lap, for as long as the note stayed in the queue. The
-    // import's own trailing `syncState()` can now be evicted by the watchdog,
-    // which turns "one note won't import" into "this wallet cannot send", and it
-    // does so silently.
+  it.each([
+    ['skips the lap when the note-import pass throws', true],
+    ['picks the row up when the import pass succeeds', false]
+  ])('note-import pass gates the lap — %s (#777)', async (_label, importThrows) => {
+    // `importAllNotes` runs before the lap's try, so a throw there decides whether
+    // the lap happens at all. It must NOT proceed: `queueNoteImport` is immediately
+    // followed by a consume of that note, so a lap that runs anyway picks the row
+    // up, cannot find its note, and marks it terminally Failed. Keeping it Queued
+    // costs one lap. The false leg is the falsifier: with the import healthy the
+    // same row is picked up, so the skip is the throw's doing and not the fixture's.
     const { importAllNotes } = require('../activity/notes');
-    importAllNotes.mockRejectedValueOnce(new Error('poisoned import sync'));
+    if (importThrows) importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
     txStore.push({
       id: 'queued-behind-a-bad-import',
       type: 'execute',
       accountId: 'acc-1',
       status: ITransactionStatus.Queued,
-      initiatedAt: 100,
+      // Current, so `cancelStaleQueuedTransactions` cannot be what moves the row.
+      initiatedAt: Math.floor(Date.now() / 1000),
       displayIcon: 'DEFAULT',
       displayMessage: 'Executing',
       requestBytes: new Uint8Array([9])
     });
     const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
+    const sign = jest.fn(async () => new Uint8Array());
 
-    await generateTransactionsLoop(
-      jest.fn(async () => new Uint8Array()),
-      false,
-      guardianProvider
-    );
+    try {
+      await generateTransactionsLoop(sign, false, guardianProvider);
 
-    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
-    expect(row.status).not.toBe(ITransactionStatus.Queued);
+      const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+      expect(row.status === ITransactionStatus.Queued).toBe(importThrows);
+      expect(row.processingStartedAt === undefined).toBe(importThrows);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it('returns undefined when there are no queued or in-progress transactions', async () => {

@@ -232,22 +232,6 @@ export function isWasmClientPoisonedError(error: unknown): error is WasmClientPo
  * before `sendResponse`, leaving the SW waiting out its deadline instead of
  * getting the failure it is owed. Same argument as `errorNameOf`'s guarded read.
  */
-/**
- * Whether a failure is "the sync itself was evicted for overrunning its
- * ceiling" — the one shape that proves the realm's sync is parked on a promise
- * no client replacement can reach (see {@link WASM_LOCK_SYNC_WATCHDOG_MS}).
- *
- * Named here rather than open-coded at its three call sites (raise the
- * reachability banner, blow the probe fuse, skip a re-entrant adjudication
- * sync), because all three rest on that same single fact and nothing would
- * otherwise carry a change to it across two modules. A `realm-error` eviction
- * deliberately does NOT qualify: its client is replaced in milliseconds, so
- * nothing is parked.
- */
-export function isSyncWatchdogEviction(error: unknown): boolean {
-  return isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog';
-}
-
 export function poisonReasonOf(error: unknown): WasmClientPoisonReason | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   let reason: unknown;
@@ -257,4 +241,19 @@ export function poisonReasonOf(error: unknown): WasmClientPoisonReason | undefin
     return undefined;
   }
   return isWasmClientPoisonReason(reason) ? reason : undefined;
+}
+
+/**
+ * Whether a failure is "the sync itself was evicted for overrunning its
+ * ceiling" — the one shape that proves the realm's sync is parked on a promise
+ * no client replacement can reach (see {@link WASM_LOCK_SYNC_WATCHDOG_MS}).
+ *
+ * Named here rather than open-coded at its two call sites in `useSyncTrigger`
+ * (raise the reachability banner, blow the probe fuse), because both rest on
+ * that same single fact and nothing would otherwise carry a change to it across
+ * modules. A `realm-error` eviction deliberately does NOT qualify: its client is
+ * replaced in milliseconds, so nothing is parked.
+ */
+export function isSyncWatchdogEviction(error: unknown): boolean {
+  return isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog';
 }

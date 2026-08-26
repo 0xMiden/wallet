@@ -5,12 +5,12 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 /**
  * A chain sync under the WASM lock with the sync watchdog ceiling (#777).
  *
- * For the pure-sync holds outside the `useSyncTrigger` loop, which is exactly
- * three call sites: the transaction pipeline's pre-flight sync
- * (`transaction/index.ts`) and the two landed-verification probes
- * (`transaction/cancel.ts`). Their SDK call carries no transport deadline on
- * wasm32, so a parked gRPC-web fetch would otherwise hold the lock until the
- * 5-minute last resort.
+ * For the pure-sync holds outside the `useSyncTrigger` loop: the transaction
+ * pipeline's pre-flight sync (`transaction/index.ts`), the two
+ * landed-verification probes (`transaction/cancel.ts`), and the note-import
+ * queue's trailing sync (`activity/notes.ts`). Their SDK call carries no
+ * transport deadline on wasm32, so a parked gRPC-web fetch would otherwise hold
+ * the lock until the 5-minute last resort.
  *
  * BACKEND ONLY, despite sitting next to the dependency-free `sync-backoff.ts`:
  * this imports the service worker's client proxy, which reaches the offscreen

@@ -2224,19 +2224,31 @@ export const generateTransactionsLoop = async (
 
   // Import any notes needed for queued transactions.
   //
-  // Isolated from the rest of the lap. This runs BEFORE the try below, so an
-  // error here used to abort the whole lap and land in the caller's bare catch:
-  // no queued transaction picked up, no row failed, nothing but a log line —
-  // every lap, for as long as a note stayed in the import queue. That matters
-  // more now that the queue's own trailing `syncState()` can be evicted (#775,
-  // and #777 makes evictions on the sync path far likelier), because a poisoned
-  // import pass would then block the user from sending at all. A note that
-  // cannot be imported must delay only the transactions that need it — which the
-  // queue already handles by carrying the note to a later pass.
+  // This runs BEFORE the try below, so a throw here used to abort the whole lap
+  // and land in the caller's bare catch: no queued transaction picked up, no row
+  // failed, nothing but a log line. The failure that made that reachable was the
+  // queue's own trailing `syncState()` being evicted (#775, and #777 makes
+  // evictions on the sync path far likelier) — a sync that has nothing to do with
+  // whether the notes imported, and which now lives in its own bounded hold and
+  // swallows its own error, so it no longer reaches here at all.
+  //
+  // What is left is a failure of the IMPORT phase, and that one must NOT be
+  // swallowed into a normal lap: `queueNoteImport` is followed immediately by a
+  // consume of that note (see `initiate.ts` and the dApp import path), so a lap
+  // that proceeds regardless picks the row up, fails to find its note, and marks
+  // it terminally Failed — trading "nothing moves this lap" for "the dependent
+  // transaction is dead". Skipping the lap keeps the row Queued for the next one,
+  // which is what the note queue's own carry-forward assumes.
+  //
+  // Per-note failures are handled inside `importAllNotes` (backoff, then the
+  // dead-letter store) and never throw, so this is not the "one poison note jams
+  // the loop" case: reaching here means the import hold itself was torn down,
+  // and the next lap retries in seconds.
   try {
     await importAllNotes();
   } catch (e) {
-    logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
+    logger.error('Failed to import queued notes; skipping this transaction lap', e);
+    return;
   }
 
   // Wait for other in progress transactions

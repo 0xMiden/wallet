@@ -1081,6 +1081,29 @@ describe('useSyncTrigger', () => {
     });
     expect(mockSyncState).toHaveBeenCalledTimes(5);
 
+    // And it must not be a stop, either: silence for one breaker window is what an
+    // inherited fuse and a hook that simply died look identical from. The remount's
+    // own probe was evicted too, so the deadline it re-armed is one fused interval
+    // from there — and reaching it, the realm gets tried again.
+    evictEveryLockHold = false;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(FUSED_SYNC_PROBE_INTERVAL_MS - MAX_SYNC_BACKOFF_MS);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
+
+    // That probe succeeded, which clears the fuse — and clearing it has to mean
+    // discarding the EVIDENCE, not just the deadline. Evict again from here: a
+    // single eviction must no longer be enough to re-fuse, or a realm that
+    // recovers for one probe and parks again is charged a fresh half hour on the
+    // strength of the four evictions it already served.
+    evictEveryLockHold = true;
+    for (let tick = 0; tick < 2; tick++) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+    }
+    expect(mockSyncState).toHaveBeenCalledTimes(8);
+
     second.unmount();
   });
 

@@ -714,6 +714,36 @@ describe('doSync — syncState timeout + circuit breaker', () => {
     });
   });
 
+  it('failing forced probes re-arm the window but never escalate it (#777)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('node down'));
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Three automatic failures open the first window: trip 1.
+      await isolated();
+      await isolated();
+      await isolated();
+
+      // Now the user taps Retry three times against the same down node. Each one
+      // probes straight through the open window and fails, reaching the same arm.
+      // The trip count must not move: escalation measures how long the node has
+      // been failing, not how many times the user asked, and letting taps count
+      // walked the user's own wallet from 30s to 240s of enforced silence.
+      await isolated(true);
+      await isolated(true);
+      await isolated(true);
+
+      const trips = warnSpy.mock.calls.map(args => String(args[0])).filter(msg => msg.includes('circuit breaker open'));
+      expect(trips).toHaveLength(2);
+      expect(trips[0]).toContain('trip 1');
+      expect(trips[1]).toContain('trip 1');
+      warnSpy.mockRestore();
+    });
+  });
+
   it('a successful forced probe closes the existing backoff window', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.spyOn(console, 'warn').mockImplementation();

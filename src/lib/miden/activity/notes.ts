@@ -5,6 +5,7 @@ import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError } from './connectivity-classify';
 import { addToNoteDeadletter } from '../note-deadletter';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { syncUnderBoundedLock } from '../sync-lock';
 
 const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
 
@@ -67,12 +68,12 @@ export const importAllNotes = async () => {
   }
   const snapshot = rawQueue.map(normalizeEntry);
 
-  // Wrap all WASM client operations in a lock to prevent concurrent access.
-  // Both the import and the trailing sync route through `midenClientProxy` (issue
-  // #260, slice 7a) so flag-ON they hit the OFFSCREEN client's store — the realm
-  // that syncs + consumes, so an imported (possibly private) note isn't stranded in
-  // the dormant SW store. Flag-OFF is byte-identical to the inline calls under this
-  // lock.
+  // Wrap the import work in a lock to prevent concurrent WASM access. The import
+  // routes through `midenClientProxy` (issue #260, slice 7a) so flag-ON it hits the
+  // OFFSCREEN client's store — the realm that syncs + consumes, so an imported
+  // (possibly private) note isn't stranded in the dormant SW store. Flag-OFF is
+  // byte-identical to the inline call under this lock. The trailing sync goes
+  // through the same proxy, in its own bounded hold below.
   await withWasmClientLock(async () => {
     const now = Date.now();
     const retry: QueuedNoteImport[] = [];
@@ -137,8 +138,26 @@ export const importAllNotes = async () => {
       const appendedDuringPass = current.slice(rawQueue.length);
       await putToStorage(IMPORT_NOTES_KEY, [...retry, ...appendedDuringPass]);
     });
-
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    await midenClientProxy.syncState();
   });
+
+  // Outside the import hold, and bounded (#777).
+  //
+  // This is a pure-sync tail: nothing follows it, and the queue rewrite above has
+  // already committed, so it has no business holding the import's lock — least of
+  // all across a 2s sleep. On wasm32 the sync carries no transport deadline, so on
+  // the default backstop a parked node froze the whole app's WASM access for five
+  // minutes per lap, which is the #777 shape every other pure-sync hold now bounds.
+  //
+  // Its failure is also swallowed here rather than thrown, and the distinction
+  // matters to the caller: by this point every note has either imported or been
+  // carried forward with its attempt count banked, so a failed sync says nothing
+  // about the queue. What the caller must still see is a failure of the IMPORT
+  // phase, because a note that did not import is a note some queued consume is
+  // waiting for.
+  try {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    await syncUnderBoundedLock();
+  } catch (e) {
+    console.warn('[importAllNotes] post-import sync failed; the queue is already committed', e);
+  }
 };
