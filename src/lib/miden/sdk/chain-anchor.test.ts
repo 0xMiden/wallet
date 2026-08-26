@@ -84,4 +84,33 @@ describe('freeChainAnchor (#784)', () => {
 
     expect(report).not.toHaveBeenCalled();
   });
+
+  // "Never throws" has to hold on the FAILURE path too, or the helper reproduces
+  // the exact bug it exists to prevent — one level down. The offscreen realm
+  // passes `recordProveTiming`, whose marker sink swallows its own failures but
+  // whose leading `console.log` is not itself guarded.
+  it('keeps a throwing report channel from replacing the in-flight error', () => {
+    const report = jest.fn(() => {
+      throw new Error('marker channel is gone');
+    });
+
+    const run = () => {
+      try {
+        throw new Error('execution failed: unauthorized');
+      } finally {
+        freeChainAnchor(anchorStub(throwingFree()), report);
+      }
+    };
+
+    expect(run).toThrow('execution failed: unauthorized');
+    expect(report).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives a console that throws while reporting a failed free', () => {
+    warn.mockImplementation(() => {
+      throw new Error('console is gone');
+    });
+
+    expect(() => freeChainAnchor(anchorStub(throwingFree()))).not.toThrow();
+  });
 });

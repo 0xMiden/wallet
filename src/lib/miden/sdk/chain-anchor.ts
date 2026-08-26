@@ -1,8 +1,9 @@
 import type { ChainAnchor } from '@miden-sdk/miden-sdk/lazy';
 
 /**
- * Release a decoded `ChainAnchor`, reporting rather than propagating a failure
- * to do so (#784).
+ * Release a `ChainAnchor`, reporting rather than propagating a failure to do so
+ * (#784). Used by both the executor realms, which DECODE one off the wire, and
+ * the proposal creators, which CAPTURE one and only need its serialized form.
  *
  * The anchor is BORROWED by `executeRequest` (the generated glue passes
  * `anchor.__wbg_ptr` without `__destroy_into_raw`), so the caller must free it,
@@ -32,11 +33,20 @@ export function freeChainAnchor(anchor: ChainAnchor | undefined, report?: (messa
   try {
     anchor.free();
   } catch (freeError) {
-    // Message in the FORMAT STRING, not only the object: Chrome truncates
-    // strings nested in a logged object's preview.
-    console.warn(`[Guardian] failed to free the decoded chain anchor (#784): ${String(freeError)}`, {
-      error: freeError
-    });
-    report?.('chain anchor free failed');
+    // The reporting is itself wrapped: this whole function runs in a `finally`,
+    // so "never throws" has to hold for the failure path too — a throwing
+    // console or report channel would destroy the in-flight error just as
+    // surely as the `free()` this catch exists to contain.
+    try {
+      // Message in the FORMAT STRING, not only the object: Chrome truncates
+      // strings nested in a logged object's preview.
+      console.warn(`[Guardian] failed to free the chain anchor (#784): ${String(freeError)}`, {
+        error: freeError
+      });
+      report?.('chain anchor free failed');
+    } catch {
+      // best-effort — losing the report is strictly cheaper than losing the
+      // error the caller is already carrying.
+    }
   }
 }

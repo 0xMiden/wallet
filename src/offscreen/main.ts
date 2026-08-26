@@ -826,9 +826,9 @@ const DISPATCH: Record<string, DispatchFn> = {
     // diagnostic contract is that a write names the step it stopped on.
     // The decode sits INSIDE the try purely by shape, so nothing added between
     // it and the execute can ever leak the anchor. It closes no live hazard
-    // today: the only statement between them is `recordProveTiming`, which is a
-    // bare return in production builds and try/caught in E2E ones, so it cannot
-    // throw. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
+    // today: the only statement between them is `recordProveTiming`, a bare
+    // return in production builds whose one unguarded statement in E2E ones is a
+    // `console.log`. `sdk.ChainAnchor` needs no cast: the lazy namespace is typed.
     let anchor: sdk.ChainAnchor | undefined;
     let executedTx;
     try {
@@ -839,8 +839,11 @@ const DISPATCH: Record<string, DispatchFn> = {
     } finally {
       // Narrate a failed free to the realm's OWN channel too: the harness
       // cannot attach a console to this document, so `console.warn` alone is
-      // invisible exactly where this realm is hardest to debug.
-      freeChainAnchor(anchor, recordProveTiming);
+      // invisible exactly where this realm is hardest to debug. Prefixed like
+      // every other line this op emits, so it survives the `] guardianPipeline `
+      // filter that separates the pipeline's trail from the envelope's — the one
+      // marker reporting a failure must not be the one the filter drops.
+      freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
     postStageEvent(context, 'proving');

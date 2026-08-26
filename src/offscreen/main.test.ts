@@ -3280,7 +3280,11 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      expect(markerLines(posted).some(l => l.includes('chain anchor free failed'))).toBe(true);
+      // Read through the SAME `] guardianPipeline ` filter the rest of this
+      // realm's assertions use: a failure marker the documented filter drops is
+      // a failure marker nobody reads.
+      const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
+      expect(pipelineLines.some(l => l.includes('chain anchor free failed'))).toBe(true);
     });
   });
 

@@ -330,10 +330,11 @@ export function encodeArg(value: unknown): string {
  * execute that #784 exists to remove — a regression that shows up only once
  * the chain advances mid-round-trip.
  *
- * The two optional slots are `| null`, not `| undefined`: the array is always
- * four elements and {@link encodeArg} maps an absent value to JSON `null`, so
- * `undefined` is not something this boundary can deliver. Both receivers select
- * on truthiness, which covers either.
+ * The two optional slots are `| null`, not `| undefined`: the packer always
+ * sends four elements and {@link encodeArg} maps an absent value to JSON
+ * `null`, so a PACKED slot never arrives as `undefined`. A short envelope still
+ * leaves the tail `undefined` — only hand-built test envelopes do that today —
+ * which is why both receivers select on truthiness rather than on `null`.
  *
  * `trBytes` MUST stay a top-level element — {@link encodeArg} only recognizes a
  * `Uint8Array` at the top level, and a nested one would be JSON-mangled,

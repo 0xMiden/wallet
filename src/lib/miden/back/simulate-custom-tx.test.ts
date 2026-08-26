@@ -28,9 +28,11 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
+  // `free` on the default anchor so the ordinary cases exercise a successful
+  // release rather than `freeChainAnchor`'s swallow-and-warn branch.
   executeForSummary: jest.fn(async () => ({
     summary: { serialize: () => new Uint8Array([1, 2, 3]) },
-    anchor: { __anchor: true }
+    anchor: { __anchor: true, free: jest.fn() }
   }))
 }));
 jest.mock('lib/shared/helpers', () => ({
@@ -59,6 +61,38 @@ describe('simulateCustomTransaction', () => {
       expect.any(String)
     );
     expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  // #784: the dry run has no use for the anchor, but "no use for it" is not the
+  // same as "may drop it" — it is a WASM handle over a partial blockchain, and
+  // the summary branch is the guardian one, so a multisig account would strand
+  // one per confirm dialog.
+  it('releases the anchor it never uses, on success and on a serialize failure', async () => {
+    const free = jest.fn();
+    (executeForSummary as jest.Mock).mockResolvedValueOnce({
+      summary: { serialize: () => new Uint8Array([1, 2, 3]) },
+      anchor: { __anchor: true, free }
+    });
+
+    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    expect(free).toHaveBeenCalledTimes(1);
+
+    // The `finally` half: a summary that cannot serialize must not also leak.
+    const freeOnThrow = jest.fn();
+    (executeForSummary as jest.Mock).mockResolvedValueOnce({
+      summary: {
+        serialize: () => {
+          throw new Error('summary serialize failed');
+        }
+      },
+      anchor: { __anchor: true, free: freeOnThrow }
+    });
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(freeOnThrow).toHaveBeenCalledTimes(1);
+    // Releasing the anchor must not swallow or replace the real failure.
+    expect(res).toEqual({ error: 'summary serialize failed' });
   });
 
   it('quarantines the imported notes (derived ids) before importing them', async () => {
