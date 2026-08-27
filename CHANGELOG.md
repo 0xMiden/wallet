@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [CHORE][all] Added a conformance run that checks every dApp provider — extension, mobile and desktop — against the published `MidenWallet` interface, using a suite the adapter itself exports. Nothing previously compared the real interface to the real providers: the adapter's tests injected a fake `window.midenWallet` and this repo mocked the adapter package, so each side asserted against a shape it invented. The run records the two providers' known gaps exactly, so both opening a new one and closing an existing one are visible.
+
 - [CHORE][all] Moved the dApp adapter off the abandoned `@demox-labs` npm scope onto `@miden-sdk/miden-wallet-adapter-{base,miden}@0.15.3`, which Miden maintains. The old packages were last published 2025-11-26 and are owned entirely by Demox Labs accounts, so the wallet's dApp-facing surface depended on packages nobody at Miden could publish.
 
 - [FIX][all] Guardian operator cards on Choose/Rotate Guardian now shrink to fit narrow viewports instead of being clipped at the screen edges. (#744)
