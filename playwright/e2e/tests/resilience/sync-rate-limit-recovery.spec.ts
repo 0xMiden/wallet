@@ -135,6 +135,7 @@ test.describe('infra resilience — the SW sync path under node faults (characte
         // hang on a busy realm, and the SDK's network worker is spawned lazily —
         // so "never armed" is a real outcome. Everything below this line is an
         // ABSENCE, which is exactly what an unarmed fault also produces.
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- a fault-HIT count, not a balance: zero means the fault never bit (the exact false green this guards), and any positive count is proof it did; the count itself is ticks × sync RPCs × SDK retries, legitimately non-deterministic, so an exact assertion would only add flake.
         expect(
           await walletA.networkFaultHits(),
           'the 429 fault injected into zero requests — it never reached a sync RPC, so nothing below is evidence'
@@ -247,6 +248,7 @@ test.describe('infra resilience — the SW sync path under node faults (characte
         // below is an ABSENCE, and an absence is exactly what an unarmed fault
         // also produces, so without this the leg's strongest-looking check is
         // its least trustworthy.
+        // eslint-disable-next-line no-unfalsifiable-balance-assertion -- a fault-HIT count, not a balance: zero means the fault never bit, any positive count is proof it did; hang faults park the request, so even one hit is the wedge under test.
         expect(
           await walletA.networkFaultHits(),
           'the hang fault injected into zero requests — it never reached a sync RPC, so nothing below is evidence'
