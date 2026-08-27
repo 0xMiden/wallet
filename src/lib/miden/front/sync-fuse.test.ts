@@ -1,6 +1,7 @@
 import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import {
+  guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
@@ -16,6 +17,10 @@ let fakeNow = 0;
 const evictUntilLit = (key: Parameters<typeof noteSyncWatchdogEviction>[0]) => {
   for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction(key);
 };
+
+/** Two guardian accounts, which after #777 means two independent fuse keys. */
+const GUARDIAN_A = guardianSyncFuseKey('0xguardian-a');
+const GUARDIAN_B = guardianSyncFuseKey('0xguardian-b');
 
 describe('sync fuse (#777)', () => {
   beforeEach(() => {
@@ -56,13 +61,28 @@ describe('sync fuse (#777)', () => {
   it('does not let one probe\u2019s success withdraw another probe\u2019s evidence', () => {
     for (let lap = 0; lap < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; lap++) {
       noteSyncSuccess('idle-sync');
-      noteSyncWatchdogEviction('guardian-sync');
+      noteSyncWatchdogEviction(GUARDIAN_A);
     }
 
-    expect(isSyncFused('guardian-sync')).toBe(true);
+    expect(isSyncFused(GUARDIAN_A)).toBe(true);
     // …and the healthy probe is untouched: the fuse throttles the parked call, not the
     // wallet.
     expect(isSyncFused('idle-sync')).toBe(false);
+  });
+
+  // One level down from the test above, and the same failure: `syncGuardianAccounts`
+  // loops over the accounts SEQUENTIALLY, so with a shared guardian key a healthy
+  // sibling's success erased the parked account's increment inside the same lap and the
+  // parked account's fuse could never light. Guardian is the wallet's default account
+  // type, so this was the likeliest shape of the freeze in the product.
+  it('keys guardian evidence per ACCOUNT, so a healthy sibling cannot erase it', () => {
+    for (let lap = 0; lap < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; lap++) {
+      noteSyncWatchdogEviction(GUARDIAN_A);
+      noteSyncSuccess(GUARDIAN_B);
+    }
+
+    expect(isSyncFused(GUARDIAN_A)).toBe(true);
+    expect(isSyncFused(GUARDIAN_B)).toBe(false);
   });
 
   it('puts a probe\u2019s fuse out only on that probe\u2019s own success', () => {
@@ -119,12 +139,12 @@ describe('sync fuse (#777)', () => {
 
   it('discards every conclusion when the endpoint changes, since each was about the old node', () => {
     evictUntilLit('idle-sync');
-    evictUntilLit('guardian-sync');
+    evictUntilLit(GUARDIAN_A);
 
     clearSyncFuseForEndpointChange();
 
     expect(isSyncFused('idle-sync')).toBe(false);
-    expect(isSyncFused('guardian-sync')).toBe(false);
+    expect(isSyncFused(GUARDIAN_A)).toBe(false);
     expect((console.warn as jest.Mock).mock.calls.some(([msg]) => String(msg).includes('endpoint changed'))).toBe(true);
   });
 

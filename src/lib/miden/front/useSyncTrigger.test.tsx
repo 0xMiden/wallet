@@ -254,34 +254,44 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
-  it('mobile/desktop: stops firing the guardian leg once the GUARDIAN fuse is lit (#777)', async () => {
-    // The leg is fired and forgotten, so it has no scheduler of its own for a fuse to
-    // stretch: an eviction was followed by a fresh two-minute park on the very next 3s
-    // tick. The gate is what a lit guardian fuse actually buys.
-    //
-    // And it is keyed on 'guardian-sync', not on this loop's probe, because the two facts
-    // are independent — this is the finding a single shared counter could not express: the
-    // loop reports its healthy chain sync BEFORE firing the guardian, so with one counter
-    // the guardian's evictions were erased every lap and the threshold was unreachable.
-    const { noteSyncWatchdogEviction } = require('./sync-fuse');
+  it('mobile/desktop: fires the guardian leg unconditionally, because the fuse gate is the callee\u2019s (#777)', async () => {
+    // The gate used to live here and was moved INTO `syncGuardianAccounts`, per account.
+    // Two reasons, both load-bearing: this is not the only caller (the extension's
+    // post-`SyncRequest` trigger reaches the same function, and a gate here left that path
+    // parking the client every lap), and one parked guardian account must not stop the
+    // healthy ones. So the loop's own contract is simply that a lit guardian fuse is not
+    // ITS business — the chain sync keeps its 3s cadence and the leg is still fired,
+    // where it decides per account whether to take a hold. The gate itself is covered in
+    // `guardian-sync.test.ts`.
+    const { noteSyncWatchdogEviction, guardianSyncFuseKey } = require('./sync-fuse');
     const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
     storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('guardian-sync');
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      noteSyncWatchdogEviction(guardianSyncFuseKey('g1'));
+    }
 
     const { unmount } = render(<HookHost />);
 
-    // The chain sync keeps its 3s cadence — the guardian's parked call is not its problem.
     await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
-    expect(mockSyncGuardianAccounts).not.toHaveBeenCalled();
-    unmount();
-
-    // Falsifier: with the guardian fuse out (and only this loop's fused, which must not
-    // alias onto it) the leg fires as before.
-    __resetSyncFuseStateForTests();
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
-    const second = render(<HookHost />);
     await waitFor(() => expect(mockSyncGuardianAccounts).toHaveBeenCalled());
-    second.unmount();
+    unmount();
+  });
+
+  it('mobile/desktop: a lit guardian fuse does not slow this loop\u2019s own chain sync (#777)', async () => {
+    // The independence the keyed ledger exists for, from this side: a parked guardian
+    // endpoint says nothing about the chain RPC, so the 3s cadence must survive it. If
+    // the keys ever alias again, this is where it shows up as a frozen wallet.
+    const { noteSyncWatchdogEviction, guardianSyncFuseKey, isSyncFused } = require('./sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
+    storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      noteSyncWatchdogEviction(guardianSyncFuseKey('g1'));
+    }
+    expect(isSyncFused('idle-sync')).toBe(false);
+
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+    unmount();
   });
 
   it('mobile/desktop: drives syncState directly and flips the store sync flag', async () => {

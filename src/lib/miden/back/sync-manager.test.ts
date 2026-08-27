@@ -464,6 +464,58 @@ describe('doSync', () => {
     jest.restoreAllMocks();
   });
 
+  it('skips the delivery sweep on the lap whose inline sync hold was evicted (#777)', async () => {
+    // The sweep's proxy calls take fresh holds of their own, so after an eviction cleared
+    // the client slot each of them rebuilds and sends the new client's genesis fetch to
+    // the node that just refused to answer. It is maintenance behind already-landed
+    // transactions: a lap later costs nothing, another park of the realm's only WASM
+    // mutex costs the whole wallet.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockSweepNoteDeliveries.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await doSync();
+    expect(mockSweepNoteDeliveries).not.toHaveBeenCalled();
+
+    // Falsifier: an ORDINARY sync failure still sweeps — the client is intact, so its
+    // holds are ordinary holds and the sweep is worth running.
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    await doSync();
+    expect(mockSweepNoteDeliveries).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('stops the note read at the FIRST WASM call after an eviction mid-read (#777)', async () => {
+    // The build is not the only parking await in this hold: the consumable-note read is
+    // itself a network round trip, and an eviction during it releases the mutex while
+    // this callback carries on to `getAccount`. One guard after the build covered the
+    // first of the read's calls and none of the rest.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    mockClient.getConsumableNoteDtos.mockImplementationOnce(async () => {
+      evictSwLockHold();
+      return [];
+    });
+
+    await doSync();
+
+    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledTimes(1);
+    // The account read is more WASM on a hold that is no longer ours, so it must not run.
+    expect(mockClient.getAccount).not.toHaveBeenCalled();
+
+    // Falsifier: with the hold intact the same read goes on to the account.
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    await doSync();
+    expect(mockClient.getAccount).toHaveBeenCalled();
+    jest.restoreAllMocks();
+  });
+
   it('lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -530,6 +582,65 @@ describe('doSync', () => {
       fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
       await isolated();
       expect(mockClient.syncState).toHaveBeenCalledTimes(beforeShortWindow + 1);
+
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)', async () => {
+    // The fuse measures what the AUTOMATIC cadence costs: one probe per 30 minutes until
+    // one succeeds. A user tap is neither part of that cadence nor throttled by it, so it
+    // must neither add evidence nor push the deadline — without the exemption three
+    // Retry taps against a parked node bought the wallet another half hour of silence
+    // each, which is the opposite of what pressing Retry asks for.
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      let fakeNow = 9_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Twice the threshold in FORCED evictions: the fuse must stay dark.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2; i++) {
+        await isolated(true);
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // And they left no evidence BEHIND either, which the log alone cannot show: one
+      // automatic eviction after that burst must not be enough to light the fuse. If
+      // forced probes counted, the counter is already over the threshold here and this
+      // single automatic failure fuses the realm for half an hour.
+      await isolated();
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      const callsBeforeNextAuto = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeNextAuto + 1);
+
+      // Now light it the only way it can be lit — automatically — and record the
+      // deadline it published by finding the lap at which an automatic probe runs again.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        await isolated();
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // A forced probe goes through the lit fuse (that is Retry's whole job) and FAILS.
+      // If that failure re-armed the fused window, the automatic probe due moments later
+      // would be turned away.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 1_000;
+      await isolated(true);
+      fakeNow += 1_000;
+      const callsBeforeDueProbe = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeDueProbe + 1);
 
       nowSpy.mockRestore();
       monotonicSpy.mockRestore();

@@ -22,13 +22,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
 import { requestNotesRefresh } from './note-refresh';
-import {
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction,
-  syncFuseUntilMs
-} from './sync-fuse';
+import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction, syncFuseUntilMs } from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
 
 export { __resetSyncFuseStateForTests } from './sync-fuse';
@@ -252,15 +246,14 @@ export function useSyncTrigger() {
               .getState()
               .accounts.filter(acc => acc.type === WalletType.Guardian)
               .map(acc => acc.publicKey);
-            // Skipped while the GUARDIAN's own fuse is lit. Guardian sync has no
-            // scheduler of its own — it is fired and forgotten from this tick — so
-            // without this gate a lit fuse bought nothing on the guardian path: the
-            // very next tick after an eviction started a fresh two-minute park on the
-            // same parked endpoint, which is the cadence the fuse exists to break.
-            // Keyed on the guardian probe, not this loop's, because the two facts are
-            // independent: a healthy chain sync must keep running at 3s while the
-            // guardian is throttled.
-            if (guardianAccountKeys.length > 0 && !isSyncFused('guardian-sync')) {
+            // The guardian fuse gate lives INSIDE `syncGuardianAccounts`, per account
+            // (#777). Guardian sync has no scheduler of its own — it is fired and
+            // forgotten from this tick — so without a gate a lit fuse bought nothing on
+            // that path: the very next tick after an eviction started a fresh two-minute
+            // park on the same parked endpoint. Gating there rather than here is what
+            // makes it hold for the extension's trigger too, and what lets a wallet with
+            // one parked guardian account keep syncing its healthy ones.
+            if (guardianAccountKeys.length > 0) {
               // NOT awaited, deliberately. `MultisigService.runSync` retries in a
               // loop and each attempt is its own lock hold, so awaiting it put
               // the guardian endpoint in charge of this loop's cadence: while it

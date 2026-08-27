@@ -31,7 +31,7 @@ import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/sp
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
-import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -39,7 +39,7 @@ import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { NoteExportType } from '../sdk/constants';
-import { getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -343,8 +343,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // pass-through to the same inline client under this lock, so the behavior is
       // byte-identical to before.
       try {
-        const noteId = await withWasmClientLock(async () => {
+        const noteId = await withWasmClientLock(async hold => {
           const id = await midenClientProxy.importNoteBytes(noteBytes);
+          // The import is a network round trip, and an eviction during it releases the
+          // mutex without stopping this callback — so the sync below would run with no
+          // mutex held, concurrently with whoever holds it now. Throwing instead takes
+          // the catch below, which queues the bytes: the note is preserved either way,
+          // and the queue's own pass re-imports it under a hold that is actually ours.
+          if (getCurrentWasmLockHold() !== hold) {
+            throw new WasmClientPoisonedError('watchdog', new Error('manual note import abandoned after the import'));
+          }
           await midenClientProxy.syncState();
           return id;
         });

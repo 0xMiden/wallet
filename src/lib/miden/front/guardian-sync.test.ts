@@ -15,7 +15,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
 import { SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, syncGuardianAccounts, zustandProvider } from './guardian-sync';
-import { __resetSyncFuseStateForTests, syncFuseUntilMs } from './sync-fuse';
+import { guardianSyncFuseKey, __resetSyncFuseStateForTests, syncFuseUntilMs } from './sync-fuse';
 
 const storeState: {
   accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean; hotPublicKey?: string }>;
@@ -276,8 +276,8 @@ describe('syncGuardianAccounts', () => {
 
     expect(sync).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     // The fuse is lit, and the deadline it published is the one the idle loop reads.
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("consecutive watchdog evictions of 'guardian-sync'"));
-    const until = syncFuseUntilMs('guardian-sync');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('consecutive watchdog evictions of'));
+    const until = syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'));
     expect(until).not.toBeNull();
     expect(until! - monotonicNowMs()).toBeGreaterThan(FUSED_SYNC_PROBE_INTERVAL_MS / 2);
 
@@ -291,10 +291,79 @@ describe('syncGuardianAccounts', () => {
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
       await syncGuardianAccounts();
     }
-    expect(syncFuseUntilMs('guardian-sync')).toBeNull();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).toBeNull();
 
     __resetSyncFuseStateForTests();
     warnSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  it('stops taking a hold for the account whose fuse is lit, and only that account (#777)', async () => {
+    // The gate lives here rather than at the caller because there are TWO callers — the
+    // mobile/desktop idle loop and the extension's post-`SyncRequest` trigger — and a
+    // caller-side gate covered one of them while this function went on parking the
+    // client for the other. Per account, because two guardian accounts are two
+    // endpoints: throttling the parked one must not stop the healthy one.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [
+      { publicKey: 'guardian-parked', type: WalletType.Guardian, hotPublicKey: 'hot-parked' },
+      { publicKey: 'guardian-healthy', type: WalletType.Guardian, hotPublicKey: 'hot-healthy' }
+    ];
+    const parkedSync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    const healthySync = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockImplementation(async (publicKey: string) => ({
+      sync: publicKey === 'guardian-parked' ? parkedSync : healthySync
+    }));
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await syncGuardianAccounts();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).not.toBeNull();
+
+    const parkedCallsWhenLit = parkedSync.mock.calls.length;
+    const healthyCallsWhenLit = healthySync.mock.calls.length;
+    await syncGuardianAccounts();
+
+    // The parked account is skipped…
+    expect(parkedSync).toHaveBeenCalledTimes(parkedCallsWhenLit);
+    // …and the healthy sibling is not, which is what per-account keying buys. Without it
+    // this assertion fails in one direction or the other whichever way the bug goes:
+    // shared keys never light, a coarse gate stops both.
+    expect(healthySync).toHaveBeenCalledTimes(healthyCallsWhenLit + 1);
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-healthy'))).toBeNull();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('withdraws the guardian fuse on that account\u2019s own success, so it is not a one-way door', async () => {
+    // The fuse's only exit. Untested, a producer that only ever ADDS evidence fuses
+    // permanently on the first four evictions of the install's life and the guardian
+    // account never syncs again — a worse outcome than the freeze it replaced.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'guardian-parked', type: WalletType.Guardian, hotPublicKey: 'hot-parked' }];
+    let park = true;
+    const sync = jest.fn(async () => {
+      if (park) throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    // One eviction short of the threshold, then a success: the evidence is withdrawn, so
+    // the next eviction starts from zero and cannot light the fuse on its own.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    park = false;
+    await syncGuardianAccounts();
+    park = true;
+    await syncGuardianAccounts();
+    await syncGuardianAccounts();
+
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).toBeNull();
+
+    __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
   });
 

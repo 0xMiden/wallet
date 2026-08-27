@@ -13,8 +13,19 @@ import {
  * client when the slot is empty — which after any eviction it is — and so (c) can park
  * on the node that just refused to answer, poisoning and leaking a client per lap. They
  * are exactly the population the fuse exists to throttle.
+ *
+ * The guardian key carries the ACCOUNT, because `syncGuardianAccounts` loops over every
+ * guardian account and each talks to its own guardian endpoint. Keying them together was
+ * the same defeat-by-ordering this ledger was split up to fix, one level down: a healthy
+ * sibling's success wiped the parked account's evidence within the same lap, so the
+ * threshold was unreachable and a guardian wallet parked and leaked a client every two
+ * minutes forever. Guardian is the wallet's DEFAULT account type, so that path is the
+ * likeliest one in the product, not a corner.
  */
-export type SyncFuseKey = 'idle-sync' | 'guardian-sync' | 'claimable-notes' | 'balances';
+export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | `guardian-sync:${string}`;
+
+/** The fuse key for one guardian account's sync probe. */
+export const guardianSyncFuseKey = (accountPublicKey: string): SyncFuseKey => `guardian-sync:${accountPublicKey}`;
 
 interface FuseEntry {
   evictions: number;
@@ -38,9 +49,13 @@ interface FuseEntry {
  * leaked client every lap, indefinitely — the precise outcome sharing the ledger was
  * supposed to end. Evidence is therefore withdrawn only by a success on the SAME probe:
  * one probe reaching the node says nothing about another probe's parked call, and both
- * facts have to be able to coexist. (Within a key it still aliases — several guardian
- * accounts on different endpoints share `guardian-sync` — which is a far narrower window
- * than one shared counter, and the same "only a success withdraws" rule applies to it.)
+ * facts have to be able to coexist.
+ *
+ * "Probe" means the narrowest thing that can park INDEPENDENTLY, which is why the
+ * guardian key carries the account: two guardian accounts have two endpoints, and one
+ * answering says nothing about the other. Getting that granularity wrong in either
+ * direction has the same cost — too coarse and a healthy sibling erases the parked one's
+ * evidence every lap (the bug above), too fine and no key ever accumulates enough.
  *
  * The state survives remounts on purpose. The hook's effect is rebuilt on every `status`
  * transition, so an idle auto-lock followed by an unlock used to throw the evidence away

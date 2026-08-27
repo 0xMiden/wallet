@@ -2375,6 +2375,69 @@ describe('generateTransaction — Guardian routing', () => {
     warnSpy.mockRestore();
   });
 
+  it('Guardian send (delegated): an offscreen ABORT at the prove stage is NOT requeued either (#777)', async () => {
+    // The other half of the same gate, and it has to be tested separately because the two
+    // errors travel different routes into this catch: the eviction is thrown in-realm,
+    // the abort arrives from the offscreen document. They say the same thing — "we do not
+    // know whether this landed" — so both must take the funds-safe terminal path. If only
+    // the poison half is checked, dropping `isOperationAbortedError` from the classifier
+    // silently restores a requeue that can broadcast the user's transfer twice.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    const txId = 'send-guardian-aborted-prove';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true,
+      initiatedAt: Math.floor(Date.now() / 1000)
+    });
+
+    const multisigService = {
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1', nonce: 5 })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      abandonCandidate: jest.fn(async () => {}),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+
+    const client = makeClientApi(result);
+    client.transactions.prove.mockRejectedValue(new OperationAbortedError('op-7', 'deadline'));
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([2])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.nextEligibleAt).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
   it('Guardian send (delegated): a SUBMIT-stage network failure is NOT requeued — only pre-submit prove failures requeue (#419)', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const txId = 'send-guardian-submit-fail';

@@ -9,10 +9,16 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
-import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
+import {
+  guardianSyncFuseKey,
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction
+} from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -108,6 +114,14 @@ export const SYNC_RATE_LIMIT_MAX_COOLDOWN_MS = 120_000;
  * never-registered / never-canonicalized signer set. Idempotent (registers the
  * on-chain state), so a spurious run is harmless.
  */
+/**
+ * Bounds for the plain account reads on this path. Reached only from the sync loop, so
+ * they get the sync ceiling rather than the five-minute backstop reserved for writes a
+ * user is waiting on, and a label so an eviction names them (#777). A single `getAccount`
+ * that has not answered in two minutes is parked, not slow.
+ */
+const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-read' };
+
 async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<void> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return;
@@ -118,7 +132,10 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // reRegisterCurrentStateOnGuardian re-syncs on its own for the state it
     // pushes. The two lock uses are sequential (this getAccount releases before
     // the cold service acquires), never nested — no reentrancy deadlock.
-    const staleAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
+    const staleAccount = await withWasmClientLock(
+      async () => midenClientProxy.getAccount(account.publicKey),
+      GUARDIAN_READ_LOCK_OPTIONS
+    );
     if (!staleAccount) return;
 
     // ADOPT THE GUARDIAN'S OWN VIEW FIRST — the check below is worthless without it.
@@ -146,7 +163,10 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
       console.warn(`[Guardian Sync] could not read the guardian's state before self-healing ${account.publicKey}:`, e);
     });
 
-    const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
+    const sdkAccount = await withWasmClientLock(
+      async () => midenClientProxy.getAccount(account.publicKey),
+      GUARDIAN_READ_LOCK_OPTIONS
+    );
     if (!sdkAccount) return;
 
     // STOP if this device is no longer the account's hot signer.
@@ -204,12 +224,22 @@ export async function syncGuardianAccounts(): Promise<void> {
       rateLimitedUntil.delete(account.publicKey);
     }
 
+    // Serve this account's own fuse next, for the same reason and one step stronger: a
+    // rate limit says "not yet", a lit fuse says "this endpoint took a request and never
+    // answered, and the client we would build to ask again parks on it too". Skipping
+    // here rather than at the caller is what makes the gate hold on EVERY path into this
+    // function — the extension's post-`SyncRequest` trigger reaches it as well, and a
+    // caller-side gate covered only the mobile/desktop loop while this producer went on
+    // feeding a ledger nobody read there (#777).
+    const fuseKey = guardianSyncFuseKey(account.publicKey);
+    if (isSyncFused(fuseKey)) continue;
+
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
       // The one observation that clears this probe's fuse: a guardian sync that went
       // through proves the realm's client is not parked on this path after all.
-      noteSyncSuccess('guardian-sync');
+      noteSyncSuccess(fuseKey);
 
       // Sync succeeded → the account is authorized; clear any accumulated
       // self-heal state so a future divergence starts its persistence count
@@ -294,10 +324,15 @@ export async function syncGuardianAccounts(): Promise<void> {
       // ledger is keyed per probe precisely so guardian evidence is withdrawn by a
       // guardian success and by nothing else, and a producer that only ever ADDS would
       // fuse permanently on the first four evictions of its life.
+      //
+      // Keyed on THIS ACCOUNT. Sharing one guardian key across accounts reproduced the
+      // exact defeat-by-ordering the split ledger was written to fix: this loop is
+      // sequential, so a healthy sibling's `noteSyncSuccess` erased the parked account's
+      // increment inside the same lap and the threshold could never be reached.
       if (isSyncWatchdogEviction(error)) {
-        noteSyncWatchdogEviction('guardian-sync');
+        noteSyncWatchdogEviction(fuseKey);
       } else {
-        noteNonEvictionSyncFailure('guardian-sync');
+        noteNonEvictionSyncFailure(fuseKey);
       }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }

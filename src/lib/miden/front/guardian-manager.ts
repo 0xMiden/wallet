@@ -7,7 +7,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { wasmClientGeneration } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
@@ -132,12 +132,18 @@ export async function getOrCreateMultisigService(
     }
 
     // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
-      // Use the matched account's stored publicKey (the form the in-wallet path
-      // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      return { sdkAccount };
-    });
+    // Bounded and labelled (#777): the sync loop reaches this builder on its cadence, so
+    // an unbounded hold here parks the realm's only WASM mutex for the five-minute
+    // backstop on a read that answers in milliseconds when the node is up.
+    const { sdkAccount } = await withWasmClientLock(
+      async () => {
+        // Use the matched account's stored publicKey (the form the in-wallet path
+        // uses) rather than the possibly-bare dApp-supplied id.
+        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+        return { sdkAccount };
+      },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+    );
 
     if (!sdkAccount) {
       throw new Error('Account not found in local storage');

@@ -2,7 +2,12 @@
 
 import { renderHook, waitFor } from '@testing-library/react';
 
-import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import {
+  guardianSyncFuseKey,
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncWatchdogEviction
+} from 'lib/miden/front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
@@ -487,7 +492,8 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     // Keyed per probe: a fuse lit on some OTHER probe must not silence this poll, which
     // is the aliasing that made one shared counter useless.
     __resetSyncFuseStateForTests();
-    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('guardian-sync');
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++)
+      noteSyncWatchdogEviction(guardianSyncFuseKey('0xother'));
     expect(isPaused()).toBe(false);
     __resetSyncFuseStateForTests();
   });

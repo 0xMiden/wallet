@@ -15,8 +15,12 @@ import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { getCurrentWasmLockHold, getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  isSyncWatchdogEviction,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -170,8 +174,15 @@ export async function fetchBalances(
   if (isSyncFused('balances')) return null;
 
   const read = await tryWithWasmClientLock(
-    async () => {
+    async hold => {
       const acc = await midenClientProxy.getAccount(address);
+      // The account read is a parking await, and an eviction during it releases the mutex
+      // without stopping this callback — so `vault()` below, a WASM call on an object
+      // borrowed from the client's RefCell, would run concurrently with whoever holds the
+      // lock now. That is the double borrow the lock exists to prevent, not a stale read.
+      if (getCurrentWasmLockHold() !== hold) {
+        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned after the account read'));
+      }
 
       // E2E-only: capture a Guardian account's on-chain auth structure while we
       // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a

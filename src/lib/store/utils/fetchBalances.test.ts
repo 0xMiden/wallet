@@ -21,13 +21,22 @@ const mockGetMidenClient = jest.fn(() => ({
   syncState: mockSyncState
 }));
 
+// Models hold OWNERSHIP, not just the callback: the read re-checks its hold before
+// touching the account's vault, so a mock that hands out no hold makes that guard throw
+// on every call and a mock that never revokes one makes it untestable.
+let currentHold: object | null = null;
 // Defaults to "lock free" — runs the op and reports it ran. A test overrides
 // this to `{ ran: false }` to exercise the WASM-busy skip path.
 const mockTryWithWasmClientLock = jest.fn(
-  async (operation: () => Promise<unknown>): Promise<{ ran: true; value: unknown } | { ran: false }> => ({
-    ran: true,
-    value: await operation()
-  })
+  async (operation: (hold: object) => Promise<unknown>): Promise<{ ran: true; value: unknown } | { ran: false }> => {
+    const hold = {};
+    currentHold = hold;
+    try {
+      return { ran: true, value: await operation(hold) };
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  }
 );
 
 // The OPTIONS are the point of the #777 change here, so they have to reach an assertion:
@@ -36,6 +45,7 @@ const lockOptionsSeen: unknown[] = [];
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => currentHold,
   withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
   tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
     lockOptionsSeen.push(options);
@@ -118,6 +128,30 @@ describe('fetchBalances', () => {
     mockGetAccount.mockResolvedValueOnce(null);
     expect(await fetchBalances('my-address', {})).not.toBeNull();
     expect(mockGetAccount).toHaveBeenCalledTimes(1);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('stops before reading the vault when the hold was evicted during the account read', async () => {
+    // An eviction hands the mutex to somebody else without stopping this callback, and
+    // `acc.vault().fungibleAssets()` is a WASM call on an object borrowed from the
+    // client's RefCell — so continuing is the double borrow the lock exists to prevent,
+    // not a merely-stale read. Bounding this hold at two minutes made that window
+    // reachable on the very path #777 is about.
+    __resetSyncFuseStateForTests();
+    const vault = jest.fn(() => ({ fungibleAssets: () => [] }));
+    mockGetAccount.mockImplementationOnce(async () => {
+      currentHold = null; // what the watchdog does to the hold this callback still holds
+      return { vault };
+    });
+
+    await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(vault).not.toHaveBeenCalled();
+
+    // Falsifier: with the hold intact the same read completes and DOES touch the vault,
+    // so the assertion above is about the eviction and not about the fixture.
+    mockGetAccount.mockImplementationOnce(async () => ({ vault }));
+    await expect(fetchBalances('my-address', {})).resolves.not.toBeNull();
+    expect(vault).toHaveBeenCalledTimes(1);
     __resetSyncFuseStateForTests();
   });
 

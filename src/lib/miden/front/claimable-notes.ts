@@ -183,7 +183,6 @@ async function fetchNotesFromLocalClient(
     };
     throw e;
   }
-  noteSyncSuccess('claimable-notes');
 
   const uncompletedTxs = await getUncompletedTransactions(publicAddress);
   const notesBeingClaimed = new Set(
@@ -199,10 +198,25 @@ async function fetchNotesFromLocalClient(
   // same 5s cadence: flag-OFF it is inline WASM, it rebuilds the client when the slot is
   // empty, and left on the 5-minute backstop it reopened exactly the unbounded park the
   // read no longer takes — one hold further down the same function.
-  const swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress), {
-    watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-    label: 'claimable-notes-swap-lineage'
-  });
+  let swapOrders;
+  try {
+    swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'claimable-notes-swap-lineage'
+    });
+  } catch (e) {
+    // Same ledger as the read above: this is the second hold of one probe, and an
+    // eviction here is the same parked client with the same per-lap cost.
+    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
+    else noteNonEvictionSyncFailure('claimable-notes');
+    throw e;
+  }
+
+  // Both holds went through, so the probe went through. Reported here rather than after
+  // the first one: the mutex is released between them, so the swap-lineage hold rebuilds
+  // and can park on its own — and a success booked before it ran cleared the very
+  // evidence that hold was accumulating, which is how a fuse becomes unreachable.
+  noteSyncSuccess('claimable-notes');
 
   // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
   // custom transaction — hidden from the claimable UI until the user

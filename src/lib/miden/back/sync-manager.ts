@@ -342,10 +342,19 @@ async function runSync(force: boolean): Promise<void> {
     // Never allowed to affect the sync: delivery is maintenance behind
     // transactions that have already landed, so a transport problem here must not
     // fail a sync or trip its circuit breaker.
-    try {
-      await sweepNoteDeliveries();
-    } catch (err) {
-      console.warn('[SyncManager] private-note delivery sweep failed', err);
+    //
+    // Skipped on the lap whose inline sync was evicted, for the same reason [Lock 2] is
+    // below: the sweep's proxy calls take fresh holds, so after an eviction cleared the
+    // client slot each of them rebuilds and sends the new client's genesis fetch to the
+    // node the sync just gave up on. It is maintenance behind transactions that have
+    // already landed — a lap later costs nothing, another two-minute park of this realm's
+    // only WASM mutex costs the whole wallet (#777).
+    if (!(inlineWasm && syncHoldEvicted)) {
+      try {
+        await sweepNoteDeliveries();
+      } catch (err) {
+        console.warn('[SyncManager] private-note delivery sweep failed', err);
+      }
     }
 
     const intercom = getIntercom()!;
@@ -376,9 +385,16 @@ async function runSync(force: boolean): Promise<void> {
           // — so every proxy call below would be an UNMUTEXED inline WASM call, which is
           // the double borrow the lock exists to prevent. Same guard, same reason, as the
           // idle loop's sync and the guardian pipeline's stages.
-          if (getCurrentWasmLockHold() !== hold) {
-            throw new WasmClientPoisonedError('watchdog', new Error('sync note read abandoned: the lock hold is gone'));
-          }
+          // Re-checked before every WASM call below, not only here. The build is the
+          // longest parking await but it is not the only one: `getConsumableNotes` and
+          // `getAccount` are themselves capable of parking on the inline path, and an
+          // eviction during any of them releases the mutex while THIS callback carries on
+          // to the next call. One guard at the top only covers the first of five.
+          const stillOurs = (where: string): void => {
+            if (getCurrentWasmLockHold() === hold) return;
+            throw new WasmClientPoisonedError('watchdog', new Error(`sync note read abandoned ${where}`));
+          };
+          stillOurs('after the client build');
 
           // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
           // + per-note reduction ran inside the client's realm — OFFSCREEN when the
@@ -386,11 +402,13 @@ async function runSync(force: boolean): Promise<void> {
           // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
           // now routes through the proxy too (slice 7a), so it no longer needs `client`.
           const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
+          stillOurs('after the consumable-note read');
           // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
           // custom transaction — hidden from the claimable UI until the user
           // confirms (or forever, if they cancel). See note-quarantine.ts.
           const quarantined = await getQuarantinedNoteIds();
           const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+          stillOurs('after the swap-order lineage read');
           const notes: SerializedConsumableNote[] = rawNotes
             .map((note): SerializedConsumableNote | null => {
               // Partial (metadata-less) notes have no ID yet and cannot be
@@ -416,6 +434,10 @@ async function runSync(force: boolean): Promise<void> {
 
           // Read vault assets
           const account = await midenClientProxy.getAccount(accountPubKey);
+          // Before touching the returned Account: `vault().fungibleAssets()` is a WASM
+          // call on an object borrowed from the client's RefCell, so reading it after an
+          // eviction is the double borrow, not merely a stale read.
+          stillOurs('after the account read');
           const assets: SerializedVaultAsset[] = [];
           if (account) {
             const fungibleAssets = account.vault().fungibleAssets();
