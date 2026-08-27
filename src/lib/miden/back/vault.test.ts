@@ -1997,6 +1997,13 @@ describe('Vault.backfillGuardianEndpoints', () => {
 // borrow of a client somebody else is inside. Every guard under test sits at
 // a provably pre-write transition — the assertion is always "the next WASM
 // call was NOT made", never that a landed write was rolled back.
+//
+// Each rejection is asserted as the POISON error, not the `PublicError` the
+// vault wraps every other failure in. `Vault.persistNewHotKey` and
+// `Vault.swapHotKey` are called from inside the transaction pipeline, whose
+// kill classifier reads that identity to decide whether a row may be requeued
+// as a fresh write — and a rewrap tells it "this did not happen" about a flow
+// that can still land. See the falsifier below for the ordinary case.
 // ---------------------------------------------------------------------------
 describe('WASM-lock eviction mid-flow (hold liveness)', () => {
   beforeEach(() => {
@@ -2007,11 +2014,22 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     mockGetAccount.mockResolvedValue(null);
   });
 
+  it('still wraps an ORDINARY failure as a PublicError', async () => {
+    // The falsifier for every assertion below: the poison passthrough is about
+    // abandonment specifically, and must not have turned `withError` into a
+    // plain rethrow that leaks SDK text into the screens (which render
+    // `e.message` verbatim).
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      throw new Error('node returned 503');
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
+  });
+
   it('Vault.spawn (guardian create): eviction during the pre-create sync stops the guardian create', async () => {
     mockMidenClient.syncState.mockImplementationOnce(async () => {
       revokeWasmHold();
     });
-    await expect(Vault.spawn(WalletType.Guardian, 'pw')).rejects.toThrow(PublicError);
+    await expect(Vault.spawn(WalletType.Guardian, 'pw')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     // The whole point: no guardian account is minted off an abandoned flow.
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
   });
@@ -2025,7 +2043,9 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       revokeWasmHold();
       throw new Error('account not found on chain');
     });
-    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(PublicError);
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
     expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
@@ -2034,7 +2054,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     mockMidenClient.syncState.mockImplementationOnce(async () => {
       revokeWasmHold();
     });
-    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
@@ -2052,7 +2072,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
         { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
       ])
-    ).rejects.toThrow(PublicError);
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     // Account 1's insert landed (a landed write is never rolled back); the
     // per-iteration guard stops account 2 before its client read.
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
@@ -2074,7 +2094,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
         { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
       ])
-    ).rejects.toThrow(PublicError);
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(isFaucet).not.toHaveBeenCalled();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
@@ -2087,7 +2107,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
       return defaultImpl(options);
     });
 
-    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toThrow(PublicError);
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
     expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
   });
@@ -2103,7 +2123,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
 
     await expect(
       vault.importAccountFromPrivateKey('deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef')
-    ).rejects.toThrow(PublicError);
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
     expect(mockAccountsInsert).not.toHaveBeenCalled();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });

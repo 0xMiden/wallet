@@ -1,7 +1,7 @@
 /* eslint-disable import/first */
 
 const _g = globalThis as any;
-_g.__dlTest = { store: {} as Record<string, any> };
+_g.__dlTest = { store: {} as Record<string, any>, writes: 0 };
 
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
@@ -15,6 +15,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
     set: async (items: Record<string, any>) => {
       const t = (globalThis as any).__dlTest;
       if (t.beforeSet) await t.beforeSet(items);
+      t.writes++;
       Object.assign(t.store, items);
     }
   })
@@ -27,7 +28,8 @@ import {
   clearNoteDeadletter,
   hasDeadletteredNotes,
   listDeadletteredNotes,
-  removeFromNoteDeadletter,
+  countDeadletteredNotes,
+  removeManyFromNoteDeadletter,
   type DeadletteredNote
 } from './note-deadletter';
 
@@ -43,6 +45,7 @@ beforeEach(() => {
   for (const k of Object.keys(_g.__dlTest.store)) delete _g.__dlTest.store[k];
   _g.__dlTest.failReads = false;
   _g.__dlTest.beforeSet = undefined;
+  _g.__dlTest.writes = 0;
 });
 
 describe('note-deadletter', () => {
@@ -172,57 +175,83 @@ describe('note-deadletter', () => {
   it('serializes a remove against a concurrent add', async () => {
     const aaa = entry('aaa');
     await addToNoteDeadletter(aaa);
-    await Promise.all([removeFromNoteDeadletter(aaa), addToNoteDeadletter(entry('bbb'))]);
+    await Promise.all([removeManyFromNoteDeadletter([aaa]), addToNoteDeadletter(entry('bbb'))]);
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
   });
 
-  it('removes a single record and reports that it went', async () => {
+  it('removes the listed records in ONE write and reports which went', async () => {
     const aaa = entry('aaa');
+    const bbb = entry('bbb');
     await addToNoteDeadletter(aaa);
-    await addToNoteDeadletter(entry('bbb'));
-    expect(await removeFromNoteDeadletter(aaa)).toBe(true);
-    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
+    await addToNoteDeadletter(bbb);
+    await addToNoteDeadletter(entry('ccc'));
+
+    const writesBefore = _g.__dlTest.writes;
+    const drained = await removeManyFromNoteDeadletter([aaa, bbb]);
+
+    expect(drained.map(n => n.bytes)).toEqual(['aaa', 'bbb']);
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['ccc']);
+    // The whole point of the batch: a Retry over a full store was 2N storage
+    // round trips, and on a synchronous adapter none of them yielded.
+    expect(_g.__dlTest.writes - writesBefore).toBe(1);
   });
 
-  it('reports an already-absent record as removed — the same postcondition, reached earlier', async () => {
-    expect(await removeFromNoteDeadletter(entry('aaa'))).toBe(true);
+  it('reports an already-absent record as drained — the same postcondition, reached earlier', async () => {
+    expect((await removeManyFromNoteDeadletter([entry('aaa')])).map(n => n.bytes)).toEqual(['aaa']);
   });
 
   it('REFUSES to remove a record that a later give-up has replaced', async () => {
     // The drain's fund-loss window: it lists a record, requeues the bytes, and
-    // before its removal loop gets there a fresh import pass gives up on the
-    // same note again. That add REPLACES the record (the store dedupes by
-    // bytes) and the pass still holds those bytes on the import queue, dropping
-    // them at commit — so removing by bytes here would take the note out of
-    // both stores at once. `failedAt` is the generation marker that refuses it.
+    // before the removal lands a fresh import pass gives up on the same note
+    // again. That add REPLACES the record (the store dedupes by bytes) and the
+    // pass still holds those bytes on the import queue, dropping them at commit
+    // — so removing by bytes would take the note out of both stores at once.
+    // `failedAt` is the generation marker that refuses it.
     const listed = entry('aaa');
+    const untouched = entry('bbb');
     await addToNoteDeadletter(listed);
+    await addToNoteDeadletter(untouched);
     await addToNoteDeadletter({ ...listed, failedAt: listed.failedAt + 1, attempts: listed.attempts + 1 });
 
-    expect(await removeFromNoteDeadletter(listed)).toBe(false);
+    // The replaced one is refused; its batch-mates still drain.
+    const drained = await removeManyFromNoteDeadletter([listed, untouched]);
+    expect(drained.map(n => n.bytes)).toEqual(['bbb']);
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
   });
 
-  it('reports a failed write as not removed, leaving the record in place', async () => {
+  it('drains nothing when the write fails, leaving every record in place', async () => {
     const aaa = entry('aaa');
     await addToNoteDeadletter(aaa);
     _g.__dlTest.beforeSet = () => {
       throw new Error('quota exceeded');
     };
 
-    expect(await removeFromNoteDeadletter(aaa)).toBe(false);
+    expect(await removeManyFromNoteDeadletter([aaa])).toEqual([]);
     _g.__dlTest.beforeSet = undefined;
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
   });
 
-  it('reports an unreadable store as not removed', async () => {
+  it('drains nothing when the store is unreadable', async () => {
     const aaa = entry('aaa');
     await addToNoteDeadletter(aaa);
     _g.__dlTest.failReads = true;
 
-    expect(await removeFromNoteDeadletter(aaa)).toBe(false);
+    expect(await removeManyFromNoteDeadletter([aaa])).toEqual([]);
     _g.__dlTest.failReads = false;
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('touches storage not at all for an empty batch', async () => {
+    await addToNoteDeadletter(entry('aaa'));
+    const writesBefore = _g.__dlTest.writes;
+    expect(await removeManyFromNoteDeadletter([])).toEqual([]);
+    expect(_g.__dlTest.writes).toBe(writesBefore);
+  });
+
+  it('counts without handing the caller any note bytes', async () => {
+    await addToNoteDeadletter(entry('aaa'));
+    await addToNoteDeadletter(entry('bbb'));
+    expect(await countDeadletteredNotes()).toBe(2);
   });
 
   it('clears the whole store', async () => {

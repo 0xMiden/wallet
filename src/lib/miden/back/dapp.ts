@@ -1384,6 +1384,20 @@ async function importDAppPrivateNote(note: string): Promise<string> {
   }
 }
 
+/**
+ * What a failed dApp note import is reported as.
+ *
+ * `InvalidParams` says "your bytes are bad" — a verdict the dApp can act on by
+ * not sending them again. An ABANDONMENT is the opposite claim: the bytes were
+ * fine, the wallet's client was evicted mid-import, and the import may even have
+ * landed. Flattening it into `InvalidParams` told a dApp to give up on a note
+ * whose retry was the correct move, and lost the one signal
+ * `isWasmClientPoisonedError` exists to carry. Same rule the connect path
+ * follows.
+ */
+const importPrivateNoteFailure = (e: unknown): Error =>
+  isWasmClientPoisonedError(e) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
   reject: (reason?: any) => void,
@@ -1412,7 +1426,7 @@ export const generatePromisifyImportPrivateNote = async (
       const noteId = await importDAppPrivateNote(req.note);
       resolve({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(importPrivateNoteFailure(e));
     }
     return;
   }
@@ -1444,7 +1458,7 @@ export const generatePromisifyImportPrivateNote = async (
               noteId
             });
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(importPrivateNoteFailure(e));
           }
         } else {
           decline();

@@ -586,6 +586,37 @@ describe('importAllNotes', () => {
     await _g.__notesTest.abandonedHold;
   });
 
+  it('does not let a clock jump plus ONE eviction dead-letter a note (#777)', async () => {
+    // The two halves of the give-up live in separate code paths, and the eviction
+    // half was missing the attempt floor the per-note half has. That pairing is not
+    // hypothetical: a device waking from sleep takes its NTP correction and, against
+    // the node it then parks on, the watchdog eviction that lands here — so a note on
+    // its first failure read as "failing for over a day" and was dead-lettered.
+    const jumped = Date.now();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000 }
+    ];
+    const release = parkedImport();
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    // Carried with the attempt banked, not dead-lettered: one attempt spent is not
+    // a day of retrying, however old the wall clock says the anchor is.
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      {
+        bytes: 'aGVsbG8=',
+        attempts: 2,
+        firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000,
+        nextEligibleAt: expect.any(Number)
+      }
+    ]);
+
+    release();
+    await _g.__notesTest.abandonedHold;
+  });
+
   it('keeps carrying a note whose dead-letter write did not land (#777)', async () => {
     // `addToNoteDeadletter` is defensive by design and swallows its own storage
     // failure. Reporting success anyway meant a full quota took the bytes out of

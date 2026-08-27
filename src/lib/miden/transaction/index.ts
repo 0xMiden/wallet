@@ -1590,8 +1590,15 @@ const runGuardianPipeline = async (
     // that reason; today this copy is covered only incidentally, because a poison
     // bumps the singleton's generation and hands a raced build back terminated.
     // Re-deriving it here makes the guarantee local instead of inherited.
-    assertStillHoldingLock(hold, 'after the client build');
+    //
+    // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
+    // `modify`, so it parks too, and a guard on its far side covers the build and
+    // the write both — an eviction is monotonic (a hold that stops being current
+    // never becomes current again), so the later check strictly subsumes the
+    // earlier one. Checked before the write, the very next statement was a WASM
+    // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
+    assertStillHoldingLock(hold, 'after the client build and the executing stage write');
     // #784: execute AT the proposal's anchored reference block, not the current
     // sync height. The co-signatures were collected over a summary that binds
     // that block's commitment (protocol 0.16), so an unanchored execute after
@@ -1612,8 +1619,8 @@ const runGuardianPipeline = async (
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
     // this callback instead of stopping it, and mobile/desktop run THIS copy — the
     // platform #777 was reported on.
-    assertStillHoldingLock(hold, 'before proving');
     await setStage('proving');
+    assertStillHoldingLock(hold, 'before proving');
     let provenTx;
     if (!delegateTransaction) {
       // Local (non-delegated) proving. The guardian pipeline drives the raw
@@ -1666,8 +1673,10 @@ const runGuardianPipeline = async (
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
-    assertStillHoldingLock(hold, 'before submit');
     await setStage('submitting');
+    // Still provably pre-submit — the broadcast is the next line — so throwing
+    // here cannot orphan a transaction the network has seen.
+    assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();
     return executedTx.result;

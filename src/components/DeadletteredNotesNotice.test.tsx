@@ -23,9 +23,11 @@ jest.mock('lib/store', () => ({
   getIntercom: () => ({ request: mockRequest })
 }));
 
-const mockList = jest.fn(async () => listed);
-let listed: Array<{ bytes: string; reason: string; failedAt: number; attempts: number }> = [];
+const mockCountStore = jest.fn(async () => stored.length);
+const mockList = jest.fn(async () => stored);
+let stored: Array<{ bytes: string; reason: string; failedAt: number; attempts: number }> = [];
 jest.mock('lib/miden/note-deadletter', () => ({
+  countDeadletteredNotes: () => mockCountStore(),
   listDeadletteredNotes: () => mockList()
 }));
 
@@ -52,7 +54,7 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCount = 0;
-    listed = [];
+    stored = [];
   });
 
   it('renders nothing while the dead-letter store is empty', () => {
@@ -75,13 +77,26 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
   // component's props at all, where a stray log or an error-boundary
   // serialization would carry them out.
   it('asks storage for a COUNT, never for the note bytes', async () => {
-    listed = [
+    stored = [
       { bytes: 'secret-a', reason: 'transport', failedAt: 1, attempts: 9 },
       { bytes: 'secret-b', reason: 'rejected', failedAt: 2, attempts: 3 }
     ];
     render(<DeadletteredNotesNotice />);
 
     await expect(capturedFetcher()).resolves.toBe(2);
+    // The counting happens inside the store's module. Reading the records here
+    // and taking `.length` would give the same number while decoding every note
+    // body into this realm on a ten-second poll.
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it('says "note", not "notes", for a single dead-lettered note', () => {
+    mockCount = 1;
+
+    render(<DeadletteredNotesNotice />);
+
+    expect(screen.getByText('deadletteredNotesTitleOne')).toBeInTheDocument();
+    expect(screen.getByText('deadletteredNotesBodyOne')).toBeInTheDocument();
   });
 
   it('retry drains via the intercom action, then revalidates the signal', async () => {

@@ -11,7 +11,7 @@ import {
   noteSyncSuccess,
   noteSyncWatchdogEviction
 } from '../front/sync-fuse';
-import { addToNoteDeadletter, listDeadletteredNotes, removeFromNoteDeadletter } from '../note-deadletter';
+import { addToNoteDeadletter, listDeadletteredNotes, removeManyFromNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
   isSyncWatchdogEviction,
@@ -272,14 +272,16 @@ export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> =>
   // Only now: the bytes are on a queue no in-flight pass can rewrite. A removal
   // that does not land leaves the note dead-lettered and uncounted, so the
   // notice keeps saying so rather than reporting a drain that did not happen.
-  // Passing the RECORD rather than the bytes is what keeps this loop safe
-  // against a pass that starts after the write above and gives up on one of
-  // these notes again before we reach it: that add stamps a new `failedAt`, and
-  // the removal refuses a generation it did not list.
-  let requeued = 0;
-  for (const entry of entries) {
-    if (await removeFromNoteDeadletter(entry)) requeued++;
-  }
+  // Passing the RECORDS rather than the bytes is what keeps this safe against a
+  // pass that starts after the write above and gives up on one of these notes
+  // again before we get here: that add stamps a new `failedAt`, and the removal
+  // refuses a generation it did not list.
+  //
+  // One batched read-modify-write rather than one per note: at the store's cap
+  // the per-note form was 400 round trips over hundreds of kilobytes, which on
+  // the platforms whose storage adapter is synchronous never yielded to the
+  // event loop — one Retry tap froze the UI for seconds.
+  const requeued = (await removeManyFromNoteDeadletter(entries)).length;
   if (requeued > 0) grantManualSyncProbe('note-import');
   return { requeued };
 };
@@ -685,7 +687,17 @@ export const importAllNotes = async () => {
       }
       const attempts = note.attempts + 1;
       const firstFailureAt = anchorOf(note, now);
-      if (elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS) {
+      // BOTH conditions, exactly as the per-note give-up above, and for exactly
+      // the reason stated there: the wall-clock budget alone is one subtraction,
+      // so a forward RTC correction reads as "failing for a day" on a note's
+      // first failure. This path is the likeliest place for the two to coincide
+      // — a device waking from sleep gets its NTP jump and, against the node it
+      // then parks on, the watchdog eviction that lands here — and without the
+      // attempt floor that pairing dead-lettered a note nothing was wrong with.
+      if (
+        elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS &&
+        attempts >= TRANSIENT_MIN_ATTEMPTS_BEFORE_GIVE_UP
+      ) {
         const stored = await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts });
         // Backoff-stamped for the same reason as the per-note give-up above: bare, it
         // would be eligible every lap with `giveUp` permanently true.

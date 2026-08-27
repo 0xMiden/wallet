@@ -341,7 +341,10 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
           } as never),
         MidenMessageType.DAppImportPrivateNoteConfirmationRequest
       )
-    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+      // The poison reaches the dApp AS poison. Rewritten to `INVALID_PARAMS` it
+      // told the site its note was malformed — a verdict nobody reached — when
+      // the truth is that the outcome is unknown and a retry is warranted.
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
 
     // The dead sync must not run…
     expect(mockProxySyncState).not.toHaveBeenCalled();

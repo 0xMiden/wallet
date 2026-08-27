@@ -209,45 +209,71 @@ export async function hasDeadletteredNotes(): Promise<boolean> {
 }
 
 /**
- * Remove one dead-lettered note — used after a successful manual retry.
+ * How many notes are dead-lettered.
  *
- * Under the same lock as the add: this is a read-modify-write too, and racing one
- * against an add resurrects the removed note or erases the added one.
- *
- * Takes the RECORD the caller listed, not just its bytes, and removes only while
- * the stored record is still that one. `addToNoteDeadletter` dedupes by bytes, so
- * a fresh give-up on the same note REPLACES the record rather than adding a
- * second — which means bytes alone cannot tell "the record I drained" from "a
- * record a later import pass has since re-created". Removing by bytes deleted the
- * newer one, and since that pass also still holds those bytes on the import queue
- * and drops them at commit, the note went from both stores at once. That is the
- * give-up invariant broken in the same shape it was broken before, one pass
- * later, and for a private note it is unrecoverable fund loss. `failedAt` is the
- * generation marker: every add stamps a fresh one.
- *
- * Returns whether the store is now provably free of THAT record, the mirror of
- * `addToNoteDeadletter`'s contract. The drain counts drained notes from this, so
- * a swallowed read/write failure reported as success left the notice claiming a
- * smaller store than it has and the user with no way to tell the retry did not
- * land. A record that was already absent counts as removed — that is the same
- * postcondition, reached earlier. A record REPLACED by a newer give-up does not:
- * the note is dead-lettered again, the notice should keep saying so, and the new
- * record's own bytes have not been drained.
+ * The count is all the Activity notice needs, and it polls every 10 s for as
+ * long as that screen is open. Going through `listDeadletteredNotes` handed the
+ * caller up to 200 base64 note bodies — bytes that may be the only copy of the
+ * funds they carry — purely so it could read `.length`, which on the platforms
+ * whose storage adapter parses synchronously is a main-thread parse of the whole
+ * store on every tick. Reading it here keeps the bodies inside this module.
  */
-export async function removeFromNoteDeadletter(entry: DeadletteredNote): Promise<boolean> {
+export async function countDeadletteredNotes(): Promise<number> {
+  return (await readAll()).length;
+}
+
+/**
+ * Drain a whole batch out of the store in ONE read-modify-write, returning the
+ * records that are provably gone.
+ *
+ * The drain used to do this one note at a time, and each of those was a full
+ * read + filter + write of a store holding up to
+ * {@link MAX_DEADLETTERED} note bodies — 400 storage round trips over hundreds of
+ * kilobytes for one Retry press. On desktop, where the adapter's get/set bodies
+ * are synchronous, every one of those awaits resolves as a microtask, so the
+ * whole quadratic drain ran to completion without yielding: seconds of frozen UI
+ * from a single tap.
+ *
+ * Same generation rule as the single-record removal, applied per record: a note
+ * whose stored `failedAt` has moved on was dead-lettered again by a later pass
+ * that still carries those bytes on the import queue, so removing it here would
+ * take the note out of both stores. Those are left behind and reported as not
+ * drained. A read or write failure drains nothing — the safe direction, since at
+ * that instant the dead-letter copy may be the only one.
+ */
+export async function removeManyFromNoteDeadletter(entries: DeadletteredNote[]): Promise<DeadletteredNote[]> {
+  if (entries.length === 0) return [];
   return withDeadletterLock(async () => {
     const existing = await readAllOrFail();
     if (existing === null) {
-      logger.error('[note-deadletter] could not read the store; the note stays dead-lettered');
-      return false;
+      logger.error('[note-deadletter] could not read the store; every note stays dead-lettered');
+      return [];
     }
-    const stored = existing.find(n => n.bytes === entry.bytes);
-    if (stored === undefined) return true;
-    if (stored.failedAt !== entry.failedAt) {
-      logger.warning('[note-deadletter] the note was dead-lettered again since it was listed; leaving the new record');
-      return false;
+    const byBytes = new Map(existing.map(record => [record.bytes, record]));
+    const drained: DeadletteredNote[] = [];
+    const doomed = new Set<DeadletteredNote>();
+    for (const entry of entries) {
+      const stored = byBytes.get(entry.bytes);
+      // Already absent: the same postcondition, reached earlier.
+      if (stored === undefined) {
+        drained.push(entry);
+        continue;
+      }
+      if (stored.failedAt !== entry.failedAt) {
+        logger.warning(
+          '[note-deadletter] the note was dead-lettered again since it was listed; leaving the new record'
+        );
+        continue;
+      }
+      doomed.add(stored);
+      drained.push(entry);
     }
-    return writeAll(existing.filter(n => n !== stored));
+    if (doomed.size === 0) return drained;
+    if (!(await writeAll(existing.filter(record => !doomed.has(record))))) {
+      logger.error('[note-deadletter] the drain write failed; every note stays dead-lettered');
+      return [];
+    }
+    return drained;
   });
 }
 

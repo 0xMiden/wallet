@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { listDeadletteredNotes } from 'lib/miden/note-deadletter';
+import { countDeadletteredNotes } from 'lib/miden/note-deadletter';
 import { hapticLight } from 'lib/mobile/haptics';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -40,15 +40,14 @@ const RETRY_GUARD_MAX_MS = 60_000;
 
 export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ className }) => {
   const { t } = useTranslation();
-  // Only the COUNT crosses into the component. The records carry raw note bytes
-  // that may be the only copy of the funds they carry, and nothing here renders
-  // them — keeping them out of props, the SWR cache and any error-boundary
-  // serialization costs nothing and is one fewer place they can leak from.
-  const { data, mutate } = useRetryableSWR<number>(
-    'deadlettered-notes',
-    () => listDeadletteredNotes().then(notes => notes.length),
-    { refreshInterval: 10_000 }
-  );
+  // Only the COUNT crosses into the component, and it is counted inside the
+  // store's own module. The records carry raw note bytes that may be the only
+  // copy of the funds they carry, and nothing here renders them — keeping them
+  // out of props, the SWR cache and any error-boundary serialization costs
+  // nothing and is one fewer place they can leak from.
+  const { data, mutate } = useRetryableSWR<number>('deadlettered-notes', () => countDeadletteredNotes(), {
+    refreshInterval: 10_000
+  });
 
   const count = data ?? 0;
   const [retrying, setRetrying] = useState(false);
@@ -69,10 +68,14 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
     if (retrying) return;
     setRetrying(true);
     hapticLight();
+    let guard: ReturnType<typeof setTimeout>;
     const release = () => {
+      clearTimeout(guard);
       if (mounted.current) setRetrying(false);
     };
-    const timeout = new Promise<void>(resolve => setTimeout(resolve, RETRY_GUARD_MAX_MS));
+    const timeout = new Promise<void>(resolve => {
+      guard = setTimeout(resolve, RETRY_GUARD_MAX_MS);
+    });
     void Promise.race([
       getIntercom()
         .request({ type: WalletMessageType.RetryDeadletteredNotesRequest })
@@ -96,8 +99,12 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         <Icon name={IconName.WarningFill} size="md" fill="#FEA644" />
       </div>
       <div className="flex-1 flex flex-col justify-center items-start min-w-0">
-        <p className="text-black text-sm font-medium">{t('deadletteredNotesTitle')}</p>
-        <p className="text-text-muted text-xs">{t('deadletteredNotesBody', { count })}</p>
+        <p className="text-black text-sm font-medium">
+          {count === 1 ? t('deadletteredNotesTitleOne') : t('deadletteredNotesTitle')}
+        </p>
+        <p className="text-text-muted text-xs">
+          {count === 1 ? t('deadletteredNotesBodyOne') : t('deadletteredNotesBody', { count })}
+        </p>
       </div>
       <button
         type="button"

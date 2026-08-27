@@ -1918,6 +1918,14 @@ async function withError<T>(errMessage: string, factory: (doThrow: () => void) =
     });
   } catch (err: unknown) {
     console.error(`[Vault.withError] ${errMessage} - original error:`, err);
+    // An abandonment keeps its identity. Every other failure here is a verdict —
+    // the operation did not happen — and a generic `PublicError` is the right
+    // thing to show for it. `WasmClientPoisonedError` claims something else
+    // entirely: the callback was evicted mid-flight and may yet complete, so an
+    // account create or import reported as a flat failure invites the retry that
+    // makes a duplicate. Callers tell the two apart with
+    // `isWasmClientPoisonedError`, which a rewrap destroys.
+    if (isWasmClientPoisonedError(err)) throw err;
     throw err instanceof PublicError ? err : new PublicError(errMessage);
   }
 }
