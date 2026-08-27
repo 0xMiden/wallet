@@ -18,7 +18,12 @@ import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount, insertGuardianAccountMonotonically, resolveGuardianEndpoint } from './account';
+import {
+  assertGuardianKeyCommitment,
+  getSignerDetailsFromAccount,
+  insertGuardianAccountMonotonically,
+  resolveGuardianEndpoint
+} from './account';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -459,7 +464,13 @@ export class MultisigService {
       registerGuardianOrigin(newGuardianEndpoint);
       const newGuardian = new GuardianHttpClient(newGuardianEndpoint);
       // Fetch the new guardian's ECDSA commitment to match the account's scheme.
-      const { commitment } = await newGuardian.getPubkey('ecdsa');
+      // Validated before use: the SDK interpolates this wire value into
+      // transaction-script SOURCE, and `normalizeHexWord` checks neither charset
+      // nor length. Same boundary the direct-switch path applies.
+      const commitment = assertGuardianKeyCommitment(
+        (await newGuardian.getPubkey('ecdsa')).commitment,
+        newGuardianEndpoint
+      );
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
       const proposal = await withWasmClientLock(() =>

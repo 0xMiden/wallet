@@ -20,7 +20,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { getSignerDetailsFromAccount } from './account';
+import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -81,15 +81,29 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
   // so it does NOT match today, and this pins that asymmetry shut rather than
   // leaving it to the wording of a message.
   if (isOperationAbortedError(err) || isWasmClientPoisonedError(err)) return false;
-  if (isLikelyNetworkError(err)) return true;
-  // Any 5xx also counts as the guardian being effectively down: a gateway/proxy
-  // 502-504 means it could not be reached, and a 500 from the guardian itself
-  // means the operator is crashing — either way it cannot serve the account.
+
+  // A numeric `status` means the guardian ANSWERED, so the answer decides and
+  // the message is never consulted: any 5xx counts as effectively down (a
+  // gateway 502-504 could not reach it, a 500 means the operator is crashing),
+  // everything else is a reachable guardian with a semantic rejection.
+  //
+  // This ordering is load-bearing, not stylistic. `GuardianHttpError.message`
+  // interpolates two attacker-chosen strings — the HTTP reason phrase and the
+  // body's `message` field — and `isLikelyNetworkError` is a substring match
+  // over `connection` / `abort` / `timeout` / `dns`. Consulting the text first
+  // would let a reachable guardian answering `403 {"message":"connection reset
+  // by peer"}` classify ITSELF as unreachable and hand the wallet an on-chain
+  // rotation the user did not ask for. It also mis-fires by accident on any
+  // honest operator whose error copy happens to contain one of those words.
   // Duck-typed like the other guardian error checks (see isGuardianAuthRejection)
   // so it survives duplicate-package error-class instances.
-  if (typeof err !== 'object' || err === null) return false;
-  const status = 'status' in err ? err.status : undefined;
-  return typeof status === 'number' && status >= 500 && status <= 599;
+  if (typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number') {
+    return err.status >= 500 && err.status <= 599;
+  }
+
+  // No status: a transport failure that never reached an HTTP response, which is
+  // the only case where the message is the sole evidence available.
+  return isLikelyNetworkError(err);
 };
 
 const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slice(2) : hex);
@@ -171,7 +185,11 @@ export const createDirectSwitchGuardianRequest = async (
   }
 
   registerGuardianOrigin(newGuardianEndpoint);
-  const { commitment: newGuardianPubkey } = await new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa');
+  const { commitment } = await new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa');
+  // Validate before it becomes MASM: this value is unchecked wire data and the
+  // SDK splices it into transaction-script SOURCE. See
+  // `assertGuardianKeyCommitment`.
+  const newGuardianPubkey = assertGuardianKeyCommitment(commitment, newGuardianEndpoint);
 
   // Build the unsigned request and execute it for its summary in ONE lock
   // scope (same rule as createReplaceHotKeyProposal): the WASM client is
@@ -241,16 +259,24 @@ export const createDirectSwitchGuardianRequest = async (
   const hotSignature = await signWord(stripHexPrefix(hotPublicKey), ensureHexPrefix(built.txCommitmentHex));
   const coldSignature = await signWord(stripHexPrefix(coldPublicKey), ensureHexPrefix(built.txCommitmentHex));
 
-  const signatureAdviceMap = new AdviceMap();
-  const hotEntry = ecdsaSignatureAdviceEntry(built.hotCommitment, built.txCommitmentHex, hotSignature);
-  const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
-  signatureAdviceMap.insert(hotEntry.key, new FeltArray(hotEntry.values));
-  signatureAdviceMap.insert(coldEntry.key, new FeltArray(coldEntry.values));
-
   // Rebuild with the SAME salt plus the signature advice — deterministic, so
   // the rebuilt request carries the exact summary commitment that was signed.
+  //
+  // The advice map is assembled INSIDE this lock scope, after `getMidenClient()`,
+  // for the same reason `Word.fromHex(salt)` is: `AdviceMap`, `Word`,
+  // `FeltArray` and `Signature` are wasm-bindgen handles into the CURRENT
+  // module instance. Building them before the `await` on the lock would leave
+  // them dangling if a poison eviction ran `replaceClientSingletons()` while we
+  // waited — the next `extendAdviceMap` borrows a freed pointer. Everything
+  // that crosses the two lock scopes is a plain hex string (`built`) precisely
+  // so it survives a client replacement.
   const request = await withWasmClientLock(async () => {
     const webClient = (await getMidenClient()).client;
+    const signatureAdviceMap = new AdviceMap();
+    const hotEntry = ecdsaSignatureAdviceEntry(built.hotCommitment, built.txCommitmentHex, hotSignature);
+    const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
+    signatureAdviceMap.insert(hotEntry.key, new FeltArray(hotEntry.values));
+    signatureAdviceMap.insert(coldEntry.key, new FeltArray(coldEntry.values));
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
@@ -318,8 +344,18 @@ export const finalizeDirectGuardianSwitch = async (
         auth: { MidenEcdsa: { cosigner_commitments: signerCommitments } },
         initialState: { data: stateBase64, accountId: accountIdHex }
       });
-      if (!response.success) {
-        throw new Error(`Failed to register on new guardian: ${response.message}`);
+      // `!== true`, not `!response.success`: `fromServerConfigureResponse`
+      // copies the field straight off `response.json()`, so a body of
+      // `{"success":"false"}` is a truthy STRING and would read as a successful
+      // registration. And the server's own `message` is logged rather than
+      // interpolated — by the time this throws, the on-chain rotation has
+      // already committed, so this message is persisted on the transaction row
+      // and rendered as wallet copy on the rotation screen. That makes an
+      // endpoint-supplied string a phishing surface; the guardian client keeps
+      // raw bodies off `Error.message` for exactly this reason.
+      if (response.success !== true) {
+        console.warn('New guardian rejected the direct-switch registration:', response.message);
+        throw new Error('The new guardian rejected the account registration');
       }
       return;
     } catch (error) {

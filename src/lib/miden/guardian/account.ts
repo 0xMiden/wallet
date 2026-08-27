@@ -170,6 +170,37 @@ export function getGuardianCommitmentFromAccount(account: Account): string | und
   return isEmptyWordHex(unprefixed) ? undefined : unprefixed;
 }
 
+/**
+ * Validate a guardian key commitment that came off the WIRE (`GET /pubkey`),
+ * returning it 0x-prefixed and lowercased.
+ *
+ * `GuardianHttpClient.getPubkey` returns `(await response.json()).commitment`
+ * with no runtime check, so this value is whatever the endpoint chose to send —
+ * and the switch-guardian paths feed it to
+ * `buildUpdateGuardianTransactionRequest`, which interpolates it into MASM
+ * SOURCE (`push.${keyLiteral}` in the SDK's `updateGuardian.ts`) after only
+ * `normalizeHexWord`, a lowercase + `padStart(64, '0')` that validates neither
+ * the charset nor the length. A commitment longer than 64 characters therefore
+ * passes through untouched, newlines included, and the wallet compiles and
+ * signs whatever instructions followed it — with BOTH the hot and cold keys,
+ * against an account whose script the rotation UI never shows. A non-string
+ * (`null`, a number, an object) instead reaches `.startsWith` and throws a bare
+ * TypeError from inside the SDK.
+ *
+ * So this is the trust boundary for the one guardian response that becomes
+ * code: exactly one word of hex, nothing else. Every legitimate operator serves
+ * a 32-byte word, and the mismatch case is already covered downstream by the
+ * on-chain commitment comparison.
+ */
+export function assertGuardianKeyCommitment(commitment: unknown, endpoint: string): string {
+  if (typeof commitment !== 'string' || !/^(0x)?[0-9a-fA-F]{64}$/.test(commitment)) {
+    throw new Error(
+      `Guardian endpoint ${endpoint} returned a malformed key commitment; expected a 32-byte hex word (64 hex digits)`
+    );
+  }
+  return `0x${stripHexPrefix(commitment).toLowerCase()}`;
+}
+
 const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
   'open-zeppelin': 'open-zeppelin',
   gateway: 'gateway',

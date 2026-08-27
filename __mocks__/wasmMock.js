@@ -86,10 +86,20 @@ module.exports = {
   SigningInputs: jest.fn(),
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),
-  // Advice-map primitives used by the direct guardian-switch fallback
+  // Advice-map primitives used by the direct guardian-switch fallback.
+  // `hashElements` derives its result from the elements it was given rather than
+  // returning a constant: the advice map is keyed by Poseidon2(signerCommitment
+  // ‖ txCommitment), so a constant makes the hot and cold entries collide on one
+  // key — the exact defect the direct-switch guard exists to catch — and any
+  // suite reaching this stub would pass regardless.
   AdviceMap: jest.fn(() => ({ insert: jest.fn() })),
   Felt: jest.fn(),
-  FeltArray: jest.fn(),
-  Poseidon2: { hashElements: jest.fn(() => ({ toHex: () => '0xadvice-key' })) },
-  Signature: { deserialize: jest.fn(() => ({ toPreparedSignature: jest.fn(() => []) })) }
+  FeltArray: jest.fn(elements => ({ elements: elements ?? [] })),
+  Poseidon2: {
+    hashElements: jest.fn(feltArray => {
+      const elements = feltArray?.elements ?? [];
+      return { toHex: () => `0x${elements.join('|')}` };
+    })
+  },
+  Signature: { deserialize: jest.fn(bytes => ({ toPreparedSignature: jest.fn(() => [...(bytes ?? [])]) })) }
 };

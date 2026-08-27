@@ -117,6 +117,9 @@ const mockGetSignerDetailsFromAccount = jest.fn();
 // routes its write THROUGH it rather than calling accounts.insert directly.
 const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
+  // Kept REAL: it is pure string validation, and it is the guard that keeps a
+  // guardian's wire response out of the transaction script source.
+  assertGuardianKeyCommitment: jest.requireActual('./account').assertGuardianKeyCommitment,
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
   insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
@@ -637,15 +640,19 @@ describe('MultisigService', () => {
   });
 
   describe('guardian switch', () => {
+    // A real `GET /pubkey` commitment is a 32-byte word, and the switch path now
+    // refuses anything else before it reaches the transaction script.
+    const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
     it('createSwitchGuardianProposal consults the new guardian for its commitment and builds the proposal', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       const { newEndpoint } = await service.createSwitchGuardianProposal('https://new');
 
       expect(newEndpoint).toBe('https://new');
-      expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', 'new-commit');
+      expect(multisig.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new', NEW_GUARDIAN_COMMITMENT);
       // `createSwitchGuardianProposal` already creates the proposal — it must NOT
       // be re-created via the generic `createProposal` (that would duplicate it).
       expect(multisig.createProposal).not.toHaveBeenCalled();
@@ -657,6 +664,22 @@ describe('MultisigService', () => {
       guardianConfig.getPubkey.mockRejectedValueOnce(new Error('unreachable'));
 
       await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('unreachable');
+    });
+
+    // The SDK interpolates this value into MASM source after a `normalizeHexWord`
+    // that only lowercases and left-pads to 64, so an over-long response passes
+    // through with whatever followed it — including newlines. The coordinated path
+    // has the same sink as the direct one and gets the same guard.
+    it('createSwitchGuardianProposal refuses a malformed commitment from the new guardian', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      guardianConfig.getPubkey.mockResolvedValueOnce({
+        commitment: `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}`,
+        pubkey: 'new-pubkey'
+      });
+
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('malformed key commitment');
+      expect(multisig.createSwitchGuardianProposal).not.toHaveBeenCalled();
     });
 
     it('finalizeGuardianSwitch serializes post-switch state and re-registers with the new guardian', async () => {

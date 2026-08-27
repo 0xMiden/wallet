@@ -8,6 +8,7 @@
  */
 
 import {
+  assertGuardianKeyCommitment,
   createGuardianAccount,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
@@ -279,6 +280,44 @@ describe('getGuardianCommitmentFromAccount', () => {
     getGuardianCommitmentFromAccount({} as never);
 
     expect(mockGetSignerCommitments).not.toHaveBeenCalled();
+  });
+});
+
+// This is the trust boundary for the one guardian response that becomes code:
+// the switch-guardian paths hand `GET /pubkey`'s commitment to
+// `buildUpdateGuardianTransactionRequest`, which splices it into MASM source
+// after a `normalizeHexWord` that validates neither charset nor length.
+describe('assertGuardianKeyCommitment', () => {
+  const word = 'ab'.repeat(32);
+
+  it.each([
+    ['a 0x-prefixed word', `0x${word}`],
+    ['an unprefixed word', word],
+    ['an uppercase word', `0x${word.toUpperCase()}`]
+  ])('accepts %s and returns it 0x-prefixed and lowercased', (_label, commitment) => {
+    expect(assertGuardianKeyCommitment(commitment, 'https://g.test')).toBe(`0x${word}`);
+  });
+
+  it.each([
+    // The one that matters: `padStart(64, '0')` is a no-op on an over-long
+    // string, so everything after the word survives into the script source.
+    ['MASM appended after a valid word', `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}\npush.0`],
+    ['a truncated word', '0xdeadbeef'],
+    ['an over-long word', `0x${word}ab`],
+    ['non-hex characters', `0x${'z'.repeat(64)}`],
+    ['an empty string', ''],
+    ['only the prefix', '0x'],
+    ['internal whitespace', `0x${word.slice(0, 60)} abc`],
+    ['a number', 1234],
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', { commitment: word }]
+  ])('rejects %s', (_label, commitment) => {
+    expect(() => assertGuardianKeyCommitment(commitment, 'https://g.test')).toThrow('malformed key commitment');
+  });
+
+  it('names the endpoint that served the bad value', () => {
+    expect(() => assertGuardianKeyCommitment('nope', 'https://rogue.test')).toThrow('https://rogue.test');
   });
 });
 

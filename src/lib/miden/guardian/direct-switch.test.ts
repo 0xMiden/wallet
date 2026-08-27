@@ -44,7 +44,11 @@ jest.mock('../back/miden-client-proxy', () => ({
 }));
 
 const mockGetSignerDetails = jest.fn();
+// `assertGuardianKeyCommitment` is kept REAL — it is pure string validation, and
+// stubbing the guard that keeps wire data out of the transaction script would
+// make these tests blind to exactly what it exists to stop.
 jest.mock('./account', () => ({
+  ...jest.requireActual('./account'),
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
 }));
 
@@ -76,7 +80,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   Word: { fromHex: (hex: string) => ({ hex, toFelts: () => [hex] }) }
 }));
 
-const mockGuardianGetPubkey = jest.fn(async () => ({ commitment: '0xnew-guardian' }));
+// A real `GET /pubkey` commitment is a 32-byte word. The switch paths validate
+// that before it reaches the transaction script, so the fixture has to be a
+// well-formed one.
+const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
+const mockGuardianGetPubkey = jest.fn(async () => ({ commitment: NEW_GUARDIAN_COMMITMENT }));
 const mockGuardianConfigure = jest.fn();
 const mockGuardianSetSigner = jest.fn();
 jest.mock('@openzeppelin/miden-multisig-client', () => {
@@ -118,7 +127,7 @@ beforeEach(() => {
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
   }));
-  mockGuardianGetPubkey.mockResolvedValue({ commitment: '0xnew-guardian' });
+  mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT });
   mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
     signerCommitments: ['0xhot', '0xcold']
   });
@@ -177,6 +186,33 @@ describe('isGuardianUnreachableError', () => {
     expect(isGuardianUnreachableError(new WasmClientPoisonedError('realm-error', new Error('unreachable')))).toBe(
       false
     );
+  });
+
+  // The status is checked BEFORE the message heuristic, and the message is never
+  // consulted once a status is present. `GuardianHttpError`'s message
+  // interpolates the HTTP reason phrase and the response body's `message`, both
+  // of which the operator chooses — so a message-first order would let a
+  // reachable guardian declare ITSELF unreachable and collect an on-chain
+  // rotation the user never asked for.
+  it.each([
+    ['a reason phrase', Object.assign(new Error('GUARDIAN HTTP error 403: connection reset by peer'), { status: 403 })],
+    [
+      'a response body',
+      Object.assign(new Error('GUARDIAN HTTP error 409: Conflict - dns lookup aborted'), { status: 409 })
+    ]
+  ])('ignores network-sounding text in %s when the guardian answered with a status', (_label, error) => {
+    // The bare heuristic DOES match — the status check is the only thing
+    // standing between this error and a fresh on-chain write.
+    expect(mockedMultisigClient.isLikelyNetworkError(error)).toBe(true);
+    expect(isGuardianUnreachableError(error)).toBe(false);
+  });
+
+  // A 5xx still wins on the status alone, even when the text says nothing.
+  it('treats a 503 with no network-sounding text as unreachable', () => {
+    const error = Object.assign(new Error('GUARDIAN HTTP error 503: Service Unavailable'), { status: 503 });
+
+    expect(mockedMultisigClient.isLikelyNetworkError(error)).toBe(false);
+    expect(isGuardianUnreachableError(error)).toBe(true);
   });
 });
 
@@ -239,6 +275,37 @@ describe('createDirectSwitchGuardianRequest', () => {
     await expect(
       createDirectSwitchGuardianRequest(walletAccount({ coldPublicKey: undefined }), 'https://g.test', signWord)
     ).rejects.toThrow('missing hotPublicKey/coldPublicKey');
+  });
+
+  // `getPubkey` returns `(await response.json()).commitment` unchecked, and the
+  // SDK interpolates it into MASM source. A commitment that isn't exactly one
+  // hex word must never reach the script builder, and must cost no signature.
+  it.each([
+    ['a MASM injection payload', `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}\npush.0`],
+    ['a short value', '0xdeadbeef'],
+    ['a non-hex value', `0x${'z'.repeat(64)}`],
+    ['an empty string', ''],
+    ['a non-string', 12345]
+  ])('refuses to build from %s in the new guardian pubkey response', async (_label, commitment) => {
+    mockGuardianGetPubkey.mockResolvedValue({ commitment } as unknown as { commitment: string });
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('malformed key commitment');
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  it('accepts an unprefixed uppercase commitment and normalizes it', async () => {
+    mockGuardianGetPubkey.mockResolvedValue({ commitment: 'AB'.repeat(32) });
+
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      NEW_GUARDIAN_COMMITMENT,
+      expect.anything()
+    );
   });
 
   it('surfaces an account absent from the local client', async () => {
@@ -322,6 +389,38 @@ describe('finalizeDirectGuardianSwitch', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toThrow('after direct switch');
+  });
+
+  // `success` is copied verbatim off `response.json()`, so a body of
+  // `{"success":"false"}` is a truthy STRING. `!response.success` would read that
+  // as a successful registration and mark the row Completed against a guardian
+  // holding no record of the account — after the rotation already committed.
+  it('treats a truthy non-boolean success field as a failure', async () => {
+    mockGuardianConfigure.mockResolvedValue({ success: 'false', message: 'nope' });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toThrow('after direct switch');
+  });
+
+  // The guardian's own message is logged, never interpolated into the thrown
+  // error: that error text is persisted on the transaction row and rendered as
+  // wallet copy, which would make it an endpoint-controlled phishing string.
+  it('keeps the guardian-supplied message out of the thrown error', async () => {
+    const phish = 'Your wallet is compromised — visit evil.test to recover';
+    mockGuardianConfigure.mockResolvedValue({ success: false, message: phish });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('after direct switch'),
+      cause: expect.objectContaining({ message: 'The new guardian rejected the account registration' })
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('rejected the direct-switch registration'), phish);
   });
 
   it('refuses an account the provider does not know', async () => {
