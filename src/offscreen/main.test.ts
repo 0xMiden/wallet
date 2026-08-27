@@ -385,7 +385,13 @@ function resetControl() {
     // it, so the client's own corpse guards keep firing for flows that still
     // hold it.
     clientMarkPoisoned: jest.fn(),
+    // Set by a test to model the client being poisoned under a live flow — a trap
+    // taken by ANOTHER flow marks the shared client, and the corpse guards read it.
+    clientIsDisposed: false,
     getMidenClient: jest.fn(async () => ({
+      get isDisposed() {
+        return (globalThis as any).__off.clientIsDisposed;
+      },
       markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
       getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
       syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
@@ -480,6 +486,7 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 
 beforeEach(() => {
   resetControl();
+  G.__off.clientIsDisposed = false;
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
   warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -1342,6 +1349,47 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       releaseSuccessor({ serialize: () => new Uint8Array([9]) });
       await jest.advanceTimersByTimeAsync(0);
       expect(r2.mock.calls[0][0].ok).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a LIVE commit-wait whose client is poisoned under it fails rather than reporting a commit (#775)', async () => {
+    // The other half of the same guard, and the half that is observable. A trap in
+    // ANOTHER flow marks the shared client, so this can fire while this dispatch is
+    // still live and awaited. The committed path returns `null`, so bailing with
+    // `null` would answer "committed" for a transaction that is not — and a guardian
+    // leaf reads that as licence to run its structural completion (rotating the local
+    // hot-key pointer against an on-chain change that never landed).
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      G.__off.clientTransactionsList = jest.fn(async () => {
+        await firstPoll;
+        return [G.__off.pendingStatus];
+      });
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-live', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // No eviction: this dispatch still owns its hold and is still awaited. Only the
+      // client goes bad under it.
+      G.__off.clientIsDisposed = true;
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      expect(r1).toHaveBeenCalledTimes(1);
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+      expect(String(r1.mock.calls[0][0].error)).toContain('abandoned');
     } finally {
       jest.useRealTimers();
     }

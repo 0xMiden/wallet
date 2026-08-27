@@ -943,15 +943,22 @@ const DISPATCH: Record<string, DispatchFn> = {
     const interval = 5_000;
     const start = Date.now();
     for (;;) {
-      // Stop if this loop is a corpse. An eviction rejects the SW-side caller but
-      // does not stop the loop, and once its hold is stale the yield below no longer
-      // touches the mutex — so each remaining lap would run two WASM calls with NO
-      // mutex held, concurrently with the successor that legitimately holds it. That
-      // is the "recursive use of an object" crash the mutex exists to prevent, and
-      // nobody is left awaiting this loop's result anyway.
+      // Stop if this loop can no longer poll safely. Two ways in: this dispatch was
+      // evicted (which rejects the SW-side caller but does NOT stop the loop, and once
+      // the hold is stale the yield below no longer touches the mutex — so each
+      // remaining lap ran two WASM calls with NO mutex held, alongside the successor
+      // that legitimately holds it, which is the "recursive use of an object" crash
+      // the mutex exists to prevent), or the client was poisoned under us by a trap
+      // in another flow, where the next call would fail anyway.
+      //
+      // THROWS rather than returning: the committed path returns `null`, so bailing
+      // with `null` would report a commit that never happened. For the evicted case
+      // that is unobservable (the caller has already been rejected), but the poisoned
+      // case can fire while this dispatch is still live and awaited — and a guardian
+      // leaf reads a false commit as licence to run its structural completion.
       if (client.isDisposed || getCurrentWasmLockHold() !== context.hold) {
-        console.warn('[offscreen] abandoning a confirmation poll whose dispatch was evicted');
-        return null;
+        console.warn('[offscreen] abandoning a confirmation poll whose client or lock hold is gone');
+        throw new Error(`Transaction confirmation abandoned: ${transactionId}`);
       }
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
