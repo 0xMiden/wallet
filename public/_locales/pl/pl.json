@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "Próbujemy przywrócić połączenie.",
   "connectivityRetry": "Spróbuj ponownie",
   "connectivityRetrySync": "Ponów synchronizację",
+  "deadletteredNotesTitle": "Przychodzące powiadomienia „notes” wymagają ponownej próby",
+  "deadletteredNotesBody": "$count$ nie mogły zostać zaimportowane automatycznie.",
   "tomorrow": "Jutro",
   "inAWeek": "Za tydzień",
   "in2Weeks": "Za 2 tygodnie",

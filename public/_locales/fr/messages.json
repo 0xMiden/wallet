@@ -3246,6 +3246,19 @@
     "message": "Réessayer la synchronisation",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Les « notes » entrantes nécessitent une nouvelle tentative",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ n’ont pas pu être importés automatiquement.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "tomorrow": {
     "message": "Demain",
     "englishSource": "Tomorrow"

@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "接続の復元を試みています。",
   "connectivityRetry": "もう一度試してみてください",
   "connectivityRetrySync": "同期を再試行",
+  "deadletteredNotesTitle": "受信中のnotesは再試行が必要です",
+  "deadletteredNotesBody": "$count$ を自動的にインポートできませんでした。",
   "tomorrow": "明日",
   "inAWeek": "1週間後",
   "in2Weeks": "2週間後",

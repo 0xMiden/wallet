@@ -3246,6 +3246,19 @@
     "message": "동기화 다시 시도",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "수신 중인 notes는 재시도해야 합니다",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ 자동으로 가져올 수 없었습니다.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "tomorrow": {
     "message": "내일",
     "englishSource": "Tomorrow"

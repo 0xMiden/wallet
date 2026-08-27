@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "正在嘗試恢復您的連線。",
   "connectivityRetry": "請再試一次",
   "connectivityRetrySync": "重新嘗試同步",
+  "deadletteredNotesTitle": "收到的 notes 連結需要重新嘗試",
+  "deadletteredNotesBody": "$count$ 無法自動匯入。",
   "tomorrow": "明天",
   "inAWeek": "一週內",
   "in2Weeks": "兩週後",

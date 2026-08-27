@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "Tentando restabelecer sua conexão.",
   "connectivityRetry": "Tente novamente",
   "connectivityRetrySync": "Tentar sincronizar novamente",
+  "deadletteredNotesTitle": "notess recebidos precisam de uma nova tentativa",
+  "deadletteredNotesBody": "$count$ não puderam ser importadas automaticamente.",
   "tomorrow": "Amanhã",
   "inAWeek": "Daqui a uma semana",
   "in2Weeks": "Daqui a duas semanas",

@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "Попытка восстановить соединение.",
   "connectivityRetry": "Попробуйте ещё раз",
   "connectivityRetrySync": "Повторить синхронизацию",
+  "deadletteredNotesTitle": "Входящие запросы «notes» требуют повторной попытки",
+  "deadletteredNotesBody": "$count$ не удалось импортировать автоматически.",
   "tomorrow": "Завтра",
   "inAWeek": "Через неделю",
   "in2Weeks": "Через 2 недели",

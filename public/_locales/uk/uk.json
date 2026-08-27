@@ -723,6 +723,8 @@
   "connectivityResolvingBody": "Намагаємося відновити з’єднання.",
   "connectivityRetry": "Спробуйте ще раз",
   "connectivityRetrySync": "Повторити синхронізацію",
+  "deadletteredNotesTitle": "Вхідні запити «notes» потребують повторної спроби",
+  "deadletteredNotesBody": "$count$ не вдалося імпортувати автоматично.",
   "tomorrow": "Завтра",
   "inAWeek": "Через тиждень",
   "in2Weeks": "Через 2 тижні",

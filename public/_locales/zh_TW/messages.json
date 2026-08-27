@@ -3246,6 +3246,19 @@
     "message": "重新嘗試同步",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "收到的 notes 連結需要重新嘗試",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ 無法自動匯入。",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "tomorrow": {
     "message": "明天",
     "englishSource": "Tomorrow"
