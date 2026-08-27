@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { render, screen } from '@testing-library/react';
 
 import PrivateDataPermissionBanner from './PrivateDataPermissionBanner';
@@ -12,7 +12,7 @@ import PrivateDataPermissionBanner from './PrivateDataPermissionBanner';
 // mirror the real enum (`UPON_REQUEST` / `AUTO`) so the equality checks behave
 // identically to production, and `AllowedPrivateData` mirrors the real bit-flag
 // values (Assets=1, Notes=2, Storage=4) so the bitwise `&` masking is faithful.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

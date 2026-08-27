@@ -9,11 +9,11 @@ import { navigate } from 'lib/woozie';
 import DAppDrawerSettings from './DAppDrawerSettings';
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 
-// `@demox-labs/miden-wallet-adapter-base` ships as untransformed ESM and is
+// `@miden-sdk/miden-wallet-adapter-base` ships as untransformed ESM and is
 // pulled in transitively by `lib/miden/types` (imported for the real
 // `MidenSharedStorageKey` enum). Stub the members that module references so the
 // enum can load without the ESM import breaking the transform.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: {},
   SignKind: {}

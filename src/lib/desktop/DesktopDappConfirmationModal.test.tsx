@@ -21,7 +21,7 @@
 
 import React from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, render } from '@testing-library/react';
 
 import { dappConfirmationStore, DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';

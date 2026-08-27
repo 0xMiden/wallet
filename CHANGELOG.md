@@ -2,6 +2,8 @@
 
 ## 1.15.22 (TBD)
 
+- Moved the dApp adapter off the abandoned `@demox-labs` npm scope onto `@miden-sdk/miden-wallet-adapter-{base,miden}@0.15.3`, which Miden maintains. The old packages were last published in November 2025 and are owned entirely by Demox Labs accounts, so the wallet's whole dApp-facing surface depended on packages nobody at Miden could publish.
+
 ### Fixes
 
 - [FIX][all] Guardian operator cards on Choose/Rotate Guardian now shrink to fit narrow viewports instead of being clipped at the screen edges. (#744)
