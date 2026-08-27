@@ -213,13 +213,24 @@ export async function hasDeadletteredNotes(): Promise<boolean> {
  *
  * Under the same lock as the add: this is a read-modify-write too, and racing one
  * against an add resurrects the removed note or erases the added one.
+ *
+ * Returns whether the store is now provably free of those bytes, the mirror of
+ * `addToNoteDeadletter`'s contract. The drain counts drained notes from this, so
+ * a swallowed read/write failure reported as success left the notice claiming a
+ * smaller store than it has and the user with no way to tell the retry did not
+ * land. A note that was already absent counts as removed — that is the same
+ * postcondition, reached earlier.
  */
-export async function removeFromNoteDeadletter(bytes: string): Promise<void> {
-  await withDeadletterLock(async () => {
+export async function removeFromNoteDeadletter(bytes: string): Promise<boolean> {
+  return withDeadletterLock(async () => {
     const existing = await readAllOrFail();
-    if (existing === null) return;
+    if (existing === null) {
+      logger.error('[note-deadletter] could not read the store; the note stays dead-lettered');
+      return false;
+    }
     const next = existing.filter(n => n.bytes !== bytes);
-    if (next.length !== existing.length) await writeAll(next);
+    if (next.length === existing.length) return true;
+    return writeAll(next);
   });
 }
 

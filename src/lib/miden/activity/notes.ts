@@ -181,36 +181,6 @@ export const queueNoteImport = async (noteBytes: string) =>
   });
 
 /**
- * Manual drain of the dead-letter store (#788 follow-up) — the action behind the
- * Activity notice's Retry.
- *
- * Order is the mirror of the give-up invariant: a note is QUEUED before it
- * leaves the dead-letter store, so its bytes — possibly the only copy of the
- * funds — are never absent from both stores. A note that fails to requeue stays
- * dead-lettered and stops the drain there rather than pressing on past a broken
- * queue write. Requeued as bare bytes deliberately: `normalizeEntry` reads that
- * back as `attempts: 0`, i.e. a fresh 24h transient budget and a fresh poison
- * cap — the user asked for a real retry, not a replay of the exhausted one.
- *
- * The user's gesture also buys the pass one probe through a lit `note-import`
- * fuse; the evidence stands, so a still-parked call re-fuses on its next
- * eviction. Kicking the import pass itself is the CALLER's job (the intercom
- * handler runs in the realm that owns the pass) — this function owns only the
- * queue semantics.
- */
-export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> => {
-  const entries = await listDeadletteredNotes();
-  let requeued = 0;
-  for (const entry of entries) {
-    await queueNoteImport(entry.bytes);
-    await removeFromNoteDeadletter(entry.bytes);
-    requeued++;
-  }
-  if (requeued > 0) grantManualSyncProbe('note-import');
-  return { requeued };
-};
-
-/**
  * The number of passes started. A pass that was ABANDONED — a watchdog eviction
  * rejects the lock holder's promise but does not stop its callback, which resumes
  * whenever its parked `importNoteBytes` finally settles — must not write the queue
@@ -240,6 +210,65 @@ const salvageEntries = (stored: unknown): StoredEntry[] =>
   (stored as { bytes: string }).bytes.length > 0
     ? [stored as QueuedNoteImport]
     : [];
+
+/**
+ * Manual drain of the dead-letter store (#788 follow-up) — the action behind the
+ * Activity notice's Retry.
+ *
+ * The give-up invariant run backwards: bytes that may be the only copy of the
+ * funds they carry are never absent from BOTH stores, so the queue write lands
+ * before the dead-letter record goes. Requeued as bare bytes deliberately —
+ * `normalizeEntry` reads that back as `attempts: 0`, i.e. a fresh 24h transient
+ * budget and a fresh poison cap, because the user asked for a real retry rather
+ * than a replay of the exhausted one.
+ *
+ * One queue-lock critical section for the whole drain, with the pass-token bump
+ * inside it, and BOTH of those are load-bearing rather than tidiness:
+ *
+ *  - A per-note `queueNoteImport` is not enough. It treats "already queued" as
+ *    success and writes nothing, and a pass that has just dead-lettered a note
+ *    still holds those bytes in its snapshot — so its `commitQueue` deletes the
+ *    queue copy while the removal below deletes the dead-letter copy, and the
+ *    note is gone from both. Both stores holding it at once is the pass's normal
+ *    mid-flight state (`addToNoteDeadletter` lands long before `commitQueue`),
+ *    and the 10s notice poll is long enough for the user to press Retry inside
+ *    that window.
+ *  - Bumping the token refuses that stale commit, and doing it under the lock the
+ *    commit itself takes is what removes the interleaving: either the pass
+ *    committed first, and we re-add what it removed, or it is refused, and what
+ *    we add survives. Superseding a HEALTHY concurrent pass costs it the attempt
+ *    counts and backoff stamps of that lap — recoverable, and strictly cheaper
+ *    than the note.
+ *
+ * A queue write that fails (a full quota) rejects the whole drain with every
+ * note still dead-lettered, which is the safe direction. Kicking the import pass
+ * is the CALLER's job — the intercom handler runs in the realm that owns the
+ * pass; this function owns only the queue semantics.
+ */
+export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> => {
+  const entries = await listDeadletteredNotes();
+  if (entries.length === 0) return { requeued: 0 };
+
+  const draining = await withQueueLock(async () => {
+    importPassToken++;
+    const stored = await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY);
+    const current: StoredEntry[] = Array.isArray(stored) ? stored : salvageEntries(stored);
+    const present = new Set(current.map(entry => (typeof entry === 'string' ? entry : entry?.bytes)));
+    const missing = entries.map(entry => entry.bytes).filter(bytes => !present.has(bytes));
+    if (missing.length > 0) await putToStorage(IMPORT_NOTES_KEY, [...current, ...missing]);
+    return entries.map(entry => entry.bytes);
+  });
+
+  // Only now: the bytes are on a queue no in-flight pass can rewrite. A removal
+  // that does not land leaves the note dead-lettered and uncounted, so the
+  // notice keeps saying so rather than reporting a drain that did not happen.
+  let requeued = 0;
+  for (const bytes of draining) {
+    if (await removeFromNoteDeadletter(bytes)) requeued++;
+  }
+  if (requeued > 0) grantManualSyncProbe('note-import');
+  return { requeued };
+};
 
 export const importAllNotes = async () => {
   const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];

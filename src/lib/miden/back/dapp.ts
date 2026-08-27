@@ -460,6 +460,7 @@ export async function generatePromisifyRequestPermission(
           const { confirmed, accountPublicKey, privateDataPermission } = confirmReq;
           if (confirmed && accountPublicKey) {
             let publicKey: string | null = null;
+            let publicKeyError: unknown;
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
@@ -469,6 +470,7 @@ export async function generatePromisifyRequestPermission(
               });
             } catch (e) {
               console.error('Error fetching account public key:', e);
+              publicKeyError = e;
             }
             if (publicKey == null) {
               // A failed public-key fetch must fail the connect, not persist a
@@ -476,6 +478,14 @@ export async function generatePromisifyRequestPermission(
               // null pubkey back verbatim on every later connect, wedging the
               // dApp at "Connecting…" until the session is cleared. Mirrors the
               // non-extension branch, which throws NotGranted on the same failure.
+              //
+              // …except for a lock-recovery eviction (#775), which that branch
+              // rethrows verbatim precisely because it is a retryable internal
+              // failure and NOT a permissions verdict. Reporting the user's own
+              // approval back as NotGranted tells the dApp to stop asking. The
+              // `decline()` below still closes the prompt; its own reject is a
+              // no-op once this one has settled the promise.
+              if (isWasmClientPoisonedError(publicKeyError)) reject(publicKeyError);
               decline();
             } else {
               if (!existingPermission)

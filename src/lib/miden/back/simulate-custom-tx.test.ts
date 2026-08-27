@@ -324,7 +324,7 @@ describe('simulateCustomTransaction', () => {
       expect(executeForSummary).not.toHaveBeenCalled();
     });
 
-    it('during executeForSummary: the summary is not serialized and the anchor is deliberately NOT freed', async () => {
+    it('during executeForSummary: the summary is not serialized, but the anchor is still freed', async () => {
       const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
       const free = jest.fn();
       (executeForSummary as jest.Mock).mockImplementationOnce(async () => {
@@ -335,11 +335,15 @@ describe('simulateCustomTransaction', () => {
       const res = await simulateCustomTransaction(input);
 
       expect(res).toEqual({ error: 'operation abandoned before the summary serialize' });
-      // Both are WASM calls on objects from the evicted client's realm — freeing
-      // the anchor here would be exactly the touch the guard exists to prevent,
-      // so the abandoned path strands it (the poison recovery owns cleanup).
+      // `summary.serialize()` reads through the evicted client's RefCell, which
+      // is the double borrow the guard exists to prevent.
       expect(serialize).not.toHaveBeenCalled();
-      expect(free).not.toHaveBeenCalled();
+      // The anchor's release is NOT that: it deallocates the anchor's own box
+      // rather than calling through the client, and it is synchronous, so it
+      // cannot interleave with the successor. Skipping it would strand a partial
+      // blockchain on the WASM heap per abandoned confirm dialog — the exact
+      // leak #784 added this release to stop.
+      expect(free).toHaveBeenCalledTimes(1);
     });
 
     it('during an executeForSummary that ends already-authorized: the local fallback never executes', async () => {

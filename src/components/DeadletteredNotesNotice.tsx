@@ -1,4 +1,4 @@
-import React, { FC, useCallback } from 'react';
+import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -35,16 +35,26 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
   });
 
   const count = data?.length ?? 0;
+  const [retrying, setRetrying] = useState(false);
 
   const onRetry = useCallback(() => {
+    // Guarded against a second press, and not merely for tidiness: each drain
+    // supersedes any import pass in flight, so N concurrent drains discard N-1
+    // passes' banked attempts and backoff stamps. The count also cannot go to
+    // zero until the drain returns, so an impatient user sees a live Retry over
+    // a store that is already being emptied.
+    if (retrying) return;
+    setRetrying(true);
     hapticLight();
     void getIntercom()
       .request({ type: WalletMessageType.RetryDeadletteredNotesRequest })
       .catch(() => {})
       // Revalidate regardless of outcome: a partial drain (queue write failed
       // mid-way) leaves a smaller store, and the count shown should say so.
-      .then(() => mutate());
-  }, [mutate]);
+      .then(() => mutate())
+      .catch(() => {})
+      .then(() => setRetrying(false));
+  }, [mutate, retrying]);
 
   if (count === 0) return null;
 
@@ -63,7 +73,8 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
       <button
         type="button"
         onClick={onRetry}
-        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100"
+        disabled={retrying}
+        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100 disabled:opacity-50"
       >
         {t('connectivityRetry')}
       </button>

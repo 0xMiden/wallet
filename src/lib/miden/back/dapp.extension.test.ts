@@ -1264,7 +1264,7 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
   // commitment reads on the returned Account never run: those are borrows of the
   // client's RefCell, so touching them after the eviction IS the double borrow.
 
-  it('requestPermission declines and stores no session when evicted during the account read', async () => {
+  it('requestPermission rejects with the poison error, not a false NotGranted, when evicted during the account read', async () => {
     delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz'];
     const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
     _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
@@ -1285,7 +1285,11 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
         MidenMessageType.DAppPermConfirmationRequest,
         { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
       )
-    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      // NOT NotGranted: the user approved, and an eviction is a retryable
+      // internal failure rather than a permissions verdict (#775). Reporting the
+      // approval back as a denial tells the dApp to stop asking. Same contract
+      // the non-extension branch and the sign path below already keep.
+    ).rejects.toThrow(WasmClientPoisonedError);
     // The abandoned flow must not have touched the borrowed account…
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
     // …nor persisted a session with a publicKey it never safely read.

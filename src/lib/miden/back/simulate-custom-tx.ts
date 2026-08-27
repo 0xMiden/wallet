@@ -201,14 +201,17 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
             request,
             getEffectiveRpcUrl()
           );
-          // Before touching what it returned: `summary.serialize()` is a WASM
-          // call on an object from the evicted client's realm, and so is the
-          // anchor's `free` — which is why the anchor is deliberately NOT freed
-          // on the abandoned path (the check sits above the try/finally):
-          // stranding one anchor beats making the very call the guard exists to
-          // prevent, and the poison recovery owns the old client's cleanup.
-          assertWasmHoldCurrent(hold, 'before the summary serialize');
           try {
+            // Inside the try, so an abandoned dry run still releases the anchor
+            // on its way out — the same placement the replace-hot-key proposal
+            // uses. `summary.serialize()` is a borrow of the evicted client's
+            // RefCell and must not run; `anchor.free()` is not, being a
+            // wasm-bindgen deallocation of the anchor's own box rather than a
+            // call through the client, and it is synchronous, so it cannot
+            // interleave with the successor's work. Skipping it instead would
+            // strand a partial blockchain on the WASM heap per abandoned confirm
+            // dialog, which is what #784 added this release to stop.
+            assertWasmHoldCurrent(hold, 'before the summary serialize');
             return { summaryBytes: u8ToB64(summary.serialize()) };
           } finally {
             freeChainAnchor(anchor);

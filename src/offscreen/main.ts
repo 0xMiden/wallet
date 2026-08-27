@@ -488,7 +488,15 @@ type DispatchFn = (
  */
 type DispatchContext = {
   readonly op_id: string;
-  readonly hold: WasmLockHold | null;
+  /**
+   * Non-nullable on purpose. `handleCall` is the only producer and builds it
+   * from the hold `withWasmClientLock` handed that callback, so there is no
+   * legitimate null — and `assertWasmHoldCurrent` FAILS CLOSED on one, unlike
+   * the permissive `holdIsCurrent`. A nullable field would turn a future
+   * producer's omission into every guarded dispatch abandoning itself at
+   * runtime; this makes it a compile error instead.
+   */
+  readonly hold: WasmLockHold;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
 };

@@ -57,10 +57,12 @@ const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404
  * literal string is in the shipped wasm — and prover-style "status code: N")
  * and answers true only for the statuses that cannot heal on retry.
  *
- * Used by the note-import budget selection and the queue-admission gates ONLY.
- * The connectivity banner and the seed-restore fund-loss guard deliberately
- * keep the broad predicate: over-inclusion is the safe direction for both, and
- * narrowing them would change banner behaviour far outside the import path.
+ * Used by the note-import queue's BUDGET SELECTION only. Everything else keeps
+ * the broad predicate deliberately: the queue-admission gates still admit a
+ * permanent rejection (the bounded cap below is what bounds it, and refusing at
+ * the door would drop bytes that can be a note's only copy), and the
+ * connectivity banner and the seed-restore fund-loss guard want over-inclusion
+ * — narrowing them would change banner behaviour far outside the import path.
  */
 export function isPermanentHttpRejection(err: unknown): boolean {
   const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');

@@ -177,11 +177,22 @@ export function noteSyncSuccess(key: SyncFuseKey): void {
  * starting a fresh evidence budget — a gesture is one probe, never a licence
  * to walk the realm back onto the fast cadence against a still-parked call.
  * Same philosophy as the idle loop's Retry exemption in #788.
+ *
+ * The deadline is EXPIRED rather than cleared, and the difference is the whole
+ * contract. `null` is also how this ledger spells "not fused", and
+ * `noteNonEvictionSyncFailure` reads exactly that field to decide whether to
+ * withdraw the evidence — so nulling it here meant a granted probe that then
+ * failed for any ordinary reason (a storage write, a client build) zeroed the
+ * eviction count and disarmed the fuse outright, buying
+ * `MAX_CONSECUTIVE_WATCHDOG_EVICTIONS` fresh two-minute parks to re-reach a
+ * conclusion nothing had contradicted. An already-expired deadline reads as
+ * unfused to `isSyncFused` — which is the one probe the gesture buys — while
+ * every writer still sees a lit fuse and re-arms it.
  */
 export function grantManualSyncProbe(key: SyncFuseKey): void {
   const entry = ledger.get(key);
   if (!entry) return;
-  entry.fusedUntilMs = null;
+  entry.fusedUntilMs = monotonicNowMs();
 }
 
 /**
