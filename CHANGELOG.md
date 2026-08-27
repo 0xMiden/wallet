@@ -2,6 +2,10 @@
 
 ## 1.16.0 (TBD)
 
+### Fixes
+
+- [CHORE][all] Moved the dApp adapter off the abandoned `@demox-labs` npm scope onto `@miden-sdk/miden-wallet-adapter-{base,miden}@0.16.0-rc.5`, which Miden maintains. The old packages were last published 2025-11-26, are owned entirely by Demox Labs accounts, and were pinned at `0.10.0` on this branch — so the wallet's dApp-facing surface depended on packages nobody at Miden could publish, five minor versions behind the interface the adapter now ships.
+
 ## 1.16.0-rc.1 (2026-08-27)
 
 ### Changes
