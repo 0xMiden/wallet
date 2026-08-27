@@ -1319,6 +1319,30 @@ describe('poisoned client recovery', () => {
     expect(poison.wasmClientGeneration()).toBeGreaterThan(before);
   });
 
+  it('marks the client poisoned when the yield watchdog evicts, without freeing it under the corpse', async () => {
+    // This was the one eviction path that left the singletons alone, and that made
+    // its corpse read HEALTHY: every corpse-detecting guard keys off `isDisposed`,
+    // and two of them (`yieldLockUnlessDisposed`, the sign pause) can pass no hold,
+    // so they fall back to trusting whoever holds the mutex. An unmarked corpse's
+    // next yield would therefore release a SUCCESSOR's mutex, popping a waiter into
+    // a live WASM call — the pre-#775 wedge, reached through the fix's own recovery.
+    //
+    // Marking, not freeing: the evicted flow is past the mutex and still holds a
+    // direct client reference, so `free()` would fail a transaction that may already
+    // have submitted.
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => new Promise<never>(() => {}), hold));
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_800_000);
+    await opRejects;
+
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+  });
+
   it('restores the suspended count after a yield-watchdog eviction, so a later trap frees rather than poisons', async () => {
     const { mod, free, markPoisoned } = await loadIsolated();
     await mod.getMidenClient();
@@ -1329,10 +1353,13 @@ describe('poisoned client recovery', () => {
     await jest.advanceTimersByTimeAsync(1_800_000);
     await opRejects;
 
-    // Without the count settling on eviction, every later recovery would be
-    // permanently degraded to poison-in-place by a suspended flow that no
-    // longer exists.
+    // The eviction itself marks (see above); what this pins is that it also settled
+    // the suspended count. Without that, every later recovery would be permanently
+    // degraded to poison-in-place by a suspended flow that no longer exists — so the
+    // trap below has to reach `free`, and on a client the eviction rebuilt.
+    markPoisoned.mockClear();
     await jest.advanceTimersByTimeAsync(10_000); // past the recovery cooldown
+    await mod.getMidenClient();
     window.dispatchEvent(
       new ErrorEvent('error', {
         error: new WebAssembly.RuntimeError('unreachable'),

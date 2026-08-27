@@ -941,21 +941,38 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   };
   // A yielded wait is legitimately long (an offscreen prove) but must not be
   // UNWATCHED: the same relaxed ceiling a pause gets, minus paused time already
-  // spent. On fire the holder is evicted like any other wedge — except the
-  // client singletons are left alone, because the mutex is not held by this flow
-  // and nothing here says the module trapped (the external wait simply hung).
+  // spent. On fire the holder is evicted like any other wedge.
+  //
+  // The client is POISONED IN PLACE rather than terminated, exactly as a trap
+  // taken while a holder is mid-yield is (`recoverFromTrap`): the suspended flow
+  // still holds its reference, so freeing it would pull the module out from under
+  // a write that may already have submitted. But marking is not optional. Every
+  // corpse-detecting guard keys off `isDisposed` — `yieldLockUnlessDisposed`,
+  // `wrapSignWithWatchdogPause`, `Vault.spawn`'s re-resolve — and two of them can
+  // pass no hold, so `holdIsCurrent` cannot answer for them and they fall back to
+  // trusting whoever holds the mutex. Leaving the client unmarked here made this
+  // the one eviction path whose corpse reads HEALTHY: on its next yield it would
+  // release a SUCCESSOR's mutex, popping a waiter into a live WASM call, and its
+  // sign would pause the successor's watchdog. That is the pre-#775 wedge reached
+  // through the fix's own recovery path.
   const yieldWatchdog = setTimeout(
     () => {
       if (holder.killed) return;
       holder.killed = true;
       lastRecoveryAt = monotonicNow();
-      settleYieldCount();
       const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
       console.error('[miden-client] evicting holder wedged while yielded:', {
         pausedMs: Math.round(holder.pausedElapsedMs),
         runningMs: Math.round(holder.unpausedElapsedMs),
         error
       });
+      // BEFORE `settleYieldCount()`, and that order is load-bearing:
+      // `replaceClientSingletons` picks marking over freeing by whether anyone is
+      // still mid-yield, and this holder — the one that must keep its reference —
+      // is only counted until the settle. Freeing first, then aborting, is how a
+      // suspended send loses its client mid-flight.
+      replaceClientSingletons();
+      settleYieldCount();
       holder.abort(error);
     },
     Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0)

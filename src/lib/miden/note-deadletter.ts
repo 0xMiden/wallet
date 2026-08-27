@@ -44,23 +44,64 @@ export interface DeadletteredNote {
   attempts: number;
 }
 
-async function readAll(): Promise<DeadletteredNote[]> {
+/**
+ * Serializes every read-modify-write of this key.
+ *
+ * `addToNoteDeadletter` is a read → filter → write, and two of them can overlap:
+ * an import pass evicted by the WASM-lock watchdog is ABANDONED, not cancelled, so
+ * its callback keeps running and can give up on a note while its successor gives
+ * up on a different one. Unserialized, both read the same snapshot and the second
+ * write erases the first note's record — after the import queue has already
+ * stopped carrying it, on the strength of a `true` return. Both notes were then
+ * gone from both stores.
+ *
+ * Same shape and same reason as `withQueueLock` in `activity/notes.ts`, and the
+ * same bound: it serializes one realm. Cross-realm writes to this key would need
+ * a Web Lock, which is the import queue's open limitation too.
+ */
+let writeTail: Promise<unknown> = Promise.resolve();
+const withDeadletterLock = <T>(fn: () => Promise<T>): Promise<T> => {
+  const run = writeTail.then(fn, fn);
+  writeTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+};
+
+/**
+ * `null` when the read itself failed, which is NOT the same as an empty store.
+ * Conflating them let a transient read failure turn the following write into a
+ * store-wide erase: every previously dead-lettered note replaced by the one being
+ * added, and none of them still on the import queue to re-derive from.
+ */
+async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
   try {
     return (await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY)) ?? [];
   } catch (e) {
     logger.warning('[note-deadletter] read failed', e);
-    return [];
+    return null;
   }
+}
+
+async function readAll(): Promise<DeadletteredNote[]> {
+  return (await readAllOrFail()) ?? [];
 }
 
 /**
  * Whether the write landed. A caller that is about to DROP the note it just
  * dead-lettered has to know: swallowing the failure and reporting success meant a
  * full storage quota took the note out of both stores at once.
+ *
+ * Writes exactly what it is given. It deliberately does NOT trim to
+ * `MAX_DEADLETTERED` — a silent `slice` here evicted the oldest record's bytes,
+ * which may be the only copy of the funds it carries, while still reporting
+ * success to a caller that then stopped carrying a DIFFERENT note. Capacity is
+ * enforced by refusing the add instead (see `addToNoteDeadletter`).
  */
 async function writeAll(entries: DeadletteredNote[]): Promise<boolean> {
   try {
-    await putToStorage(DEADLETTER_KEY, entries.slice(-MAX_DEADLETTERED));
+    await putToStorage(DEADLETTER_KEY, entries);
     return true;
   } catch (e) {
     logger.warning('[note-deadletter] write failed', e);
@@ -74,21 +115,42 @@ async function writeAll(entries: DeadletteredNote[]): Promise<boolean> {
  *
  * Returns whether the note is now safely stored HERE, which the import queue uses
  * to decide whether it may stop carrying those bytes. A private note's bytes can
- * be its only copy, so "dead-lettered" has to mean persisted, not attempted.
+ * be its only copy, so "dead-lettered" has to mean persisted, not attempted — and
+ * every `false` path below is one where it isn't.
  */
 export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<boolean> {
-  const existing = await readAll();
-  const deduped = existing.filter(n => n.bytes !== entry.bytes);
-  deduped.push(entry);
-  const stored = await writeAll(deduped);
-  if (!stored) {
-    logger.error('[note-deadletter] could not persist a note we gave up importing; the import queue keeps carrying it');
-    return false;
-  }
-  logger.error(
-    `[note-deadletter] gave up importing an incoming note (${entry.reason}, ${entry.attempts} attempts, ${entry.bytes.length} b64 chars) — moved to dead-letter for retry`
-  );
-  return true;
+  return withDeadletterLock(async () => {
+    const existing = await readAllOrFail();
+    if (existing === null) {
+      logger.error('[note-deadletter] could not read the store; the import queue keeps carrying the note');
+      return false;
+    }
+    const deduped = existing.filter(n => n.bytes !== entry.bytes);
+    // Full: refuse rather than evict. The cap exists to bound storage against a
+    // pathological run, and dropping the oldest record honours it by destroying
+    // note bytes — the one thing this store exists to prevent. Refusing keeps the
+    // new note on the import queue, where it is still carried and still retried;
+    // `hasDeadletteredNotes()` is already true, so the user-facing signal is up
+    // and a manual retry can drain the store and make room.
+    if (deduped.length >= MAX_DEADLETTERED) {
+      logger.error(
+        `[note-deadletter] store is full (${MAX_DEADLETTERED}); refusing to evict an older note's only copy — the import queue keeps carrying this one`
+      );
+      return false;
+    }
+    deduped.push(entry);
+    const stored = await writeAll(deduped);
+    if (!stored) {
+      logger.error(
+        '[note-deadletter] could not persist a note we gave up importing; the import queue keeps carrying it'
+      );
+      return false;
+    }
+    logger.error(
+      `[note-deadletter] gave up importing an incoming note (${entry.reason}, ${entry.attempts} attempts, ${entry.bytes.length} b64 chars) — moved to dead-letter for retry`
+    );
+    return true;
+  });
 }
 
 /** List all dead-lettered notes (newest last). */
@@ -101,14 +163,22 @@ export async function hasDeadletteredNotes(): Promise<boolean> {
   return (await readAll()).length > 0;
 }
 
-/** Remove a single note (by bytes) — used after a successful manual retry. */
+/**
+ * Remove a single note (by bytes) — used after a successful manual retry.
+ *
+ * Under the same lock as the add: this is a read-modify-write too, and racing one
+ * against an add resurrects the removed note or erases the added one.
+ */
 export async function removeFromNoteDeadletter(bytes: string): Promise<void> {
-  const existing = await readAll();
-  const next = existing.filter(n => n.bytes !== bytes);
-  if (next.length !== existing.length) await writeAll(next);
+  await withDeadletterLock(async () => {
+    const existing = await readAllOrFail();
+    if (existing === null) return;
+    const next = existing.filter(n => n.bytes !== bytes);
+    if (next.length !== existing.length) await writeAll(next);
+  });
 }
 
 /** Clear the whole dead-letter store. */
 export async function clearNoteDeadletter(): Promise<void> {
-  await writeAll([]);
+  await withDeadletterLock(() => writeAll([]));
 }

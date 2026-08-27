@@ -91,10 +91,36 @@ const parkedImport = () => {
   return release;
 };
 
+// A parked import that FAILS when released: a corpse whose loop then takes the
+// retry path, so what it tries to commit differs from what its successor wrote.
+const parkedFailingImport = () => {
+  let reject!: (e: Error) => void;
+  const parked = new Promise<void>((_, r) => {
+    reject = r;
+  });
+  _g.__notesTest.midenClient.importNoteBytes.mockReset();
+  _g.__notesTest.midenClient.importNoteBytes.mockImplementation(async () => parked);
+  return () => reject(new Error('Failed to fetch'));
+};
+
 describe('queueNoteImport', () => {
   it('appends a note bytes string to the queue', async () => {
     await queueNoteImport('aGVsbG8=');
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['aGVsbG8=']);
+  });
+
+  it('does not lose the incoming note when the stored queue is corrupt', async () => {
+    // `DesktopStorage`/`CapacitorStorage` hand back the raw string when `JSON.parse`
+    // fails. Spreading that built a queue of single characters; spreading a
+    // non-iterable object THREW, and both callers that matter swallow this
+    // function's rejection — so the arriving note was lost at the door.
+    _g.__notesTest.store['miden-notes-pending-import'] = '{corrupt';
+    await queueNoteImport('aGVsbG8=');
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['aGVsbG8=']);
+
+    _g.__notesTest.store['miden-notes-pending-import'] = { notAnArray: true };
+    await queueNoteImport('d29ybGQ=');
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['d29ybGQ=']);
   });
 
   it('appends to an existing queue', async () => {
@@ -188,6 +214,161 @@ describe('importAllNotes', () => {
     );
     expect(bytesLeft).toEqual(['aGVsbG8=', 'bmV3LW9uZQ==', 'bmV3LXR3bw==']);
     expect(queue[0]).toMatchObject({ attempts: 1 });
+  });
+
+  it("refuses an abandoned pass's write on the PASS TOKEN, not just on its own commit flag (#777)", async () => {
+    // The `committed` flag alone covers the ordinary eviction, because the catch
+    // path commits before rethrowing. It does not cover the case where that banking
+    // write itself fails: the pass then leaves the hold having committed nothing, a
+    // successor runs and legitimately imports the note, and the corpse — still
+    // parked, still holding a snapshot from before all of it — wakes up and writes
+    // its retry list over the successor's result, RESURRECTING a note that has
+    // already been consumed. Only the token can refuse that write.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    const fail = parkedFailingImport();
+    _g.__notesTest.evictNextHold = true;
+    // The banking commit cannot land, so the abandoned pass never sets `committed`.
+    let queueWrites = 0;
+    _g.__notesTest.beforeSet = async (items: Record<string, unknown>) => {
+      if ('miden-notes-pending-import' in items && queueWrites++ === 0) throw new Error('QuotaExceededError');
+    };
+
+    await expect(importAllNotes()).rejects.toThrow('QuotaExceededError');
+    _g.__notesTest.beforeSet = undefined;
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['aGVsbG8=']);
+
+    // A successor pass imports the note for real and empties the queue.
+    const successorImport = jest.fn(async () => {});
+    _g.__notesTest.midenClient.importNoteBytes.mockImplementation(successorImport);
+    jest.useFakeTimers();
+    const successor = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await successor;
+    jest.useRealTimers();
+    expect(successorImport).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+
+    // Now the corpse finishes, fails its own import and tries to carry the note.
+    fail();
+    await _g.__notesTest.abandonedHold;
+
+    // Its write is refused: the note stays consumed and gone, not re-queued.
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+  });
+
+  it('matches queue entries by BYTES, so a note left by a writer that SHRANK the queue survives (#777)', async () => {
+    // The commit used to compute "not ours" as `current.slice(snapshot.length)`,
+    // which assumes the queue only ever grew. Let anything shrink it mid-pass — a
+    // manual dead-letter retry that drains and re-enqueues, a second realm, a future
+    // frontend call site — and the slice runs off the end: every entry the pass did
+    // not know about is silently DELETED, and for a private note those bytes are the
+    // only copy of the funds it carries. Matching a multiset of bytes can only ever
+    // remove what this pass actually saw.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ==', 'Yg=='];
+    const release = parkedImport();
+
+    jest.useFakeTimers();
+    const pass = importAllNotes();
+    // Mid-pass, while the second import is parked, another writer replaces the queue
+    // with a single unrelated note — shorter than the snapshot this pass holds.
+    await Promise.resolve();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['Yw=='];
+
+    release();
+    await jest.advanceTimersByTimeAsync(2100);
+    await pass;
+    jest.useRealTimers();
+
+    // The pass imported its own two notes and dropped them; the third note is not
+    // its business and must still be there.
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['Yw==']);
+  });
+
+  it('consumes only as many duplicate entries as it snapshotted (#777)', async () => {
+    // Byte strings are not unique: the same note can be enqueued twice (two dApp
+    // deliveries of one note, a manual retry racing the sweep). A multiset has to
+    // COUNT, not just test membership — decrementing per match is what stops a pass
+    // that saw one copy from removing a second copy enqueued while it ran.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ=='];
+    const release = parkedImport();
+
+    jest.useFakeTimers();
+    const pass = importAllNotes();
+    await Promise.resolve();
+    // A second copy of the SAME note arrives mid-pass.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ==', 'YQ=='];
+
+    release();
+    await jest.advanceTimersByTimeAsync(2100);
+    await pass;
+    jest.useRealTimers();
+
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['YQ==']);
+  });
+
+  it.each([
+    ["Dexie's ConstraintError", 'ConstraintError: Key already exists in the object store'],
+    ["tonic's stock AlreadyExists blurb", 'Some entity that we attempted to create already exists'],
+    ["the SDK's asset-vault error", 'the non-fungible asset already exists in the asset vault']
+  ])('does not read %s as "already imported" and drop the note', async (_label, message) => {
+    // A match here DROPS the note from the queue, so the pattern must name the one
+    // thing that actually means the client has it. `note-delivery-sweep.ts` documents
+    // these three as live false positives for a bare "already exists" — and the
+    // import writes a Dexie-backed store, so the first one is on this very path.
+    // Treating any of them as done deletes the only copy of a note never stored.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error(message));
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', attempts: 1 });
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+  });
+
+  it('drops a note the client reports as already consumed', async () => {
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Note has already been consumed'));
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+  });
+
+  it('re-anchors a budget stamp that a jumped clock put in the future, so it can still expire (#777)', async () => {
+    // Clamping elapsed time at zero is not enough on its own. A stamp written while
+    // the device clock was AHEAD stays ahead after the correction, so every later
+    // pass reads zero elapsed and the 24h budget never expires: the note is retried
+    // forever, never dead-lettered, and never surfaced.
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, firstFailureAt: Date.now() + 365 * 24 * 60 * 60 * 1000 }
+    ];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Failed to fetch'));
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    // Re-anchored to now: a real 24h from here, rather than a budget that can never
+    // run out.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
   });
 
   it('dead-letters rather than carrying a note whose transient budget is spent, when the hold is evicted (#777)', async () => {

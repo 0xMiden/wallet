@@ -1278,6 +1278,75 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     }
   });
 
+  it('an EVICTED commit-wait stops making WASM calls entirely, not just re-stamping its id (#775)', async () => {
+    // Once the hold is stale the yield no longer touches the mutex, so every
+    // remaining lap ran `syncChain` + `transactions.list` with NO mutex held, right
+    // alongside the successor that legitimately holds it — the concurrent-access
+    // crash the mutex exists to prevent, for up to a minute after nobody is left
+    // awaiting the result.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    jest.useFakeTimers();
+    try {
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      let polls = 0;
+      G.__off.clientTransactionsList = jest.fn(async () => {
+        if (++polls === 1) await firstPoll;
+        return [G.__off.pendingStatus];
+      });
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-evicted', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      miden.__evictHolder();
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+
+      // A successor takes the freed lock and holds it across the whole window.
+      let releaseSuccessor!: (v: unknown) => void;
+      G.__off.clientConsumeNoteId = jest.fn(
+        () =>
+          new Promise(resolve => {
+            releaseSuccessor = resolve;
+          })
+      );
+      const r2 = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op2-live',
+          method: 'consumeNoteId',
+          argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+        }),
+        {},
+        r2
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      const syncsBefore = G.__off.clientSyncChain.mock.calls.length;
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(30_000);
+
+      // The corpse ran its parked poll to completion and then stopped: no further
+      // laps, at 5 s apiece across 30 s.
+      expect(polls).toBe(1);
+      expect(G.__off.clientSyncChain.mock.calls.length).toBe(syncsBefore);
+
+      releaseSuccessor({ serialize: () => new Uint8Array([9]) });
+      await jest.advanceTimersByTimeAsync(0);
+      expect(r2.mock.calls[0][0].ok).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('dispatches exportNote and ships the serialized note bytes verbatim', async () => {
     await loadModule();
     const sendResponse = jest.fn();

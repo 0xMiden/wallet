@@ -739,20 +739,34 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       // The trip count must not move: escalation measures how long the node has
       // been failing, not how many times the user asked, and letting taps count
       // walked the user's own wallet from 30s to 240s of enforced silence.
-      await isolated(true);
-      await isolated(true);
-      await isolated(true);
+      // The taps are SPACED, which is what makes the re-arm observable: at one
+      // instant the re-armed deadline and the inherited one coincide, so a forced
+      // failure that never touched the deadline predicts exactly the same timings.
+      // Three taps 8s apart put the re-armed deadline 24s past the original.
+      for (let tap = 0; tap < 3; tap++) {
+        fakeNow += 8_000;
+        await isolated(true);
+      }
 
       const openings = () =>
         warnSpy.mock.calls.map(args => String(args[0])).filter(msg => msg.includes('circuit breaker open'));
       expect(openings()).toEqual([expect.stringContaining('trip 1'), expect.stringContaining('trip 1')]);
+      expect(mockClient.syncState).toHaveBeenCalledTimes(6);
+
+      // Past the ORIGINAL deadline but inside the re-armed one: the automatic probe
+      // must be skipped, never reaching the node. This is the assertion the re-arm
+      // actually owns — without it the timer is through here and already escalating.
+      fakeNow += 11_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(6);
+      expect(openings()).toHaveLength(2);
 
       // And the exemption must not become a way to STOP escalating: a forced
       // failure does not spend the automatic streak, so the next automatic failure
-      // is still the one that walks the curve. (Past the window, since an
-      // automatic probe inside it is skipped and never reaches the node.)
-      fakeNow += 35_000;
+      // past the re-armed window is still the one that walks the curve.
+      fakeNow += 20_000;
       await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(7);
       expect(openings()).toHaveLength(3);
       expect(openings()[2]).toContain('trip 2');
 

@@ -565,15 +565,23 @@ describe('useSyncTrigger', () => {
     // it measures how long the NODE has been failing, not how many times the
     // user asked, and three taps otherwise walked the wallet from 30s to the
     // 300s cap — the user's own attempt to fix it making it four times worse.
+    // The taps are SPACED, and that is what makes the re-arm observable at all: at
+    // one instant the window a forced failure re-arms and the window it inherited
+    // expire together, so "re-armed" and "never touched" predict the same timings and
+    // the assertions below hold either way. Three taps 5s apart put the re-armed
+    // deadline 15s past the original.
     for (let tap = 0; tap < 3; tap++) {
       await act(async () => {
+        await jest.advanceTimersByTimeAsync(5_000);
         requestImmediateSync();
         await jest.advanceTimersByTimeAsync(0);
       });
     }
     expect(mockSyncState).toHaveBeenCalledTimes(6);
 
-    // Still the BASE window, measured from the last forced failure.
+    // Still the BASE window, but measured from the LAST FORCED failure: the original
+    // window has already lapsed by now, so an unarmed breaker would have let the
+    // timer through 9s ago.
     await act(async () => {
       await jest.advanceTimersByTimeAsync(29_999);
     });

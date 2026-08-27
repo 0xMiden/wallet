@@ -41,11 +41,17 @@ const normalizeEntry = (entry: StoredEntry): QueuedNoteImport =>
   typeof entry === 'string' ? { bytes: entry, attempts: 0 } : entry;
 
 // "The client already has this note" is a DONE verdict, not a failure: the SDK's
-// import is an upsert, but a consumed note is refused by text.
-const isAlreadyImported = (error: unknown): boolean => {
-  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
-  return message.includes('already been consumed') || message.includes('already exists');
-};
+// import is an upsert, so a duplicate does not throw at all — only a CONSUMED note
+// is refused, and only by text.
+//
+// Matching is deliberately narrow, for the reason `note-delivery-sweep.ts` spells
+// out at length about the same substring: a bare "already exists" also comes back
+// from tonic's stock `AlreadyExists` blurb, from Dexie's `ConstraintError` (and the
+// import writes a Dexie-backed store), and from the SDK's own account-tree and
+// asset-vault errors. Since a match DROPS the note from the queue, matching that
+// spelling would delete the only copy of a note that was never stored.
+const isAlreadyImported = (error: unknown): boolean =>
+  (error instanceof Error ? error.message : String(error ?? '')).toLowerCase().includes('already been consumed');
 
 // Serializes every read-modify-write of IMPORT_NOTES_KEY so enqueues and the
 // import-pass rewrite can't interleave. Without it, an enqueue landing between
@@ -65,7 +71,18 @@ const withQueueLock = <T>(fn: () => Promise<T>): Promise<T> => {
 
 export const queueNoteImport = async (noteBytes: string) =>
   withQueueLock(async () => {
-    const queuedImports = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+    const stored = await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY);
+    // A corrupt value must not take the incoming note down with it. `DesktopStorage`
+    // and `CapacitorStorage` hand back the raw string when `JSON.parse` fails, and
+    // spreading that produced a queue of single characters; spreading a non-iterable
+    // object THREW, and both call sites that matter swallow this function's rejection
+    // (`back/main.ts`, `back/dapp.ts`), so the note was silently lost at the door.
+    // Starting fresh is the safe branch here: the unparseable value holds no notes we
+    // can recover, and the alternative is dropping one we can.
+    const queuedImports = Array.isArray(stored) ? stored : [];
+    if (stored && !Array.isArray(stored)) {
+      logger.error('[queueNoteImport] pending-import queue was unreadable; starting a fresh queue for the new note');
+    }
     await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
   });
 
@@ -142,7 +159,15 @@ export const importAllNotes = async () => {
   // the same way the sync breaker clamps its persisted deadline (#777).
   const isEligible = (note: QueuedNoteImport, now: number) =>
     note.nextEligibleAt === undefined || note.nextEligibleAt <= now || note.nextEligibleAt - now > BACKOFF_MAX_MS;
-  const elapsedSince = (from: number | undefined, now: number) => Math.max(0, now - (from ?? now));
+  // The budget's anchor needs the same treatment, and clamping elapsed time at zero
+  // is not enough on its own: a stamp written while the clock was AHEAD stays ahead
+  // after the correction, so elapsed reads zero on every later pass and the 24h
+  // budget never expires — the note is retried forever and never dead-lettered.
+  // A first failure cannot be in the future, so a stamp that is gets re-anchored,
+  // which restarts the budget rather than voiding it.
+  const anchorOf = (note: QueuedNoteImport, now: number) =>
+    note.firstFailureAt === undefined || note.firstFailureAt > now ? now : note.firstFailureAt;
+  const elapsedSince = (from: number, now: number) => Math.max(0, now - from);
 
   // The note whose import is in flight. An eviction abandons the callback mid-call,
   // so this is the ONLY note the failure path can charge: the loop is sequential,
@@ -183,7 +208,7 @@ export const importAllNotes = async () => {
             // out of the queue.
           } catch (e) {
             const attempts = note.attempts + 1;
-            const firstFailureAt = note.firstFailureAt ?? now;
+            const firstFailureAt = anchorOf(note, now);
             // An already-consumed note is DONE, not poison: re-importing one is
             // routine here (an abandoned pass carries notes it may already have
             // imported), and counting it toward the poison cap dead-lettered a
@@ -280,7 +305,7 @@ export const importAllNotes = async () => {
         continue;
       }
       const attempts = note.attempts + 1;
-      const firstFailureAt = note.firstFailureAt ?? now;
+      const firstFailureAt = anchorOf(note, now);
       if (elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS) {
         const stored = await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts });
         if (!stored) banked.push({ bytes: note.bytes, attempts, firstFailureAt });

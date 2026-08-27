@@ -943,6 +943,16 @@ const DISPATCH: Record<string, DispatchFn> = {
     const interval = 5_000;
     const start = Date.now();
     for (;;) {
+      // Stop if this loop is a corpse. An eviction rejects the SW-side caller but
+      // does not stop the loop, and once its hold is stale the yield below no longer
+      // touches the mutex — so each remaining lap would run two WASM calls with NO
+      // mutex held, concurrently with the successor that legitimately holds it. That
+      // is the "recursive use of an object" crash the mutex exists to prevent, and
+      // nobody is left awaiting this loop's result anyway.
+      if (client.isDisposed || getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose dispatch was evicted');
+        return null;
+      }
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
       }
