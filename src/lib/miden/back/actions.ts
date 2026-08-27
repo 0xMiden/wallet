@@ -23,7 +23,18 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
+import {
+  GuardianSyncStatus,
+  ReportTelemetryEventRequest,
+  ReportTelemetryEventResponse,
+  SignEvmOperation,
+  WalletAccount,
+  WalletMessageType,
+  WalletSettings,
+  WalletState
+} from 'lib/shared/types';
+import { resolveTelemetryContext } from 'lib/telemetry/context';
+import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -583,6 +594,24 @@ export async function processDApp(
       return withInited(() => waitForTransaction(req));
   }
 }
+
+export async function handleReportTelemetryEvent(
+  req: ReportTelemetryEventRequest
+): Promise<ReportTelemetryEventResponse> {
+  // Defence in depth, and only that — `isNameableEvent` inside `sendEvent` is the
+  // control that actually holds. It refuses every case this would: a missing phase
+  // composes `open_undefined`, which has no phase suffix and fails the pattern.
+  // Kept because this is the boundary where an untyped message arrives (the
+  // offscreen document forwards over `chrome.runtime.sendMessage`, which is
+  // `unknown` at the wire) and refusing at the boundary costs one array lookup.
+  // Do not read it as the reason a malformed name cannot egress; that is the sink.
+  if (VALID_PHASES.includes((req.event as { phase?: string } | null)?.phase as string)) {
+    await sendEvent(req.event, resolveTelemetryContext());
+  }
+  return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {

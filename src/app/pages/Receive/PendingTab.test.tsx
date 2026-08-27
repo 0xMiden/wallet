@@ -1,6 +1,9 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
+
+import type { ReportClaim } from 'app/hooks/useReportNoteClaim';
+import { initiateConsumeTransaction } from 'lib/miden/activity';
 
 import { PendingTab, NoteWithMetadata } from './PendingTab';
 
@@ -180,5 +183,69 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     const row = screen.getByTestId('detail-note-row');
     expect(within(row).queryByTestId('claim-button')).not.toBeInTheDocument();
     expect(within(row).getByTestId('sync-wave')).toHaveAttribute('data-syncing', 'true');
+  });
+});
+
+describe('PendingTab — per-note claim reporting', () => {
+  // The page that hosts this tab owns the note_handle flow; the tab's job is
+  // only to route a per-note claim through the reporter it was given, so a
+  // single-note claim is not invisible next to Claim All.
+  beforeEach(() => {
+    jest.mocked(initiateConsumeTransaction).mockReset().mockResolvedValue('tx-id');
+  });
+
+  /** A pass-through reporter plus a spy recording each attempt it wrapped. */
+  const spyingReporter = () => {
+    const reported = jest.fn();
+    const reportClaim: ReportClaim = attempt => {
+      reported();
+      return attempt();
+    };
+    return { reported, reportClaim };
+  };
+
+  it('routes a per-note claim through the reporter', async () => {
+    const { reported, reportClaim } = spyingReporter();
+    renderTab({ safeClaimableNotes: [makeNote('a')], reportClaim });
+    openDetail();
+
+    fireEvent.click(within(screen.getByTestId('detail-note-row')).getByTestId('claim-button'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(initiateConsumeTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('still queues the claim when no reporter is supplied', async () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+    openDetail();
+
+    fireEvent.click(within(screen.getByTestId('detail-note-row')).getByTestId('claim-button'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(initiateConsumeTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the row error handling when a reported claim fails', async () => {
+    const failing = jest.mocked(initiateConsumeTransaction);
+    failing.mockRejectedValueOnce(new Error('queue failed'));
+    const { reported, reportClaim } = spyingReporter();
+    renderTab({ safeClaimableNotes: [makeNote('a')], reportClaim });
+    openDetail();
+
+    fireEvent.click(within(screen.getByTestId('detail-note-row')).getByTestId('claim-button'));
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(reported).toHaveBeenCalledTimes(1);
+    // The row's own failure treatment (#456) is untouched: retriable, with Retry.
+    const row = screen.getByTestId('detail-note-row');
+    expect(within(row).getByText('noteClaimFailedRetry')).toBeInTheDocument();
+    expect(within(row).getByTestId('claim-button')).toHaveTextContent('retry');
   });
 });

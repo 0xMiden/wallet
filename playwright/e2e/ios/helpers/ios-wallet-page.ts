@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
@@ -420,6 +421,17 @@ export class IosWalletPage implements WalletPage {
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
       readyTimeoutMs
     );
+
+    // Onboarding's last screen is now the one-time telemetry consent prompt, not
+    // the wallet home — decline it so the caller gets a wallet it can navigate.
+    // After the Ready poll deliberately (Ready is what proves `register()`
+    // finished), and raced against the home surface so the gap between Ready
+    // being published and `Welcome.tsx` navigating is waited out rather than
+    // assumed away. Mirrors the Android POM.
+    await dismissTelemetryConsent(this, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
 
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`

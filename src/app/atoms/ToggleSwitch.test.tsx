@@ -2,25 +2,16 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { ACCENT_HEX } from 'utils/brand-colors';
 
 import ToggleSwitch from './ToggleSwitch';
-
-// `useAnalytics` and `AnalyticsEventCategory` come from a barrel that pulls in
-// SDK-backed modules; mock the analytics surface the component actually uses.
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { Toggle: 'Toggle' },
-  useAnalytics: jest.fn()
-}));
 
 // Haptics wrap the native Capacitor plugin; stub it so we can assert calls.
 jest.mock('lib/mobile/haptics', () => ({
   hapticMedium: jest.fn()
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockHapticMedium = hapticMedium as jest.Mock;
 
 const UNCHECKED_TRACK_COLOR = '#E5E7EB';
@@ -34,11 +25,8 @@ const getParts = (container: HTMLElement) => {
 };
 
 describe('ToggleSwitch', () => {
-  const trackEvent = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
   });
 
   it('renders unchecked by default when no `checked` prop is provided', () => {
@@ -79,19 +67,13 @@ describe('ToggleSwitch', () => {
     // Local state advanced to checked, repainting the track with the accent color.
     expect(input).toBeChecked();
     expect(track).toHaveStyle({ backgroundColor: ACCENT_HEX });
-    // Without a testID, no analytics event is emitted.
-    expect(trackEvent).not.toHaveBeenCalled();
   });
 
-  it('tracks a Toggle analytics event with properties when a testID is provided', () => {
-    const testIDProperties = { surface: 'settings' };
-    const { container } = render(<ToggleSwitch testID="haptics-toggle" testIDProperties={testIDProperties} />);
+  it('exposes `testID` as a `data-testid` attribute for E2E selectors', () => {
+    const { container } = render(<ToggleSwitch testID="haptics-toggle" testIDProperties={{ surface: 'settings' }} />);
     const { input } = getParts(container);
 
-    fireEvent.click(input);
-
-    expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith('haptics-toggle', AnalyticsEventCategory.Toggle, testIDProperties);
+    expect(input).toHaveAttribute('data-testid', 'haptics-toggle');
   });
 
   it('works without an `onChange` handler (uncontrolled toggle)', () => {
@@ -103,7 +85,6 @@ describe('ToggleSwitch', () => {
 
     expect(input).toBeChecked();
     expect(track).toHaveStyle({ backgroundColor: ACCENT_HEX });
-    expect(trackEvent).not.toHaveBeenCalled();
   });
 
   it('syncs local state to a newly-provided `checked` prop (effect: value branch)', () => {

@@ -17,6 +17,8 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 
+import { dismissTelemetryConsent } from './telemetry-consent';
+
 /**
  * A reserved-invalid host, so the fixture page can never accidentally hit the
  * network. `context.route` fulfils it locally; the manifest's https content
@@ -59,6 +61,14 @@ export type QueuedTransactionRow = {
  * waited for, so seconds is generous.
  */
 const ACTION_TIMEOUT = 10_000;
+
+/**
+ * `OpenSidePanel.tsx`'s root — the only hook unique to the side-panel handoff
+ * screen. Its title and its button title are both shared verbatim with
+ * `Confirmation.tsx`, so matching on either alone also matches the screen the
+ * handoff was reached from.
+ */
+const HANDOFF_SELECTOR = '[data-testid="finish-side-panel"]';
 
 /**
  * Serves a minimal dApp page at {@link FIXTURE_DAPP_ORIGIN} and waits until the
@@ -136,6 +146,10 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
  * for every dApp approval (`withUnlocked` in `dapp.ts`), so specs must not skip
  * it. Mirrors `playwright/tests/popup-smoke.spec.ts`.
  *
+ * Onboarding now detours through the one-time telemetry consent prompt on its
+ * way to the handoff screen, so this declines it — see
+ * {@link dismissTelemetryConsent}.
+ *
  * Every navigation, fill and click carries an explicit timeout — see
  * {@link ACTION_TIMEOUT}. A wedged step must name itself, not silently consume
  * the caller's whole budget.
@@ -169,9 +183,19 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
 
+  // The submit above only DISPATCHES the click; `register()` then runs for as
+  // long as the mock client needs, and only afterwards does the flow route to
+  // the consent prompt. So the handoff screen is the other half of the race —
+  // without it a short poll for the prompt would usually win the race against
+  // registration and skip a prompt that had not appeared yet.
+  const handoff = page.locator(HANDOFF_SELECTOR);
+  await dismissTelemetryConsent(page, { nextSurface: HANDOFF_SELECTOR, timeoutMs });
+
   // "Open wallet" only renders once the store is Ready — deliberately NOT
-  // clicked: it hands off to the Chrome side panel and closes this tab.
-  await page.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
+  // clicked: it hands off to the Chrome side panel and closes this tab. Scoped
+  // to the handoff container because `Confirmation.tsx` titles its own submit
+  // button with the same `openWallet` string.
+  await handoff.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
 }
 
 /**

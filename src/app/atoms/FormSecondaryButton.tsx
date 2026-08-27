@@ -4,7 +4,7 @@ import classNames from 'clsx';
 
 import Spinner from 'app/atoms/Spinner/Spinner';
 import { Button, ButtonVariant } from 'components/Button';
-import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 
 type FormSecondaryButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
   TestIDProps & {
@@ -21,17 +21,10 @@ const FormSecondaryButton: FC<FormSecondaryButtonProps> = ({
   style,
   children,
   onClick,
-  testID,
-  testIDProperties,
+  testID: _testID,
+  testIDProperties: _testIDProperties,
   ...rest
 }) => {
-  const { trackEvent } = useAnalytics();
-
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
-    onClick?.(e);
-  };
-
   return (
     <Button
       variant={ButtonVariant.Ghost}
@@ -55,7 +48,7 @@ const FormSecondaryButton: FC<FormSecondaryButtonProps> = ({
         ...style
       }}
       disabled={disabled}
-      onClick={handleClick}
+      onClick={onClick}
       {...rest}
     >
       {children}

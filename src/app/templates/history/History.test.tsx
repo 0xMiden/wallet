@@ -295,6 +295,36 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
+// The activity screen measures "time until the user can see their activity",
+// so it needs to know when the first load settles — this list owns that state.
+describe('History initial-load signal', () => {
+  it('reports the initial load once the transaction query settles', async () => {
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ onInitialLoad });
+
+    await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
+  });
+
+  it('does not report a load that is still in flight', async () => {
+    let release: (value: unknown[]) => void = () => {};
+    mockGetCompletedTransactions.mockImplementation((_addr: string, offset?: number) =>
+      offset === undefined ? new Promise(resolve => (release = resolve)) : Promise.resolve([])
+    );
+    const onInitialLoad = jest.fn();
+
+    await renderHistory({ onInitialLoad });
+
+    expect(onInitialLoad).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release([]);
+    });
+
+    await waitFor(() => expect(onInitialLoad.mock.calls.length).toBeGreaterThan(0));
+  });
+});
+
 describe('History', () => {
   it('threads Guardian transition metadata through completed and pending entries', async () => {
     mockGetCompletedTransactions.mockResolvedValueOnce([

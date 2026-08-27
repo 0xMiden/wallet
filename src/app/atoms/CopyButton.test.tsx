@@ -2,7 +2,6 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { hapticLight } from 'lib/mobile/haptics';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import useTippy from 'lib/ui/useTippy';
@@ -11,11 +10,6 @@ import CopyButton from './CopyButton';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
-}));
-
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-  useAnalytics: jest.fn()
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -32,7 +26,6 @@ jest.mock('lib/ui/useTippy', () => ({
   default: jest.fn(() => jest.fn())
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockUseCopyToClipboard = useCopyToClipboard as jest.Mock;
 const mockUseTippy = useTippy as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
@@ -40,11 +33,9 @@ const mockHapticLight = hapticLight as jest.Mock;
 describe('CopyButton', () => {
   const copy = jest.fn();
   const setCopied = jest.fn();
-  const trackEvent = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
     mockUseCopyToClipboard.mockReturnValue({
       fieldRef: { current: null },
       copy,
@@ -53,7 +44,7 @@ describe('CopyButton', () => {
     });
   });
 
-  it('copies text and tracks clicks when a test id is provided', () => {
+  it('copies text and calls copy() when clicked, forwarding testID/testIDProperties without error', () => {
     render(
       <CopyButton
         text="secret"
@@ -70,9 +61,6 @@ describe('CopyButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 
     expect(mockHapticLight).toHaveBeenCalled();
-    expect(trackEvent).toHaveBeenCalledWith('copy-address', AnalyticsEventCategory.ButtonPress, {
-      surface: 'receive'
-    });
     expect(copy).toHaveBeenCalled();
     expect(screen.getByDisplayValue('secret')).toBeInTheDocument();
   });
@@ -94,6 +82,5 @@ describe('CopyButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
 
     expect(setCopied).toHaveBeenCalledWith(false);
-    expect(trackEvent).not.toHaveBeenCalled();
   });
 });

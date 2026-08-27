@@ -9,10 +9,10 @@ import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { Numpad } from 'components/Numpad';
-import { useFormAnalytics } from 'lib/analytics';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 
 const BrandIcon = () => {
@@ -31,6 +31,29 @@ const LAST_ATTEMPT = 3;
 
 const checkTime = (i: number) => (i < 10 ? '0' + i : i);
 
+/**
+ * Report one unlock ATTEMPT, not one visit to this screen.
+ *
+ * A rejected password is retryable, so a screen-scoped flow could only ever
+ * complete or be abandoned: settling it as errored would make the eventual
+ * successful retry a no-op on the (idempotent) handle, and a successful unlock
+ * would vanish from the funnel. Scoping the flow to the attempt keeps every
+ * attempt a matched started/ended pair whose duration is the time actually
+ * spent unlocking. Abandoning the screen without ever attempting is not an
+ * unlock flow at all — that case is already visible as an `open` flow that
+ * resolved to the unlock view.
+ */
+async function reportUnlockAttempt(attempt: () => Promise<unknown>): Promise<void> {
+  const flow: FlowHandle = beginFlow('unlock');
+  try {
+    await attempt();
+    flow.complete();
+  } catch (error) {
+    flow.fail(classifyError(error));
+    throw error;
+  }
+}
+
 const getTimeLeft = (start: number, end: number) => {
   const isPositiveTime = start + end - Date.now() < 0 ? 0 : start + end - Date.now();
   const diff = isPositiveTime / 1000;
@@ -46,7 +69,6 @@ interface UnlockProps {
 const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const { t } = useTranslation();
   const { unlock } = useMidenContext();
-  const formAnalytics = useFormAnalytics('UnlockWallet');
   const { compact } = useAppEnv();
 
   const [attempt, setAttempt] = useLocalStorage<number>(MidenSharedStorageKey.PasswordAttempts, 1);
@@ -88,7 +110,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting desktop hardware unlock (Touch ID)...');
-            await unlock();
+            await reportUnlockAttempt(() => unlock());
             setAttempt(1);
             navigate('/');
             return;
@@ -100,7 +122,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
-            await unlock();
+            await reportUnlockAttempt(() => unlock());
             setAttempt(1);
             navigate('/');
             return;
@@ -142,13 +164,11 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       if (isSubmitting) return;
       setIsSubmitting(true);
       setIsError(false);
-      formAnalytics.trackSubmit();
 
       try {
         if (attempt > LAST_ATTEMPT) await new Promise(res => setTimeout(res, Math.random() * 2000 + 1000));
-        await unlock(passcode);
+        await reportUnlockAttempt(() => unlock(passcode));
 
-        formAnalytics.trackSubmitSuccess();
         setAttempt(1);
 
         // On mobile/desktop, don't reload - the backend state is already updated in-process.
@@ -159,7 +179,6 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           window.location.reload();
         }
       } catch (err) {
-        formAnalytics.trackSubmitFail();
         if (attempt >= LAST_ATTEMPT) setTimeLock(Date.now());
         setAttempt(attempt + 1);
         setTimeleft(getTimeLeft(Date.now(), LOCK_TIME * Math.floor((attempt + 1) / 3)));
@@ -172,7 +191,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         setIsSubmitting(false);
       }
     },
-    [isSubmitting, unlock, formAnalytics, attempt, setAttempt, setTimeLock]
+    [isSubmitting, unlock, attempt, setAttempt, setTimeLock]
   );
 
   useEffect(() => {
@@ -231,7 +250,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
   const onRetryHardwareUnlock = useCallback(async () => {
     try {
-      await unlock();
+      await reportUnlockAttempt(() => unlock());
       setAttempt(1);
       navigate('/');
     } catch (err) {

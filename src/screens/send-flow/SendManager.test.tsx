@@ -2,7 +2,10 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 import { clearSendDraft, hasSendDraft, setSendDraft } from './send-draft';
+import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
@@ -62,6 +65,15 @@ const scanQRCodeMock = jest.fn();
 // so the existing native-scan tests below exercise `scanQRCode` unchanged; the
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
+
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+const telemetryHandles: TelemetryHandle[] = [];
+const beginFlowMock = jest.fn((_flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  telemetryHandles.push(handle);
+  return handle;
+});
+const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -232,6 +244,12 @@ jest.mock('utils/miden', () => {
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
+// The real `./send-telemetry` is kept so the cross-route handoff it exists for is
+// exercised for real; only the reporting primitive underneath it is mocked.
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => beginFlowMock(flow),
+  classifyError: (error: unknown) => classifyErrorMock(error)
+}));
 jest.mock('lib/miden/activity', () => ({
   requestSpeculateSend: (...a: any[]) => requestSpeculateSendMock(...a),
   requestSpeculateInvalidate: (...a: any[]) => requestSpeculateInvalidateMock(...a)
@@ -1150,5 +1168,166 @@ describe('speculative invalidation on unmount', () => {
     const { unmount } = renderFlow();
     unmount();
     expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `send` telemetry flow.
+// ---------------------------------------------------------------------------
+describe('send telemetry', () => {
+  /** Throwing accessor so a missing handle names how many flows were begun. */
+  const handleAt = (index: number): TelemetryHandle => {
+    const handle = telemetryHandles[index];
+    if (!handle) throw new Error(`no flow was begun at index ${index} (begun: ${telemetryHandles.length})`);
+    return handle;
+  };
+
+  /** Everything this suite handed to telemetry, for the privacy assertions. */
+  const telemetryPayload = () =>
+    JSON.stringify({
+      begun: beginFlowMock.mock.calls,
+      classified: classifyErrorMock.mock.calls,
+      failed: telemetryHandles.map(handle => handle.fail.mock.calls)
+    });
+
+  beforeEach(() => {
+    // Scoped to this block rather than the file: the speculative-proving effect
+    // debounces on a 500ms timer, and advancing the clock for every test here
+    // would fire it in suites that are not about it.
+    jest.useFakeTimers();
+    // The flow handle is module-scoped (it outlives this route on purpose), so
+    // discard any handle a previous test left open.
+    settleSendFlow(flow => flow.cancel());
+    beginFlowMock.mockClear();
+    classifyErrorMock.mockClear();
+    telemetryHandles.length = 0;
+  });
+
+  afterEach(() => jest.useRealTimers());
+
+  /**
+   * Let the route settle. Arriving at /send no longer begins the flow on its
+   * own: the carousel commits a route on every swipe release, so a route has to
+   * hold still to count as a visit — see `useRouteDwell`.
+   */
+  const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+  /** Render and stay, which is what a user who meant to send does. */
+  const renderSend = (isLoading = false) => {
+    const rendered = renderFlow(isLoading);
+    dwell();
+    return rendered;
+  };
+
+  const reachReview = (amount: string, recipient: string) => {
+    mockSelectedContact = { id: recipient, name: 'R', isOwned: false, contactType: 'external' };
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr === recipient);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    const rendered = renderSend();
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: amount } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    return rendered;
+  };
+
+  it('begins the send flow on entry to /send', () => {
+    renderSend();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+  });
+
+  it('begins one flow per entry, not one per render', () => {
+    renderSend();
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecip' } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sr-addressbook'));
+    });
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the flow when the user leaves the send flow without handing off', () => {
+    const { unmount } = renderSend();
+
+    unmount();
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the flow open across the handoff to the review page', () => {
+    const { unmount } = reachReview('5', 'mtst1recipient');
+    expect(hasSendDraft()).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('/send/review'));
+
+    unmount();
+
+    // Settling here would report every successful send as abandoned-at-review;
+    // the review page owns the terminal call.
+    expect(handleAt(0).cancel).not.toHaveBeenCalled();
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing while another home page is showing, since the carousel keeps this one mounted', () => {
+    // TabLayout renders Overview / Send / Receive / Earn / Swap as one carousel
+    // and mounts all of them at once, for the whole session. A mount-triggered
+    // flow therefore began a send on every app open and never ended it, because
+    // swiping away does not unmount this screen — a phantom abandoned send per
+    // launch, which is what the shipped build was actually reporting.
+    mockPathname = '/';
+
+    renderSend();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing for a pane the carousel only swiped past', () => {
+    // Reaching Swap from Overview is four swipe releases, and each release
+    // navigates — so /send is committed on the way past. Before the dwell gate
+    // that emitted a matched, plausible, entirely meaningless send: begun and
+    // abandoned at `select_recipient`, by a finger that never stopped there.
+    mockPathname = '/';
+    const view = renderFlow();
+
+    mockPathname = '/send';
+    view.rerender(<SendFlow isLoading={false} />);
+    act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+    mockPathname = '/receive';
+    view.rerender(<SendFlow isLoading={false} />);
+    dwell();
+
+    expect(beginFlowMock).not.toHaveBeenCalled();
+  });
+
+  it('records the send as abandoned when the user swipes away, without waiting for an unmount', () => {
+    const view = renderSend();
+    expect(beginFlowMock).toHaveBeenCalledWith('send');
+
+    mockPathname = '/';
+    view.rerender(<SendFlow isLoading={false} />);
+
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('never passes the recipient address or the amount to telemetry', () => {
+    reachReview('4200', 'mtst1recipientaddress');
+
+    expect(beginFlowMock.mock.calls.length).toBeGreaterThan(0);
+    expect(telemetryPayload()).not.toContain('mtst1recipientaddress');
+    expect(telemetryPayload()).not.toContain('4200');
   });
 });

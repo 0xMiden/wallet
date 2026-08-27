@@ -53,10 +53,6 @@ jest.mock('lib/woozie', () => ({
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>
 }));
 
-jest.mock('lib/analytics', () => ({
-  useAnalytics: () => ({ pageEvent: jest.fn(), trackEvent: jest.fn() })
-}));
-
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({ signTransaction: jest.fn() })
 }));

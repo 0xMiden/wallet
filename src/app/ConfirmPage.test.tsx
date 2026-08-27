@@ -109,11 +109,6 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('lib/analytics', () => {
-  const React2 = require('react');
-  return { CustomRpsContext: React2.createContext(undefined) };
-});
-
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
 // Here we only need to assert ConfirmPage routes the sign->TransactionSummary

@@ -10,11 +10,17 @@ import {
   isAutoConsumeEnabled,
   isDelegateProofEnabled,
   isHapticFeedbackEnabled,
+  isTelemetryEnabled,
   setAutoConsumeSetting,
   setDelegateProofSetting,
-  setHapticFeedbackSetting
+  setHapticFeedbackSetting,
+  setTelemetrySetting
 } from 'lib/settings/helpers';
 import { setTheme } from 'lib/settings/theme';
+// Deep imports rather than the `lib/telemetry` barrel: the barrel would pull
+// `@sentry/browser` and the bip39 wordlist into the settings chunk.
+import { initCrashReporting, stopCrashReporting } from 'lib/telemetry/crash';
+import { dropQueue } from 'lib/telemetry/sink';
 
 import { GeneralSettingsSelectors } from './GeneralSettings.selectors';
 import SettingToggle from './SettingToggle';
@@ -72,6 +78,28 @@ const GeneralSettings: FC = () => {
     setHapticEnabled(newEnabled);
   }, []);
 
+  const [telemetryEnabled, setTelemetryEnabled] = useState(() => isTelemetryEnabled());
+  const handleTelemetryChange = useCallback(async (evt: React.ChangeEvent<HTMLInputElement>) => {
+    const nextEnabled = evt.target.checked;
+
+    // Stop-sharing first. Both are needed and neither is sufficient: the queue
+    // holds payloads already built, the mirror is what gates the next one.
+    if (!nextEnabled) {
+      dropQueue();
+      stopCrashReporting();
+    }
+
+    // Reflected at once so the switch never lags the tap, and the write awaited
+    // rather than left floating so anything this handler does afterwards runs
+    // against a gate that already agrees. It does NOT make withdrawal ordered
+    // against the whole app: a flow ending elsewhere in the propagation window
+    // is past this handler's reach. See `setTelemetrySetting`.
+    setTelemetryEnabled(nextEnabled);
+    await setTelemetrySetting(nextEnabled);
+
+    if (nextEnabled) initCrashReporting();
+  }, []);
+
   return (
     <div className="w-full flex flex-col gap-y-6" data-testid="general-settings">
       <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
@@ -105,6 +133,15 @@ const GeneralSettings: FC = () => {
         testID={GeneralSettingsSelectors.AutoConsumeToggle}
         title={t('autoConsumeSettings')}
         description={t('autoConsumeSettingsDescription')}
+      />
+
+      <SettingToggle
+        checked={telemetryEnabled}
+        onChange={handleTelemetryChange}
+        name="telemetryEnabled"
+        testID={GeneralSettingsSelectors.TelemetryToggle}
+        title={t('helpImproveWallet')}
+        description={t('helpImproveWalletDescription')}
       />
     </div>
   );

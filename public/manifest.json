@@ -38,7 +38,11 @@
 
   "__firefox__browser_specific_settings": {
     "gecko": {
-      "id": "support@miden.fi"
+      "id": "support@miden.fi",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": ["technicalAndInteraction"]
+      }
     }
   },
 

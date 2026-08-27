@@ -192,10 +192,12 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
  * The whole happy-path journey: locked Unlock → reset flow → recovered wallet
  * re-keyed to `newPassword`, with the device-key rotation gate cleared.
  *
- * Resolves only once `HotKeyRotationGate` has unmounted, so a caller that
- * returns from this has a wallet that is Ready and rotated. If the recovery
- * FAILS instead, this throws carrying the on-screen reason rather than letting
- * the rotation-gate wait expire with an opaque "gate never appeared" timeout.
+ * Resolves only once `HotKeyRotationGate` has unmounted AND the one-time
+ * telemetry consent prompt has been declined, so a caller that returns from
+ * this has a wallet that is Ready, rotated, and on its post-onboarding surface.
+ * If the recovery FAILS instead, this throws carrying the on-screen reason
+ * rather than letting the rotation-gate wait expire with an opaque "gate never
+ * appeared" timeout.
  */
 export async function recoverViaForgotPassword(
   wallet: ForgotPasswordDriver,
@@ -221,6 +223,16 @@ export async function recoverViaForgotPassword(
     );
   }
 
+  // Also declines the telemetry consent prompt a recovered wallet routes to
+  // (`postCreationRoute`), which `HotKeyRotationGate`'s `fixed inset-0` scrim
+  // has been covering for the whole rotation — see `completeHotKeyRotation`.
+  //
+  // Deliberately not in `submitRecoveryFromSeed` above, even though that is
+  // where the confirmation click lives: it returns with registration in flight,
+  // and its other caller (`guardian-forgot-password.spec.ts`) drives a recovery
+  // that FAILS and must stay on the confirmation screen. There is no consent
+  // prompt on that path, and a wait for one would be dead time in the test
+  // whose whole point is the failure surface.
   await wallet.completeHotKeyRotation();
 }
 

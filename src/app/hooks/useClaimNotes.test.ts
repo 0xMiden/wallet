@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { useClaimNotes } from './useClaimNotes';
+import type { ReportClaim } from './useReportNoteClaim';
 
 // --- Mocked collaborators -------------------------------------------------
 // useClaimNotes fans out to the claimable-notes query, the failed-transaction
@@ -196,5 +197,78 @@ describe('useClaimNotes failed-note check (#456)', () => {
     });
     await waitFor(() => expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore));
     expect(result.current.retriableNoteIds.has('a')).toBe(true); // NOT wiped
+  });
+});
+
+describe('useClaimNotes batch-claim reporting', () => {
+  // The hosting page owns the note_handle flow and passes in a reporter; the
+  // hook's job is to route the queue attempt through it, outcome included. The
+  // queue-time throw is caught internally, so the reporter has to wrap the
+  // consume call itself rather than the whole batch — otherwise every failure
+  // would look like a success.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetFailedTransactions.mockResolvedValue([]);
+    mockGetInputNoteDetails.mockResolvedValue([]);
+    mockUseClaimableNotes.mockReturnValue({
+      data: [note('a')],
+      mutate: jest.fn().mockResolvedValue([note('a')])
+    });
+  });
+
+  it('routes the batch queue attempt through the reporter', async () => {
+    mockInitiateConsume.mockResolvedValue('batch-tx');
+    const reported = jest.fn();
+    const reportClaim: ReportClaim = attempt => {
+      reported();
+      return attempt();
+    };
+
+    const { result } = renderHook(() => useClaimNotes(reportClaim));
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the reporter see a queue-time failure', async () => {
+    mockInitiateConsume.mockRejectedValue(new Error('queue failed'));
+    const seen: unknown[] = [];
+    const reportClaim: ReportClaim = async attempt => {
+      try {
+        return await attempt();
+      } catch (err) {
+        seen.push(err);
+        throw err;
+      }
+    };
+
+    const { result } = renderHook(() => useClaimNotes(reportClaim));
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    expect(seen.length).toBeGreaterThan(0);
+    // The hook still absorbs it: the note stays retriable rather than throwing out.
+    await waitFor(() => expect(result.current.retriableNoteIds.has('a')).toBe(true));
+  });
+
+  it('claims normally when no reporter is supplied', async () => {
+    mockInitiateConsume.mockResolvedValue('batch-tx');
+
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
   });
 });

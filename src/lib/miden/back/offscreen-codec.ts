@@ -44,6 +44,23 @@ export const OFFSCREEN_SIGN_REQUEST = 'OFFSCREEN_SIGN_REQUEST' as const;
  * response is expected. */
 export const OFFSCREEN_OP_STARTED = 'OFFSCREEN_OP_STARTED' as const;
 
+/** Fire-and-forget telemetry message (offscreen → SW): one operation the wallet
+ * finished, to be egressed by the SW's single consent-gated sink.
+ *
+ * The offscreen document is where proving actually happens when the offscreen
+ * client is on, which is the default for the extension. It is also the one realm
+ * that is neither a page nor the worker: it HAS a `window`, so it looks like a
+ * page to anything testing for one, and it never loads the React app, so nothing
+ * installs a page transport in it. Left to itself it would silently drop every
+ * prove and prover-outage event — the exact signals that motivated reporting
+ * operations in the first place.
+ *
+ * Forwarded rather than sent directly so the wallet keeps ONE egress point. The
+ * offscreen doc could reach the network itself, and the consent check in the
+ * sink would still hold, but a second sender is a second thing to audit. No
+ * response is expected. */
+export const OFFSCREEN_TELEMETRY_EVENT = 'OFFSCREEN_TELEMETRY_EVENT' as const;
+
 /**
  * SW → offscreen request envelope (§1.1 of the design doc).
  *
@@ -104,6 +121,21 @@ export interface OffscreenOpStarted {
   target: typeof SW_TARGET;
   type: typeof OFFSCREEN_OP_STARTED;
   op_id: string;
+}
+
+/**
+ * offscreen → SW telemetry forward. See {@link OFFSCREEN_TELEMETRY_EVENT}.
+ *
+ * `event` is typed `unknown` to keep this module's zero-runtime-dependency role:
+ * importing the telemetry event union here would give every consumer of the
+ * codec a dependency on the telemetry module. The SW narrows it on receipt, and
+ * the sink's allowlisted serializer is what actually decides what may go out —
+ * so a loose type here cannot widen the wire.
+ */
+export interface OffscreenTelemetryEvent {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_TELEMETRY_EVENT;
+  event: unknown;
 }
 
 /**

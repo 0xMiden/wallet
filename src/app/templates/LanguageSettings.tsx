@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
-import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -38,7 +37,6 @@ export const LANGUAGES = [
 const LanguageSettings: FC = () => {
   const selectedLocale = getCurrentLocale();
   const { t } = useTranslation();
-  const { trackEvent } = useAnalytics();
   const goBackToSettings = useBackWithFallback('/settings');
 
   const currentCode = useMemo(() => {
@@ -73,8 +71,8 @@ const LanguageSettings: FC = () => {
   // `onClose`; as a route a second tap ran the whole handler again.
   //
   // NOT redundant with the latch inside `useBackWithFallback`: that one only makes
-  // the traversal idempotent, while this also stops a second haptic, a second
-  // analytics event and a second `updateLocale` for the row the user grazed.
+  // the traversal idempotent, while this also stops a second haptic and a second
+  // `updateLocale` for the row the user grazed.
   const leaving = useRef(false);
 
   const handleSelect = useCallback(
@@ -82,14 +80,13 @@ const LanguageSettings: FC = () => {
       if (leaving.current) return;
       leaving.current = true;
       hapticLight();
-      trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
       // Picking a language finishes the task, so leave. As a drawer this screen was
       // handed an `onClose` by its host; as a route it owns its own exit, and
       // without one the selection silently stranded the user here.
       goBackToSettings();
     },
-    [trackEvent, goBackToSettings]
+    [goBackToSettings]
   );
 
   // Claiming `role="radiogroup"` promises arrow-key navigation, and thirteen rows

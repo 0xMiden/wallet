@@ -25,6 +25,17 @@ Secure wallet for the Miden blockchain. Send, receive, and manage your assets.
 
 ## Full Description
 
+<!-- REVIEW (Product, before the next submission): the "No tracking or analytics
+     that compromise your privacy" bullet below predates the optional telemetry
+     added in 1.15.22. That feature is off by default, requires explicit opt-in,
+     carries no persistent identifier, and does no cross-app or cross-site
+     tracking — so the claim is arguably still accurate, and the qualifier
+     "that compromise your privacy" is doing real work. But it should be a
+     decision by whoever owns the claim rather than a sentence that survived
+     because nobody re-read it. See docs/telemetry-store-declarations.md.
+     Note: the block below is pasted verbatim into store listings, so this
+     comment sits outside it deliberately. -->
+
 ```
 Bread Wallet is the official wallet for the Miden blockchain, designed to give you complete control over your digital assets with industry-leading security and privacy.
 
@@ -209,17 +220,29 @@ The app requires network connectivity to sync with the Miden blockchain for send
 - **Financial info — User payment info:** NOT collected (no card / payment processing).
 - **Financial info — Other financial info:** Local-only. Account addresses, balances, transaction history stored on-device, not transmitted. Declare in Play Console: *collected (on device), not shared, "Data is encrypted in transit" — N/A since not transmitted.*
 - **Crypto-related — Crypto assets:** User-controlled. Seed phrase / private keys stored encrypted on-device, never transmitted. Declare: *collected, not shared, data deletion supported (in-app "Delete wallet" + uninstall).*
-- **App activity:** None tracked.
-- **App info and performance — Crash logs / Diagnostics:** None collected (no crash reporter).
-- **Device IDs:** None.
+- **App activity — App interactions:** Collected, **optional** (off by default; requires opt-in via "Share usage data"). Not shared. Encrypted in transit. Purpose: *Analytics*. Declare: *collected, not shared, optional, "Data is encrypted in transit" — yes.* What is sent per event: which of 16 activities (or which of 12 kinds of work the app performed on the user’s behalf, such as sending or proving), whether it started, ended or settled, the outcome (completed / cancelled / errored), a broad error category from a fixed list of 8, a duration in ms, and how far it got — from a fixed list of 23 names, either the screen the activity reached or the pipeline stage a failure occurred at — plus the app version and the platform. No free-text field exists on the wire.
+- **App info and performance — Crash logs:** Collected, **optional** (same setting, off by default). Not shared. Encrypted in transit. Purposes: *Analytics* and *App functionality*. Scrubbed on-device before sending; a report containing anything resembling a recovery phrase is discarded rather than sent.
+- **App info and performance — Diagnostics:** Collected, **optional** (same setting). Not shared. Encrypted in transit. Purposes: *Analytics* and *App functionality*. Covers the error category and duration described above.
+- **App info and performance — Other app performance data:** None collected.
+- **Device or other IDs:** **None.** No user ID, device ID, install ID, or advertising ID exists anywhere in the app. The only identifiers involved are two random values held in memory and never persisted: one per activity, and one per run of the app that groups the activities of that run. Both are gone when the app closes, so nothing links one launch to another.
 
 ### Data shared with third parties
-**None.** RPC/transport traffic to `rpc.testnet.miden.io` + `transport.miden.io` is public chain data, not user PII.
+**None shared** in Play's sense (no transfer for another party's own purposes). RPC/transport traffic to `rpc.testnet.miden.io` + `transport.miden.io` is public chain data, not user PII.
+
+Two processors act on Miden's instructions under a DPA, only while "Share usage data" is on: **Aptabase** (EU/Germany) for app-interaction events and **Sentry** (EU) for crash logs. Both are configured for 90-day retention with no IP storage, no raw export, and no onward forwarding. Neither is a data broker and neither may use the data for its own purposes.
 
 ### Security practices
 - Data encrypted at rest on device (Android Keystore / iOS Secure Enclave when biometric protection enabled)
-- Users can request data deletion in-app ("Delete wallet" in Settings, plus uninstall)
+- All collected data is encrypted in transit (HTTPS)
+- Users can delete their on-device data in-app ("Delete wallet" in Settings, plus uninstall)
+- **Data deletion — telemetry:** per-user deletion is **not possible and not offered**, because nothing in the telemetry identifies a user; there is no identifier by which one person's records could be found. It is deleted automatically 90 days after collection. The account-deletion URL requirement does not apply — the app has no accounts.
 - App is open source: https://github.com/0xMiden/miden-wallet
+
+> Full declarations for the other three storefronts — Chrome Web Store, Firefox
+> AMO, and the Apple App Store privacy questionnaire — are in
+> [`docs/telemetry-store-declarations.md`](docs/telemetry-store-declarations.md),
+> along with the vendor-configuration checklist that must be completed before any
+> of these answers are true.
 
 ---
 

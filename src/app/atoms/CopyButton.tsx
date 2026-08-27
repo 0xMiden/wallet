@@ -3,8 +3,8 @@ import React, { FC, HTMLAttributes, useMemo } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { AnalyticsEventCategory, TestIDProps, useAnalytics } from 'lib/analytics';
 import { hapticLight } from 'lib/mobile/haptics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import useTippy from 'lib/ui/useTippy';
 
@@ -27,12 +27,11 @@ const CopyButton: FC<CopyButtonProps> = ({
   type = 'button',
   rounded = 'sm',
   textShade = 600,
-  testID,
-  testIDProperties,
+  testID: _testID,
+  testIDProperties: _testIDProperties,
   ...rest
 }) => {
   const { t } = useTranslation();
-  const { trackEvent } = useAnalytics();
   const { fieldRef, copy, copied, setCopied } = useCopyToClipboard();
 
   const tippyProps = useMemo(
@@ -55,7 +54,6 @@ const CopyButton: FC<CopyButtonProps> = ({
 
   const handleCopyPress = () => {
     hapticLight();
-    testID !== undefined && trackEvent(testID, AnalyticsEventCategory.ButtonPress, testIDProperties);
 
     return copy();
   };

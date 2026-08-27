@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
@@ -11,6 +11,7 @@ import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/gua
 import { clearClientStorage } from 'lib/miden/reset';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -34,11 +35,41 @@ const ForgotPassword: FC = () => {
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
 
-  /** The probe belongs to an entered import seed — drop it when leaving that path. */
+  // Telemetry for the `recover` flow — regaining access to an EXISTING wallet
+  // from its seed phrase. The other half of this screen (wipe and create a
+  // fresh wallet) is not a recovery, so it never opens a flow and every
+  // settle below is a no-op for it.
+  const flowRef = useRef<FlowHandle | null>(null);
+
+  // The handle is idempotent, but clearing the ref keeps a later settle from
+  // being attributed to a flow that has already ended.
+  const settleRecoverFlow = useCallback((settle: (handle: FlowHandle) => void) => {
+    const handle = flowRef.current;
+    if (!handle) return;
+    flowRef.current = null;
+    settle(handle);
+  }, []);
+
+  // An unmount with the flow still open is an abandonment we can see, so record
+  // it as cancelled rather than leaving an unmatched `started`.
+  useEffect(
+    () => () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    },
+    []
+  );
+
+  /**
+   * The probe belongs to an entered import seed — drop it when leaving that
+   * path. Leaving the seed path also abandons the recovery itself, so the
+   * `recover` flow is cancelled here rather than at each individual exit.
+   */
   const discardGuardianProbe = useCallback(() => {
     probeResult.current = null;
     resetGuardianProbe();
-  }, [resetGuardianProbe]);
+    settleRecoverFlow(handle => handle.cancel());
+  }, [resetGuardianProbe, settleRecoverFlow]);
 
   /**
    * Resolve the auto-detected guardian endpoint, waiting at most
@@ -91,12 +122,13 @@ const ForgotPassword: FC = () => {
         // empty wallet with no explanation — indistinguishable from data loss.
         // Surface it and stay put so Retry is reachable (#630).
         console.error(e);
+        settleRecoverFlow(handle => handle.fail(classifyError(e)));
         setRecoveryError(e instanceof Error ? e.message : String(e));
         return 'failed';
       }
     }
     return 'skipped';
-  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint]);
+  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint, settleRecoverFlow]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -108,6 +140,10 @@ const ForgotPassword: FC = () => {
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'select-import-type':
+          // The user is here to regain access to an existing wallet — this is
+          // the entry point of the `recover` flow.
+          flowRef.current?.cancel();
+          flowRef.current = beginFlow('recover');
           // Recovery is seed-phrase only — jump straight to the seed entry screen.
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromSeed);
@@ -154,6 +190,7 @@ const ForgotPassword: FC = () => {
           // already happened, so leaving would strand the user on a wiped
           // wallet with no explanation (#630).
           if (outcome === 'failed') break;
+          if (outcome === 'ok') settleRecoverFlow(handle => handle.complete());
           // Guardian recovery just completed — hand off to the side panel like
           // first-run onboarding rather than always entering in-tab (#428).
           navigate(postOnboardingRoute());
@@ -173,6 +210,8 @@ const ForgotPassword: FC = () => {
           } else if (step === OnboardingStep.SetupPasscode) {
             setStep(OnboardingStep.ImportFromSeed);
           } else if (step === OnboardingStep.ImportFromSeed) {
+            // Back to the reset screen's own welcome step — out of the recovery.
+            settleRecoverFlow(handle => handle.cancel());
             setStep(OnboardingStep.Welcome);
           }
           break;
@@ -180,7 +219,7 @@ const ForgotPassword: FC = () => {
           break;
       }
     },
-    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe]
+    [register, step, onboardingType, startGuardianProbe, discardGuardianProbe, settleRecoverFlow]
   );
 
   // Handle mobile back button/gesture in forgot password flow

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
+
 // Import after the mocks are registered.
 import { SwapFlow } from './SwapManager';
 
@@ -15,6 +17,7 @@ const mockTokenC = { symbol: 'CCC', faucetId: 'faucet-C', decimals: 8, logoSymbo
 
 // Mutable module-level state driven per test (all `mock`-prefixed for hoisting).
 let mockRenderedRoutes: Array<{ name: string }>;
+let mockPathname = '/swap';
 let mockNav: { navigateTo: jest.Mock; goBack: jest.Mock; cardStack: Array<{ name: string }> };
 let mockBackHandler: (() => boolean) | null;
 let mockWalletState: {
@@ -192,8 +195,33 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
+  // The swap flow only reports while its route is showing, because the home
+  // carousel keeps this screen mounted the whole time the wallet is open.
+  useLocation: () => ({ pathname: mockPathname }),
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
+
+// Telemetry: record the flow name and hand back a fresh spy handle per flow, so
+// the assertions below can tell a completed swap from an abandoned one.
+type SwapFlowHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock; step: jest.Mock };
+const swapFlowHandles: SwapFlowHandle[] = [];
+const mockBeginFlow = jest.fn((_flow: string) => {
+  const handle: SwapFlowHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+  swapFlowHandles.push(handle);
+  return handle;
+});
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: () => 'rpc'
+}));
+
+const swapFlow = (index = 0): SwapFlowHandle => {
+  const handle = swapFlowHandles[index];
+  if (!handle) throw new Error(`expected a swap flow at index ${index}`);
+  return handle;
+};
+
+const stepsReported = (index = 0): string[] => swapFlow(index).step.mock.calls.map(([step]) => step);
 
 const renderFlow = () => render(<SwapFlow />);
 
@@ -201,6 +229,9 @@ beforeEach(() => {
   jest.clearAllMocks();
 
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
+  mockPathname = '/swap';
+  swapFlowHandles.length = 0;
+  mockBeginFlow.mockClear();
   mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'SwapAmounts' }] };
   mockBackHandler = null;
   mockWalletState = {
@@ -679,6 +710,169 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('plain failure');
+    });
+  });
+
+  describe('telemetry', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    /**
+     * Let the route settle. Arriving at /swap no longer begins the flow on its
+     * own: the carousel commits a route on every swipe release, so a route has
+     * to hold still to count as a visit — see `useRouteDwell`.
+     */
+    const dwell = () => act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+
+    /** Render and stay, which is what a user who meant to swap does. */
+    const renderSwap = () => {
+      const rendered = renderFlow();
+      dwell();
+      return rendered;
+    };
+
+    // A swap used to report nothing at all: it is not a send, so the send flow
+    // never saw it, and a completed swap left no trace while an abandoned one
+    // was indistinguishable from never opening the screen.
+    it('begins a `swap` flow on entry', () => {
+      renderSwap();
+
+      expect(mockBeginFlow).toHaveBeenCalledTimes(1);
+      expect(mockBeginFlow).toHaveBeenCalledWith('swap');
+    });
+
+    it('completes on a successful submit, before the navigation that unmounts the screen', async () => {
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('does not report a completed swap as abandoned when the screen then unmounts', async () => {
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      cleanup();
+
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the swap as abandoned when the user leaves without submitting', () => {
+      renderSwap();
+      setOffer('10');
+
+      cleanup();
+
+      expect(swapFlow().cancel).toHaveBeenCalledTimes(1);
+      expect(swapFlow().complete).not.toHaveBeenCalled();
+    });
+
+    it('reports the failure kind when the submit throws, rather than calling it a cancellation', async () => {
+      mockInitiateSwap.mockRejectedValueOnce(new Error('rpc exploded'));
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().fail).toHaveBeenCalledWith('rpc');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('begins a fresh flow for a retry after a failure, instead of losing the second attempt', async () => {
+      mockInitiateSwap.mockRejectedValueOnce(new Error('rpc exploded'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockBeginFlow).toHaveBeenCalledTimes(2);
+      expect(swapFlow(1).complete).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the flow open when validation rejects the amount, since the user can still fix it', async () => {
+      renderFlow();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(swapFlow().complete).not.toHaveBeenCalled();
+      expect(swapFlow().fail).not.toHaveBeenCalled();
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+    });
+
+    it('reports nothing while another home page is showing, since the carousel keeps this one mounted', () => {
+      // TabLayout renders Overview / Send / Receive / Earn / Swap in one
+      // carousel and mounts them all at once, for the whole session. A
+      // mount-triggered flow therefore fired on every app open and reported a
+      // swap the user never started — then never ended it, because swiping away
+      // does not unmount this screen either.
+      mockPathname = '/';
+
+      renderFlow();
+
+      expect(mockBeginFlow).not.toHaveBeenCalled();
+    });
+
+    it('reports nothing for a pane the carousel only swiped past', () => {
+      // Swap sits at the far end of the carousel, so it is reached — and left —
+      // by swiping through every other pane. Without a dwell each of those
+      // crossings opened and closed a flow that described nothing anyone did.
+      mockPathname = '/';
+      const { rerender } = renderFlow();
+
+      mockPathname = '/swap';
+      rerender(<SwapFlow />);
+      act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS - 1));
+
+      mockPathname = '/earn';
+      rerender(<SwapFlow />);
+      dwell();
+
+      expect(mockBeginFlow).not.toHaveBeenCalled();
+    });
+
+    it('reports the swap as abandoned when the user swipes away, without waiting for an unmount', () => {
+      const { rerender } = renderSwap();
+
+      mockPathname = '/';
+      rerender(<SwapFlow />);
+
+      expect(swapFlow().cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('records the step reached, so an abandoned swap says where it stopped', () => {
+      mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'ReviewSwap' }] };
+      renderSwap();
+
+      expect(stepsReported()).toContain('review');
+    });
+
+    it('marks the swap as submitting once past the confirmation, separating our failures from cold feet', async () => {
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(stepsReported()).toContain('submitting');
     });
   });
 

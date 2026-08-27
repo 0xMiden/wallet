@@ -141,6 +141,24 @@ describe('OpenSidePanel', () => {
     expect(highlighted?.textContent).toBe('Wallet');
   });
 
+  it('marks itself with the one hook that identifies this screen and nothing else', async () => {
+    await render();
+
+    // `yourWalletIsReady` and `openWallet` are both rendered verbatim by
+    // Confirmation.tsx, so before this id existed the E2E suites had no way to
+    // tell "handed off to the panel" from "still on the confirmation screen" —
+    // and when the telemetry consent screen was inserted between the two, the
+    // text assertion went on passing on the screen the flow had not left.
+    expect(testContainer!.querySelector('[data-testid="finish-side-panel"]')).not.toBeNull();
+  });
+
+  it('carries that hook while still creating, so it marks the screen and not just its ready state', async () => {
+    mockReady = false;
+    await render();
+
+    expect(testContainer!.querySelector('[data-testid="finish-side-panel"]')).not.toBeNull();
+  });
+
   it('shows a spinner while the wallet is still being created', async () => {
     mockReady = false;
     await render();

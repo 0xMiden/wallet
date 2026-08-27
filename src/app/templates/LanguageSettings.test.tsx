@@ -2,20 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import LanguageSettings, { LANGUAGES } from './LanguageSettings';
-
-// `lib/analytics` boots gRPC / storage plumbing via `useAnalytics`. Mock the
-// three symbols LanguageSettings imports so `trackEvent` is an observable spy
-// and the enum members it references resolve to stable, assertable strings.
-jest.mock('lib/analytics', () => ({
-  AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-  AnalyticsEventEnum: { LanguageChanged: 'LanguageChanged' },
-  useAnalytics: jest.fn()
-}));
 
 // `lib/i18n/react` reads the persisted locale and re-inits i18next on write.
 // Mock both so the initial `getCurrentLocale()` steers `currentCode`, and
@@ -60,17 +50,13 @@ jest.mock('utils/brand-colors', () => ({
   PRIMARY_HEX: '#E77537'
 }));
 
-const mockUseAnalytics = useAnalytics as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 const mockUpdateLocale = updateLocale as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
 
 describe('LanguageSettings', () => {
-  const trackEvent = jest.fn();
-
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseAnalytics.mockReturnValue({ trackEvent });
     mockGetCurrentLocale.mockReturnValue('en');
     mockHistoryPosition = 1;
   });
@@ -149,23 +135,16 @@ describe('LanguageSettings', () => {
     expect(screen.getAllByTestId('icon')).toHaveLength(1);
   });
 
-  it('selecting a language fires haptics + analytics, persists the locale, and leaves', () => {
+  it('selecting a language fires haptics, persists the locale, and leaves', () => {
     render(<LanguageSettings />);
 
     fireEvent.click(screen.getByText('Deutsch'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledTimes(1);
-    expect(trackEvent).toHaveBeenCalledWith(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, {
-      code: 'de'
-    });
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
     // Picking a language finishes the task, so the screen has to leave — without
     // this the selection silently stranded the user on the list.
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-
-    // Ordering: analytics before the locale write.
-    expect(trackEvent.mock.invocationCallOrder[0]!).toBeLessThan(mockUpdateLocale.mock.invocationCallOrder[0]!);
   });
 
   it('exposes the active language to assistive technology, not just in colour', () => {

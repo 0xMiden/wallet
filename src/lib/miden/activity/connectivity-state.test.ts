@@ -4,6 +4,12 @@
 // up in jest (no chrome / no Capacitor).
 const _g = globalThis as any;
 _g.__connStateStore = {} as Record<string, any>;
+_g.__reportedOperations = [] as any[];
+jest.mock('lib/telemetry/report-operation', () => ({
+  reportOperation: (settled: unknown) => {
+    (globalThis as any).__reportedOperations.push(settled);
+  }
+}));
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
@@ -32,8 +38,11 @@ import {
   subscribeConnectivityState
 } from './connectivity-state';
 
+const reported = (): any[] => _g.__reportedOperations;
+
 beforeEach(() => {
   for (const k of Object.keys(_g.__connStateStore)) delete _g.__connStateStore[k];
+  _g.__reportedOperations.length = 0;
   resetConnectivityState();
 });
 
@@ -135,5 +144,96 @@ describe('connectivity-state', () => {
     warnSpy.mockRestore();
     unsubA();
     unsubB();
+  });
+});
+
+/**
+ * What an outage reports.
+ *
+ * This is the only place in the wallet that learns a dependency is unreachable,
+ * and until it reported that, a prover or node outage was visible to the user as
+ * a banner and to nobody else. The pairing matters as much as the fact: the
+ * `errored` event says something went down, and the `completed` one says it came
+ * back and how long it took.
+ */
+describe('reporting an outage', () => {
+  it('reports once when it begins, not once per retry', () => {
+    // A sustained outage marks on every attempt. Reporting each one would turn
+    // one outage into a burst whose size measured retry frequency rather than
+    // anything about the outage.
+    markConnectivityIssue('prover');
+    markConnectivityIssue('prover');
+    markConnectivityIssue('prover');
+
+    // And with no duration at all. An outage that has just started has not
+    // lasted for any length of time, and a `0` there is a zero in an average
+    // rather than an absence.
+    expect(reported()).toEqual([{ operation: 'service_prover', result: 'errored' }]);
+  });
+
+  it('reports how long it lasted when it lifts', () => {
+    // The clock is driven, because mark and clear otherwise happen in the same
+    // tick — so a correct implementation and one that hardcodes `0`, or that
+    // reads `since` after clearing it, all report `0` and the assertion could
+    // not tell them apart. This duration is the number the docs promise is the
+    // outage length.
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      markConnectivityIssue('prover');
+      now.mockReturnValue(1_000_000 + 90_000);
+      clearConnectivityIssue('prover');
+    } finally {
+      now.mockRestore();
+    }
+
+    expect(reported()).toEqual([
+      { operation: 'service_prover', result: 'errored' },
+      { operation: 'service_prover', result: 'completed', durationMs: 90_000 }
+    ]);
+  });
+
+  it('reports recovery for the categories only a successful sync clears', () => {
+    // The failure this catches: `node` and `network` are never cleared by name.
+    // A successful sync calls `clearReachabilityIssues`, which clears all three
+    // at once, and that was the ONLY path — so both categories could report an
+    // outage beginning and never its end. Every node outage read as unresolved
+    // and none carried a duration, while the docs promised otherwise.
+    const now = jest.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(2_000_000);
+      markConnectivityIssue('node');
+      markConnectivityIssue('network');
+      now.mockReturnValue(2_000_000 + 45_000);
+      clearReachabilityIssues();
+    } finally {
+      now.mockRestore();
+    }
+
+    // The duration is asserted here too, because the way to get this wrong twice
+    // is to report after clearing `since` — which yields a `completed` event for
+    // each category, satisfying a names-only check, with every length zero.
+    expect(reported().filter(event => event.result === 'completed')).toEqual(
+      expect.arrayContaining([
+        { operation: 'service_node', result: 'completed', durationMs: 45_000 },
+        { operation: 'service_network', result: 'completed', durationMs: 45_000 }
+      ])
+    );
+  });
+
+  it('reports nothing for a clear that had nothing to clear', () => {
+    clearConnectivityIssue('prover');
+    clearReachabilityIssues();
+
+    expect(reported()).toEqual([]);
+  });
+
+  it('says nothing about the probe state, which is not an outage', () => {
+    // `resolving` means a probe is in flight. Reporting it would double every
+    // real outage with a meaningless sibling.
+    markConnectivityIssue('resolving');
+    clearReachabilityIssues();
+
+    expect(reported()).toEqual([]);
   });
 });

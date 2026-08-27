@@ -3,10 +3,7 @@ import React, { FC, useMemo } from 'react';
 import classNames from 'clsx';
 
 import { ReactComponent as ArrowRightTopIcon } from 'app/icons/arrow-right-top.svg';
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import useTippy from 'lib/ui/useTippy';
-
-import { OpenInExplorerChipSelectors } from './OpenInExplorerChip.selectors';
 
 type OpenInExplorerChipProps = {
   baseUrl: string;
@@ -25,7 +22,6 @@ const OpenInExplorerChip: FC<OpenInExplorerChipProps> = ({
   textShade = 600,
   rounded = 'sm'
 }) => {
-  const { trackEvent } = useAnalytics();
   const tippyProps = useMemo(
     () => ({
       trigger: 'mouseenter',
@@ -37,10 +33,6 @@ const OpenInExplorerChip: FC<OpenInExplorerChipProps> = ({
   );
 
   const ref = useTippy<HTMLAnchorElement>(tippyProps);
-
-  const handleClick = () => {
-    trackEvent(OpenInExplorerChipSelectors.ViewOnBlockExplorerLink, AnalyticsEventCategory.ButtonPress);
-  };
 
   return (
     <a
@@ -76,7 +68,6 @@ const OpenInExplorerChip: FC<OpenInExplorerChipProps> = ({
         'flex items-center justify-center',
         className
       )}
-      onClick={handleClick}
     >
       <ArrowRightTopIcon className="h-5 w-auto fill-current" />
     </a>

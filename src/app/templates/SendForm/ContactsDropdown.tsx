@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ContactBookIcon } from 'app/icons/contact-book.svg';
-import { TestIDProps } from 'lib/analytics';
+import { TestIDProps } from 'lib/ui/test-id.props';
 
 import ContactsDropdownItem from './ContactsDropdownItem';
 

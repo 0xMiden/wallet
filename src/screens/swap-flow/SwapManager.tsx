@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +14,9 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
-import { HistoryAction, navigate } from 'lib/woozie';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
+import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { HistoryAction, navigate, useLocation } from 'lib/woozie';
 
 import { ReviewSwap } from './ReviewSwap';
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -30,6 +32,7 @@ const ROUTES: Route[] = [
 const SwapManager: React.FC = () => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
+  const { pathname } = useLocation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
@@ -77,6 +80,53 @@ const SwapManager: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * The `swap` flow, held for as long as this component is mounted.
+   *
+   * A swap used to report NOTHING: it is not a send, so the send flow never saw
+   * it, and a completed swap left no trace at all while an abandoned one was
+   * indistinguishable from never having opened the screen. Local to this
+   * component rather than module-scoped like `send-telemetry`, because the swap
+   * never splits across two routes — this component owns the form, the review
+   * step and the submit.
+   */
+  const flowRef = useRef<FlowHandle | null>(null);
+  const settleSwap = useCallback((settle: (flow: FlowHandle) => void) => {
+    const flow = flowRef.current;
+    if (!flow) return;
+    flowRef.current = null;
+    settle(flow);
+  }, []);
+
+  // Gated on the route, not on mount, for the same reason as the send flow: the
+  // home carousel mounts this screen on every app open and keeps it mounted, so
+  // a mount-triggered flow would report a swap nobody started and then leave it
+  // open, because swiping to another page does not unmount this one.
+  // Dwelled on rather than merely current: a swipe from Overview to Swap commits
+  // the panes in between, and this one is itself transited on the way back.
+  const onSwapRoute = useRouteDwell(pathname === '/swap' || pathname.startsWith('/swap/'));
+  useEffect(() => {
+    if (!onSwapRoute) return;
+    // Adopt rather than assign, matching `enterSendFlow` and `enterRouteFlow`: an
+    // overwrite here would abandon an open handle without settling it, leaving a
+    // permanently unmatched `swap_started`.
+    flowRef.current ??= beginFlow('swap');
+    // Leaving the route with the flow still open is the user abandoning it. The
+    // submit path settles and clears the ref before navigating, so a completed
+    // swap is never re-reported as cancelled here.
+    return () => settleSwap(flow => flow.cancel());
+  }, [onSwapRoute, settleSwap]);
+
+  // Keyed on the route gate as well as the step, since the flow begins when the
+  // user arrives at /swap — after this screen mounted inside the carousel — and
+  // a step reported before then would land in no flow at all.
+  const currentStep = cardStack[cardStack.length - 1]?.name;
+  useEffect(() => {
+    if (!onSwapRoute) return;
+    if (currentStep === SwapFlowStep.SwapAmounts) flowRef.current?.step('swap_amounts');
+    if (currentStep === SwapFlowStep.ReviewSwap) flowRef.current?.step('review');
+  }, [currentStep, onSwapRoute]);
 
   const sameToken = offerToken.faucetId === requestToken.faucetId;
 
@@ -187,6 +237,11 @@ const SwapManager: React.FC = () => {
 
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
+    // A previous attempt that failed settled its flow errored, so a retry is a
+    // fresh flow rather than an unreported second try inside a closed one. Same
+    // contract as `enterSendFlow`.
+    flowRef.current ??= beginFlow('swap');
+    flowRef.current.step('review');
     // The review screen's Swap button is not gated by `canProceed`, and the
     // live quote can empty the receive field between review and tap. Re-validate
     // here so an invalid amount shows a clear message instead of a BigInt(NaN)
@@ -199,6 +254,9 @@ const SwapManager: React.FC = () => {
       !validExpiry
     ) {
       setSubmitError(t('swapInvalidAmounts'));
+      // Deliberately not settled: the user is still on the review screen and can
+      // fix the amount, so this is one attempt failing inside a flow that is
+      // still running, not the end of the flow.
       return;
     }
     setSubmitting(true);
@@ -208,6 +266,9 @@ const SwapManager: React.FC = () => {
       setSubmitting(false);
       return;
     }
+    // Past biometrics, so the user has committed. A failure after this point is
+    // ours (quote, proving, network), not a change of mind.
+    flowRef.current?.step('submitting');
     try {
       setSubmitError(null);
       useWalletStore.getState().setLastCompletedTxHash(null);
@@ -233,8 +294,14 @@ const SwapManager: React.FC = () => {
       // progress steps + the swap summary badge and observes the tx through to
       // its success/failure receipt. `Replace` so hardware/gesture back from the
       // progress page skips the now-stale review screen (mirrors the send flow).
+      // A swap order now exists, which is what "the user swapped" means here;
+      // its on-chain fill belongs to the progress screen. Settled BEFORE the
+      // navigation, because that navigation unmounts this component and the
+      // cleanup above would otherwise call it abandoned.
+      settleSwap(flow => flow.complete());
       navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
     } catch (e) {
+      settleSwap(flow => flow.fail(classifyError(e)));
       setSubmitError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
@@ -250,6 +317,7 @@ const SwapManager: React.FC = () => {
     expirySecondsValue,
     autoConsume,
     validExpiry,
+    settleSwap,
     t
   ]);
 

@@ -111,6 +111,15 @@ export default defineConfig({
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    // Needed here and not only in the extension/mobile configs because
+    // `App.tsx` is shared, so the desktop bundle reaches the telemetry modules
+    // too. Omitting them does NOT fail the build: `nodePolyfills` shims
+    // `process`, so the reads resolve to undefined and both features turn
+    // themselves off — telemetry silently absent on desktop while the consent
+    // toggle still offers it, which is the worst of the three outcomes.
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'
   },

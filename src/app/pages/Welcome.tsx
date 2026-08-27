@@ -1,19 +1,21 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
 
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
-import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
+import { hasTelemetryChoice } from 'lib/settings/helpers';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
+import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
+import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { navigate, useLocation } from 'lib/woozie';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
@@ -65,6 +67,22 @@ function protectionStepRoute(): string {
 }
 
 /**
+ * Where a finished onboarding goes next.
+ *
+ * The telemetry consent prompt is a one-time detour in front of `destination`,
+ * taken only while the user has never answered it — asking is worth one screen,
+ * re-asking someone who has already decided is not, which is what
+ * `hasTelemetryChoice()` rules out. The prompt continues to `destination`'s own
+ * route itself, so Chrome's chain stays create → consent → /finish-side-panel.
+ *
+ * Only ever called once the wallet exists: a user who has not got a wallet, or
+ * whose creation failed, is not asked at all.
+ */
+function postCreationRoute(destination: string): string {
+  return hasTelemetryChoice() ? destination : '/help-improve-wallet';
+}
+
+/**
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
@@ -87,6 +105,34 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
   }
   console.warn('[waitForReadyState] Max attempts reached, state still not Ready');
 }
+
+/**
+ * Onboarding screen -> reported step.
+ *
+ * A `Partial` so a screen with nothing worth distinguishing — the welcome
+ * splash — simply has no entry and leaves the previous step standing as the
+ * furthest reached.
+ *
+ * Only screens that can actually produce an event appear here, which is a
+ * stronger condition than being renderable and is why three original entries
+ * were dead. Two named screens this component never shows; `Welcome.test.tsx`
+ * now fails on those. The third, the wallet-type screen, IS reachable — but the
+ * flow BEGINS from it (see `beginOnboardingFlow`), so there is nothing open to
+ * report against while the user is on it, and no `back` returns there with a
+ * flow alive. That ordering is not something a static test can see, so it is
+ * recorded here instead.
+ */
+const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>> = {
+  [OnboardingStep.ChooseProtection]: 'choose_protection',
+  [OnboardingStep.SetupPasscode]: 'setup_passcode',
+  [OnboardingStep.SetupBiometric]: 'setup_biometric',
+  [OnboardingStep.CreatePassword]: 'set_password',
+  [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
+  [OnboardingStep.ChooseGuardian]: 'choose_guardian',
+  [OnboardingStep.ImportFromSeed]: 'enter_phrase',
+  // Account creation is running; a failure here is ours, not a change of mind.
+  [OnboardingStep.Confirmation]: 'submitting'
+};
 
 const Welcome: FC = () => {
   const { hash } = useLocation();
@@ -112,7 +158,6 @@ const Welcome: FC = () => {
   // origin without colliding with the legacy create flow.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
   const { registerWallet } = useMidenContext();
-  const { trackEvent } = useAnalytics();
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
   // time the user gets through the password/passcode step to the
@@ -132,6 +177,56 @@ const Welcome: FC = () => {
   // under E2E and on non-Chrome — those keep the classic click-to-create flow.
   const sidePanelHandoff = useMemo(() => canHandoffToSidePanel(), []);
   const [confirmPhase, setConfirmPhase] = useState<'idle' | 'creating' | 'failed'>('idle');
+
+  // Telemetry for the onboarding flow the user is currently walking through.
+  // Held in a ref rather than state because settling it must never re-render.
+  const flowRef = useRef<FlowHandle | null>(null);
+
+  // Entering a path starts a flow. Re-entering after backing out cancels the
+  // abandoned one first, so a single mount can never leave two flows open.
+  const beginOnboardingFlow = useCallback((flow: 'create' | 'import') => {
+    flowRef.current?.cancel();
+    flowRef.current = beginFlow(flow);
+  }, []);
+
+  // The handle is idempotent, but clearing the ref keeps a later settle from
+  // being attributed to a flow that has already ended.
+  const settleOnboardingFlow = useCallback((settle: (handle: FlowHandle) => void) => {
+    const handle = flowRef.current;
+    if (!handle) return;
+    flowRef.current = null;
+    settle(handle);
+  }, []);
+
+  // Report the onboarding screen the user reached. First-run drop-off is the
+  // whole point of this telemetry, and without a step every abandoned setup
+  // arrives as one `create_started` with no hint whether they balked at writing
+  // down a seed phrase, at the password, or at picking a guardian.
+  useEffect(() => {
+    const reported = ONBOARDING_TELEMETRY_STEPS[step];
+    if (reported) flowRef.current?.step(reported);
+  }, [step]);
+
+  // Back navigation only abandons the flow when it leaves onboarding for the
+  // welcome screen; every other `back` target is a step *within* the flow.
+  const cancelOnLeavingOnboarding = useCallback(
+    (target: string) => {
+      if (target !== '/') return;
+      settleOnboardingFlow(handle => handle.cancel());
+    },
+    [settleOnboardingFlow]
+  );
+
+  // An unmount with the flow still open is an abandonment we can actually see,
+  // so record it as cancelled rather than leaving an unmatched `started`. A
+  // flow already settled above is unaffected — the ref is null by then.
+  useEffect(
+    () => () => {
+      flowRef.current?.cancel();
+      flowRef.current = null;
+    },
+    []
+  );
 
   // Check hardware security availability on mount
   useEffect(() => {
@@ -225,18 +320,9 @@ const Welcome: FC = () => {
   // in `guardianProbe.state`, which the recovery-method screen renders.
   const startGuardianProbe = useCallback(
     (words: string[]) => {
-      void guardianProbe.start(words).then(result => {
-        if (!result) return;
-        // Deliberately no endpoint / account id — only shape, so we can tell
-        // how often detection actually helps.
-        trackEvent('guardian-probe', AnalyticsEventCategory.General, {
-          detected: Boolean(result.best),
-          matchCount: result.matches.length,
-          failureCount: result.failures.length
-        });
-      });
+      void guardianProbe.start(words);
     },
-    [guardianProbe, trackEvent]
+    [guardianProbe]
   );
 
   const register = useCallback(async () => {
@@ -267,7 +353,7 @@ const Welcome: FC = () => {
   //   - import flows are excluded because guardian lookup can fail and needs
   //     the in-tab retry UI — imports keep the classic in-tab flow.
   // The `confirmPhase !== 'idle'` guard makes this fire at most once even though
-  // `register`/`trackEvent` are (correctly) in the dependency array.
+  // `register` is (correctly) in the dependency array.
   useEffect(() => {
     if (!sidePanelHandoff) return;
     if (step !== OnboardingStep.Confirmation) return;
@@ -279,27 +365,26 @@ const Welcome: FC = () => {
     (async () => {
       try {
         await register();
-        trackEvent('confirmation', AnalyticsEventCategory.FormSubmit, {});
+        settleOnboardingFlow(handle => handle.complete());
         // Move to the dedicated handoff route, which survives the Ready
         // transition and shows the "Open wallet" button. Crucially we do NOT
         // waitForReadyState here — pushing Ready into the store first would
         // route this tab to the wallet home before we navigate.
-        navigate('/finish-side-panel');
+        navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
         // button reverts to running register() in-tab on the next tap.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        settleOnboardingFlow(handle => handle.fail(classifyError(error)));
         setConfirmPhase('failed');
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, trackEvent]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow]);
 
   const onAction = async (action: OnboardingAction) => {
-    let eventCategory = AnalyticsEventCategory.ButtonPress;
-    let eventProperties = {};
-
     switch (action.id) {
       case 'choose-protection':
+        beginOnboardingFlow('create');
         setOnboardingType(OnboardingType.Create);
         // Biometric is unavailable on the extension/desktop, so the
         // choose-protection screen has only one real option — skip it and go
@@ -360,6 +445,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
+        beginOnboardingFlow('import');
         // Recovery is seed-phrase only — jump straight to the seed entry screen.
         setOnboardingType(OnboardingType.Import);
         navigate('/#import-from-seed');
@@ -388,7 +474,6 @@ const Welcome: FC = () => {
         break;
       case 'create-password-submit':
         setPassword(action.payload.password);
-        eventCategory = AnalyticsEventCategory.FormSubmit;
         if (onboardingType === OnboardingType.Create && !isMobile()) {
           // Extension/desktop create flow: the password screen replaces
           // passcode setup and runs before guardian selection — generate the
@@ -429,14 +514,15 @@ const Welcome: FC = () => {
           // This fixes a race condition where navigation happens before state is Ready
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
-          eventCategory = AnalyticsEventCategory.FormSubmit;
+          settleOnboardingFlow(handle => handle.complete());
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
           // like Create does, instead of always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          navigate(postCreationRoute(postOnboardingRoute()));
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          settleOnboardingFlow(handle => handle.fail(classifyError(error)));
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -458,6 +544,7 @@ const Welcome: FC = () => {
         break;
       case 'back':
         if (step === OnboardingStep.SelectWalletType || step === OnboardingStep.ChooseProtection) {
+          cancelOnLeavingOnboarding('/');
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
@@ -465,7 +552,9 @@ const Welcome: FC = () => {
           } else {
             // The choose-protection screen is skipped when biometric is
             // unavailable, so backing out of passcode setup returns to Welcome.
-            navigate(biometricProtectionSupported() ? '/#choose-protection' : '/');
+            const target = biometricProtectionSupported() ? '/#choose-protection' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           }
         } else if (step === OnboardingStep.ChooseGuardian) {
           if (protectionMethod === 'biometric') {
@@ -480,7 +569,9 @@ const Welcome: FC = () => {
             // Extension/desktop: the password screen is the first protection
             // step, so back returns to Welcome. On mobile the
             // biometric-without-hardware path lands here from choose-guardian.
-            navigate(isMobile() ? '/#choose-guardian' : '/');
+            const target = isMobile() ? '/#choose-guardian' : '/';
+            cancelOnLeavingOnboarding(target);
+            navigate(target);
           } else {
             navigate('/#import-from-seed');
           }
@@ -491,14 +582,13 @@ const Welcome: FC = () => {
             navigate(isMobile() ? '/#setup-passcode' : '/#create-password');
           }
         } else if (step === OnboardingStep.ImportFromSeed) {
+          cancelOnLeavingOnboarding('/');
           navigate('/');
         }
         break;
       default:
         break;
     }
-
-    trackEvent(action.id, eventCategory, eventProperties);
   };
 
   useEffect(() => {

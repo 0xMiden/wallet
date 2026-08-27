@@ -40,6 +40,11 @@ import {
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
+import { reportProve } from 'lib/telemetry/report-operation';
+// Deep path, not the `lib/telemetry` barrel: the barrel re-exports
+// `report-flow`, which imports `lib/miden/front` and drags React into the
+// service-worker bundle. `guarantees.test.ts` asserts this.
+import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
@@ -53,7 +58,7 @@ import {
 } from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
-import { recordProveTelemetry } from './prove-telemetry';
+import { beginProveAttempt } from './prove-telemetry';
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -278,7 +283,14 @@ export class MidenClientInterface {
       // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
       // overrides to `false` (issue #260, slice 5, design §5.2 — see
       // MidenClientCreateOptions.useWorker).
-      useWorker: options.useWorker ?? !isMobile()
+      useWorker: options.useWorker ?? !isMobile(),
+      // One observation per client operation, naming the method and its
+      // duration. Registration is process-wide inside the SDK, so a second
+      // client replaces the first one's sink — harmless here, since the
+      // observer is stateless and every client registers the same behavior.
+      // The high-fidelity channel is opt-in at construction and is not asked
+      // for; see the module comment on `lib/telemetry/sdk-observer`.
+      observer: createWalletSdkObserver()
     });
 
     return new MidenClientInterface(midenClient, network);
@@ -1420,6 +1432,11 @@ export async function proveWithFallback<T>(
   };
 
   const startedAt = performance.now();
+  // Open for the whole attempt so the SDK's own `proveTransaction` timings,
+  // which arrive through `lib/telemetry/sdk-observer` while `fn` is running,
+  // land on this attempt's entry. Closed in `finally`: an attempt left open
+  // would make the next one's observations ambiguous and get them dropped.
+  const attempt = beginProveAttempt();
   try {
     const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
@@ -1428,7 +1445,10 @@ export async function proveWithFallback<T>(
       `path=${pathLabel} duration_ms=${durationMs.toFixed(1)} platform=${isMobile() ? 'mobile' : 'desktop'}`
     );
     // #466: always-on structured timing so an occasional 20s+ prove is visible.
-    recordProveTelemetry({ path: pathLabel, durationMs, fellBack: false });
+    attempt.record({ path: pathLabel, durationMs, fellBack: false });
+    // Both literals named rather than picked inside the call, so the source scan
+    // in `instrumentation-coverage.test.ts` sees each step reported.
+    reportProve(shouldDelegate ? { startedAt, step: 'prove_delegate' } : { startedAt, step: 'prove_local' });
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -1459,27 +1479,40 @@ export async function proveWithFallback<T>(
         // #466: the user waited for the stalled remote attempt AND the local
         // re-prove — record the total wall time + the remote portion, since this
         // remote→local doubling is the prime 20s+ suspect.
-        recordProveTelemetry({
+        attempt.record({
           path: fallbackPath,
           durationMs: performance.now() - startedAt,
           fellBack: true,
           remoteDurationMs
         });
+        // Reported as `completed`, because it was — and that is exactly why it
+        // needs reporting. A fallback is invisible in every other signal: the
+        // transaction lands, nothing fails, and the only trace is a user who
+        // waited twice. The `prove_fallback` step is the whole fact.
+        reportProve({ startedAt, step: 'prove_fallback' });
         return result;
       } catch (fallbackErr) {
         // Both remote and local proving failed — a 20s+ that ends in failure is
         // exactly the worst #466 case, so record it before the error propagates.
-        recordProveTelemetry({
+        attempt.record({
           path: fallbackPath,
           durationMs: performance.now() - startedAt,
           fellBack: true,
           remoteDurationMs,
           failed: true
         });
+        reportProve({ startedAt, step: 'prove_fallback', error: fallbackErr });
         throw fallbackErr;
       }
     }
+    // The non-delegated path failed and there is nothing to fall back to. Kept
+    // out of the branch above so a local-only prover failure — the whole of
+    // mobile, and any desktop build with delegation off — is not silently the
+    // one prove outcome that goes unreported.
+    reportProve({ startedAt, step: 'prove_local', error: err });
     throw err;
+  } finally {
+    attempt.end();
   }
 }
 

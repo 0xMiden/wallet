@@ -26,6 +26,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled, isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate, useLocation } from 'lib/woozie';
 import colors from 'utils/tailwind-colors';
 
@@ -129,6 +130,15 @@ const RotateGuardianReview: FC = () => {
     };
   }, [t]);
 
+  // Rotating the guardian is a security-critical flow the user can be walked
+  // into from settings or from a recovery prompt, and it ends in a password /
+  // passkey challenge — a plausible place to give up, and previously invisible.
+  useEffect(() => {
+    enterRouteFlow('guardian_rotate');
+    reportRouteFlowStep('guardian_rotate', 'review');
+    return () => settleRouteFlow('guardian_rotate', flow => flow.cancel());
+  }, []);
+
   const authenticateAndSwitch = useCallback(
     async (credential?: string) => {
       if (!currentAccount || !newEndpoint || submissionRef.current) return;
@@ -149,6 +159,7 @@ const RotateGuardianReview: FC = () => {
       abandoned.current = false;
       setSubmitting(true);
       setError(null);
+      reportRouteFlowStep('guardian_rotate', 'submitting');
       try {
         // A switch already queued for this account, from a PREVIOUS mount. Backing
         // out of an in-flight submission and re-entering rebuilds this component,
@@ -172,6 +183,11 @@ const RotateGuardianReview: FC = () => {
           zustandProvider
         );
         if (isExtension()) requestSWTransactionProcessing();
+        // Settled here rather than after the branch below, because one arm of it
+        // navigates away and that unmounts this page. A no-op if they already
+        // backed out — the unmount cleanup settled it as cancelled then, which is
+        // the honest verdict for someone who left before the switch landed.
+        settleRouteFlow('guardian_rotate', flow => flow.complete());
         // Not if they have already backed out: the switch is queued either way and
         // shows up in Activity, so pulling them onto the progress page from
         // wherever they navigated to would be the app taking the wheel back.
@@ -192,6 +208,9 @@ const RotateGuardianReview: FC = () => {
           startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
         }
       } catch (err) {
+        // Not settled: a wrong password leaves the user on this screen and able
+        // to try again, so the flow is still open. `submitting` already records
+        // that they got this far if they then give up.
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         submissionRef.current = false;

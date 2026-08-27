@@ -32,9 +32,11 @@ async function awaitFonts(args: [string, number[], string]) {
     }
   };
 
-  // Native Font Loading API resolves once Google Fonts (or any @font-face) has
-  // delivered the requested weight. Fall back to whatever the browser has
-  // after 5s so a slow CDN never blocks boot.
+  // Native Font Loading API resolves once the matching `@font-face` has
+  // delivered the requested weight. Those files are bundled rather than fetched
+  // from a CDN, so this normally settles in a frame or two; the 5s race stays
+  // because a font that fails to decode would otherwise never resolve and would
+  // hold the suspense boundary open for the whole session.
   if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.load === 'function') {
     try {
       await Promise.race([

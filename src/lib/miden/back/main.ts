@@ -8,8 +8,10 @@ import { handleOffscreenSignRequest, markOpStarted, midenClientProxy } from 'lib
 import {
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_SIGN_REQUEST,
+  OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
-  type OffscreenSignRequest
+  type OffscreenSignRequest,
+  type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
@@ -17,7 +19,7 @@ import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
-import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { ReportTelemetryEventRequest, WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
 
 import { NoteExportType } from '../sdk/constants';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
@@ -100,17 +102,44 @@ function registerOffscreenSignHandler(): void {
   if (offscreenSignHandlerRegistered) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return;
   offscreenSignHandlerRegistered = true;
-  chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse: (r?: unknown) => void) => {
+  chrome.runtime.onMessage.addListener((msg: unknown, sender, sendResponse: (r?: unknown) => void) => {
     // A SW-targeted message is either an OFFSCREEN_SIGN_REQUEST or an
     // OFFSCREEN_OP_STARTED (distinct `type` literals), so type `m` loosely and
     // discriminate on `type` below.
     const m = msg as { target?: string; type?: string; op_id?: string; sign_id?: string } | undefined;
     if (m?.target !== SW_TARGET) return false;
+    // Only this extension's own pages. `chrome.runtime.onMessage` is not private
+    // to the extension: with no `externally_connectable` declared, Chrome's
+    // default is that other EXTENSIONS may send here even though web pages may
+    // not. Everything below this line trusts its message — the op-started signal
+    // arms a write deadline, the sign request reaches the vault — so the check
+    // belongs above all three rather than on the one that happens to be newest.
+    //
+    // Fails CLOSED, including on a sender with no id at all. Chrome populates
+    // `sender.id` on every message from an extension page, so an absent one is
+    // not a legitimate caller this would be excluding — and a security check
+    // whose default is to allow is one that stops working the moment something
+    // upstream changes shape.
+    if (sender.id !== chrome.runtime.id) return false;
     // Execution-start signal (issue #260 flip-prep #3): the op named by `op_id`
     // has won the offscreen WASM mutex and is about to execute — arm its write
     // deadline now. Fire-and-forget: no async response, so don't hold the port.
     if (m.type === OFFSCREEN_OP_STARTED) {
       if (typeof m.op_id === 'string') markOpStarted(m.op_id);
+      return false;
+    }
+    // A telemetry event the offscreen document reported. It has a `window` and
+    // never loads the React app, so it is the one realm that can neither install
+    // a page transport nor be detected as the worker — and proving happens there
+    // by default, so without this forward every prove event is dropped. Handled
+    // exactly like a page's: straight to the same consent-gated sink.
+    // Fire-and-forget, so don't hold the port.
+    if (m.type === OFFSCREEN_TELEMETRY_EVENT) {
+      const { event } = msg as OffscreenTelemetryEvent;
+      // The sink's serializer builds the payload from an allowlist, so a
+      // malformed event cannot widen the wire — but it can throw, and this
+      // listener is shared with signing, which must not fail because of it.
+      void Actions.handleReportTelemetryEvent({ event } as ReportTelemetryEventRequest).catch(() => {});
       return false;
     }
     if (m.type !== OFFSCREEN_SIGN_REQUEST) return false;
@@ -211,15 +240,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       mgr?.invalidate();
       return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
-    // case WalletMessageType.SendTrackEventRequest:
-    //   await Analytics.trackEvent(req);
-    //   return { type: WalletMessageType.SendTrackEventResponse };
-    // case WalletMessageType.SendPageEventRequest:
-    //   await Analytics.pageEvent(req);
-    //   return { type: WalletMessageType.SendPageEventResponse };
-    // case WalletMessageType.SendPerformanceEventRequest:
-    //   await Analytics.performanceEvent(req);
-    //   return { type: WalletMessageType.SendPerformanceEventResponse };
+    case WalletMessageType.ReportTelemetryEventRequest:
+      return Actions.handleReportTelemetryEvent(req);
     case WalletMessageType.GetStateRequest:
       const state = await Actions.getFrontState();
       return {

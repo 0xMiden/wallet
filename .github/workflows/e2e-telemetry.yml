@@ -1,0 +1,65 @@
+name: Telemetry Egress E2E (Chrome)
+on:
+  push:
+    branches: [main]
+  # Also on PRs that touch the telemetry surface or this harness. The suite needs
+  # its own build (~a few minutes) so it is not worth running on every PR, but a
+  # change to the serializer, the sink or the consent gate is exactly what it
+  # exists to catch, and finding that out after merge is worse.
+  pull_request:
+    paths:
+      - 'src/lib/telemetry/**'
+      - 'src/lib/settings/**'
+      - 'src/screens/onboarding/common/HelpImproveWallet.tsx'
+      - 'src/app/templates/GeneralSettings.tsx'
+      - 'playwright/telemetry/**'
+      - 'playwright.telemetry.config.ts'
+      - '.github/workflows/e2e-telemetry.yml'
+      - 'vite.*.config.ts'
+  workflow_dispatch: {}
+concurrency:
+  group: e2e-telemetry-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  telemetry-egress:
+    name: telemetry-egress (chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+
+      # The build this suite exists for: the ONLY configuration in the repo with
+      # a live Aptabase endpoint compiled in. It points at 127.0.0.1, and
+      # SENTRY_DSN is unset, so a suite that accepts consent cannot reach
+      # anything off the runner. `build:chrome:telemetry` holds the values;
+      # the spec reads them back out of the bundle before it trusts them.
+      - name: Build extension with telemetry pointed at the local sink
+        run: yarn build:chrome:telemetry
+
+      # Headed Chromium, because extensions do not load in headless.
+      - name: Run telemetry egress suite
+        run: xvfb-run -a yarn test:e2e:telemetry
+
+      - name: Upload report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-egress-report
+          path: playwright-report
+          retention-days: 7

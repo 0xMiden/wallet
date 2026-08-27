@@ -3,6 +3,9 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 import * as Repo from 'lib/miden/repo';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
+import { classifyError } from 'lib/telemetry/classify';
+import { reportOperation } from 'lib/telemetry/report-operation';
+import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
   formatRawTransactionError,
@@ -73,6 +76,40 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     error !== TRANSACTION_INTERRUPTED_ON_STARTUP &&
     error !== TRANSACTION_INTERRUPTED_ERROR;
   if (isGenuineFailure) notifyBackgroundTransactionFailed();
+
+  // A NARROWER gate than the notification's, and the difference is the point.
+  // A user-initiated cancel and the cold-start sweep genuinely are not failures,
+  // and counting them would put a floor under the error rate that no amount of
+  // fixing could lower.
+  //
+  // `TRANSACTION_INTERRUPTED_ERROR` is on the notification's list and must not be
+  // on this one, because it is not an interruption — the name is a leftover from
+  // the user-facing copy. Its single caller is `verifyStuckTransactionsFromNode`
+  // below, which reaches it only after asking the node and being told the input
+  // note is still unconsumed on a consume that has been processing past the grace
+  // window. That is a node-verified terminal failure, and suppressing it
+  // undercounts `tx_receive` failures by exactly the share the reaper resolves —
+  // the ones nothing else reports either, since by definition no pipeline catch
+  // ran for them. Staying quiet in the notification tray is a UX judgement about
+  // an outcome the user cannot act on; it says nothing about whether the failure
+  // happened.
+  //
+  // The stage is why this is the right place to report from — by here the row has
+  // recorded where it died, which is the difference between "the prover is down"
+  // and "the node rejected it". `existing` also gates it: if the row was gone,
+  // the `.modify` above matched nothing and no transaction was failed, so there
+  // is no outcome to report.
+  const isReportableFailure =
+    error !== USER_CANCELLED_TRANSACTION_REASON && error !== TRANSACTION_INTERRUPTED_ON_STARTUP;
+  if (isReportableFailure && existing !== undefined) {
+    reportOperation({
+      operation: operationOfType(transaction.type),
+      result: 'errored',
+      durationMs: elapsedMsSince(existing.initiatedAt),
+      errorKind: classifyError(rawError),
+      step: stepOfStage(failedStage)
+    });
+  }
 };
 
 /**

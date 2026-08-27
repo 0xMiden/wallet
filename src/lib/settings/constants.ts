@@ -4,6 +4,13 @@ export const DEFAULT_DELEGATE_PROOF = true;
 export const AUTO_CONSUME_STORAGE_KEY = 'auto_consume_setting';
 export const DEFAULT_AUTO_CONSUME = true;
 
+export const TELEMETRY_STORAGE_KEY = 'telemetry_consent_setting';
+/**
+ * Off until the user turns it on. Also the read-miss default for the
+ * background mirror, so a mirror failure fails closed rather than sending.
+ */
+export const DEFAULT_TELEMETRY = false;
+
 // Marker written once `mirrorBackgroundSettings` has copied the user's real settings
 // into the SW-readable KV store. The extension service worker gates its background
 // native-note auto-consume on this so that, before the popup has run the migration, it

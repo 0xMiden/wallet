@@ -22,7 +22,9 @@
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (Welcome.tsx:345-361)
  *   Confirmation                 `onboarding-confirmation`
- *     └ "Open wallet"            → register() → Explore (`explore-page`)
+ *     └ "Open wallet"            → register() → the telemetry consent prompt
+ *                                  `onboarding-help-improve-wallet`
+ *     └ "Not now"                → Explore (`explore-page`)
  *
  * Three things about that order are worth stating out loud, because they differ
  * from what the flow LOOKS like it should be:
@@ -59,6 +61,7 @@
  */
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
 const TOKEN = 'TST';
@@ -158,6 +161,13 @@ test.describe('Onboarding — create', () => {
       // registerWallet(Guardian, password, seed, isImport=false, guardianEndpoint).
       // Everything before this point was in-memory React state.
       await page.getByTestId('onboarding-confirmation-submit').click();
+
+      // A first-run wallet has never answered the telemetry prompt, so
+      // `postCreationRoute` puts it between creation and Explore. Declined here
+      // rather than accepted — see `dismissTelemetryConsent`. Raced against
+      // `explore-page` with the same 120s budget as the wait below, because this
+      // click only STARTS guardian creation and nothing yet proves it finished.
+      await dismissTelemetryConsent(page, { nextSurface: '[data-testid="explore-page"]', timeoutMs: 120_000 });
 
       // The E2E build sets MIDEN_E2E_DISABLE_SIDEPANEL, so `postOnboardingRoute()`
       // is '/' and onboarding finishes in-tab on Explore. 120s is the same budget

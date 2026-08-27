@@ -425,6 +425,9 @@ export default defineConfig({
     // this false — speculation has nothing to dispatch to without
     // chrome.offscreen anyway, but the explicit pin makes intent clear.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
-    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development')
+    'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
+    'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
+    'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
   }
 });

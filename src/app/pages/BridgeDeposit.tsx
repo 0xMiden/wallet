@@ -3,6 +3,7 @@ import React, { useCallback } from 'react';
 import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
+import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -21,6 +22,10 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const { open: connect } = useAppKit();
   const { disconnect } = useDisconnect();
   const { address, connected, status, nativeReown, useNativeReownWallet } = useEvmWalletConnection();
+  // This surface owns the `fund` flow, which starts here rather than at the
+  // deposit form: the connect step is part of funding, and dropping out of it is
+  // exactly the abandonment worth seeing.
+  const reportDeposit = useFundTelemetry();
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -67,6 +72,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         midenAccount={currentMidenAccount}
         onConnectAnother={handleSwitchWallet}
         onClose={handleClose}
+        reportDeposit={reportDeposit}
       />
     );
   }

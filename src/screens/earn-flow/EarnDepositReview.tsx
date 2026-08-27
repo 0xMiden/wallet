@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,8 @@ import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { classifyError } from 'lib/telemetry';
+import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -50,6 +52,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Reaching review, and owning the terminal outcome. The amount screen began
+  // this flow and deliberately does not settle it on handoff, so every exit from
+  // here settles: leaving is abandonment at review, and the submit below reports
+  // its own outcome and clears the handle first.
+  useEffect(() => {
+    enterRouteFlow('earn');
+    reportRouteFlowStep('earn', 'review');
+    return () => settleRouteFlow('earn', flow => flow.cancel());
+  }, []);
+
   const handleOpenPosition = async () => {
     hapticLight();
     if (isSubmitting) return;
@@ -59,15 +71,28 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     }
     setIsSubmitting(true);
     setSubmitError(null);
+    // A previous attempt that failed settled its flow errored and the user is
+    // still on this screen, so a retry needs a flow of its own — otherwise the
+    // second attempt reports nothing at all and a deposit that failed once and
+    // then succeeded is recorded only as the failure. Same contract as
+    // `enterSendFlow` and the swap retry path.
+    enterRouteFlow('earn');
+    reportRouteFlowStep('earn', 'submitting');
     try {
       await openEarnPosition({
         amount: stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS),
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
-        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
+        onRowCreated: txId => {
+          // A position row exists, which is what "the user deposited" means
+          // here. Settled before navigating, since that unmounts this screen.
+          settleRouteFlow('earn', flow => flow.complete());
+          navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`);
+        }
       });
     } catch (e) {
+      settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
       setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
     } finally {
       setIsSubmitting(false);

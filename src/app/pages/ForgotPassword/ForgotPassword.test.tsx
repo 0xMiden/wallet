@@ -101,6 +101,33 @@ jest.mock('lib/miden/front/storage', () => ({
   putToStorage: (...args: unknown[]) => mockPutToStorage(...args)
 }));
 
+// Telemetry: each beginFlow() records the flow name and returns a fresh spy
+// handle so a test can assert which flows were begun and how each settled.
+type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
+const mockFlowHandles: Array<{ flow: string; handle: TelemetryHandle }> = [];
+const mockBeginFlow = jest.fn((flow: string) => {
+  const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn() };
+  mockFlowHandles.push({ flow, handle });
+  return handle;
+});
+const mockClassifyError = jest.fn<string, [unknown]>(() => 'unknown');
+jest.mock('lib/telemetry', () => ({
+  beginFlow: (flow: string) => mockBeginFlow(flow),
+  classifyError: (error: unknown) => mockClassifyError(error)
+}));
+
+const flowsBegun = () => mockFlowHandles.map(entry => entry.flow);
+
+// Throwing accessor (rather than a `!`) so a missing flow names what was begun.
+function handleFor(flow: string): TelemetryHandle {
+  const entry = mockFlowHandles.find(candidate => candidate.flow === flow);
+  if (!entry)
+    throw new Error(`no telemetry flow was begun for '${flow}' (begun: ${flowsBegun().join(', ') || 'none'})`);
+  return entry.handle;
+}
+
+const telemetryCallArgs = () => JSON.stringify([mockBeginFlow.mock.calls, mockClassifyError.mock.calls]);
+
 const PROBED_RESULT = {
   best: {
     endpoint: 'https://probed.example.com',
@@ -135,6 +162,8 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFlowHandles.length = 0;
+  mockClassifyError.mockReturnValue('unknown');
   mockRegisterWallet.mockResolvedValue(undefined);
   mockPostOnboardingRoute.mockReturnValue('/');
   mockGenerateMnemonic.mockReturnValue('a b c d e f g h i j k l');
@@ -507,5 +536,144 @@ describe('ForgotPassword', () => {
       release();
     });
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  // -------------------------------------------------------------------------
+  // Telemetry — the `recover` flow
+  //
+  // This screen hosts BOTH halves of "I lost my password": restoring the
+  // existing wallet from its seed phrase (the `recover` flow) and wiping it to
+  // create a fresh one (not a recovery at all). Only the seed-phrase path is
+  // instrumented.
+  // -------------------------------------------------------------------------
+  it('telemetry: does not begin a flow just by rendering the reset screen', () => {
+    renderPage();
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('telemetry: begins the recover flow when the user chooses to restore from a seed phrase', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+
+    expect(mockBeginFlow.mock.calls.length).toBeGreaterThan(0);
+    expect(flowsBegun()).toEqual(['recover']);
+  });
+
+  it('telemetry: does not begin a recover flow for the create-a-fresh-wallet path', async () => {
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled(); // the path really did run
+    expect(flowsBegun()).toEqual([]);
+  });
+
+  it('telemetry: completes the recover flow once the wallet is restored', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    const handle = handleFor('recover');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+    expect(handle.fail).not.toHaveBeenCalled();
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: reports errored with a broad kind when the restore fails after the wipe', async () => {
+    const boom = new Error('guardian not found');
+    mockRegisterWallet.mockRejectedValue(boom);
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockClassifyError).toHaveBeenCalledWith(boom);
+    const handle = handleFor('recover');
+    expect(handle.fail).toHaveBeenCalledWith('unknown');
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: cancels the recover flow when the user switches to creating a fresh wallet', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-wallet' });
+
+    const handle = handleFor('recover');
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+    expect(handle.complete).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: cancels the recover flow when the user backs out of seed entry', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'back' });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
+    expect(handleFor('recover').cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('telemetry: cancels a still-open recover flow when the screen unmounts', async () => {
+    const { unmount } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    const handle = handleFor('recover');
+    expect(handle.cancel).not.toHaveBeenCalled();
+
+    await act(async () => {
+      unmount();
+    });
+
+    expect(handle.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('telemetry: leaves a completed recover flow untouched on unmount', async () => {
+    const { unmount } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+    const handle = handleFor('recover');
+    expect(handle.complete).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      unmount();
+    });
+
+    expect(handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: re-entering the recovery path cancels the previous recover flow', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'select-import-type' });
+
+    // Never two open flows for one mount: the superseded one is settled.
+    expect(flowsBegun()).toEqual(['recover', 'recover']);
+    const [first, second] = mockFlowHandles;
+    if (!first || !second) throw new Error('expected two recover flows');
+    expect(first.handle.cancel).toHaveBeenCalledTimes(1);
+    expect(second.handle.cancel).not.toHaveBeenCalled();
+  });
+
+  it('telemetry: never passes the seed phrase or password to the telemetry layer', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'abandon abandon abandon' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'correct-horse-battery' } });
+    await dispatch({ id: 'confirmation' });
+
+    // Positive fact first: telemetry really was exercised on this path.
+    expect(flowsBegun()).toEqual(['recover']);
+    expect(handleFor('recover').complete).toHaveBeenCalledTimes(1);
+
+    const seen = telemetryCallArgs();
+    expect(seen).not.toContain('abandon');
+    expect(seen).not.toContain('correct-horse-battery');
   });
 });
