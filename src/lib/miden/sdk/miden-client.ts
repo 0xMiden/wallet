@@ -268,6 +268,26 @@ export function getCurrentWasmLockHold(): WasmLockHold | null {
 }
 
 /**
+ * The post-await ownership re-check the CLAUDE.md hold contract mandates, as
+ * one shared export (#788 follow-up): compare the hold captured at the start of
+ * a locked body against the live owner, and refuse to continue if the mutex has
+ * moved on. `where` names the transition for the forensic record — it travels
+ * on the error's `cause`, never its message, which stays closed wallet-authored
+ * text (see {@link WasmClientPoisonedError}).
+ *
+ * Call it between a parking await and the NEXT WASM call — including reads on
+ * objects returned earlier (an `Account`'s `vault()` is a borrow of the client
+ * it came from, not a stale snapshot). Throwing here is safe exactly where the
+ * contract says to check: provably pre-submit transitions. Never guard
+ * post-submit steps with it — completing beats aborting once a transaction may
+ * have been broadcast.
+ */
+export function assertWasmHoldCurrent(hold: WasmLockHold | null, where: string): void {
+  if (hold !== null && getCurrentWasmLockHold() === hold) return;
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+}
+
+/**
  * Is `hold` still the live owner of the mutex? A `null`/omitted hold means the
  * caller did not supply an identity, so we fall back to the pre-#775 behaviour
  * of trusting whatever holds the lock.
