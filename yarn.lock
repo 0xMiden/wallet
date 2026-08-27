@@ -1411,21 +1411,6 @@
   dependencies:
     create-hmac "1.1.7"
 
-"@demox-labs/miden-wallet-adapter-base@0.10.0", "@demox-labs/miden-wallet-adapter-base@^0.10.0":
-  version "0.10.0"
-  resolved "https://registry.yarnpkg.com/@demox-labs/miden-wallet-adapter-base/-/miden-wallet-adapter-base-0.10.0.tgz#fe144127c5460028a61ea4a0219a1b21231b43dc"
-  integrity sha512-BLPJdIz1eq/s8iUOkwGttpo04ShyqExaflS14lmgnyhXEDevTs5xWAu3ipgrVNEf79gYNeh4AQ/KKC29DsVXcQ==
-  dependencies:
-    eventemitter3 "^5.0.1"
-
-"@demox-labs/miden-wallet-adapter-miden@0.10.0":
-  version "0.10.0"
-  resolved "https://registry.yarnpkg.com/@demox-labs/miden-wallet-adapter-miden/-/miden-wallet-adapter-miden-0.10.0.tgz#d70b9d38615fa23e8095084254973630cab029fd"
-  integrity sha512-yvZVNRBRY+lvYnyZ+I/VdPBNH9GrMEw6iG//7pztHTQSicxIC8mQZSFEoV1xWWvQglMlpycyZnDMM+R5zv2AwQ==
-  dependencies:
-    "@demox-labs/miden-wallet-adapter-base" "^0.10.0"
-    nanoid "^5.0.9"
-
 "@dicebear/avatars-bottts-sprites@4.2.5":
   version "4.2.5"
   resolved "https://registry.yarnpkg.com/@dicebear/avatars-bottts-sprites/-/avatars-bottts-sprites-4.2.5.tgz#8661c26e18825e893d531d33ce1ae0bbd808dd72"
@@ -2583,6 +2568,21 @@
     "@miden-sdk/node-darwin-arm64" "0.15.9"
     "@miden-sdk/node-darwin-x64" "0.15.9"
     "@miden-sdk/node-linux-x64-gnu" "0.15.9"
+
+"@miden-sdk/miden-wallet-adapter-base@0.15.3", "@miden-sdk/miden-wallet-adapter-base@^0.15.3":
+  version "0.15.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-wallet-adapter-base/-/miden-wallet-adapter-base-0.15.3.tgz#f30c0e02334731a61baa7d6509d1af467446dd80"
+  integrity sha512-bqocWRZEK5hzfwtWK2yxpPDqCFAJuLEnxfjJTkfIhxJcFYM+9McP3Tk2If5m8+STrlEuDmf9JzYCFYegCG1t/A==
+  dependencies:
+    eventemitter3 "^5.0.1"
+
+"@miden-sdk/miden-wallet-adapter-miden@0.15.3":
+  version "0.15.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-wallet-adapter-miden/-/miden-wallet-adapter-miden-0.15.3.tgz#b6bfd313d22adbbd77200e3e40b257176e0dd884"
+  integrity sha512-zZOaYpaWt1K+oJ9PoAFou7GYh3TID0Gfjzip9B7C2Qpu8RtLtVRQo81F4EozI3nTHJtYVYH5Lh0g5Ne9DmOSnQ==
+  dependencies:
+    "@miden-sdk/miden-wallet-adapter-base" "^0.15.3"
+    nanoid "^5.0.9"
 
 "@miden-sdk/node-darwin-arm64@0.15.9":
   version "0.15.9"

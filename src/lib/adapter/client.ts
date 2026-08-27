@@ -1,3 +1,4 @@
+import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import {
   AllowedPrivateData,
   MidenConsumeTransaction,
@@ -6,8 +7,7 @@ import {
   PrivateDataPermission,
   SignKind,
   WalletAdapterNetwork
-} from '@demox-labs/miden-wallet-adapter-base';
-import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
+} from '@miden-sdk/miden-wallet-adapter-base';
 import { nanoid } from 'nanoid';
 
 import { b64ToU8 } from 'lib/shared/helpers';
