@@ -1150,6 +1150,7 @@ describe('poisoned client recovery', () => {
     onWasmClientPoisoned: (listener: () => void) => () => void;
     isWasmClientBusy: typeof isWasmClientBusy;
     getCurrentWasmLockHold: typeof getCurrentWasmLockHold;
+    withWasmLockWatchdogPaused: typeof withWasmLockWatchdogPaused;
   }
 
   const loadIsolated = async (freeImpl?: () => void) => {

@@ -1,3 +1,4 @@
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -63,6 +64,19 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(poisoned, 'proving', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
     expect(resolveTransactionErrorMessage(poisoned, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
     expect(resolveTransactionErrorMessage(poisoned, undefined, undefined)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('hedges the same way for an offscreen DEADLINE kill, not just a watchdog eviction (#777)', () => {
+    // The other half of the same equivalence class. `cancel.ts` stamps
+    // `mayHaveSubmitted` for an abort exactly as it does for a poison, so the
+    // reassuring copy put "No funds moved — please try again" on the very row whose
+    // Retry then refuses with "may already have been submitted": two contradictory
+    // statements about the same money, from one error.
+    const aborted = new OperationAbortedError('op-1', 'offscreen deadline');
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
   it('still maps a generic delegated proving failure to the remote-prover message', () => {

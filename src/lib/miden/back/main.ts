@@ -17,6 +17,7 @@ import {
   midenClientProxy,
   reloadOffscreenEndpointOverrides
 } from 'lib/miden/back/miden-client-proxy';
+import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
@@ -30,6 +31,7 @@ import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/sp
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
+import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -345,7 +347,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // Don't lose the note on a transient blip (resilience gap 1): queue the
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
-        if (isLikelyNetworkError(e)) {
+        // Both abandonment shapes count, not just a network blip. A watchdog eviction
+        // and an offscreen deadline kill say the same thing this queue exists for —
+        // "we do not know whether this landed" — and neither matches
+        // `isLikelyNetworkError`, whose tokens are transport text: the poison message
+        // is closed wallet-authored text. So an eviction took the not-transient path
+        // and dropped the bytes from the one mechanism built to preserve them, which
+        // for a private note can be the only copy of the funds it carries. Matches
+        // the queue's own classifier (`notes.ts`, `transient`).
+        if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
           // Logged rather than swallowed: the throw below reports the IMPORT
           // failure, which says nothing about whether the background retry was
           // actually armed. Losing both silently is what made this look like a

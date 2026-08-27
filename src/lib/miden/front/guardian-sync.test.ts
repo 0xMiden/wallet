@@ -5,10 +5,17 @@
  * can't block the whole sync cycle.
  */
 
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
+  monotonicNowMs
+} from 'lib/miden/sync-backoff';
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
 import { SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, syncGuardianAccounts, zustandProvider } from './guardian-sync';
+import { __resetSyncFuseStateForTests, syncFuseUntilMs } from './sync-fuse';
 
 const storeState: {
   accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean; hotPublicKey?: string }>;
@@ -244,6 +251,51 @@ describe('syncGuardianAccounts', () => {
 
     await expect(syncGuardianAccounts()).resolves.toBeUndefined();
     expect(goodSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('feeds a watchdog eviction into the realm sync fuse, which the idle loop cannot see (#777)', async () => {
+    // Guardian sync takes a hold on the SAME WASM client as the idle loop's
+    // `syncState`, at the same two-minute ceiling, driven from the same tick — and its
+    // failures are swallowed per-account, so with the fuse's ledger private to
+    // `useSyncTrigger` these evictions were structurally invisible. Guardian is the
+    // wallet's DEFAULT account type: an unresponsive guardian could park and poison
+    // the client every two minutes forever, leaking one client per eviction, with the
+    // fuse sitting at zero.
+    __resetSyncFuseStateForTests();
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'guardian-parked', type: WalletType.Guardian, hotPublicKey: 'hot-parked' }];
+    const sync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      await syncGuardianAccounts();
+    }
+
+    expect(sync).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+    // The fuse is lit, and the deadline it published is the one the idle loop reads.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('consecutive sync watchdog evictions'));
+    const until = syncFuseUntilMs();
+    expect(until).not.toBeNull();
+    expect(until! - monotonicNowMs()).toBeGreaterThan(FUSED_SYNC_PROBE_INTERVAL_MS / 2);
+
+    // Falsifier: an ORDINARY guardian failure contributes nothing. Without the
+    // eviction check this test would pass on any error at all.
+    __resetSyncFuseStateForTests();
+    sync.mockReset();
+    sync.mockImplementation(async () => {
+      throw new Error('guardian 500');
+    });
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      await syncGuardianAccounts();
+    }
+    expect(syncFuseUntilMs()).toBeNull();
+
+    __resetSyncFuseStateForTests();
+    warnSpy.mockRestore();
+    jest.restoreAllMocks();
   });
 
   it('skips Guardian accounts that still require hot-key rotation (post-recovery, pre-activation)', async () => {

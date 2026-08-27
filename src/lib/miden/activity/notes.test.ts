@@ -199,7 +199,7 @@ describe('importAllNotes', () => {
     // resort: that is one parked note freezing every send and claim in the app for
     // five minutes per lap.
     expect(_g.__notesTest.lockOptions).toEqual([
-      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-import' },
       { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
     ]);
     jest.useRealTimers();

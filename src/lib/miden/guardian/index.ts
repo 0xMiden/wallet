@@ -337,7 +337,10 @@ export class MultisigService {
    * AHEAD, so this cannot pull a good local account backwards.
    */
   async adoptGuardianStateOnce(): Promise<void> {
-    await withWasmClientLock(() => this.multisig.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+    await withWasmClientLock(() => this.multisig.syncState(), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-adopt'
+    });
   }
 
   sync(): Promise<void> {
@@ -371,7 +374,10 @@ export class MultisigService {
         // idle loop, so on the default 5-minute backstop one unresponsive
         // guardian parked the whole app's WASM access — and did it once per
         // retry in this loop.
-        await withWasmClientLock(() => this.multisig.syncState(), { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+        await withWasmClientLock(() => this.multisig.syncState(), {
+          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+          label: 'guardian-sync'
+        });
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {

@@ -1255,7 +1255,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // claim queues behind — until the five-minute last resort, with the SW having
     // discarded the answer four and a half minutes earlier. Only the sync gets it: the
     // writes are legitimately long (they sign and prove) and have their own deadlines.
-    const lockOptions = msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS } : undefined;
+    const lockOptions =
+      msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
     const resultBytes = await withWasmClientLock(async hold => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and

@@ -200,6 +200,16 @@ interface LockHolder {
    * a convention every call site has to remember.
    */
   normalCeilingMs: number;
+  /**
+   * Who took this hold, for the eviction record. The watchdog fires rarely, in the
+   * field, on a device whose console nobody can read live — and by now a dozen
+   * sites take a bounded hold on this one mutex. Without a name, every eviction
+   * log described the SAME mechanism and none of them said which flow parked:
+   * `runningMs` and `normalCeilingMs` cannot separate an idle sync from a
+   * guardian round-trip or a claimable-notes read, all of which now ask for the
+   * same two-minute ceiling (#777). Optional, so an unlabelled hold still logs.
+   */
+  label: string | null;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
   abort: (err: Error) => void;
   aborted: Promise<never>;
@@ -690,7 +700,7 @@ function startPausedSegment(holder: LockHolder): void {
  * out of range no matter which call site (or which future one) supplies it —
  * see {@link resolveNormalCeilingMs} for what an unchecked value breaks.
  */
-function beginHold(requestedCeilingMs?: number): LockHolder {
+function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
@@ -707,6 +717,7 @@ function beginHold(requestedCeilingMs?: number): LockHolder {
     graceUsed: false,
     pausedGraceUsed: false,
     normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
+    label: label ?? null,
     abort,
     aborted
   };
@@ -772,6 +783,7 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // marked, which decides whether some other flow kept a working reference.
   console.error('[miden-client] evicting wedged WASM lock holder:', {
     reason,
+    hold: holder.label ?? 'unlabelled',
     runningMs: Math.round(
       holder.unpausedElapsedMs + (holder.segmentStartedAt === null ? 0 : monotonicNow() - holder.segmentStartedAt)
     ),
@@ -822,6 +834,8 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  */
 export interface WasmClientLockOptions {
   watchdogMs?: number;
+  /** Names this hold in the eviction record — see `LockHolder.label`. */
+  label?: string;
 }
 
 /**
@@ -881,7 +895,7 @@ export async function withWasmClientLock<T>(
   options?: WasmClientLockOptions
 ): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold(options?.watchdogMs);
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -938,10 +952,15 @@ export function isWasmClientBusy(): boolean {
  * transaction between the guard and the read.
  */
 export async function tryWithWasmClientLock<T>(
-  operation: (hold: WasmLockHold) => Promise<T>
+  operation: (hold: WasmLockHold) => Promise<T>,
+  options?: WasmClientLockOptions
 ): Promise<{ ran: true; value: T } | { ran: false }> {
   if (!wasmClientMutex.tryAcquire()) return { ran: false };
-  const holder = beginHold();
+  // Takes a ceiling like the blocking form. The caller that skips when the lock is
+  // busy is the one that most needs one: the window it DOES win is the instant an
+  // eviction released the mutex, when the client slot is empty and its own read has
+  // to rebuild against the node that just parked (#777).
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -1093,6 +1112,7 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   // release a SUCCESSOR's mutex, popping a waiter into a live WASM call, and its
   // sign would pause the successor's watchdog. That is the pre-#775 wedge reached
   // through the fix's own recovery path.
+  const yieldCeilingMs = pausedCeilingFor(holder);
   const yieldWatchdog = setTimeout(() => {
     if (holder.killed) return;
     holder.killed = true;
@@ -1116,8 +1136,17 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     // is NOT in the set. Reporting the census is unambiguous either way, and it is
     // the number that decides when the instance can be reclaimed.
     console.error('[miden-client] evicting holder wedged while yielded:', {
-      pausedMs: Math.round(holder.pausedElapsedMs),
+      hold: holder.label ?? 'unlabelled',
+      // The OPEN yield included. Banked into `pausedElapsedMs` only when the yield
+      // settles (in the `finally` below), so the bare field reports every yield but
+      // the one that just expired — which on the common shape, a single yield that
+      // never returns, is a flat `pausedMs: 0` beside a 30-minute eviction. The one
+      // number the reader came for was the only one missing.
+      pausedMs: Math.round(holder.pausedElapsedMs + Math.max(0, monotonicNow() - yieldStartedAt)),
       runningMs: Math.round(holder.unpausedElapsedMs),
+      // The ceiling that actually fired. It is computed from the pause ledger, so
+      // it is not derivable from the constants by a reader of the log.
+      ceilingMs: yieldCeilingMs,
       pausedGraceUsed: holder.pausedGraceUsed,
       retainers: retainers.length,
       liveMutexOwner: currentHolder !== null,
@@ -1126,7 +1155,7 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     replaceClientSingletons(true, reclaimWhenIdle(retainers));
     settleYieldCount();
     holder.abort(error);
-  }, pausedCeilingFor(holder));
+  }, yieldCeilingMs);
   wasmClientMutex.release();
   try {
     return await operation();

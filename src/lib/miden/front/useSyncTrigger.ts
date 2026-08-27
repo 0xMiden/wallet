@@ -12,7 +12,6 @@ import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_SYNC_FAILURES,
-  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
@@ -23,44 +22,14 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
 import { requestNotesRefresh } from './note-refresh';
+import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction, syncFuseUntilMs } from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
+
+export { __resetSyncFuseStateForTests } from './sync-fuse';
 
 const SYNC_INTERVAL_MS = 3_000;
 
 const immediateSyncListeners = new Set<() => void>();
-
-/**
- * The fuse's evidence and its deadline (#777), deliberately at MODULE scope
- * while the breaker's state is effect-scoped.
- *
- * What the fuse knows is a fact about the REALM's WASM client, not about this
- * effect: the dead in-flight sync promise lives in the SDK's module-level map
- * and outlives any remount. The effect, meanwhile, is rebuilt on every
- * `status` transition — so an idle auto-lock followed by an unlock used to
- * throw the evidence away and hand a provably parked realm back the 3s
- * cadence, plus four more two-minute evictions to re-earn a conclusion it had
- * already reached. Eight minutes of the whole app's WASM access, per unlock.
- *
- * The breaker's own state stays effect-scoped, and that asymmetry is the
- * point: a remount there legitimately means the user came back and a node
- * outage may well be over, whereas a remount tells you nothing at all about a
- * promise parked in a module the remount did not touch.
- *
- * A standing deadline rather than a flag plus the breaker's window, because
- * the two must not share one field: while fused, any single non-watchdog
- * failure re-entered the breaker's arm and overwrote the fused deadline with a
- * window at most a fifth as long, so one offline blip mid-fuse cost the user
- * the whole cadence. Kept separate, the scheduler simply waits for the later
- * of the two.
- */
-let realmWatchdogEvictions = 0;
-let realmFusedUntilMs: number | null = null;
-
-/** Test-only: the module-scoped fuse above would otherwise leak between tests. */
-export function __resetSyncFuseStateForTests(): void {
-  realmWatchdogEvictions = 0;
-  realmFusedUntilMs = null;
-}
 
 export function requestImmediateSync(): void {
   for (const listener of immediateSyncListeners) listener();
@@ -230,7 +199,7 @@ export function useSyncTrigger() {
                 await client.syncState();
                 return true;
               },
-              { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
+              { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'idle-sync' }
             );
             // Break the failure streak only on a sync that genuinely went
             // through. Reported OUT of the lock callback rather than assigned
@@ -253,11 +222,7 @@ export function useSyncTrigger() {
               // would reschedule onto its remainder and keep the wallet backed
               // off from a node that just answered.
               syncBackoffUntilMs = null;
-              // The only thing that clears the fuse. A sync that goes through
-              // proves the realm's sync is not parked after all, which is the
-              // one observation the fuse is waiting for.
-              realmWatchdogEvictions = 0;
-              realmFusedUntilMs = null;
+              noteSyncSuccess();
               // Gated with the counters rather than run unconditionally after
               // the await: on the `!client || cancelled` early return no sync
               // happened, so dismissing the "cannot reach the node" banner there
@@ -375,38 +340,9 @@ export function useSyncTrigger() {
             // nor withdraws it.
             if (!forced) {
               if (isSyncWatchdogEviction(error)) {
-                realmWatchdogEvictions++;
-              } else if (realmFusedUntilMs === null) {
-                // Once the fuse is lit, a non-eviction failure does NOT withdraw
-                // the evidence: it is no proof the parked sync recovered — only a
-                // SUCCESS is that — and zeroing here meant one offline blip
-                // mid-fuse bought four fresh evictions, eight more minutes of
-                // parked WASM, to re-reach a conclusion nothing had contradicted.
-                realmWatchdogEvictions = 0;
-              }
-              if (realmWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
-                if (realmFusedUntilMs === null) {
-                  console.warn(
-                    `[useSyncTrigger] ${realmWatchdogEvictions} consecutive sync watchdog evictions — ` +
-                      "the realm's sync is parked and replacing the client cannot reach it; dropping automatic " +
-                      `probes to one per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one ` +
-                      'succeeds (#777)'
-                  );
-                }
-                // Re-armed after EVERY failed probe while the evidence stands,
-                // not only after the eviction that lit the fuse. "One probe per
-                // 30 min until one succeeds" is the contract, and a probe that
-                // fails some other way has not succeeded — arming only on the
-                // eviction let the deadline expire and the loop fall back to the
-                // breaker's much shorter windows.
-                //
-                // A DEADLINE rather than a per-run delay, for the same reason the
-                // breaker keeps one: a tick the guards skip must serve out the
-                // wait, not restart it. As a per-run delay, every skipped tick
-                // re-armed the full cadence, so a user who opened the send flow
-                // while fused pushed their next probe out by another half hour
-                // each time the loop ticked past the guard.
-                realmFusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+                noteSyncWatchdogEviction('useSyncTrigger');
+              } else {
+                noteNonEvictionSyncFailure();
               }
             }
           } finally {
@@ -444,7 +380,7 @@ export function useSyncTrigger() {
           const idleMs = Math.max(
             SYNC_INTERVAL_MS,
             remainingMs(syncBackoffUntilMs, MAX_SYNC_BACKOFF_MS),
-            remainingMs(realmFusedUntilMs, FUSED_SYNC_PROBE_INTERVAL_MS)
+            remainingMs(syncFuseUntilMs(), FUSED_SYNC_PROBE_INTERVAL_MS)
           );
           //
           // An UNSPENT forced grant means the guards skipped this tick with a user

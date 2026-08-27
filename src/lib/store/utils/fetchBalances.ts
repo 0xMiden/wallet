@@ -10,6 +10,7 @@ import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADA
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -150,24 +151,31 @@ export async function fetchBalances(
   // run inline / double-borrow and trap the client. Acquiring the lock around
   // the read closes that window; the non-blocking try means we skip (not queue)
   // when the lock is busy, so we never stall behind long writes.
-  const read = await tryWithWasmClientLock(async () => {
-    const acc = await midenClientProxy.getAccount(address);
+  // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777):
+  // the window this non-blocking read wins is the instant an eviction released the
+  // mutex, when the client slot is empty — so the read has to rebuild, and the new
+  // client's genesis fetch goes to the node that just parked.
+  const read = await tryWithWasmClientLock(
+    async () => {
+      const acc = await midenClientProxy.getAccount(address);
 
-    // E2E-only: capture a Guardian account's on-chain auth structure while we
-    // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
-    // plain value instead of its own blocking-eval WASM read (which gets starved
-    // on the single-threaded iOS main thread). The structure is immutable, so a
-    // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
-    // production.
-    if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
-      await captureGuardianAuthStructureForTest(address, acc);
-    }
+      // E2E-only: capture a Guardian account's on-chain auth structure while we
+      // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
+      // plain value instead of its own blocking-eval WASM read (which gets starved
+      // on the single-threaded iOS main thread). The structure is immutable, so a
+      // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
+      // production.
+      if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+        await captureGuardianAuthStructureForTest(address, acc);
+      }
 
-    // `fungibleAssets()` is on the Account object (not the shared WebClient
-    // RefCell); extract it here so the rest of the fn works off plain values.
-    const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
-  });
+      // `fungibleAssets()` is on the Account object (not the shared WebClient
+      // RefCell); extract it here so the rest of the fn works off plain values.
+      const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
+      return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+    },
+    { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }
+  );
 
   if (!read.ran) {
     // A `withWasmClientLock` op (a transaction or sync) holds the client — skip

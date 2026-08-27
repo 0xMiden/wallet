@@ -510,7 +510,7 @@ export const importAllNotes = async () => {
       // that accepts the request and never answers parked this hold — and with it
       // every send, claim and balance read — on the five-minute last resort, once
       // per lap, for as long as the note stayed queued.
-      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-import' }
     );
   } catch (e) {
     // The hold failed. Two shapes, and they need opposite writes.

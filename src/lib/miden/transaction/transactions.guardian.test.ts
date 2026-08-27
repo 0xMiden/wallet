@@ -3513,7 +3513,7 @@ describe('generateTransaction — Guardian routing', () => {
     const realExecute = api.executeRequest.getMockImplementation();
     // The eviction lands DURING the round trip: revoked from inside the call, so the
     // hold is gone by the time the pipeline resumes on the other side of the await.
-    api.executeRequest.mockImplementation(async (...args: unknown[]) => {
+    api.executeRequest.mockImplementation(async (...args) => {
       revokeHold();
       return realExecute!(...args);
     });

@@ -1047,7 +1047,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     const [syncOptions, exportOptions] = miden.lockOptionsSeen.slice(before);
-    expect(syncOptions).toEqual({ watchdogMs: 120_000 });
+    expect(syncOptions).toEqual({ watchdogMs: 120_000, label: 'offscreen-sync' });
     // A write is legitimately long — it signs and proves, and carries its own
     // deadline — so it stays on the default ceiling.
     expect(exportOptions).toBeUndefined();

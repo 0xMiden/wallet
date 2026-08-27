@@ -377,7 +377,7 @@ describe('MultisigService', () => {
 
       await service.adoptGuardianStateOnce();
 
-      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }]);
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }]);
     });
 
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
@@ -391,7 +391,7 @@ describe('MultisigService', () => {
 
       await service.sync();
 
-      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }]);
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }]);
     });
 
     it('rethrows immediately for non-nonce errors', async () => {

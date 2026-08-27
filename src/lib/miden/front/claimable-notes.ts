@@ -14,6 +14,7 @@ import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { onNotesRefresh } from './note-refresh';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -154,7 +155,17 @@ async function fetchNotesFromLocalClient(
   try {
     // DTOs via the proxy (issue #260, slice 4): flag-off falls through to the
     // same inline client, so on mobile/desktop this is behavior-identical.
-    rawNotes = await withWasmClientLock(async () => midenClientProxy.getConsumableNotes(publicAddress));
+    // Bounded at the SYNC ceiling, not left on the 5-minute backstop (#777). This
+    // is nominally a read, but on the inline path it builds the client when the slot
+    // is empty — and after a sync eviction the slot is ALWAYS empty — so its genesis
+    // fetch parks on the very node the sync just gave up on. On the default ceiling
+    // this 5s poll then owned the mutex for 300s per lap, which is worse than the
+    // hold it inherited it from: the sync loop's own fuse takes the sync OUT of the
+    // queue, leaving this poll as the sole occupant of a wallet that looks idle.
+    rawNotes = await withWasmClientLock(async () => midenClientProxy.getConsumableNotes(publicAddress), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'claimable-notes'
+    });
   } catch (e) {
     debugInfoRef.current = {
       ...debugInfoRef.current,

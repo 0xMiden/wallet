@@ -1,3 +1,4 @@
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStage } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -138,7 +139,12 @@ export function resolveTransactionErrorMessage(
   // the stage, and the stage is exactly what an eviction makes unreliable: it
   // says where the pipeline was when its caller was rejected, not where the
   // still-running pipeline got to (issue #775).
-  if (isWasmClientPoisonedError(error)) {
+  // BOTH kill shapes. An offscreen deadline kill arrives as `OperationAbortedError`
+  // from the identical point and is equally still running, and `cancel.ts` stamps
+  // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
+  // try again" on the very row whose Retry then refuses with "may already have been
+  // submitted". Two contradictory statements about the same money, from one error.
+  if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) {
     return TRANSACTION_ENGINE_RECOVERED_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)

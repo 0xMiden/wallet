@@ -91,6 +91,7 @@ import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
 import { midenClientProxy } from './miden-client-proxy';
+import { isOperationAbortedError } from './offscreen-codec';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -1306,8 +1307,14 @@ async function importDAppPrivateNote(note: string): Promise<string> {
       })
     );
   } catch (e) {
-    if (isLikelyNetworkError(e)) {
-      await queueNoteImport(note).catch(() => {});
+    // Both abandonment shapes, for the reason the same gate in `back/main.ts` gives:
+    // an eviction or a deadline kill leaves it unknown whether the note landed, and
+    // neither error matches `isLikelyNetworkError`. This is the sharper of the two
+    // sites — the dApp is the only other holder of these bytes.
+    if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+      await queueNoteImport(note).catch(queueError =>
+        console.error('[importDAppPrivateNote] failed to queue the note for background retry', queueError)
+      );
     }
     throw e;
   }

@@ -1107,10 +1107,17 @@ export const generateTransaction = async (
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
+      // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
+      // requeue re-broadcasts, so the classifier that permits one must name the whole
+      // abandonment class rather than half of it. (Every `OperationAbortedError` that
+      // can carry a guardian pipeline today is produced next to a realm teardown, so
+      // the pipeline really is dead and the requeue would be legitimate — this is the
+      // invariant made local rather than inherited from that adjacency.)
+      const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
-        !isWasmClientPoisonedError(error) &&
+        !abandonedWrite &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);

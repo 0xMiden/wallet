@@ -157,10 +157,15 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
+  MAX_SYNC_BACKOFF_MS
+} from 'lib/miden/sync-backoff';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
 // Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
@@ -379,7 +384,73 @@ describe('doSync', () => {
     lockOptionsSeen.length = 0;
     await doSync();
 
-    expect(lockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+    expect(lockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' });
+    // And so is the DOWNSTREAM read, which on this path is not the warm re-read it
+    // reads as: [Lock 1]'s eviction cleared the client slot, so this hold rebuilds
+    // and its genesis fetch goes to the node that just parked. Left on the default
+    // backstop it held this realm's only WASM mutex for 300s on top of [Lock 1]'s
+    // 120s — worse than the 30s timeout it replaced (#777).
+    expect(lockOptionsSeen[1]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' });
+  });
+
+  it('lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      // Every probe evicted: the shape the fuse exists for. Replacing the client
+      // cannot reach a sync the SDK has already coalesced onto a dead promise, so
+      // this realm would otherwise pay a poison-and-rebuild every window forever —
+      // and on the inline path leak the client each time.
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      let fakeNow = 5_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        await isolated();
+        // Past the breaker's own window each lap, so the only thing that can be
+        // holding the next probe back is the fuse.
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      const callsWhenFused = mockClient.syncState.mock.calls.length;
+      expect(callsWhenFused).toBe(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // The falsifier: a wait that clears the breaker's maximum window but not the
+      // fused one is refused. Without the fuse this probe goes through.
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsWhenFused);
+
+      // Serve out the fused wait, then succeed: that is the one observation that
+      // clears the evidence.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS;
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockResolvedValue(undefined);
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+
+      // Fuse out: a single later eviction backs off on the BREAKER's short window
+      // again, not on half an hour.
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        await isolated();
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      const beforeShortWindow = mockClient.syncState.mock.calls.length;
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(beforeShortWindow + 1);
+
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
   });
 
   it('two back-to-back doSync calls only sync once', async () => {

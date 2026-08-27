@@ -4,7 +4,13 @@ import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
-import { computeSyncBackoffMs, MAX_CONSECUTIVE_SYNC_FAILURES, monotonicNowMs } from 'lib/miden/sync-backoff';
+import {
+  computeSyncBackoffMs,
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_SYNC_FAILURES,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
+  monotonicNowMs
+} from 'lib/miden/sync-backoff';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -50,6 +56,11 @@ const ALARM_NAME = 'miden-sync';
 // unreachable" reports.
 // On a real breach the circuit breaker (below) trips and we back off.
 const SYNC_TIMEOUT_MS = 30_000;
+
+// Consecutive watchdog evictions of this realm's sync hold. Counted separately from
+// `consecutiveSyncFailures` because it answers a different question: not "is the node
+// failing" but "is this realm's sync parked in a way replacing the client cannot fix".
+let consecutiveWatchdogEvictions = 0;
 
 // Circuit breaker: after MAX_CONSECUTIVE_SYNC_FAILURES timeouts/errors in
 // a row we skip sync attempts for the backoff window, then allow probes until
@@ -151,6 +162,9 @@ async function runSync(force: boolean): Promise<void> {
     // its actual network call — and only THAT call's slowness fires
     // the timeout. A subsequent sync after the prove yields is the one
     // that clears any active issue, so the steady state is correct.
+    // Hoisted: BOTH holds in this lap need to know, because on the inline path the
+    // second one has to rebuild the client the first one's eviction discarded.
+    const inlineWasm = runsWasmInThisRealm();
     try {
       // The timeout is only sound when the WASM sync runs in ANOTHER realm. Its
       // rejection propagates out of the lock callback and so RELEASES the mutex
@@ -166,7 +180,6 @@ async function runSync(force: boolean): Promise<void> {
       // the singleton, so the successor builds a fresh instance and the abandoned
       // sync's own `isDisposed` guards fire. It costs banner latency on that path
       // (the ceiling, not 30s) and buys the invariant.
-      const inlineWasm = runsWasmInThisRealm();
       await withWasmClientLock(
         async () => {
           if (inlineWasm) {
@@ -175,11 +188,14 @@ async function runSync(force: boolean): Promise<void> {
           }
           await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
         },
-        inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS } : undefined
+        inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' } : undefined
       );
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = null;
       breakerTripCount = 0;
+      // The only thing that clears the fuse: a sync that goes through proves this
+      // realm's sync is not parked after all.
+      consecutiveWatchdogEvictions = 0;
       // Sync went through end-to-end: the user has connectivity AND the
       // node is responding. Clear any active reachability category. We
       // don't touch `prover` — that's a separate service with separate
@@ -187,6 +203,34 @@ async function runSync(force: boolean): Promise<void> {
       clearReachabilityIssues();
     } catch (err) {
       consecutiveSyncFailures++;
+      // The FUSE (#777), same rule and constants as the mobile/desktop loop, because
+      // this realm needs it for the same reason: after an eviction the SDK still
+      // coalesces every later sync onto the abandoned call, so repeated evictions
+      // cannot fix the wedge they are evicting — they just pay a poison-and-rebuild
+      // every window, and on the inline path each one leaks the client whose fetch
+      // never answered. The ledger is per-realm on purpose: it describes THIS realm's
+      // parked client, and the service worker never loads the frontend loop's module.
+      //
+      // Counted OUTSIDE the breaker's `>= MAX_CONSECUTIVE_SYNC_FAILURES` block and
+      // applied outside it too, both deliberately. This path zeroes
+      // `consecutiveSyncFailures` whenever a window opens, so a counter inside that
+      // block would see one eviction per TRIP rather than per probe — three times the
+      // evidence, at two parked minutes each, to reach the same conclusion. And the
+      // window has to be the fused one on the eviction that CROSSES the threshold,
+      // which is not in general a trip lap.
+      //
+      // A forced probe neither adds evidence nor withdraws it: this measures what the
+      // automatic cadence costs, and a user tap is neither part of that cadence nor
+      // throttled by it.
+      if (!force) {
+        if (isSyncWatchdogEviction(err)) {
+          consecutiveWatchdogEvictions++;
+        } else if (consecutiveWatchdogEvictions < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
+          // Withdrawn only BEFORE the fuse blows. Once lit, a non-eviction failure is
+          // no proof the parked sync recovered — only a success is that.
+          consecutiveWatchdogEvictions = 0;
+        }
+      }
       console.warn(
         `[SyncManager] syncState failed (${consecutiveSyncFailures}/${MAX_CONSECUTIVE_SYNC_FAILURES}):`,
         err
@@ -239,6 +283,24 @@ async function runSync(force: boolean): Promise<void> {
           `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`
         );
       }
+      // The fused window, applied AFTER the breaker's — the two deadlines share this
+      // one field here (unlike the frontend loop, which keeps them apart, since there
+      // the same field is also cleared on a mid-window success), so the longer one has
+      // to be written last or a trip lap would silently shorten a lit fuse to a
+      // thirtieth of its length. `Math.max` rather than a bare assignment because the
+      // breaker's window can legitimately outlast a fresh fused one only via a clock
+      // jump, and taking the later of the two costs nothing when it cannot.
+      //
+      // Re-armed on every qualifying failure while the evidence stands, not only on
+      // the eviction that lit it: "one probe per 30 min until one succeeds" is the
+      // contract, and a probe that fails some other way has not succeeded.
+      if (consecutiveWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
+        console.warn(
+          `[SyncManager] sync fuse lit after ${consecutiveWatchdogEvictions} watchdog evictions — ` +
+            `probing once per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one succeeds`
+        );
+        syncBackoffUntilMs = Math.max(syncBackoffUntilMs ?? 0, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
+      }
       // Continue to the downstream read path: the client may still have
       // cached state from a prior successful sync worth surfacing.
     }
@@ -269,61 +331,71 @@ async function runSync(force: boolean): Promise<void> {
       // localSwapOrders is an unindexed full scan of the transactions table.
       const swapOrderRows = await localSwapOrders(accountPubKey);
 
-      // [Lock 2] Read notes + vault assets from warm WASM client
-      const { parsedNotes, vaultAssets } = await withWasmClientLock(async () => {
-        const client = await getMidenClient();
-        if (!client)
-          return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
+      // [Lock 2] Read notes + vault assets from the WASM client — warm on the happy
+      // path, but NOT after [Lock 1] was evicted: that eviction poisons the client and
+      // clears the slot, so this read rebuilds, and the new client's genesis fetch goes
+      // to the node [Lock 1] just gave up on. Left on the 5-minute backstop, a lap
+      // against a parked node held this realm's only WASM mutex for 120s + 300s
+      // instead of the ~30s the old JS timeout bounded it to — strictly worse than
+      // before the ceiling was added, on the one path (#777) that has no offscreen
+      // realm to absorb it.
+      const { parsedNotes, vaultAssets } = await withWasmClientLock(
+        async () => {
+          const client = await getMidenClient();
+          if (!client)
+            return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
 
-        // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
-        // + per-note reduction ran inside the client's realm — OFFSCREEN when the
-        // flag is on, so the gate uses the sync-running realm's height instead of
-        // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
-        // now routes through the proxy too (slice 7a), so it no longer needs `client`.
-        const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
-        // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
-        // custom transaction — hidden from the claimable UI until the user
-        // confirms (or forever, if they cancel). See note-quarantine.ts.
-        const quarantined = await getQuarantinedNoteIds();
-        const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
-        const notes: SerializedConsumableNote[] = rawNotes
-          .map((note): SerializedConsumableNote | null => {
-            // Partial (metadata-less) notes have no ID yet and cannot be
-            // consumed — skip until sync completes them.
-            const noteId = note.noteId;
-            if (!noteId) return null;
-            if (quarantined.has(noteId)) return null;
-            // Only the first fungible asset is surfaced (unchanged); an empty
-            // asset set means the note can't be displayed — skip it.
-            const firstAsset = note.assets[0];
-            if (!firstAsset) return null;
-            return {
-              id: noteId,
-              faucetId: firstAsset.faucetId,
-              amountBaseUnits: firstAsset.amount,
-              senderAddress: note.senderAccountId ?? '',
-              noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
-              recallableAtMs: note.recallableAtMs,
-              swapOrder: swapOrders.get(noteId)
-            };
-          })
-          .filter((note): note is SerializedConsumableNote => note !== null);
+          // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
+          // + per-note reduction ran inside the client's realm — OFFSCREEN when the
+          // flag is on, so the gate uses the sync-running realm's height instead of
+          // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
+          // now routes through the proxy too (slice 7a), so it no longer needs `client`.
+          const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
+          // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
+          // custom transaction — hidden from the claimable UI until the user
+          // confirms (or forever, if they cancel). See note-quarantine.ts.
+          const quarantined = await getQuarantinedNoteIds();
+          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+          const notes: SerializedConsumableNote[] = rawNotes
+            .map((note): SerializedConsumableNote | null => {
+              // Partial (metadata-less) notes have no ID yet and cannot be
+              // consumed — skip until sync completes them.
+              const noteId = note.noteId;
+              if (!noteId) return null;
+              if (quarantined.has(noteId)) return null;
+              // Only the first fungible asset is surfaced (unchanged); an empty
+              // asset set means the note can't be displayed — skip it.
+              const firstAsset = note.assets[0];
+              if (!firstAsset) return null;
+              return {
+                id: noteId,
+                faucetId: firstAsset.faucetId,
+                amountBaseUnits: firstAsset.amount,
+                senderAddress: note.senderAccountId ?? '',
+                noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
+                recallableAtMs: note.recallableAtMs,
+                swapOrder: swapOrders.get(noteId)
+              };
+            })
+            .filter((note): note is SerializedConsumableNote => note !== null);
 
-        // Read vault assets
-        const account = await midenClientProxy.getAccount(accountPubKey);
-        const assets: SerializedVaultAsset[] = [];
-        if (account) {
-          const fungibleAssets = account.vault().fungibleAssets();
-          for (const asset of fungibleAssets) {
-            assets.push({
-              faucetId: getBech32AddressFromAccountId(asset.faucetId()),
-              amountBaseUnits: asset.amount().toString()
-            });
+          // Read vault assets
+          const account = await midenClientProxy.getAccount(accountPubKey);
+          const assets: SerializedVaultAsset[] = [];
+          if (account) {
+            const fungibleAssets = account.vault().fungibleAssets();
+            for (const asset of fungibleAssets) {
+              assets.push({
+                faucetId: getBech32AddressFromAccountId(asset.faucetId()),
+                amountBaseUnits: asset.amount().toString()
+              });
+            }
           }
-        }
 
-        return { parsedNotes: notes, vaultAssets: assets };
-      });
+          return { parsedNotes: notes, vaultAssets: assets };
+        },
+        inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
+      );
 
       // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
       // Collect all unique faucet IDs from both notes and vault assets

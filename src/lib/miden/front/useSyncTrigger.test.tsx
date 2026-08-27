@@ -453,7 +453,7 @@ describe('useSyncTrigger', () => {
     }
     expect(wasmLockOptionsSeen.length).toBe(3);
     for (const options of wasmLockOptionsSeen) {
-      expect(options).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
+      expect(options).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'idle-sync' });
     }
     unmount();
   });

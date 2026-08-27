@@ -9,8 +9,10 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
+import { noteSyncWatchdogEviction } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -277,6 +279,15 @@ export async function syncGuardianAccounts(): Promise<void> {
         // Non-auth error (e.g. network) — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);
       }
+      // Feed the realm's sync fuse (#777). Guardian sync takes a hold on the SAME
+      // WASM client as the idle loop's `syncState`, bounded at the same two-minute
+      // ceiling, and it is reached from that same loop — so an unresponsive guardian
+      // parks and poisons the client on a two-minute cadence, leaking the client whose
+      // fetch never answered, indefinitely. The loop's own counter never saw any of it:
+      // this path's failures are swallowed per-account and never reach the catch block
+      // that used to own the ledger. Guardian is the wallet's DEFAULT account type, so
+      // that was the majority case of the freeze the fuse exists to bound.
+      if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction('Guardian Sync');
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
   }
