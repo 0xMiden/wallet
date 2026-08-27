@@ -18,7 +18,17 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (state: { lastSyncedAt: number | null }) => unknown) => selector({ lastSyncedAt: null })
+  useWalletStore: (
+    selector: (state: { lastSyncedAt: number | null; currentAccount: { publicKey: string } }) => unknown
+  ) => selector({ lastSyncedAt: null, currentAccount: { publicKey: 'acc-1' } })
+}));
+
+// Guardian sync-outage flag (the signal the status pill derives Online/Offline
+// from). Default: no outage; per-test override via mockIsGuardianSyncOutage.
+const mockIsGuardianSyncOutage = jest.fn((_pk: string) => false);
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  isGuardianSyncOutage: (pk: string) => mockIsGuardianSyncOutage(pk),
+  subscribeGuardianSyncOutage: () => () => {}
 }));
 
 jest.mock('components/Button', () => ({
@@ -53,6 +63,9 @@ jest.mock('screens/onboarding/common/GuardianInfoDrawer', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks does not undo mockReturnValue, so the outage test's `true`
+  // would otherwise leak into every test after it.
+  mockIsGuardianSyncOutage.mockReturnValue(false);
   mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: 'https://guardian.one', refresh: jest.fn() });
   mockGuardianOptionForEndpoint.mockReturnValue({
     id: 'open-zeppelin',
@@ -74,6 +87,15 @@ it('renders the configured guardian summary and live details', () => {
   expect(screen.getByText('guardian.one')).toBeInTheDocument();
   expect(screen.getByText('US-EAST')).toBeInTheDocument();
   expect(screen.getByText('never')).toBeInTheDocument();
+});
+
+it('shows the offline pill while the sync loop reports a guardian outage', () => {
+  mockIsGuardianSyncOutage.mockReturnValue(true);
+  render(<GuardianSettings />);
+
+  expect(mockIsGuardianSyncOutage).toHaveBeenCalledWith('acc-1');
+  expect(screen.getByText('guardianOfflineLabel')).toBeInTheDocument();
+  expect(screen.queryByText('online')).not.toBeInTheDocument();
 });
 
 it('labels an unmatched endpoint as a custom guardian', () => {

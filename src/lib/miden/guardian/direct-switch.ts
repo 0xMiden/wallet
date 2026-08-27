@@ -162,16 +162,25 @@ export const createDirectSwitchGuardianRequest = async (
   // single-threaded, and splitting resolve/build/summary across lock windows
   // leaves an aliasing gap. Sync first so the summary (and the nonce it binds)
   // is built against current on-chain state.
+  //
+  // Sync + account read + build + summary all use THIS realm's client — not
+  // `midenClientProxy`, which on Chrome dispatches to the offscreen realm. A
+  // proxy sync freshens the offscreen client while the local client that
+  // `buildUpdateGuardianTransactionRequest`/`executeForSummary` run on stays
+  // dormant, so the hot/cold signatures would bind a summary derived from
+  // stale state and the anchored execution would fail as unauthorized —
+  // precisely in the dead-old-guardian recovery this path exists for.
   const built = await withWasmClientLock(async () => {
-    await midenClientProxy.syncState();
-    const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+    const midenClient = await getMidenClient();
+    await midenClient.syncState();
+    const account = await midenClient.getAccount(walletAccount.publicKey);
     if (!account) {
       throw new Error(`Guardian account ${walletAccount.publicKey} not found in local client`);
     }
     const accountIdHex = account.id().toString();
     const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
     const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
-    const webClient = (await getMidenClient()).client;
+    const webClient = midenClient.client;
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()

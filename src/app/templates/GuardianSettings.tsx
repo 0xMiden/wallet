@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useState, useSyncExternalStore } from 'react';
 
 import clsx from 'clsx';
 import { Trans, useTranslation } from 'react-i18next';
@@ -11,6 +11,7 @@ import {
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
+import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -41,6 +42,14 @@ const GuardianSettings: FC = () => {
   const { t, i18n } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const lastSyncedAt = useWalletStore(s => s.lastSyncedAt);
+  // Live reachability from the sync loop's outage flag (armed after a
+  // threshold of consecutive server-down sync failures, cleared by any
+  // guardian response) — the same signal the home connectivity banner reads.
+  // Endpoint presence alone said "Online" through an entire outage.
+  const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
+  const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
+  );
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   const option = guardianOptionForEndpoint(currentEndpoint);
@@ -81,9 +90,19 @@ const GuardianSettings: FC = () => {
             green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
             text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
         {currentEndpoint && (
-          <div className="mt-1.5 flex items-center gap-2 rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-800 dark:bg-green-500/15 dark:text-green-300">
-            <span className="h-2 w-2 rounded-full bg-green-500" />
-            <span>{t('online')}</span>
+          <div
+            className={clsx(
+              'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
+              guardianOutage
+                ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
+                  // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
+                  // there, short of AA at this size.
+                  'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+                : 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
+            )}
+          >
+            <span className={clsx('h-2 w-2 rounded-full', guardianOutage ? 'bg-red-500' : 'bg-green-500')} />
+            <span>{guardianOutage ? t('guardianOfflineLabel') : t('online')}</span>
           </div>
         )}
       </div>
