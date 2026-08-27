@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
+import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 
@@ -76,10 +77,17 @@ export const cancelTransaction = async (
   // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
   const rawError = formatRawTransactionError(error);
+  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
+  // withhold the may-have-submitted crossing, re-derived HERE from the row this function
+  // already read, so the message and the crossing can never disagree: hedging "left in an
+  // unknown state, check your activity" on a row whose Retry is provably safe is a
+  // falsehood that costs the user the retry.
+  const abandonedPreWrite =
+    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
   const displayError =
     error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
       ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   let applied = false;
   let racedTerminal = false;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
@@ -217,14 +225,22 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  *
  * `generateTransaction`'s first act is a locked `syncState()`, taken while the
  * row still reads 'syncing' — 'sending' is only stamped once that sync returns.
- * That sync has no JS-level timeout, which makes it one of the likeliest places
- * for a watchdog eviction to land, and it is unambiguously pre-write.
+ * Its SDK call still carries no transport deadline, and the hold is now bounded
+ * by the 2-minute sync watchdog rather than the 5-minute backstop, which together
+ * make it one of the likeliest places for an eviction to land — and it is
+ * unambiguously pre-write.
  *
  * Deliberately a one-element list rather than a general "is this before submit"
  * test. `mayHaveSubmitted` is permanent and `requeueFailedTransaction` refuses
  * on it, so a wrong "cleared" is a double payment while a wrong "recorded" is
  * only a refused Retry. Every stage whose pre-write property is not provable
  * from the stage alone therefore keeps recording.
+ *
+ * Membership here is necessary but not sufficient — the caller also requires
+ * `processingStartedAt` to be absent, so the exemption rests on the write stamp
+ * never having run rather than on this name alone. Note that is NOT the same as
+ * "the FIFO has not picked the row up": the pre-flight sync runs after pickup,
+ * with the row still `Queued` and the stamp still unset.
  */
 const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
 
@@ -239,10 +255,30 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
   // The stage comes from the COMMITTED row, not from `tx`: callers pass the
   // snapshot they picked the transaction up with, which still carries the stage
   // it held at pickup rather than the one the failure happened in.
+  //
+  // Applied to BOTH kill classifications, not just the eviction. The pre-flight
+  // sync can end either way — a watchdog eviction locally, or an
+  // `OperationAbortedError` when the offscreen realm's dispatch deadline fires —
+  // and both arrive from the identical point, before any request exists. Gating
+  // the exemption on the poison shape alone therefore recorded a permanent
+  // crossing for one half of the same event, which is the mirror of the bug the
+  // exemption exists to prevent: a send that demonstrably never touched the
+  // chain, refusable only by an acknowledgement the user has no way to make
+  // truthfully.
+  //
+  // `processingStartedAt` is checked alongside the stage to make the exemption
+  // STRUCTURAL rather than conventional. What makes 'syncing' provably pre-write
+  // is that it is only ever committed while the row has not been picked up:
+  // `updateTransactionStatus` stamps `processingStartedAt` and stage 'sending'
+  // in one Dexie `modify`, so `(GeneratingTransaction, 'syncing')` never lands.
+  // That invariant is load-bearing but spread across four files, so any future
+  // writer that stamps 'syncing' on a picked-up row would silently turn a
+  // refused retry into a permitted one — a double payment. Re-deriving it here
+  // costs nothing and fails in the safe direction (record, not clear).
   let abandonedPreWrite = false;
-  if (isWasmClientPoisonedError(error)) {
+  if (isOperationAbortedError(error) || isWasmClientPoisonedError(error)) {
     const committed = await Repo.transactions.where({ id: tx.id }).first();
-    abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '');
+    abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
   }
   if (
     tx.type === 'send' &&
@@ -524,7 +560,7 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
       // authoritative for a consumed note (it cannot un-consume), and for a
       // not-yet-consumed note it can only under-report "landed" → a safe Fail.
       try {
-        await withWasmClientLock(async () => midenClientProxy.syncState());
+        await syncUnderBoundedLock();
       } catch (syncError) {
         console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
       }
@@ -590,7 +626,7 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
   const txId = tx.transactionId;
   try {
     try {
-      await withWasmClientLock(async () => midenClientProxy.syncState());
+      await syncUnderBoundedLock();
     } catch (syncError) {
       console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
     }

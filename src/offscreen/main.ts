@@ -71,7 +71,12 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  poisonReasonOf,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  wasmClientGeneration,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -846,6 +851,16 @@ const DISPATCH: Record<string, DispatchFn> = {
       freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
+    // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
+    // brackets below cover proving, not this), so a node that accepts and never
+    // answers is evicted here — and an eviction abandons this callback rather than
+    // stopping it, so what resumes would prove and submit with no mutex held,
+    // alongside the successor that legitimately holds it. Checked at each of the two
+    // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
+    // that already reached the network.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('guardian pipeline abandoned before proving'));
+    }
     postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -893,6 +908,12 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     }
     recordProveTiming('guardianPipeline prove returned; submitting');
+    // The prove is the longest await in the pipeline — delegated over the network or
+    // local under a relaxed ceiling — so the same question has to be asked again.
+    // Still pre-submit: nothing has been broadcast at this point.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('guardian pipeline abandoned before submit'));
+    }
     postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
     recordProveTiming('guardianPipeline submit returned; applying');
@@ -925,6 +946,9 @@ const DISPATCH: Record<string, DispatchFn> = {
   // clean at the yield boundary). A void result: the SW-side caller only awaits it,
   // so nothing serializes back.
   waitForTransactionCommit: async (client, transactionId: string) => {
+    // Mutable: the client this loop polls can be REPLACED under it (see the
+    // `isDisposed` branch below), and every later lap must use the replacement.
+    let polling = client;
     // Capture THIS op's reassert BEFORE the first yield (follow-up #2). While a
     // sleep yields the mutex, an interloper op runs and clears/overwrites the module
     // global `currentOpId`; re-asserting after each yield restores the invariant that
@@ -943,17 +967,84 @@ const DISPATCH: Record<string, DispatchFn> = {
     const interval = 5_000;
     const start = Date.now();
     for (;;) {
+      // Stop if this loop can no longer poll safely. Two ways in: this dispatch was
+      // evicted (which rejects the SW-side caller but does NOT stop the loop, and once
+      // the hold is stale the yield below no longer touches the mutex — so each
+      // remaining lap ran two WASM calls with NO mutex held, alongside the successor
+      // that legitimately holds it, which is the "recursive use of an object" crash
+      // the mutex exists to prevent), or the client was poisoned under us by a trap
+      // in another flow, where the next call would fail anyway.
+      //
+      // THROWS rather than returning: the committed path returns `null`, so bailing
+      // with `null` would report a commit that never happened. For the evicted case
+      // that is unobservable (the caller has already been rejected), but the poisoned
+      // case can fire while this dispatch is still live and awaited — and a guardian
+      // leaf reads a false commit as licence to run its structural completion.
+      //
+      // And it throws a POISON error specifically, which the dispatch serializes with
+      // its reason and the SW rebuilds. That matters because the tx a plain `Error`
+      // reaches gets written Failed like any ordinary failure, when what actually
+      // happened is that this confirmation was ABANDONED — the submit may well have
+      // landed. `isWasmClientPoisonedError` is what every kill classifier reads to
+      // tell those apart.
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (at the loop top)');
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      // Ahead of the rebuild below: a poll already past its deadline has no business
+      // building a client it will never use, least of all in the realm where that
+      // build's own genesis fetch goes to the node that parked us.
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
+      }
+      // A poisoned client while the hold is still OURS is a different situation, and
+      // it is recoverable: an interloper op that took the mutex during one of our
+      // sleeps was evicted, so the singleton was replaced under us while the realm
+      // stayed healthy. Bailing here abandoned a structural guardian op — whose
+      // rotation may already be on chain — over somebody else's eviction. Rebuild and
+      // keep polling: the applied record lives in this realm's store either way, and
+      // the poison hook has already dropped the slot so this returns a fresh client.
+      if (polling.isDisposed) {
+        console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
+        try {
+          polling = await getOrCreateClient();
+        } catch (e) {
+          // Kept in the POISON family rather than surfacing as a plain error. The
+          // submit behind this confirmation may well have landed, and a plain error
+          // is written Failed like any ordinary failure — which for a structural
+          // guardian op means skipping a completion step for a rotation that is on
+          // chain. What happened here is still an abandonment, so it is reported as
+          // one; the cause carries why the rebuild failed.
+          throw new WasmClientPoisonedError('watchdog', e instanceof Error ? e : new Error(String(e)));
+        }
+        // The rebuild is an await like any other, so the hold can go stale across it —
+        // and the first WASM call below would then run with no mutex held. Same guard,
+        // same reason, as the one after the sync.
+        if (getCurrentWasmLockHold() !== context.hold) {
+          console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the rebuild)');
+          throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+        }
       }
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
-        await client.client.syncChain();
-      } catch {
-        /* transient sync failure — keep polling, exactly as the SDK waitFor does */
+        await polling.client.syncChain();
+      } catch (e) {
+        // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
+        // silent. A sync that fails EVERY lap makes the poll run blind: it lists
+        // transactions against state that never advances, so the only outcome
+        // left is the timeout, reported as "confirmation timed out" with nothing
+        // anywhere saying the chain was never read.
+        console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
-      const txs = await client.client.transactions.list({ ids: [transactionId] });
+      // Re-checked after the sync: an eviction landing during that await (whose own
+      // failure is swallowed just above) would otherwise let this second WASM call
+      // run unmutexed, which is the whole hazard the loop-top guard exists for.
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the sync)');
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      const txs = await polling.client.transactions.list({ ids: [transactionId] });
       const status = txs?.[0]?.transactionStatus?.();
       if (status?.isCommitted()) return null;
       if (status?.isDiscarded()) {
@@ -1157,6 +1248,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
+    // A pure-sync dispatch takes the sync ceiling (#777), like every other hold whose
+    // whole job is a sync. The service worker's 30s `withTimeout` bounds ITS OWN
+    // promise, not this hold: the offscreen call keeps running, so a node that accepts
+    // SyncChainMmr and never answers held THIS realm's mutex — the one every send and
+    // claim queues behind — until the five-minute last resort, with the SW having
+    // discarded the answer four and a half minutes earlier. Only the sync gets it: the
+    // writes are legitimately long (they sign and prove) and have their own deadlines.
+    const lockOptions =
+      msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
     const resultBytes = await withWasmClientLock(async hold => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
@@ -1166,6 +1266,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await getOrCreateClient();
+      // The client build is a parking await inside the hold — its eager genesis fetch
+      // goes to the very node a `syncState` dispatch is now bounded against (above),
+      // so an eviction here is reachable rather than theoretical. An eviction abandons
+      // this callback instead of stopping it, and what resumes would not merely call
+      // WASM unmutexed: the assignments below are AMBIENT, so a corpse would overwrite
+      // the successor's `currentOpId` and `reassertCurrentOpId`, routing the
+      // successor's mid-execute sign to the corpse's callbacks and deadline, and then
+      // clear the id on its own way out. Same guard, same reason, as the confirmation
+      // poll's — placed before the first ambient write, not just before the dispatch.
+      if (getCurrentWasmLockHold() !== hold) {
+        console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
+        throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
+      }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
@@ -1206,7 +1319,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
-    });
+    }, lockOptions);
     sendResponse({
       ok: true,
       op_id: msg.op_id,

@@ -618,6 +618,75 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('poison-presync')).mayHaveSubmitted).toBeFalsy();
   });
 
+  it('gives an ABORT from the pre-write sync the same exemption as an eviction', async () => {
+    // The pre-flight sync can end either way. Locally the watchdog evicts it;
+    // through the offscreen proxy the dispatch deadline rejects it with
+    // `OperationAbortedError`. Both arrive from the identical point — before any
+    // request exists — so gating the exemption on the poison shape alone
+    // recorded a permanent crossing for one half of the same event, and left the
+    // user with a warning ("this may already have reached the network") that they
+    // cannot answer truthfully about a send that never built a request.
+    const tx = inFlightSend('abort-presync', { stage: 'syncing', requestBytes: undefined });
+    await Repo.transactions.add(tx);
+
+    await cancelTransactionAfterPipelineStopped(await read('abort-presync'), abort());
+
+    expect((await read('abort-presync')).mayHaveSubmitted).toBeFalsy();
+  });
+
+  it('says "nothing was submitted" on the message too, not just in the crossing record', async () => {
+    // The crossing and the message have to agree. Withholding the crossing (so Retry is
+    // permitted) while persisting the hedge ("left in an unknown state, check your
+    // activity before trying again") told the user not to take the retry the same
+    // decision had just unlocked — and the extension reaches this on a routine
+    // non-critical `deadline-no-kill`, so it is not a corner.
+    const { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } = require('./constants');
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+
+    for (const [id, error] of [
+      ['msg-poison-presync', new WasmClientPoisonedError('watchdog')],
+      ['msg-abort-presync', abort()]
+    ] as const) {
+      await Repo.transactions.add(inFlightSend(id, { stage: 'syncing', requestBytes: undefined }));
+      await cancelTransactionAfterPipelineStopped(await read(id), error);
+      expect((await read(id)).error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    }
+
+    // Falsifier: past the pre-write stages a submit IS possible, so the hedge is the
+    // honest copy and has to stay.
+    await Repo.transactions.add(inFlightSend('msg-poison-submitting', { stage: 'submitting' }));
+    await cancelTransactionAfterPipelineStopped(
+      await read('msg-poison-submitting'),
+      new WasmClientPoisonedError('watchdog')
+    );
+    expect((await read('msg-poison-submitting')).error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('records the crossing for a picked-up row even at stage syncing', async () => {
+    // What makes 'syncing' provably pre-write is not the name, it is that the
+    // stage is only ever committed BEFORE pickup — `updateTransactionStatus`
+    // stamps `processingStartedAt` and stage 'sending' in one write, so
+    // (picked-up, 'syncing') never lands in production. That invariant is spread
+    // across four files, and if any future writer breaks it the exemption
+    // silently turns a refused retry into a permitted one, which is a second
+    // payment. So the exemption re-derives it rather than trusting the name, and
+    // this test pins the unreachable-today combination in the safe direction.
+    const tx = inFlightSend('poison-presync-picked-up', {
+      stage: 'syncing',
+      requestBytes: undefined,
+      processingStartedAt: Math.floor(Date.now() / 1000)
+    });
+    await Repo.transactions.add(tx);
+
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    await cancelTransactionAfterPipelineStopped(
+      await read('poison-presync-picked-up'),
+      new WasmClientPoisonedError('watchdog')
+    );
+
+    expect((await read('poison-presync-picked-up')).mayHaveSubmitted).toBe(true);
+  });
+
   it('reads the stage from the COMMITTED row, not the caller snapshot, when deciding', async () => {
     // Callers pass the row they picked the transaction up with, which still
     // carries the stage it held at pickup rather than the one the failure

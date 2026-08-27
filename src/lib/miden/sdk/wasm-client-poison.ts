@@ -21,10 +21,19 @@
  * listener catches an actual trap in milliseconds. Generous because evicting a
  * holder whose operation is merely SLOW is worse than waiting: the abandoned
  * operation is not cancelled, and several un-paused holds are not tightly
- * bounded — the inline `syncState` has no JS-level timeout (its caller's 30s
- * timeout only stops waiting), guardian flows hold the lock across
- * timeout-less HTTP round-trips, and a cold-restore probes accounts on-chain
- * under one hold. The known legitimately UNBOUNDED waits — keystore sign
+ * bounded — guardian flows hold the lock across timeout-less HTTP round-trips,
+ * and a cold-restore probes accounts on-chain under one hold. (Pure-sync holds
+ * used to be on this list, and were the #777 freeze; they now carry
+ * `WASM_LOCK_SYNC_WATCHDOG_MS` instead. The service worker's own sync hold is
+ * the one that did NOT need converting, and not because of this backstop: its
+ * 30s `withTimeout` rejects the lock callback, so `withWasmClientLock`'s
+ * `finally` releases the SW REALM's mutex at 30s — a tighter bound than any
+ * watchdog ceiling. That bound covers only that realm: with the offscreen client
+ * on, the WASM sync itself runs in the offscreen document, on a hold the SW's
+ * timeout cannot reject, which is why THAT dispatch takes the sync ceiling
+ * explicitly (`offscreen/main.ts`). What survives either release is the SDK's
+ * module-level in-flight sync, which no ceiling on this side reaches.) The known legitimately
+ * UNBOUNDED waits — keystore sign
  * round-trips (user authentication) and local prove attempts (the fallback
  * when delegated proving is down) — relax the watchdog to
  * `WASM_LOCK_PAUSED_WATCHDOG_MS` via `withWasmLockWatchdogPaused`. They do NOT
@@ -32,6 +41,40 @@
  * reached through the fix's own escape hatch.
  */
 export const WASM_LOCK_WATCHDOG_MS = 300_000;
+
+/**
+ * The watchdog ceiling for a lock hold whose whole job is a chain sync
+ * (issue #777). Passed as `withWasmClientLock`'s `watchdogMs` by the sync-shaped
+ * call sites: the mobile/desktop idle loop and the two guardian `syncState` holds
+ * directly, and everything behind `syncUnderBoundedLock` (the transaction
+ * pipeline's pre-flight sync, the two landed-verification probes, the note-import
+ * queue's trailing sync) — plus the note import itself, which is the same shape:
+ * an RPC under a hold. Their SDK call carries no transport deadline on wasm32
+ * (the wasm `ApiClient` drops its `timeout_ms`), so a parked gRPC-web fetch
+ * otherwise wedges the lock until the 5-minute last resort.
+ *
+ * 2 minutes: well above both the 5-25s slow-testnet syncs the SW timeout
+ * comment records and the 30-60s holds observed on mobile, and the same order
+ * as `DELEGATED_PROVE_TIMEOUT_MS` — a backstop against a sync that has stopped
+ * answering, NOT a latency target. Expiry is a real eviction (the client is
+ * replaced), so firing on a merely-slow sync costs a client rebuild; firing
+ * late merely leaves the wallet lockless a little longer. On the observed
+ * freeze cadence (a 3s loop), 2 minutes still cuts recovery from 5 minutes to
+ * 2 while keeping a healthy margin over every recorded legitimate sync.
+ *
+ * What this ceiling buys, precisely: the MUTEX back, not the sync. The SDK
+ * memoises an in-flight sync in a module-level map keyed by database name and
+ * serialises it under a same-keyed lock, and neither is reachable from the
+ * wallet's client singleton — so replacing the client does not free a sync that
+ * never answered, and each later `syncState()` joins the same dead promise.
+ * Recovering the mutex is still the difference between #777's frozen wallet and
+ * a working one, because balance reads, sends and claims all queue on the mutex
+ * and none of them is the sync. Full sync recovery needs the upstream
+ * miden-client fix arming the transport deadline the wasm `ApiClient` currently
+ * drops; until then the exponential breaker is what keeps the residual
+ * evict-and-rebuild cycle from running at the 3s cadence.
+ */
+export const WASM_LOCK_SYNC_WATCHDOG_MS = 120_000;
 
 /**
  * The ceiling that applies while a hold's watchdog is PAUSED (issue #775).
@@ -204,4 +247,22 @@ export function poisonReasonOf(error: unknown): WasmClientPoisonReason | undefin
     return undefined;
   }
   return isWasmClientPoisonReason(reason) ? reason : undefined;
+}
+
+/**
+ * Whether a failure is "the sync itself was evicted for overrunning its
+ * ceiling". One hit can still be a merely slow sync; what it identifies is the
+ * shape that REPEATS into a sync parked on a promise no client replacement can
+ * reach, which is why four of them light the fuse and one only raises the banner
+ * (see {@link WASM_LOCK_SYNC_WATCHDOG_MS} and
+ * {@link MAX_CONSECUTIVE_WATCHDOG_EVICTIONS}).
+ *
+ * Named here rather than open-coded at its two call sites in `useSyncTrigger`
+ * (raise the reachability banner, blow the probe fuse), because both rest on
+ * that same single fact and nothing would otherwise carry a change to it across
+ * modules. A `realm-error` eviction deliberately does NOT qualify: its client is
+ * replaced in milliseconds, so nothing is parked.
+ */
+export function isSyncWatchdogEviction(error: unknown): boolean {
+  return isWasmClientPoisonedError(error) && poisonReasonOf(error) === 'watchdog';
 }

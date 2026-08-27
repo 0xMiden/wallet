@@ -12,6 +12,7 @@
  */
 
 import { MultisigService } from './index';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -47,9 +48,32 @@ const mockMidenClient = {
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// `wasmLockOptionsSeen` records every hold's options: with a pass-through lock a
+// hold on the 5-minute backstop and one on the sync ceiling are otherwise
+// indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
+// idle sync (#777).
+let currentWasmHold: object | null = null;
+// Set by the one test that needs the watchdog to land mid-build.
+let evictDuringClientBuild = false;
+const wasmLockOptionsSeen: unknown[] = [];
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => mockMidenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  getMidenClient: async () => {
+    if (evictDuringClientBuild) currentWasmHold = null;
+    return mockMidenClient;
+  },
+  // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
+  // pass-through mock with no hold makes that guard both unreachable and a TypeError.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
+    wasmLockOptionsSeen.push(options);
+    const hold = {};
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  }
 }));
 
 const mockInterfaceClient = { accounts: { insert: jest.fn(async () => {}) } };
@@ -358,6 +382,33 @@ describe('MultisigService', () => {
       expect(service.syncRetryCount).toBe(0);
     });
 
+    it('bounds adoptGuardianStateOnce too, not just the retrying sync (#777)', async () => {
+      // The read-half adopt takes its own hold, and it is the one a cold restore
+      // and the stale-allowlist check go through — an unbounded hold there is the
+      // same five-minute app-wide WASM freeze as the retrying sync's.
+      wasmLockOptionsSeen.length = 0;
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.adoptGuardianStateOnce();
+
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-adopt' }]);
+    });
+
+    it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
+      // A guardian sync is a pure-sync hold whose RPC carries no transport
+      // deadline on wasm32, and guardian is the wallet's default account type — on
+      // the five-minute backstop one parked guardian sync froze every send, claim
+      // and balance read in the app for five minutes at a time.
+      wasmLockOptionsSeen.length = 0;
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.sync();
+
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-sync' }]);
+    });
+
     it('rethrows immediately for non-nonce errors', async () => {
       const multisig = makeMultisig({ syncState: jest.fn(async () => Promise.reject(new Error('network down'))) });
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
@@ -624,6 +675,25 @@ describe('MultisigService', () => {
       expect(svc.multisig).toBe(loaded);
       // Endpoint is supplied by the caller (per-account), not read from storage.
       expect(svc.guardianEndpoint).toBe('https://acct.guardian');
+    });
+
+    it('stops before load() when the hold was evicted during the client build (#777)', async () => {
+      // Reachable from the unattended guardian sync loop, whose failure mode is exactly a
+      // client that parks on a node that never answers. Past the eviction the mutex is
+      // somebody else's, and `load()` is a WASM call on the client it now owns.
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      multisigClientConfig.load.mockClear();
+      evictDuringClientBuild = true;
+
+      await expect(
+        MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
+      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(multisigClientConfig.load).not.toHaveBeenCalled();
+
+      // Falsifier: with the hold intact the same init loads as before.
+      evictDuringClientBuild = false;
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
+      expect(multisigClientConfig.load).toHaveBeenCalledTimes(1);
     });
 
     it('re-throws when MultisigClient.load rejects', async () => {

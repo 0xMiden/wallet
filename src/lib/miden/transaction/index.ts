@@ -24,6 +24,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
+import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -92,11 +93,17 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
+import {
+  getCurrentWasmLockHold,
+  getMidenClient,
+  withWasmClientLock,
+  withWasmLockWatchdogPaused,
+  type WasmLockHold
+} from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -805,7 +812,31 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
 
   // sync: true — this resolves ONE killed tx and wants the freshest possible note
   // state before deciding (the background reaper rides AutoSync and passes false).
-  const verdict = await verifyConsumeLanded(consumeTx, true);
+  //
+  // Except when the thing that just died IS the sync (#777), which the COMMITTED
+  // stage says and the error shape does not. On a row this pipeline owns,
+  // `'syncing'` is only written around the pre-flight sync (the locked-vault
+  // requeue reuses the name, but on a `Queued` row), so reading it here means the
+  // kill landed on that sync — and a second one joins the same never-settling promise the SDK
+  // memoises in a module-level map the wallet cannot reach, buying nothing but
+  // another full ceiling of the whole app's WASM access while the user waits on a
+  // consume verdict.
+  //
+  // Keyed on the stage rather than on `reason === 'watchdog'` because the
+  // mechanism answers a different question and gets both cases wrong: a
+  // watchdog-evicted PROVE would skip a sync that is perfectly safe to run (the
+  // prove was what parked, and losing freshness can turn a landed consume into a
+  // Failed row), while a pre-flight sync killed by the offscreen dispatch
+  // deadline is an `OperationAbortedError` and would still dispatch a doomed
+  // second sync. Same equivalence `cancelTransactionAfterPipelineStopped` already
+  // draws between the two kill shapes on this path.
+  //
+  // Skipping costs only freshness, never safety: the sync is best-effort inside
+  // `verifyConsumeLanded` for exactly that reason, and a stale read can only
+  // under-report "landed", which fails safe.
+  const committed = await Repo.transactions.where({ id: transaction.id }).first();
+  const freshSyncWorthTrying = committed?.stage !== 'syncing';
+  const verdict = await verifyConsumeLanded(consumeTx, freshSyncWorthTrying);
   // In flight: submitted and applied locally, block not committed yet. Neither
   // terminal state is honest, so leave the row for the reaper (see above).
   if (verdict === 'processing') return true;
@@ -874,7 +905,7 @@ export const generateTransaction = async (
   // catch block which cancels the transaction — this is intentional fail-fast behavior,
   // since the transaction can't be submitted without network anyway
   await setTransactionStage(transaction.id, 'syncing');
-  await withWasmClientLock(async () => midenClientProxy.syncState());
+  await syncUnderBoundedLock();
 
   // Mark transaction as in progress
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
@@ -1076,10 +1107,17 @@ export const generateTransaction = async (
       // there would broadcast the transfer a second time. Falls through to the
       // funds-safe terminal path instead.
       const currentRow = await Repo.transactions.where({ id: transaction.id }).first();
+      // Both kill shapes, matching `cancel.ts` and the locked-vault gate below: a
+      // requeue re-broadcasts, so the classifier that permits one must name the whole
+      // abandonment class rather than half of it. (Every `OperationAbortedError` that
+      // can carry a guardian pipeline today is produced next to a realm teardown, so
+      // the pipeline really is dead and the requeue would be legitimate — this is the
+      // invariant made local rather than inherited from that adjacency.)
+      const abandonedWrite = isWasmClientPoisonedError(error) || isOperationAbortedError(error);
       if (
         transaction.delegateTransaction === true &&
         currentRow?.stage === 'proving' &&
-        !isWasmClientPoisonedError(error) &&
+        !abandonedWrite &&
         REQUEUEABLE_ON_PENDING_CONFLICT.has(transaction.type)
       ) {
         console.warn('[Guardian] remote prove failed pre-submit — requeueing for a later cycle', error);
@@ -1470,6 +1508,20 @@ const ensureGuardianRecallableSendRequestBytes = async (
 };
 
 /**
+ * Refuse to keep driving a guardian write whose lock hold is gone.
+ *
+ * An eviction rejects the holder's promise but does NOT stop its callback, so a
+ * pipeline parked on a network round trip resumes and would run its next WASM call
+ * with no mutex held, concurrently with whoever legitimately holds it — the
+ * double-borrow the lock exists to prevent. Only ever called at points that are
+ * provably pre-submit, so failing here cannot orphan a broadcast transaction.
+ */
+const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
+  if (getCurrentWasmLockHold() === hold) return;
+  throw new WasmClientPoisonedError('watchdog', new Error(`guardian pipeline abandoned ${where}`));
+};
+
+/**
  * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
  * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
  * slice 6a).
@@ -1515,6 +1567,14 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
   return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
+    // The client build is the LONGEST parking await in this hold — `getMidenClient`
+    // with options always disposes and rebuilds, and the fresh client's eager
+    // genesis fetch goes to the same node everything else here is waiting on. The
+    // offscreen copy of this pipeline checks the hold right after its own build for
+    // that reason; today this copy is covered only incidentally, because a poison
+    // bumps the singleton's generation and hands a raced build back terminated.
+    // Re-deriving it here makes the guarantee local instead of inherited.
+    assertStillHoldingLock(hold, 'after the client build');
     await setStage('executing');
     // #784: execute AT the proposal's anchored reference block, not the current
     // sync height. The co-signatures were collected over a summary that binds
@@ -1532,6 +1592,11 @@ const runGuardianPipeline = async (
     } finally {
       freeChainAnchor(anchor);
     }
+    // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
+    // during `executeRequest` (a network round trip on the normal ceiling) abandons
+    // this callback instead of stopping it, and mobile/desktop run THIS copy — the
+    // platform #777 was reported on.
+    assertStillHoldingLock(hold, 'before proving');
     await setStage('proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -1585,6 +1650,7 @@ const runGuardianPipeline = async (
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
+    assertStillHoldingLock(hold, 'before submit');
     await setStage('submitting');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();
@@ -2198,8 +2264,34 @@ export const generateTransactionsLoop = async (
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
 
-  // Import any notes needed for queued transactions
-  await importAllNotes();
+  // Import any notes needed for queued transactions.
+  //
+  // Isolated from the rest of the lap by its OWN try/catch, which is the point.
+  // Unguarded — and it runs ahead of the lap's own try — a throw here aborted the
+  // whole lap into the caller's bare catch: no queued transaction picked up, no row
+  // failed, nothing but a log line, for as long as the import kept failing. Every
+  // driver funnels through this one loop, so that is the whole pipeline: no send,
+  // no swap, no claim, in any realm.
+  //
+  // Continuing costs the dependent row instead, and that trade is deliberate.
+  // `queueNoteImport` is followed by a consume of that note, so a lap that
+  // proceeds picks it up, cannot find the note, and marks it Failed. But a Failed
+  // consume is recoverable — the note stays claimable and a later auto-consume
+  // re-initiates it, with no double-payment risk, because nothing was ever
+  // submitted — whereas a skipped lap blocks money movement wallet-wide AND
+  // reaps that same consume anyway once `cancelStaleQueuedTransactions` reaches
+  // MAX_QUEUED_AGE, half an hour later, under a message that points nowhere near
+  // the note queue.
+  //
+  // Skipping was tried (round 7 of the review on #777) and is strictly worse for
+  // a second reason: an eviction ABANDONS the import hold mid-loop, so before the
+  // banking fix in `importAllNotes` no attempt was spent and the next lap's queue
+  // was byte-identical — the skip had no exit condition at all.
+  try {
+    await importAllNotes();
+  } catch (e) {
+    logger.warning('Failed to import queued notes; continuing with the transaction lap', e);
+  }
 
   // Wait for other in progress transactions
   const inProgressTransactions = await getTransactionsInProgress();
@@ -2250,15 +2342,23 @@ export const generateTransactionsLoop = async (
     // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
     // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
     // rather than marking it Failed.
-    // The poison exclusion has to sit on the WHOLE condition, not just inside
+    // The abandonment exclusion has to sit on the WHOLE condition, not just inside
     // `isLockedError` (issue #775). `authReason` is ambient client state, read
     // after the fact and not derived from `e` at all, so an eviction paired with
     // a stale `locked` reason would take the defer branch — which requeues the
     // row as a fresh write while the abandoned pipeline can still submit,
     // turning one send into two payments. The requeue's "strictly pre-submit"
-    // justification below is exactly what an eviction breaks.
+    // justification below is exactly what an abandonment breaks.
+    //
+    // BOTH kill shapes, not just poison. An offscreen deadline arrives as
+    // `OperationAbortedError` from the identical point and is equally still
+    // running — `cancel.ts` treats the two as one equivalence class for exactly
+    // this reason, and `dispatchOffscreenWrite` re-tags whatever it caught with
+    // `reason:'locked'` whenever the op's sign reported locked, so either shape
+    // can reach `isLockedError` here.
     const authReason = await readLastAuthReason();
-    if (!isWasmClientPoisonedError(e) && (authReason === 'locked' || isLockedError(e))) {
+    const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+    if (!abandoned && (authReason === 'locked' || isLockedError(e))) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly

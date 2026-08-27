@@ -15,6 +15,7 @@ _g.__mainTest = {
   broadcast: jest.fn(),
   storeWatch: jest.fn(),
   doSync: jest.fn(),
+  resetSyncBackoffForEndpointChange: jest.fn(),
   startTransactionProcessing: jest.fn(),
   resetMidenClient: jest.fn(),
   loadEndpointOverrides: jest.fn(),
@@ -42,7 +43,8 @@ jest.mock('lib/miden/back/store', () => ({
 }));
 
 jest.mock('./sync-manager', () => ({
-  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force)
+  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force),
+  resetSyncBackoffForEndpointChange: () => (globalThis as any).__mainTest.resetSyncBackoffForEndpointChange()
 }));
 
 jest.mock('./transaction-processor', () => ({
@@ -121,10 +123,31 @@ const connectivityMock: any = jest.requireMock('lib/miden/activity/connectivity-
 // getInputNoteDetails) through the `lib/...` alias of miden-client, which jest
 // mocks separately from the relative specifier below; delegate the alias to the
 // same mock so the proxy's flag-off passthrough hits it.
+// `queueNoteImport` is the manual import's only safety net when the pipeline is
+// abandoned, so it has to be observable rather than reaching the real storage queue.
+const mockQueueNoteImport = jest.fn(async (_bytes: string) => {});
+jest.mock('lib/miden/activity', () => ({
+  queueNoteImport: (bytes: string) => mockQueueNoteImport(bytes)
+}));
+
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__mainTest.client,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  getCurrentWasmLockHold: () => (globalThis as any).__mainTest.currentHold ?? null,
+  // Models hold OWNERSHIP: the manual note import re-checks its hold between the import
+  // and the trailing sync, so a mock that hands out no hold makes that guard throw on
+  // every import and one that never revokes it makes the guard untestable.
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = {};
+    (globalThis as any).__mainTest.currentHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if ((globalThis as any).__mainTest.currentHold === hold) {
+        (globalThis as any).__mainTest.currentHold = null;
+      }
+    }
+  },
   runWhenClientIdle: () => {},
   resetMidenClient: async () => (globalThis as any).__mainTest.resetMidenClient()
 }));
@@ -336,6 +359,15 @@ describe('processRequest', () => {
     expect(res.type).toBe(WalletMessageType.ReloadEndpointOverridesResponse);
     expect(mockLoadEndpointOverrides).toHaveBeenCalledTimes(1);
     expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
+    // And the breaker/fuse state, which is a set of findings about the node the wallet
+    // just stopped pointing at. A fused SW that keeps them syncs once per 30 min against
+    // the new endpoint and withholds the success that is the fuse's only exit (#777).
+    expect(_g.__mainTest.resetSyncBackoffForEndpointChange).toHaveBeenCalledTimes(1);
+    // Before the client is replaced, so the next probe cannot be turned away by a
+    // window the old node earned.
+    expect(_g.__mainTest.resetSyncBackoffForEndpointChange.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResetMidenClient.mock.invocationCallOrder[0]
+    );
   });
 
   // `resetMidenClient()` disposes only THIS realm's singleton. Flag-on
@@ -364,6 +396,34 @@ describe('processRequest', () => {
     expect(res.noteId).toBe('note-id-1');
     expect(mockClient.importNoteBytes).toHaveBeenCalled();
     expect(mockClient.syncState).toHaveBeenCalled();
+  });
+
+  it('ImportNoteBytesRequest stops before the sync when the hold was evicted mid-import, and queues the bytes (#777)', async () => {
+    // The import is a network round trip; an eviction during it hands the mutex on
+    // without stopping this callback, so the trailing `syncState` would be a WASM call
+    // with no lock held. Throwing instead takes the catch that queues the bytes, so the
+    // note — whose only copy can be those bytes — is preserved either way, and the
+    // background pass re-imports it under a hold that is actually its own.
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockClient.importNoteBytes.mockImplementationOnce(async () => {
+      (globalThis as any).__mainTest.currentHold = null;
+      return 'note-id-1';
+    });
+    mockClient.syncState.mockClear();
+    mockQueueNoteImport.mockClear();
+
+    await expect(
+      dispatch({
+        type: WalletMessageType.ImportNoteBytesRequest,
+        noteBytes: Buffer.from([1, 2, 3]).toString('base64')
+      })
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    expect(mockClient.syncState).not.toHaveBeenCalled();
+    // Not lost: an abandoned import is exactly the "we do not know whether this landed"
+    // case the retry queue exists for.
+    expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
+    errorSpy.mockRestore();
   });
 
   it('ExportNoteRequest returns base64-encoded export bytes', async () => {

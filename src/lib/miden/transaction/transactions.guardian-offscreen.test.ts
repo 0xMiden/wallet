@@ -208,11 +208,23 @@ jest.mock('lib/miden/guardian', () => ({
   MultisigService: { buildColdMultisigService: (...a: unknown[]) => mockBuildColdMultisigService(...a) }
 }));
 
-const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
+// See the same block in transactions.guardian.test.ts: the pipeline re-checks hold
+// ownership before proving and before submit (#777), so the mock must own a hold.
+let currentHold: object | null = null;
+const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
+  const hold = { mock: 'wasm-lock-hold' };
+  currentHold = hold;
+  try {
+    return await fn(hold);
+  } finally {
+    if (currentHold === hold) currentHold = null;
+  }
+});
 const mockGetMidenClient = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+  getCurrentWasmLockHold: () => currentHold,
   withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn(),
   getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a)
 }));

@@ -74,6 +74,13 @@ export interface GuardianFaultTestApi {
    * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /**
+   * How many requests the currently-armed NETWORK faults have injected into,
+   * across both seams (context.route and the in-realm fetch wrapper). Arming is
+   * best effort, so a spec that asserts an ABSENCE under a fault should assert a
+   * non-zero count first — otherwise a fault that never landed reads as a pass.
+   */
+  networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
 }
 
@@ -609,6 +616,7 @@ async function launchWalletInstance(
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves

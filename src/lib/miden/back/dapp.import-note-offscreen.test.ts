@@ -20,6 +20,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
 const _g = globalThis as any;
@@ -177,6 +178,7 @@ jest.mock('webextension-polyfill', () => {
 });
 
 import * as dapp from './dapp';
+import { OperationAbortedError } from './offscreen-codec';
 
 const STORAGE_KEY = 'dapp_sessions';
 const SESSION = {
@@ -256,6 +258,64 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
     // The response carries the id the OFFSCREEN import returned, not the raw client's.
     expect(res.type).toBe(MidenDAppMessageType.ImportPrivateNoteResponse);
     expect((res as any).noteId).toBe('OFFSCREEN-NOTE-ID');
+  });
+
+  it.each([
+    ['a watchdog eviction', () => new WasmClientPoisonedError('watchdog')],
+    ['an offscreen deadline kill', () => new OperationAbortedError('op-7', 'deadline')]
+  ])('queues the note for background retry after %s (#777)', async (_label, makeError) => {
+    // The queue exists for exactly this: "we do not know whether this landed". Both kill
+    // shapes say that, and before #777 an eviction took the not-transient path and dropped
+    // the bytes from the one mechanism built to preserve them — which for a private note
+    // the dApp handed over can be the only surviving copy of the funds it carries.
+    //
+    // Honest about what each leg proves: the POISON leg falsifies the gate (its message is
+    // closed wallet-authored text that `isLikelyNetworkError` does not match, so the clause
+    // is the only thing queueing it). The ABORT leg does not, because 'aborted' is in its
+    // message and the classifier tokenises on that — it is a redundancy check, kept so the
+    // shape stays covered if that token list is ever re-tuned.
+    const { queueNoteImport } = require('lib/miden/activity');
+    queueNoteImport.mockClear();
+    queueNoteImport.mockResolvedValue(undefined);
+    mockProxyImportNoteBytes.mockRejectedValueOnce(makeError());
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestImportPrivateNote('https://miden.xyz', {
+            type: MidenDAppMessageType.ImportPrivateNoteRequest,
+            sourcePublicKey: 'miden-account-1',
+            note: 'aGVsbG8='
+          } as never),
+        MidenMessageType.DAppImportPrivateNoteConfirmationRequest
+      )
+    ).rejects.toBeDefined();
+
+    expect(queueNoteImport).toHaveBeenCalledTimes(1);
+    expect(queueNoteImport).toHaveBeenCalledWith('aGVsbG8=');
+  });
+
+  it('does NOT queue the note when the import failed for a non-abandonment reason', async () => {
+    // The falsifier for the pair above: a deterministic rejection is not "unknown
+    // whether it landed", and queueing it would retry a note the SDK refused on its
+    // merits every lap.
+    const { queueNoteImport } = require('lib/miden/activity');
+    queueNoteImport.mockClear();
+    mockProxyImportNoteBytes.mockRejectedValueOnce(new Error('malformed note'));
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestImportPrivateNote('https://miden.xyz', {
+            type: MidenDAppMessageType.ImportPrivateNoteRequest,
+            sourcePublicKey: 'miden-account-1',
+            note: 'aGVsbG8='
+          } as never),
+        MidenMessageType.DAppImportPrivateNoteConfirmationRequest
+      )
+    ).rejects.toBeDefined();
+
+    expect(queueNoteImport).not.toHaveBeenCalled();
   });
 
   it('a decline never touches the proxy import path', async () => {

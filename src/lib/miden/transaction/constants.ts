@@ -1,3 +1,4 @@
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStage } from '../db/types';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -124,22 +125,49 @@ export function isProverProcedureMismatch(error: unknown): boolean {
 }
 
 /**
+ * A lock-recovery eviction or an offscreen kill that provably landed BEFORE the row
+ * built a write — `cancel.ts` derives that from the committed stage plus an unstamped
+ * `processingStartedAt`, and refuses to record a may-have-submitted crossing for it.
+ *
+ * Kept distinct from the hedged copy above because "left in an unknown state, check your
+ * activity" is false here and the falsehood costs the user something: the row it lands
+ * on is one Retry can safely repeat, and the message talks them out of it. The extension
+ * reaches this on a routine `deadline-no-kill` — a non-critical sync deadline that
+ * deliberately kills nothing — so it is not a rare shape.
+ */
+export const TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR =
+  'The wallet had to recover its transaction engine before this transaction was prepared, so nothing was ' +
+  'submitted. Please try again.';
+
+/**
  * Map a raw thrown error (+ the stage the transaction failed in) to the
  * message persisted on `ITransaction.error`. Falls back to the raw
  * `name: message` string when no friendlier mapping applies.
+ *
+ * `abandonedPreWrite` is the caller's structural finding that an abandonment happened
+ * before the row could have submitted; only `cancel.ts` can derive it, since it needs
+ * the committed row rather than the stage alone.
  */
 export function resolveTransactionErrorMessage(
   error: unknown,
   stage?: ITransactionStage,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  abandonedPreWrite?: boolean
 ): string {
   const raw = formatRawTransactionError(error);
   // A lock-recovery eviction is checked FIRST because every mapping below reads
   // the stage, and the stage is exactly what an eviction makes unreliable: it
   // says where the pipeline was when its caller was rejected, not where the
   // still-running pipeline got to (issue #775).
-  if (isWasmClientPoisonedError(error)) {
-    return TRANSACTION_ENGINE_RECOVERED_ERROR;
+  // BOTH kill shapes. An offscreen deadline kill arrives as `OperationAbortedError`
+  // from the identical point and is equally still running, and `cancel.ts` stamps
+  // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
+  // try again" on the very row whose Retry then refuses with "may already have been
+  // submitted". Two contradictory statements about the same money, from one error.
+  if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) {
+    return abandonedPreWrite === true
+      ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+      : TRANSACTION_ENGINE_RECOVERED_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

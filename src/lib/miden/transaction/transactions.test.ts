@@ -1580,6 +1580,42 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx3.status).toBe(ITransactionStatus.Completed);
     expect(tx3.transactionId).toBe('mock-tx-hash');
     expect(mockSyncState).toHaveBeenCalled();
+
+    // ---- Phase 4: the pre-flight sync is EVICTED by the watchdog (#777) ----
+    // The sync ceiling makes this the likeliest place for an eviction to land,
+    // and an eviction ABANDONS its operation rather than cancelling it — so the
+    // funds-relevant question is what stage the row is in when the recovery
+    // reads it. `syncUnderBoundedLock` runs BEFORE the flip to
+    // GeneratingTransaction, while the row still reads 'syncing', which is the
+    // one stage whose pre-write property is provable. Anything that let
+    // 'sending' be stamped first would make Retry permanently refuse a send that
+    // demonstrably never built a request.
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+    networkUp = true;
+    mockSyncState.mockClear();
+    mockSyncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    txStore.push({
+      id: 'tx-4',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Sending',
+      requestBytes: undefined
+    });
+
+    const result4 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result4).toBe(false);
+    const tx4 = txStore.find((t: any) => t.id === 'tx-4');
+    expect(tx4.status).toBe(ITransactionStatus.Failed);
+    // Still 'syncing': the eviction never reached the 'sending' stamp.
+    expect(tx4.stage).toBe('syncing');
+    // And therefore no permanent crossing, so Retry stays available.
+    expect(tx4.mayHaveSubmitted).toBeFalsy();
+    expect(tx4.processingStartedAt).toBeFalsy();
   });
 });
 

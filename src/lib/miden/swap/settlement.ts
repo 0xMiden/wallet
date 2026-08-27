@@ -9,12 +9,21 @@ import {
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
+import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
 export { classifySwapOrderNotes } from './classification';
+
+/**
+ * The settlement tick's hold is a timer-driven read, so it takes the SYNC ceiling rather
+ * than the five-minute backstop meant for user-initiated writes: nobody is waiting on it,
+ * and every second it spends parked is a second the realm's only WASM mutex is unusable.
+ */
+const WASM_SETTLEMENT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'swap-settlement' };
 
 export interface SwapSettlementResult {
   queuedTransactionIds: string[];
@@ -170,13 +179,29 @@ export async function settleSwapOrders(
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
   }
 
-  const managedNotes = await withWasmClientLock(async () => {
+  // Fused and bounded like every other unattended probe (#777). This runs on a 3s
+  // frontend interval and rebuilds the client whenever the slot is empty — which after
+  // any eviction it is — so on a parked node it re-enters the park every lap, leaking the
+  // poisoned client each time. It shares the `claimable-notes` key deliberately: it reads
+  // the same consumable notes from the same endpoint through the same proxy, so the two
+  // cannot park independently and treating them as one probe is what keeps a success on
+  // either from erasing the other's evidence.
+  if (isSyncFused('claimable-notes')) {
+    return { queuedTransactionIds: [], managedNoteIds: new Set() };
+  }
+
+  const managedNotes = await withWasmClientLock(async hold => {
     // Both the consumable-note read (slice 4) and the per-order PSWAP lineage inside
     // classifySwapOrderNotes (slice 7a) now route through the proxy, so flag-ON they
     // read the offscreen client's canonical state; no live client is threaded here.
     // The caller lock still serializes the flag-OFF inline reads (byte-identical).
     const rawNotes = await midenClientProxy.getConsumableNotes(accountId);
-    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders);
+    // An eviction during that read hands the mutex on while this callback keeps going;
+    // the lineage read below is more WASM work, so it would run unmutexed.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('swap settlement abandoned after the note read'));
+    }
+    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders, hold);
     return rawNotes.flatMap<ConsumableNote>(note => {
       const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
@@ -194,6 +219,14 @@ export async function settleSwapOrders(
         }
       ];
     });
+  }, WASM_SETTLEMENT_LOCK_OPTIONS).catch((e: unknown) => {
+    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
+    else noteNonEvictionSyncFailure('claimable-notes');
+    throw e;
   });
+  // A probe that reports only failures is a ratchet: its evidence could never be
+  // withdrawn by the probe that produced it, and it relied on the claimable-notes poll
+  // happening to run and clear the shared key for it.
+  noteSyncSuccess('claimable-notes');
   return reconcileSwapOrderNotes(accountId, managedNotes, delegateTransaction, undefined, orders);
 }

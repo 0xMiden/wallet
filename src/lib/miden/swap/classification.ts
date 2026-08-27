@@ -4,7 +4,9 @@ import * as Repo from 'lib/miden/repo';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
+import { getCurrentWasmLockHold, type WasmLockHold } from '../sdk/miden-client';
 import type { PswapLineageDto } from '../sdk/pswap-lineage';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import type { SwapOrderNoteMetadata } from '../types';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -70,7 +72,14 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
 export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
-  preloadedOrders?: SwapOrder[]
+  preloadedOrders: SwapOrder[] | undefined,
+  /**
+   * The caller's lock hold. REQUIRED rather than optional: every call site runs inside a
+   * hold, and an optional guard is one a future caller disables by forgetting it — the
+   * loop below is the longest unguarded stretch of WASM work in the wallet, so that is
+   * not a mistake the type should permit.
+   */
+  hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
@@ -82,6 +91,16 @@ export async function classifySwapOrderNotes(
   // is a separate offscreen op serialized by the offscreen doc's own mutex, so the
   // sequential await preserves the one-at-a-time invariant either way.
   for (const order of orders) {
+    // Every caller runs this inside a WASM lock hold, and the loop below is one WASM
+    // round trip PER ORDER — so it is the longest-running unguarded stretch of WASM work
+    // in the wallet, and the count is the user's open-order count rather than a constant.
+    // A watchdog eviction during any of those round trips hands the mutex to a successor
+    // without stopping this loop, and the next iteration's lineage read would then borrow
+    // a client somebody else is inside. Guarding at the callers' boundaries could only
+    // ever catch an eviction that landed before the loop started or after it finished.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('swap lineage classification abandoned mid-loop'));
+    }
     const orderId = orderIdString(order.extraInputs.orderId);
     let lineage: PswapLineageDto | null = null;
     try {

@@ -25,7 +25,8 @@ import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -106,8 +107,20 @@ export class MultisigService {
       // that is never terminated). Reusing the singleton also lets the multisig
       // lib's rawClientCache WeakMap (keyed by this client instance) hit across
       // every init, so at most ONE shared raw worker is created total.
-      const { multisig, client } = await withWasmClientLock(async () => {
+      const { multisig, client } = await withWasmClientLock(async hold => {
         const webClient = (await getMidenClient()).client;
+        // The build above is an await, and on the #777 path it is the long one: this
+        // initializer is reachable from the unattended guardian sync loop, whose whole
+        // problem is a client that parks on a node that never answers. If the hold was
+        // evicted while it ran, the mutex is already somebody else's and `load()` below —
+        // a WASM call on that borrowed client — is the double borrow the lock exists to
+        // prevent. Strictly pre-write, so failing here costs a retry and nothing else.
+        if (getCurrentWasmLockHold() !== hold) {
+          throw new WasmClientPoisonedError(
+            'watchdog',
+            new Error('guardian service init abandoned after the client build')
+          );
+        }
         registerGuardianOrigin(guardianEndpoint);
         const multisigClient = new MultisigClient(webClient, {
           guardianEndpoint,
@@ -336,7 +349,10 @@ export class MultisigService {
    * AHEAD, so this cannot pull a good local account backwards.
    */
   async adoptGuardianStateOnce(): Promise<void> {
-    await withWasmClientLock(() => this.multisig.syncState());
+    await withWasmClientLock(() => this.multisig.syncState(), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'guardian-adopt'
+    });
   }
 
   sync(): Promise<void> {
@@ -365,7 +381,15 @@ export class MultisigService {
     let realignAttempted = false;
     for (;;) {
       try {
-        await withWasmClientLock(() => this.multisig.syncState());
+        // Bounded like every other pure-sync hold (#777): this is a guardian
+        // HTTP round-trip with no deadline of its own, and it is reached from the
+        // idle loop, so on the default 5-minute backstop one unresponsive
+        // guardian parked the whole app's WASM access — and did it once per
+        // retry in this loop.
+        await withWasmClientLock(() => this.multisig.syncState(), {
+          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+          label: 'guardian-sync'
+        });
         this.syncRetryCount = 0; // Reset retry count on successful sync
         return;
       } catch (error) {

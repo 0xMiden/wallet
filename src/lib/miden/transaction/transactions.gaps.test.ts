@@ -24,6 +24,11 @@ import {
   waitForTransactionCompletion
 } from './index';
 
+// The lock's HOLD, owned for the duration of the callback: the guardian pipeline
+// re-checks ownership before proving and before submit (#777).
+// eslint-disable-next-line no-var
+var gapsHold: object | null = null;
+
 const _g = globalThis as any;
 _g.__txGapTest = {
   rows: [] as any[],
@@ -107,7 +112,18 @@ jest.mock('../sdk/miden-client', () => ({
     waitForTransactionCommit: mockWaitForCommit,
     sendPrivateNote: mockSendPrivateNote
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  // Hands out a hold and owns it for the duration: the guardian pipeline re-checks
+  // ownership before proving and before submit (#777).
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    gapsHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (gapsHold === hold) gapsHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => gapsHold,
   withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
 }));
 
@@ -668,6 +684,40 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
+    // The whole pipeline funnels through this one loop, so aborting the lap on an
+    // import failure stops every send, swap and claim in the wallet — and an
+    // eviction abandons the import hold, so nothing about the queue changes and the
+    // next lap fails the same way. The dependent consume is the smaller loss: it is
+    // marked Failed with nothing submitted, the note stays claimable, and a later
+    // auto-consume re-initiates it.
+    //
+    // `initiatedAt` is current so neither reaper can be what moves the row: only
+    // the pickup can.
+    const { importAllNotes } = require('../activity/notes');
+    importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
+    txStore.push({
+      id: 'queued-behind-a-bad-import',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([9])
+    });
+    const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
+
+    await generateTransactionsLoop(
+      jest.fn(async () => new Uint8Array()),
+      false,
+      guardianProvider
+    );
+
+    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
+  });
+
   it('returns undefined when there are no queued or in-progress transactions', async () => {
     const guardianProvider: any = { getGuardianClient: async () => null };
     const result = await generateTransactionsLoop(jest.fn(), false, guardianProvider);
@@ -1038,6 +1088,51 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       restore();
     }
   });
+
+  it.each([
+    ['the pre-flight sync itself is killed', true, 1],
+    ['the consume is killed after pickup', false, 2]
+  ])(
+    're-syncs before adjudicating only when the sync was not what died — %s (#777)',
+    async (_label, killDuringSync, expectedSyncs) => {
+      // The adjudication normally opens with a fresh sync so the note state is
+      // current. When the thing that just died IS the pre-flight sync, that fresh
+      // sync is the worst possible next move: the SDK coalesces concurrent syncs
+      // onto one in-flight promise, and after a watchdog eviction the promise it
+      // abandoned is still the in-flight one — so the "fresh" sync re-attaches to a
+      // dead promise and parks the wallet's only WASM lock for another full
+      // ceiling. The committed stage is what distinguishes the two cases; the kill
+      // shape is not, which is why an evicted PROVE still gets its fresh sync.
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      const kill = () => new WasmClientPoisonedError('watchdog');
+      const syncState = jest.fn(async () => {
+        if (killDuringSync) throw kill();
+      });
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState,
+        consumeNoteId: jest.fn(async () => {
+          throw kill();
+        }),
+        getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+      });
+      const id = `nk-sync-${killDuringSync}`;
+      pushConsume(id);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+
+      // 1 = the pre-flight sync only (the adjudication skipped its own);
+      // 2 = pre-flight plus the adjudication's.
+      expect(syncState).toHaveBeenCalledTimes(expectedSyncs);
+      // Either way the row is still adjudicated — skipping the sync must not skip
+      // the read.
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
+    }
+  );
 
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
     // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
