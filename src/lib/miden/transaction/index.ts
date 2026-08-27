@@ -96,7 +96,12 @@ import {
 import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
-import { extractSdkErrorCode, isApplyAfterSubmitError, isTransactionDiscardedError } from '../sdk/sdk-error-code';
+import {
+  errorMessageParts,
+  extractSdkErrorCode,
+  isApplyAfterSubmitError,
+  isTransactionDiscardedError
+} from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
@@ -754,12 +759,30 @@ async function reconcileStructuralApplyFailure(
   // rebuild a MultisigService here — `getOrCreateMultisigService` loads from
   // the OLD guardian. Completion handles the undefined-service case by
   // registering on the new guardian directly.
+  //
+  // When the row already recorded that it took the direct path, don't even ask.
+  // The build can only fail, and it is not free to let it: the operator shape
+  // that produced the unreachable verdict is typically one that accepts the
+  // connection and goes silent, so this call would hold the WASM lock to the
+  // 5-minute watchdog and come back as `WasmClientPoisonedError` — which is
+  // deliberately NOT an unreachable verdict, so it would rethrow, the caller
+  // would log "reconcile failed; cancelling", and a rotation that IS on chain
+  // would end Failed with the vault still naming the dead operator. Bounded by
+  // the same deadline as the switch arms for a row without the marker (an older
+  // row, or a reconcile on the coordinated path).
   let service: MultisigService | undefined;
-  try {
-    service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
-  } catch (error) {
-    if (!isGuardianUnreachableError(error)) throw error;
-    console.warn('[Guardian] old guardian unreachable during switch reconcile — finalizing directly', error);
+  const tookDirectPath =
+    tx.type === 'switch-guardian' && (tx as SwitchGuardianTransaction).extraInputs?.switchedDirectly === true;
+  if (!tookDirectPath) {
+    try {
+      service = await withOutgoingGuardianDeadline(
+        () => getOrCreateMultisigService(tx.accountId, guardianProvider),
+        'loading the outgoing guardian service for the switch reconcile'
+      );
+    } catch (error) {
+      if (!isGuardianUnreachableError(error)) throw error;
+      console.warn('[Guardian] old guardian unreachable during switch reconcile — finalizing directly', error);
+    }
   }
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
 }
@@ -1672,6 +1695,22 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
   });
 
 /**
+ * One-line description of a classified guardian failure, for the audit field on
+ * the row. Length-capped because this is persisted: a wasm trap's message can run
+ * to kilobytes, and a row is not the place to keep one. The HTTP status is
+ * included when present — it is what the unreachability verdict turned on, so a
+ * later reader can judge whether that verdict was right.
+ */
+const describeError = (error: unknown): string => {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
+      ? `HTTP ${error.status}: `
+      : '';
+  const message = errorMessageParts(error)[0] ?? String(error);
+  return `${status}${message}`.slice(0, 300);
+};
+
+/**
  * DIRECT on-chain guardian switch — the fallback when the OUTGOING guardian is
  * unreachable. The proposal flow needs the old guardian as a coordination
  * mailbox (service load, proposal push, signature accumulation), but the
@@ -1688,7 +1727,8 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
 const generateDirectSwitchGuardianTransaction = async (
   transaction: SwitchGuardianTransaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  reason: string
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a =>
     sameWalletAccountId(a.publicKey, transaction.accountId)
@@ -1696,6 +1736,26 @@ const generateDirectSwitchGuardianTransaction = async (
   if (!walletAccount) {
     throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
   }
+
+  // Mark the row BEFORE anything can fail, in both dexie and the in-memory copy
+  // completion reads. The two paths leave different states behind on a partial
+  // failure, and the direct one acts on a VERDICT (the outgoing operator is
+  // unreachable) that can be wrong — so a row that cannot say which path it took,
+  // or why, is not diagnosable after the fact. Nothing branches on these fields.
+  transaction.extraInputs = {
+    ...transaction.extraInputs,
+    switchedDirectly: true,
+    directSwitchReason: reason
+  };
+  await Repo.transactions
+    .where({ id: transaction.id })
+    .modify(row => {
+      row.extraInputs = transaction.extraInputs;
+    })
+    .catch(markError => {
+      // Audit-only: never let it cost the rotation.
+      console.warn('[Guardian] could not record the direct-switch marker on the row (non-fatal):', markError);
+    });
 
   // Hot + cold both sign at build time — surface that as the signing stage.
   await setTransactionStage(transaction.id, 'signing-proposal');
@@ -1904,7 +1964,12 @@ const generateGuardianTransaction = async (
         // Reachable-guardian errors (401/409/…) keep the normal handling.
         if (!isGuardianUnreachableError(error)) throw error;
         console.warn('[Guardian] outgoing guardian unreachable — switching directly on-chain:', error);
-        await generateDirectSwitchGuardianTransaction(sgTx, signCallback, guardianProvider);
+        await generateDirectSwitchGuardianTransaction(
+          sgTx,
+          signCallback,
+          guardianProvider,
+          `outgoing guardian unreachable before the proposal was pushed: ${describeError(error)}`
+        );
         return;
       }
       break;
@@ -2170,8 +2235,20 @@ const generateGuardianTransaction = async (
       // submission has happened on this path yet (the proposal is only a delta on
       // the guardian, and the direct switch submits its own transaction), so
       // there is no co-signature the chain may be about to consume.
+      //
+      // Deadline-bounded like the calls above it, and for a sharper reason: the
+      // verdict that put us here is that this operator is unreachable, and the
+      // shape that most often produces that verdict is one that accepts the
+      // connection and never replies. An unbounded best-effort call against it
+      // does not merely delay the fallback, it replaces it — the row sits at
+      // `signing-proposal` forever, and `switch-guardian` has no requeue and no
+      // Retry. A cleanup step must not be able to cost more than the thing it
+      // cleans up.
       try {
-        await service.abandonCandidate(proposalResult.nonce);
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(proposalResult.nonce),
+          'abandoning the pending delta on the outgoing guardian'
+        );
       } catch (abandonError) {
         console.warn('[Guardian] could not abandon the pending delta before the direct switch (non-fatal)', {
           nonce: proposalResult.nonce,
@@ -2181,7 +2258,8 @@ const generateGuardianTransaction = async (
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,
-        guardianProvider
+        guardianProvider,
+        `outgoing guardian unreachable at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }

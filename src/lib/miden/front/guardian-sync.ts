@@ -122,7 +122,35 @@ const notifyOutageListeners = (): void => {
   for (const listener of outageListeners) listener();
 };
 
-/** Subscribe to outage-flag changes (useSyncExternalStore-compatible). */
+/**
+ * When this account's guardian last completed a sync.
+ *
+ * Guardian Settings used to render its "Last sync" row from the store's
+ * `lastSyncedAt`, which is the WALLET-WIDE stamp: it is rewritten on every
+ * backend `StateUpdated`, and a healthy chain sync produces those whether or not
+ * the guardian answered. So the same screen could show the Offline pill beside a
+ * "3s ago" — the pill honest, the row describing a different subsystem's
+ * success. A guardian-scoped stamp is the only value that row can be read as
+ * meaning.
+ *
+ * Recorded only on a COMPLETED sync, not on any proof-of-life: a 401 or a 429
+ * tells us the operator is up (and does clear the outage flag), but it did not
+ * sync anything, and "last sync" advancing while every sync fails is the same
+ * lie in a smaller font.
+ *
+ * Session-local, like the outage flag: it starts empty after a popup reopen and
+ * reads as "never" until the first tick lands (~3s). That is a correct statement
+ * about this session rather than a persisted claim we cannot substantiate.
+ */
+const lastGuardianSyncAt = new Map<string, number>();
+
+/**
+ * Subscribe to guardian sync-state changes (useSyncExternalStore-compatible).
+ *
+ * Fires for the outage flag arming/clearing AND for a new successful-sync stamp,
+ * so a subscriber reading either sees both. Named for the outage because that
+ * was its first reader; the channel is the module's whole sync state.
+ */
 export function subscribeGuardianSyncOutage(listener: () => void): () => void {
   outageListeners.add(listener);
   return () => {
@@ -133,6 +161,11 @@ export function subscribeGuardianSyncOutage(listener: () => void): () => void {
 /** Is this account's guardian currently flagged as down? */
 export function isGuardianSyncOutage(accountPublicKey: string): boolean {
   return outageAccounts.has(accountPublicKey);
+}
+
+/** `Date.now()` of this account's last completed guardian sync, if any this session. */
+export function getGuardianLastSyncAt(accountPublicKey: string): number | undefined {
+  return lastGuardianSyncAt.get(accountPublicKey);
 }
 
 function recordGuardianServerFailure(accountPublicKey: string): void {
@@ -154,17 +187,32 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
 }
 
 /**
- * Test-only: reset the outage tracking between cases. Notifies subscribers, so a
- * `useSyncExternalStore` reader that outlives the reset cannot keep a snapshot
- * the module no longer agrees with.
+ * A sync COMPLETED: stand the outage down and stamp the time, in one
+ * notification. Kept as one function rather than a clear-then-stamp pair so a
+ * subscriber cannot observe the two halves separately (and so a recovering
+ * account does not fire two renders for one event).
+ */
+function recordSuccessfulGuardianSync(accountPublicKey: string): void {
+  consecutiveServerFailures.delete(accountPublicKey);
+  outageAccounts.delete(accountPublicKey);
+  lastGuardianSyncAt.set(accountPublicKey, Date.now());
+  notifyOutageListeners();
+}
+
+/**
+ * Test-only: reset every piece of this module's per-session sync state — the
+ * outage flag and its counter, the in-flight coalescing promise, the
+ * one-attempt-per-session registration heal, and the last-sync stamps. Notifies
+ * subscribers unconditionally, so a `useSyncExternalStore` reader that outlives
+ * the reset cannot keep a snapshot the module no longer agrees with.
  */
 export function __resetGuardianSyncOutageForTest(): void {
   consecutiveServerFailures.clear();
-  const hadOutage = outageAccounts.size > 0;
   outageAccounts.clear();
   syncInFlight = undefined;
   missingRegistrationHealed.clear();
-  if (hadOutage) notifyOutageListeners();
+  lastGuardianSyncAt.clear();
+  notifyOutageListeners();
 }
 
 /**
@@ -399,7 +447,7 @@ async function runGuardianAccountsSync(): Promise<void> {
       consecutiveAuthFailures.delete(account.publicKey);
       selfHealState.delete(account.publicKey);
       missingRegistrationHealed.delete(account.publicKey);
-      clearGuardianServerFailures(account.publicKey);
+      recordSuccessfulGuardianSync(account.publicKey);
 
       // Self-heal the update_guardian threshold-2 hardening: if a migrated
       // account's original hardening tx was dropped, it would otherwise sit at

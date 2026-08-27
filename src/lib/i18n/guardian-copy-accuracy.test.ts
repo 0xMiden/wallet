@@ -786,6 +786,48 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect([...LOCALES].sort()).toEqual([...EXPECTED_LOCALES].sort());
   });
 
+  // The guardian-unreachable banner. DeepL only re-translates a key when its
+  // ENGLISH source changes, so a bad machine translation is permanent until
+  // someone corrects it by hand — and a hand correction is just as permanent
+  // until someone reverts it by hand. These pin the corrections.
+  describe('connectivity banner translations', () => {
+    it('translates the unreachable title instead of shipping the English source', () => {
+      // de shipped the English string verbatim, which reads as an untranslated
+      // app rather than as a fallback.
+      const de = readMessages('de')['connectivityGuardianTitle']?.message ?? '';
+      expect(de).not.toBe(message('connectivityGuardianTitle'));
+      expect(de).toBe('Guardian nicht erreichbar');
+    });
+
+    it('says "change the Guardian", not "switch to Guardian"', () => {
+      // The CTA's object is the Guardian itself. Several locales rendered it as
+      // navigation TO something called Guardian ("Wechseln Sie zu Guardian",
+      // "Перейти на Guardian") or as a noun phrase ("Guardian de troca"), which
+      // describes a different action than the button performs.
+      const cta = (locale: string) => readMessages(locale)['connectivityGuardianCta']?.message ?? '';
+      expect(cta('de')).toBe('Guardian wechseln');
+      expect(cta('pt')).toBe('Trocar Guardian');
+      // "d’Guardian" elides before a consonant, which is ungrammatical; the
+      // wallet's own "Changer de portefeuille" is the pattern.
+      expect(cta('fr')).toBe('Changer de Guardian');
+      expect(cta('uk')).toBe('Змінити Guardian');
+    });
+
+    it('keeps the corrected flat bundles in step with messages.json', () => {
+      // The flat bundle is what the UI renders; messages.json is what the
+      // generator reads. A correction in one only is either invisible or gets
+      // regenerated away.
+      for (const locale of ['de', 'pt', 'fr', 'uk']) {
+        const flat: Record<string, string> = JSON.parse(
+          fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
+        );
+        for (const key of ['connectivityGuardianTitle', 'connectivityGuardianCta']) {
+          expect(flat[key]).toBe(readMessages(locale)[key]?.message);
+        }
+      }
+    });
+  });
+
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {
     // Every key this suite guards, not just the receipt bullets: `en.json` is
     // what the app reads at runtime and `messages.json` is what the translation

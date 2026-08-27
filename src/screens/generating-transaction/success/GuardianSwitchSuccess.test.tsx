@@ -225,6 +225,98 @@ describe('GuardianSwitchSuccess', () => {
     });
   });
 
+  // A rotation can commit on chain and still leave a post-commit step undone.
+  // `completeSwitchGuardianTransaction` records that on the row and marks it
+  // Completed anyway — correctly, the switch happened — which routes it here. The
+  // receipt is the last screen the user looks at for this operation, so it is the
+  // only place the difference can still be told.
+  describe('post-commit steps that did not land', () => {
+    it('tells the user to finish the switch when the new address was never saved', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      // This device is still pointed at the OLD operator, and only the user can
+      // repair it if the new one is a custom endpoint no built-in lookup names.
+      expect(body()).toHaveTextContent('guardianSwitchSetupIncompleteTitle');
+      expect(body()).toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+    });
+
+    it('explains the pending registration, which the sync loop heals on its own', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              registerFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchSetupIncompleteTitle');
+      expect(body()).toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+    });
+
+    it('leads with the unsaved address when both steps failed', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              newGuardianEndpoint: KODA_ENDPOINT,
+              registerFailed: true,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      // The unsaved address is the one that needs the user; a registration the
+      // wallet retries by itself would bury it.
+      expect(body()).toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+    });
+
+    it('says nothing extra on a clean switch', () => {
+      render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
+
+      expect(body()).not.toHaveTextContent('guardianSwitchSetupIncompleteTitle');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+    });
+
+    it('says nothing extra when the flags are present but false', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              newGuardianEndpoint: KODA_ENDPOINT,
+              registerFailed: false,
+              endpointPersistFailed: false
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).not.toHaveTextContent('guardianSwitchSetupIncompleteTitle');
+    });
+  });
+
   it('dismisses via onDoneClick from both Done and the header close, with the CTA order inverted', () => {
     const onDoneClick = jest.fn();
     render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={onDoneClick} />);

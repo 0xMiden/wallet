@@ -183,11 +183,27 @@ describe('ConnectivityIssueBanner', () => {
     expect(screen.getByTestId('icon-Refresh')).toBeInTheDocument();
   });
 
-  // -- pickActiveCategory priority: network > node > prover > resolving -----
+  // -- pickActiveCategory priority: network > node > guardian > prover > resolving
+  //
+  // `guardian` sits above prover deliberately: a co-signer that cannot be reached
+  // blocks every transaction, while a prover problem has a fallback.
   it('prefers network over every other active category', () => {
     setState({ network: true, node: true, prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
+  });
+
+  it('announces the banner as a polite live region', () => {
+    // The outage can arm from a background sync tick while Explore is already up,
+    // so the banner appears with no other signal to assistive tech. Polite, not
+    // assertive: every category here is a degraded-service notice, not something
+    // worth cutting off whatever is being read.
+    setState({ network: true });
+    render(<ConnectivityIssueBanner />);
+
+    const banner = screen.getByTestId('connectivity-banner-network');
+    expect(banner).toHaveAttribute('role', 'status');
+    expect(banner).toHaveAttribute('aria-live', 'polite');
   });
 
   it('prefers node when network is clear but node/prover/resolving are active', () => {
@@ -382,12 +398,26 @@ describe('ConnectivityIssueBanner', () => {
     setState({ node: true });
     render(<ConnectivityIssueBanner />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
+    // The assertion is the absence of an unhandled rejection, and that has to be
+    // OBSERVED — the previous version awaited two microtasks and asserted
+    // nothing, so deleting the `.catch` left it green. Node reports an unhandled
+    // rejection on the process, which is where this listens.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
 
-    await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
-    // Let the rejected promise settle so the `.catch(() => {})` handler runs.
-    await Promise.resolve();
-    await Promise.resolve();
+      await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
+      // Let the rejected promise settle so the `.catch(() => {})` handler runs,
+      // then give the runtime a macrotask to report anything left unhandled.
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   // -- onDismiss ------------------------------------------------------------

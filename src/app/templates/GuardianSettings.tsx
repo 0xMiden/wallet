@@ -11,7 +11,11 @@ import {
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
-import { isGuardianSyncOutage, subscribeGuardianSyncOutage } from 'lib/miden/front/guardian-sync';
+import {
+  getGuardianLastSyncAt,
+  isGuardianSyncOutage,
+  subscribeGuardianSyncOutage
+} from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
@@ -41,7 +45,6 @@ function formatLastSync(timestamp: number, locale: string): string {
 const GuardianSettings: FC = () => {
   const { t, i18n } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
-  const lastSyncedAt = useWalletStore(s => s.lastSyncedAt);
   // Live reachability from the sync loop's outage flag (armed after a
   // threshold of consecutive server-down sync failures, cleared by any
   // guardian response) — the same signal the home connectivity banner reads.
@@ -49,6 +52,13 @@ const GuardianSettings: FC = () => {
   const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
     currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
+  );
+  // The GUARDIAN's own last sync, from the same channel as the pill — not the
+  // store's wallet-wide `lastSyncedAt`, which a healthy chain sync keeps
+  // refreshing while the guardian is down, putting "3s ago" next to an Offline
+  // pill on this very screen.
+  const guardianLastSyncAt = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    currentAccountPk ? getGuardianLastSyncAt(currentAccountPk) : undefined
   );
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
@@ -58,8 +68,8 @@ const GuardianSettings: FC = () => {
   const provider = option?.operatedBy ?? (currentEndpoint ? t('customGuardian') : t('loading'));
   const region = option?.location ?? t('unknown');
   const endpoint = guardianEndpointHost(currentEndpoint) || t('loading');
-  const lastSync = lastSyncedAt
-    ? formatLastSync(lastSyncedAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
+  const lastSync = guardianLastSyncAt
+    ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
     : t('never');
 
   // No haptic here: this is handed to `Button`, whose onClick wrapper already
@@ -89,8 +99,14 @@ const GuardianSettings: FC = () => {
             green-700 (#38824A) at 3.05:1; green-300 is 6.6:1 there. Light mode was
             green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
             text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
+        {/* `role="status"` + polite live region: this pill CHANGES under a user
+            who is already on the page (the outage arms from the 3s sync tick),
+            and a bare div announces nothing when it does. Polite, not assertive
+            — it must not interrupt whatever is being read. */}
         {currentEndpoint && (
           <div
+            role="status"
+            aria-live="polite"
             className={clsx(
               'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
               guardianOutage

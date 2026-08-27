@@ -2428,6 +2428,15 @@
     "message": "現有變更內容",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "The switch is confirmed on chain, but this device could not save the new Guardian address. Open Guardian settings and select the new Guardian to finish."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "The switch is confirmed on chain. Registering your account with the new Guardian has not finished yet — the wallet keeps retrying in the background."
+  },
   "guardianSwitchSuccessInfo1": {
     "message": "從即日起，您的全新 Guardian 將共同簽署每筆交易——您舊有的 Guardian 將不再扮演任何角色。",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."

@@ -6,7 +6,7 @@
  */
 import { act, renderHook } from '@testing-library/react';
 
-import { useGuardianAvailability } from './useGuardianAvailability';
+import { GUARDIAN_AVAILABILITY_REPROBE_MS, useGuardianAvailability } from './useGuardianAvailability';
 
 const mockPing = jest.fn();
 jest.mock('lib/miden/guardian/availability', () => ({
@@ -66,7 +66,7 @@ describe('useGuardianAvailability', () => {
   // Regression: the effect used to key on array IDENTITY, so a caller passing
   // an inline array looped forever (reset state → re-render → new array →
   // effect again). Same content must mean no re-ping, whatever the identity.
-  it('does not re-ping when a rerender passes a fresh array with the same endpoints', async () => {
+  it('does not re-probe on rerender alone when a fresh array carries the same endpoints', async () => {
     const resolvers = deferredPings();
     const { result, rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
       initialProps: { endpoints: ['https://same.example.com'] }
@@ -77,6 +77,98 @@ describe('useGuardianAvailability', () => {
 
     expect(mockPing).toHaveBeenCalledTimes(1);
     expect(result.current).toEqual({ 'https://same.example.com': 'online' });
+  });
+
+  it('re-probes on the interval and clears an offline verdict when the operator recovers', async () => {
+    jest.useFakeTimers();
+    try {
+      const endpoint = 'https://flaky.example.com';
+      mockPing.mockResolvedValueOnce(false).mockResolvedValue(true);
+      const { result } = renderHook(() => useGuardianAvailability([endpoint]));
+
+      await act(async () => undefined);
+      expect(result.current).toEqual({ [endpoint]: 'offline' });
+
+      // A one-shot probe left this verdict up for the life of the screen — on the
+      // picker the outage banner's CTA routes to, where the user may well be
+      // waiting for exactly this recovery.
+      await act(async () => {
+        jest.advanceTimersByTime(GUARDIAN_AVAILABILITY_REPROBE_MS);
+      });
+
+      expect(mockPing).toHaveBeenCalledTimes(2);
+      expect(result.current).toEqual({ [endpoint]: 'online' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('re-probes immediately when the app returns to the foreground', async () => {
+    jest.useFakeTimers();
+    try {
+      const endpoint = 'https://resumed.example.com';
+      mockPing.mockResolvedValue(true);
+      renderHook(() => useGuardianAvailability([endpoint]));
+      await act(async () => undefined);
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      // A wallet spends most of its life backgrounded; verdicts from before the
+      // suspend describe a different moment.
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('skips an interval round while the document is hidden', async () => {
+    jest.useFakeTimers();
+    const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      mockPing.mockResolvedValue(true);
+      renderHook(() => useGuardianAvailability(['https://hidden.example.com']));
+      await act(async () => undefined);
+      expect(mockPing).toHaveBeenCalledTimes(1); // the mount probe still runs
+
+      await act(async () => {
+        jest.advanceTimersByTime(GUARDIAN_AVAILABILITY_REPROBE_MS * 3);
+      });
+
+      // Probing a background tab buys nothing and still costs the operator.
+      expect(mockPing).toHaveBeenCalledTimes(1);
+    } finally {
+      visibility.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not start a second round while one is still in flight', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://slow.example.com';
+      renderHook(() => useGuardianAvailability([endpoint]));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      // Foreground return landing on top of an unsettled round must not fan out
+      // a duplicate request at an operator that is already struggling.
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolvers.get(endpoint)!(true));
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('re-pings and clears stale verdicts when the endpoint set changes', async () => {

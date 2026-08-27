@@ -156,11 +156,32 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // added. Fall back to the generic avatar, mirroring GuardianSettings.tsx's
             // existing safe lookup.
             const logoEntry = GUARDIAN_LOGOS[option.id];
+            // Everything inside this button is either a wordmark SVG with no
+            // title or the ONE strip slot, and that slot is shared: an offline
+            // verdict replaces the Current/Default badge. So the control's
+            // accessible name was whatever the strip happened to say, and during
+            // an outage every down operator became a button named just
+            // "Offline" — indistinguishable from the others, on the screen whose
+            // entire job is choosing between them. The operator name and
+            // location live in a SIBLING node, which a button's name does not
+            // reach. Name it explicitly, and carry both statuses since a label
+            // has no slot to compete for.
+            const cardLabel = [
+              option.name,
+              isCurrent ? t('currentLabel') : isDefault ? t('default') : undefined,
+              isOffline ? t('guardianOfflineLabel') : undefined
+            ]
+              .filter(Boolean)
+              // eslint-disable-next-line i18next/no-literal-string -- punctuation between already-localized tokens in an accessible name, not copy.
+              .join(', ');
             return (
               <div key={option.id} className="flex flex-col">
                 <button
                   type="button"
                   onClick={() => handleSelect(option.id)}
+                  aria-label={cardLabel}
+                  // Selection is otherwise conveyed by border colour alone.
+                  aria-pressed={isSelected}
                   data-guardian-endpoint={option.endpoint}
                   className={cn(
                     'relative flex h-30.5 w-full flex-col overflow-hidden rounded-[20px] transition-all duration-150',

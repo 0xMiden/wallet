@@ -554,7 +554,7 @@
   "guardianUrlMismatch": "Esse operador não corresponde ao endereço “guardian” da sua conta na blockchain.",
   "connectivityGuardianTitle": "Guardian inacessível",
   "connectivityGuardianBody": "Seu guardian não está respondendo, portanto as transações não podem ser coassinadas.",
-  "connectivityGuardianCta": "Guardian de troca",
+  "connectivityGuardianCta": "Trocar Guardian",
   "revealHotKey": "Revelar a chave do dispositivo",
   "revealHotKeyDescription": "A tecla de atalho do seu dispositivo pode ser girada em Configurações → Girar tecla do dispositivo; portanto, expô-la representa um risco menor do que o seu endereço de assinatura (seed phrase) — mas qualquer pessoa que a tenha em mãos poderá assinar transações até que você a gire.",
   "hotPrivateKey": "Chave privada do dispositivo",

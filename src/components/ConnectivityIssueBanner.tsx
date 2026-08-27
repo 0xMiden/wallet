@@ -181,7 +181,17 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
   if (!view) return null;
 
   return (
+    // A status region, not an alert: every category here is a degraded-service
+    // notice the user can keep working through, and `role="alert"` is assertive
+    // — it would cut off whatever is being read on a banner that can arm from a
+    // background sync tick. The whole banner mounts when a category arms, so the
+    // announcement relies on AT reporting an inserted status region; that is the
+    // common behaviour but not universal, and the alternative (a permanently
+    // mounted empty region) buys reliability with a node on every screen that
+    // hosts this. Sighted users get the visual banner either way.
     <div
+      role="status"
+      aria-live="polite"
       className={classNames('min-h-[56px] flex items-center bg-white px-4 gap-x-2 py-2 rounded-t-3xl', className)}
       data-testid={`connectivity-banner-${view.category}`}
     >

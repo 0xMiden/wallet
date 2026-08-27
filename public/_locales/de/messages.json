@@ -2428,6 +2428,15 @@
     "message": "Was sich nun ändert",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "The switch is confirmed on chain, but this device could not save the new Guardian address. Open Guardian settings and select the new Guardian to finish."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "The switch is confirmed on chain. Registering your account with the new Guardian has not finished yet — the wallet keeps retrying in the background."
+  },
   "guardianSwitchSuccessInfo1": {
     "message": "Ihr neuer „Guardian“ unterzeichnet von nun an jede Transaktion mit – Ihr alter „Guardian“ spielt keine Rolle mehr.",
     "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
@@ -2517,7 +2526,7 @@
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
-    "message": "Guardian unreachable",
+    "message": "Guardian nicht erreichbar",
     "englishSource": "Guardian unreachable"
   },
   "connectivityGuardianBody": {
@@ -2525,7 +2534,7 @@
     "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
   },
   "connectivityGuardianCta": {
-    "message": "Wechseln Sie zu Guardian",
+    "message": "Guardian wechseln",
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {

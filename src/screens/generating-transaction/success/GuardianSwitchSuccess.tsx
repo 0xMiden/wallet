@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-success.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
@@ -34,6 +35,19 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     ? guardianEndpointDisplayName(extra.previousGuardianEndpoint, unknown)
     : undefined;
   const newName = extra ? guardianEndpointDisplayName(extra.newGuardianEndpoint, unknown) : undefined;
+
+  // A rotation can COMMIT on chain and still leave a post-commit step undone:
+  // the completion handler records that in `endpointPersistFailed` (this device
+  // never saved the new address, so it is still pointed at the old operator) and
+  // `registerFailed` (the new operator holds no state for the account yet). Both
+  // are deliberately Completed rather than Failed — the switch really did
+  // happen — but rendering the same unconditional "you're protected" receipt
+  // over either one tells the user the opposite of what the row says, on the
+  // last screen they will ever look at for this operation. The unsaved-address
+  // case needs them; the pending-registration case self-heals from the sync
+  // loop, so it explains rather than instructs.
+  const endpointNotSaved = extra?.endpointPersistFailed === true;
+  const registrationPending = extra?.registerFailed === true;
 
   const infoKeys = [
     'guardianSwitchSuccessInfo1',
@@ -79,6 +93,19 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
           <span className="sr-only">{t('newGuardianLabel')}: </span>
           <span className="break-all">{newName}</span>
         </div>
+      )}
+
+      {(endpointNotSaved || registrationPending) && (
+        <Alert
+          className="mt-3 w-full text-left"
+          variant={AlertVariant.Warning}
+          title={
+            <>
+              <span className="font-semibold">{t('guardianSwitchSetupIncompleteTitle')}</span>{' '}
+              {t(endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody')}
+            </>
+          }
+        />
       )}
 
       <SuccessDivider />

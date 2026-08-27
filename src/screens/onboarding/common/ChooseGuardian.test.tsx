@@ -515,6 +515,35 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(screen.queryByText('default')).not.toBeInTheDocument();
   });
 
+  it('names each card by its operator, so a down one is not just "Offline"', () => {
+    // The strip slot is shared: offline REPLACES the Current/Default badge. With
+    // the operator name in a sibling node and the wordmark SVG untitled, that
+    // made the button's accessible name "guardianOfflineLabel" for every down
+    // operator — on the screen whose entire purpose is telling them apart.
+    mockUseGuardianAvailability.mockReturnValue({
+      [OZ.endpoint]: 'offline',
+      [GATEWAY.endpoint]: 'offline'
+    });
+    render(<ChooseGuardianScreen />);
+
+    const ozCard = screen.getByRole('button', { name: `${OZ.name}, default, guardianOfflineLabel` });
+    expect(ozCard).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
+    const gwCard = screen.getByRole('button', { name: `${GATEWAY.name}, guardianOfflineLabel` });
+    expect(gwCard).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
+  });
+
+  it('exposes the selected card as pressed, since selection is otherwise colour-only', () => {
+    render(<ChooseGuardianScreen />);
+
+    // OZ is the default selection.
+    expect(screen.getByRole('button', { name: `${OZ.name}, default` })).toHaveAttribute('aria-pressed', 'true');
+    const gwCard = screen.getByRole('button', { name: GATEWAY.name });
+    expect(gwCard).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(gwCard);
+    expect(gwCard).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('keeps an offline provider selectable and submittable', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     const onSubmit = jest.fn();

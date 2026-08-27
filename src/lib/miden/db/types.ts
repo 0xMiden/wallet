@@ -76,6 +76,20 @@ export interface ISwitchGuardianExtraInputs {
   // encrypted write was refused). Guardian drift reconciliation is the repair
   // path; recorded so a support log can tell this apart from a clean switch.
   endpointPersistFailed?: boolean;
+  // `switchedDirectly` / `directSwitchReason`: this row rotated the guardian by a
+  // UNILATERAL on-chain `update_guardian` instead of a proposal co-signed by the
+  // outgoing operator, and the classified error that made the wallet choose that.
+  // Written before the leaf executes, so the marker survives a row that then
+  // fails — which is what lets `reconcileStructuralApplyFailure` read it: on a
+  // post-submit apply failure it skips rebuilding a service from the operator
+  // this row already found unreachable, rather than spending the WASM lock
+  // waiting on it. Absent (an older row, or a coordinated switch) the reconcile
+  // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
+  // never correctness. The two paths also differ in what state can be left
+  // behind (see `registerFailed` above), and without `directSwitchReason` a
+  // support log cannot tell whether the unreachability verdict was right.
+  switchedDirectly?: boolean;
+  directSwitchReason?: string;
 }
 
 /**

@@ -10,6 +10,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
 import {
   __resetGuardianSyncOutageForTest,
+  getGuardianLastSyncAt,
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
   isGuardianSyncOutage,
   subscribeGuardianSyncOutage,
@@ -620,6 +621,76 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
 
     await runSyncs(1);
     expect(isGuardianSyncOutage(pk)).toBe(true);
+  });
+
+  // Guardian Settings renders a "Last sync" row, and it used to read the store's
+  // wallet-wide `lastSyncedAt` — which a healthy chain sync keeps refreshing
+  // while the guardian is down, putting a seconds-old time beside the Offline
+  // pill on the same screen. Only a COMPLETED guardian sync stamps this.
+  describe('last-sync stamp', () => {
+    it('stamps a completed sync and leaves it alone while syncs fail', async () => {
+      const pk = 'stamp-pk';
+      storeState.accounts = [guardianAccount(pk)] as never;
+      const sync = jest.fn().mockResolvedValue(undefined);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      expect(getGuardianLastSyncAt(pk)).toBeUndefined();
+
+      jest.spyOn(Date, 'now').mockReturnValue(1_000);
+      await runSyncs(1);
+      expect(getGuardianLastSyncAt(pk)).toBe(1_000);
+
+      // Every later failure — server down, and therefore the outage the pill
+      // shows — must leave the stamp where the last success put it.
+      jest.spyOn(Date, 'now').mockReturnValue(9_000);
+      sync.mockRejectedValue(new Error('Failed to fetch'));
+      await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+      expect(isGuardianSyncOutage(pk)).toBe(true);
+      expect(getGuardianLastSyncAt(pk)).toBe(1_000);
+
+      jest.spyOn(Date, 'now').mockRestore();
+    });
+
+    it('does not stamp on a 401 or a 429, which prove liveness but sync nothing', async () => {
+      const pk = 'stamp-alive-only';
+      storeState.accounts = [guardianAccount(pk)] as never;
+      const sync = jest.fn().mockRejectedValue(Object.assign(new Error('nope'), { __authRejection: true }));
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      await runSyncs(1);
+      expect(getGuardianLastSyncAt(pk)).toBeUndefined();
+
+      sync.mockRejectedValue(Object.assign(new Error('slow down'), { status: 429 }));
+      await runSyncs(1);
+      expect(getGuardianLastSyncAt(pk)).toBeUndefined();
+    });
+
+    it('keeps the stamp per account', async () => {
+      storeState.accounts = [guardianAccount('stamp-a'), guardianAccount('stamp-b')] as never;
+      mockGetOrCreateMultisigService.mockImplementation((pk: string) => ({
+        sync: pk === 'stamp-a' ? jest.fn().mockResolvedValue(undefined) : jest.fn().mockRejectedValue(new Error('nope'))
+      }));
+
+      await runSyncs(1);
+
+      expect(getGuardianLastSyncAt('stamp-a')).toEqual(expect.any(Number));
+      expect(getGuardianLastSyncAt('stamp-b')).toBeUndefined();
+    });
+
+    it('notifies subscribers on each completed sync, so a mounted page can re-render', async () => {
+      const pk = 'stamp-notify';
+      storeState.accounts = [guardianAccount(pk)] as never;
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockResolvedValue(undefined) });
+
+      const listener = jest.fn();
+      const unsubscribe = subscribeGuardianSyncOutage(listener);
+      await runSyncs(2);
+      unsubscribe();
+
+      // One per sync — not two for the first (stand down the outage + stamp),
+      // which would render the page twice for one event.
+      expect(listener).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('notifies subscribers when the flag arms and when it clears', async () => {

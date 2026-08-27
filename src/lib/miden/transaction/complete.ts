@@ -552,7 +552,20 @@ export const completeSwitchGuardianTransaction = async (
     // marked a COMMITTED rotation Failed with the dead operator still stored,
     // which is precisely the state this ordering exists to prevent. Both steps
     // now record their outcome instead of aborting the completion.
-    await setTransactionStage(tx.id, 'registering-guardian');
+    //
+    // The same reasoning extends to the BOOKKEEPING either side of them. Past the
+    // commit, the rotation is a fact on chain, so the only honest terminal status
+    // is Completed — and every remaining call here is incidental: a progress stamp
+    // and a cache eviction. Leaving them unguarded meant a Dexie rejection on a
+    // stage write, before the endpoint had been persisted, produced the identical
+    // stranded-and-Failed state through a purely cosmetic call. Nothing between
+    // here and the status write may select the Failed path.
+    await setTransactionStage(tx.id, 'registering-guardian').catch(stageError => {
+      console.warn(
+        'Could not stamp the registering-guardian stage (non-fatal, the switch has already committed):',
+        stageError
+      );
+    });
 
     // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
     // Guardian accounts on different operators aren't clobbered. Backend
@@ -586,7 +599,11 @@ export const completeSwitchGuardianTransaction = async (
       );
     }
 
-    clearGuardianServiceFor(tx.accountId);
+    try {
+      clearGuardianServiceFor(tx.accountId);
+    } catch (evictError) {
+      console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
+    }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',

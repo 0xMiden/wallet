@@ -554,7 +554,7 @@
   "guardianUrlMismatch": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",
   "connectivityGuardianTitle": "Guardian inaccessible",
   "connectivityGuardianBody": "Votre « guardian » ne répond pas ; les transactions ne peuvent donc pas être cosignées.",
-  "connectivityGuardianCta": "Changer d’Guardian",
+  "connectivityGuardianCta": "Changer de Guardian",
   "revealHotKey": "Afficher la clé de l'appareil",
   "revealHotKeyDescription": "La touche (rapide) de votre appareil peut être modifiée dans « Paramètres → Rotation de la touche de l'appareil » ; son exposition présente donc moins de risques que celle de votre « seed phrase » — mais toute personne en possession de cette touche peut signer des transactions jusqu'à ce que vous la modifiiez.",
   "hotPrivateKey": "Clé privée de l'appareil",
