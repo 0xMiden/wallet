@@ -1329,6 +1329,46 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: a sync that never ran does NOT un-fuse the loop or clear the banner (#777)', async () => {
+    // `synced` distinguishes a real sync from the `!client || cancelled` early
+    // return. Without the gate, a teardown mid-sync — or a client that fails to
+    // build — would run every reset below it, including the two module-scoped fuse
+    // fields whose whole point is to survive a remount: an idle auto-lock followed
+    // by an unlock would hand a provably parked realm back the 3s cadence. It would
+    // also dismiss the "cannot reach the node" banner on the strength of a
+    // torn-down effect.
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+    const callsAtFuse = mockSyncState.mock.calls.length;
+    mockClearReachabilityIssues.mockClear();
+
+    // The lock now succeeds, but there is no client to sync with — the loop takes
+    // the early return, so `synced` is false and nothing may be reset.
+    evictEveryLockHold = false;
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(callsAtFuse);
+    expect(mockClearReachabilityIssues).not.toHaveBeenCalled();
+
+    // Still fused: a 3s tick must NOT probe. (Un-fused, the tick would sync.)
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(callsAtFuse);
+
+    unmount();
+  });
+
   it('extension: clears the interval on unmount', async () => {
     jest.useFakeTimers();
     mockIsExtension.mockReturnValue(true);

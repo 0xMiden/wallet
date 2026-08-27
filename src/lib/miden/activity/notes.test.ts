@@ -88,7 +88,7 @@ jest.mock('shared/logger', () => ({
 import { logger } from 'shared/logger';
 
 import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
   for (const k of Object.keys(_g.__notesTest.store)) delete _g.__notesTest.store[k];
@@ -434,6 +434,31 @@ describe('importAllNotes', () => {
     const queue = _g.__notesTest.store['miden-notes-pending-import'];
     expect(queue).toHaveLength(1);
     expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('treats a poison-shaped IMPORT failure as transient, never spending the poison cap (#777)', async () => {
+    // Reachable in production: `midenClientProxy.importNoteBytes` dispatches to the
+    // offscreen realm, whose own hold can be evicted mid-call — the realm throws
+    // `WasmClientPoisonedError` and the proxy reconstructs it from the failure reply.
+    // Its message matches none of the network tokens, so on the poison cap three
+    // wedged laps dead-lettered a perfectly good note as `malformed`.
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 0, poisonAttempts: 2 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
+      new WasmClientPoisonedError('watchdog', new Error('held the WASM client lock past its watchdog ceiling'))
+    );
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    // Carried with the poison count untouched, and NOT dead-lettered.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', poisonAttempts: 2 });
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
   });
 
   it('imports a lone queue entry that lost its array wrapper (#777)', async () => {

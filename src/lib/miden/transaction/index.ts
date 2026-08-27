@@ -1560,6 +1560,14 @@ const runGuardianPipeline = async (
   // MidenClient handles the full pipeline (execute → prove → submit → apply).
   return withWasmClientLock(async hold => {
     const midenClient = await getMidenClient(options);
+    // The client build is the LONGEST parking await in this hold — `getMidenClient`
+    // with options always disposes and rebuilds, and the fresh client's eager
+    // genesis fetch goes to the same node everything else here is waiting on. The
+    // offscreen copy of this pipeline checks the hold right after its own build for
+    // that reason; today this copy is covered only incidentally, because a poison
+    // bumps the singleton's generation and hands a raced build back terminated.
+    // Re-deriving it here makes the guarantee local instead of inherited.
+    assertStillHoldingLock(hold, 'after the client build');
     await setStage('executing');
     // #784: execute AT the proposal's anchored reference block, not the current
     // sync height. The co-signatures were collected over a summary that binds
@@ -1577,7 +1585,7 @@ const runGuardianPipeline = async (
     } finally {
       freeChainAnchor(anchor);
     }
-    // Same two pre-submit checks as the offscreen copy of this pipeline: an eviction
+    // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
     // this callback instead of stopping it, and mobile/desktop run THIS copy — the
     // platform #777 was reported on.

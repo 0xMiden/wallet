@@ -2573,6 +2573,54 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
+  it('guardianPipeline: stops before SUBMIT when the hold is evicted during the prove (#777)', async () => {
+    // The prove is the longest await in the pipeline — delegated over the network, or
+    // local under the relaxed ceiling — and the check after it is the last thing
+    // between an abandoned pipeline and an irreversible broadcast. Covered separately
+    // from the pre-prove check because each guard only answers for its own await.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    let releaseProve!: () => void;
+    const parkedProve = new Promise<void>(resolve => {
+      releaseProve = resolve;
+    });
+    // The prove lives inside the executeRequest handle, so it is parked by
+    // substituting the handle rather than by a top-level spy.
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: { serialize: () => new Uint8Array([55, 66, 77]) },
+      id: { toHex: () => 'guardian-exec-hash' },
+      prove: jest.fn(async () => {
+        await parkedProve;
+        return {
+          submit: jest.fn(async () => {
+            G.__off.guardianSubmitted = true;
+            return { apply: jest.fn(async () => void (G.__off.guardianApplied = true)) };
+          })
+        };
+      })
+    }));
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-evicted-prove',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseProve();
+    await flush();
+
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(G.__off.guardianApplied).toBe(false);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+  });
+
   // #784: the co-signatures in the crossed request were bound to a summary that
   // pins the proposal's reference block, so this realm must execute AT that
   // block. The anchor crossed in wire form (base64 → string arg); it is decoded

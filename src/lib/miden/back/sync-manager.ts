@@ -16,12 +16,13 @@ import { toNoteTypeString } from '../helpers';
 import { fetchTokenMetadata } from '../metadata';
 import { showBackgroundNotification } from './background-notification';
 import { getIntercom } from './defaults';
-import { midenClientProxy } from './miden-client-proxy';
+import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { initiateConsumeTransaction } from '../transaction/initiate';
@@ -151,9 +152,31 @@ async function runSync(force: boolean): Promise<void> {
     // the timeout. A subsequent sync after the prove yields is the one
     // that clears any active issue, so the steady state is correct.
     try {
-      await withWasmClientLock(async () => {
-        await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
-      });
+      // The timeout is only sound when the WASM sync runs in ANOTHER realm. Its
+      // rejection propagates out of the lock callback and so RELEASES the mutex
+      // while the abandoned `syncState` keeps running — fine across the offscreen
+      // boundary (that realm has its own mutex and its own deadline kill), but on
+      // the inline path (flag off, or Firefox, where the proxy calls
+      // `(await getMidenClient()).syncState()` on THIS realm's singleton) it hands
+      // the mutex to the downstream read path below while the sync is still inside
+      // the single-threaded client — the double borrow the lock exists to prevent.
+      //
+      // So the inline path takes the eviction route instead: no JS timeout, and the
+      // hold bounded by the sync watchdog. A breach POISONS the client and replaces
+      // the singleton, so the successor builds a fresh instance and the abandoned
+      // sync's own `isDisposed` guards fire. It costs banner latency on that path
+      // (the ceiling, not 30s) and buys the invariant.
+      const inlineWasm = runsWasmInThisRealm();
+      await withWasmClientLock(
+        async () => {
+          if (inlineWasm) {
+            await midenClientProxy.syncState();
+            return;
+          }
+          await withTimeout(midenClientProxy.syncState(), SYNC_TIMEOUT_MS);
+        },
+        inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS } : undefined
+      );
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = null;
       breakerTripCount = 0;
@@ -183,7 +206,15 @@ async function runSync(force: boolean): Promise<void> {
         // non-transport errors so a malformed-response bug in the SDK doesn't
         // masquerade as connectivity. The synthetic `Sync timeout` from
         // withTimeout counts — timeouts are themselves transport-shaped.
-        if (isLikelyNetworkError(err) || /sync timeout/i.test(String((err as any)?.message ?? err))) {
+        // A sync-watchdog eviction is transport-shaped for the same reason the
+        // synthetic timeout is — on the inline path it is now what a wedged sync
+        // produces INSTEAD of that timeout, so leaving it out would have silently
+        // dropped the banner on exactly the platform this change moved.
+        if (
+          isLikelyNetworkError(err) ||
+          isSyncWatchdogEviction(err) ||
+          /sync timeout/i.test(String((err as any)?.message ?? err))
+        ) {
           markConnectivityIssue(classifySyncError(err));
         }
         // A FORCED sync — one the automatic cadence did not schedule: the banner's

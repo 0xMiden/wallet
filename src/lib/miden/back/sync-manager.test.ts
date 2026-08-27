@@ -68,9 +68,17 @@ const mockClient = {
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// The options the sync hold is taken with. On the INLINE path (which is what jsdom
+// presents — no `chrome.offscreen`) the hold must carry the sync watchdog ceiling,
+// because there the timeout's rejection would release the mutex while the abandoned
+// `syncState` is still inside this realm's single-threaded client.
+const lockOptionsSeen: Array<unknown> = [];
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => mockClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    return fn();
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -152,6 +160,7 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 import { WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
 // Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
@@ -358,6 +367,19 @@ describe('doSync', () => {
     mockClient.syncState.mockRejectedValueOnce(new Error('wasm offline'));
     await doSync();
     expect(mockBroadcast).toHaveBeenCalled();
+  });
+
+  it('bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)', async () => {
+    // The 30s `withTimeout` only rejects the OUTER promise: the underlying sync keeps
+    // running, and the rejection propagating out of the lock callback releases the
+    // mutex. Harmless when the WASM is in the offscreen realm behind its own mutex;
+    // on the inline path it hands the mutex to the downstream read path below while
+    // the sync is still inside the client — a double borrow. So the inline path takes
+    // the eviction route: no JS timeout, and the hold bounded by the ceiling.
+    lockOptionsSeen.length = 0;
+    await doSync();
+
+    expect(lockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS });
   });
 
   it('two back-to-back doSync calls only sync once', async () => {

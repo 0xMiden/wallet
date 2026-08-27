@@ -3543,6 +3543,115 @@ describe('generateTransaction — Guardian routing', () => {
     expect(api.submitProven).not.toHaveBeenCalled();
   });
 
+  it('Guardian send: an eviction during the PROVE stops the pipeline before it submits (#777)', async () => {
+    // The prove is the longest await in the hold, and the check after it is the last
+    // thing between an abandoned pipeline and an irreversible broadcast. Covered
+    // separately from the pre-prove check because each guard answers only for its
+    // own await.
+    const txId = 'send-evicted-mid-prove';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000'
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    });
+
+    const api = makeTransactionsApi(result);
+    // The eviction lands DURING the prove: revoked from inside it, so the hold is
+    // gone by the time the pipeline resumes on the other side.
+    api.prove.mockImplementation(async () => {
+      revokeHold();
+      return { proved: true };
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: { transactions: api }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true) as never
+    );
+
+    expect(api.prove).toHaveBeenCalledTimes(1);
+    expect(api.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('Guardian send: an eviction during the CLIENT BUILD stops the pipeline before it executes (#777)', async () => {
+    // `getMidenClient(options)` always disposes and rebuilds, and the fresh client's
+    // eager genesis fetch goes to the same node the rest of the hold waits on — so
+    // it is the longest parking await here, and the first place an eviction can land.
+    const txId = 'send-evicted-mid-build';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000'
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    });
+
+    const api = makeTransactionsApi(result);
+    mockGetMidenClient.mockImplementation(async () => {
+      revokeHold();
+      return {
+        getAccount: jest.fn(async () => undefined),
+        syncState: jest.fn(async () => {}),
+        client: { transactions: api }
+      };
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true) as never
+    );
+
+    expect(api.executeRequest).not.toHaveBeenCalled();
+  });
+
   it('Guardian switch-guardian: cold co-signs before hot, waits for chain inclusion, finalizes switch', async () => {
     const txId = 'switch-guardian-1';
     const result = makeResult();

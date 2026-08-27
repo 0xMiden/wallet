@@ -616,6 +616,14 @@ function armWatchdogFor(holder: LockHolder): void {
     // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
     // hold rather than the segment since the last transition.
     const remaining = holder.normalCeilingMs - holder.unpausedElapsedMs;
+    // `>=` here, NOT the `>` that `pausedCeilingFor` uses, and the asymmetry is
+    // deliberate. On the paused ledger, `remaining === MIN` can only mean the budget
+    // is nearly spent, because `WASM_LOCK_PAUSED_WATCHDOG_MS` is many times `MIN`.
+    // Here it also describes a hold whose ENTIRE budget is `MIN` — the clamp floors
+    // a requested ceiling at exactly that — so a fresh hold arrives at this line
+    // with `remaining === MIN` and nothing spent. Falling through would burn its
+    // once-per-hold grace at hold start and leave the first bracket close with only
+    // the true remainder, evicting a healthy holder mid-sign.
     if (remaining >= WASM_LOCK_MIN_WATCHDOG_MS) {
       ceiling = remaining;
     } else if (!holder.graceUsed) {

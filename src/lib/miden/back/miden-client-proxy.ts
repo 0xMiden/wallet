@@ -83,6 +83,20 @@ import type { NoteType } from '../types';
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
 /**
+ * True when a proxy call would run its WASM in THIS realm rather than crossing to
+ * the offscreen document — the flag off, or no `chrome.offscreen` (Firefox).
+ *
+ * Callers need this to reason about what a JS-level timeout actually buys them. A
+ * timeout that rejects out of a `withWasmClientLock` callback RELEASES the mutex
+ * while the underlying call keeps running; that is harmless when the WASM lives in
+ * another realm behind its own mutex, and a double borrow of the single-threaded
+ * client when it does not.
+ */
+export function runsWasmInThisRealm(): boolean {
+  return !USE_OFFSCREEN_CLIENT || !isOffscreenAvailable();
+}
+
+/**
  * Per-op deadline (ms) for a pure read. A `getAccount` that hasn't returned in
  * this long is a wedge candidate; the deadline kill reclaims the realm.
  */
