@@ -17,7 +17,10 @@
  *
  * Every export is defensive: a dead-letter read/write failure must never break
  * the import loop or sync, so all storage access is wrapped in try/catch with
- * safe fallbacks (mirrors `note-quarantine.ts`).
+ * safe fallbacks (mirrors `note-quarantine.ts`). Defensive is not the same as
+ * silent, though — `addToNoteDeadletter` REPORTS whether the note landed, because
+ * its caller drops the bytes from the import queue on the strength of that answer.
+ * A read failure, a write failure and a full store are all refusals, not successes.
  */
 
 import { logger } from 'shared/logger';
@@ -27,8 +30,11 @@ import { fetchFromStorage, putToStorage } from './front';
 const DEADLETTER_KEY = 'miden-note-import-deadletter';
 
 // Cap so a pathological run (an endpoint that deserializes every note as poison)
-// can't grow storage unboundedly. Oldest entries are evicted first; the store is
-// a diagnostics + manual-recovery aid, not an unbounded archive.
+// can't grow storage unboundedly. At the cap the ADD is refused — the oldest
+// entries are NOT evicted, because their bytes may be the only copy of the funds
+// they carry, and the import queue stops carrying a note on the strength of this
+// store accepting it. A refusal keeps the new note on the queue instead, which is
+// bounded growth of a live queue rather than a silent loss.
 const MAX_DEADLETTERED = 200;
 
 export type NoteDeadletterReason = 'transport' | 'malformed';

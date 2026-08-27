@@ -14,7 +14,11 @@ _g.__notesTest = {
   // and the hold's promise rejects out from under it. Modelling this as "the
   // callback never ran" would be strictly weaker than production — the abandoned
   // callback resuming later is the whole hazard.
-  evictNextHold: false,
+  //
+  // `true` evicts the instant the hold is taken. A PROMISE evicts when it settles,
+  // which is what lets a test put the callback in a specific mid-loop state first —
+  // the watchdog fires two minutes in, by which point earlier notes have imported.
+  evictNextHold: false as boolean | Promise<void>,
   // The abandoned callback, so a test can let it finish and observe what it writes.
   abandonedHold: null as Promise<unknown> | null
 };
@@ -43,10 +47,12 @@ jest.mock('../sdk/miden-client', () => ({
     const t = (globalThis as any).__notesTest;
     t.lockOptions.push(options);
     if (t.evictNextHold) {
+      const gate: Promise<void> | null = t.evictNextHold === true ? null : t.evictNextHold;
       t.evictNextHold = false;
       const running = fn();
       running.catch(() => {});
       t.abandonedHold = running;
+      if (gate) await gate;
       throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: 'watchdog' });
     }
     return fn();
@@ -409,10 +415,52 @@ describe('importAllNotes', () => {
     await p;
 
     expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    // Carried, and BACKOFF-STAMPED. `giveUp` is permanently true for this note now,
+    // so a bare carry would be eligible on every later pass and re-run a full import
+    // plus dead-letter round trip every lap, forever.
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
-      { bytes: 'aGVsbG8=', attempts: 10, firstFailureAt: longAgo }
+      { bytes: 'aGVsbG8=', attempts: 10, firstFailureAt: longAgo, nextEligibleAt: expect.any(Number) }
     ]);
+    const carried = _g.__notesTest.store['miden-notes-pending-import'][0];
+    expect(carried.nextEligibleAt).toBeGreaterThan(Date.now());
     jest.useRealTimers();
+  });
+
+  it('does not re-import a note the pass already imported when the hold is then evicted (#777)', async () => {
+    // Banking the whole snapshot minus the in-flight note re-queued notes that had
+    // ALREADY landed. A re-import is only recognised as done once the note has been
+    // consumed, so before that every classification that is not "done" spends an
+    // attempt — three laps of which dead-letters a perfectly good note as
+    // `malformed`, burning the one signal the dead-letter store exists to raise.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ==', 'Yg=='];
+    let release!: () => void;
+    const parked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // First note imports; the second parks and is the one the eviction interrupts.
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes
+      .mockImplementationOnce(async () => undefined)
+      .mockImplementationOnce(async () => parked);
+    let evict!: () => void;
+    _g.__notesTest.evictNextHold = new Promise<void>(resolve => {
+      evict = resolve;
+    });
+
+    const pass = importAllNotes();
+    // Let the loop import the first note and park on the second before the ceiling
+    // expires — the state a real watchdog eviction finds it in.
+    for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+    evict();
+    await expect(pass).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    // Only the interrupted note is carried. The imported one is gone for good.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'Yg==', attempts: 1 });
+
+    release();
+    await _g.__notesTest.abandonedHold;
   });
 
   it('does not strand a note whose backoff stamp came from a jumped clock (#777)', async () => {

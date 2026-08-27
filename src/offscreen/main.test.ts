@@ -1345,6 +1345,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       // laps, at 5 s apiece across 30 s.
       expect(polls).toBe(1);
       expect(G.__off.clientSyncChain.mock.calls.length).toBe(syncsBefore);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('abandoning a confirmation poll'));
 
       releaseSuccessor({ serialize: () => new Uint8Array([9]) });
       await jest.advanceTimersByTimeAsync(0);
@@ -1389,7 +1390,11 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(false);
-      expect(String(r1.mock.calls[0][0].error)).toContain('abandoned');
+      // Carried as a POISON error, not a plain one: the SW rebuilds it by name, and a
+      // plain error would have this row written Failed like an ordinary failure when
+      // the submit may well have landed.
+      expect(r1.mock.calls[0][0].errorName).toBe('WasmClientPoisonedError');
+      expect(r1.mock.calls[0][0].errorReason).toBe('watchdog');
     } finally {
       jest.useRealTimers();
     }

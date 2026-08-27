@@ -235,7 +235,7 @@ export interface ClientLiveness {
  * ceiling.
  *
  * Skipped once this client is disposed, which is the corpse case. Recovery
- * disposes the client before releasing the mutex, so a sign firing from a
+ * disposes or marks the client before releasing the mutex, so a sign firing from a
  * disposed client belongs to an evicted flow whose lock now belongs to somebody
  * else — and since the pause cannot be attributed to a hold (the callback is
  * built per client, not per hold, so it can only ever pause "whoever holds the
@@ -389,7 +389,9 @@ export class MidenClientInterface {
 
   /**
    * `yieldWasmClientLock`, unless this client has been disposed (issue #775).
-   * Lock recovery always disposes the client BEFORE releasing the mutex, so a
+   * Lock recovery always disposes it — or, when the evicted holder still has a
+   * live reference, marks it poisoned, which flips the same flag without freeing
+   * WASM memory out from under a running call — BEFORE releasing the mutex, so a
    * disposed `this` marks the running flow as an evicted corpse — the lock it
    * thinks it holds now belongs to someone else, and yielding would release
    * that innocent holder's lock into a concurrent WASM call. Run the operation

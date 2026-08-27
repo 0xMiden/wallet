@@ -176,6 +176,15 @@ export const importAllNotes = async () => {
   // callback, which control-flow analysis does not see, so a plain variable narrows
   // to `null` for the whole failure path.
   const inFlight: { note: QueuedNoteImport | null } = { note: null };
+  // Notes this pass imported successfully, so the failure path can leave them out.
+  // Banking the whole snapshot minus the in-flight note re-queued them, and a
+  // re-import of a note the client already holds is only recognised as done once it
+  // has been CONSUMED — before that it either succeeds silently (the import is an
+  // upsert) or comes back as something this code has to classify, and every
+  // classification that is not "done" spends an attempt. Three laps of that
+  // dead-lettered a perfectly good note as `malformed`, which is the one signal the
+  // dead-letter store exists to raise.
+  const imported = new Set<QueuedNoteImport>();
   // The retry list the loop built, once it finished building it. If the throw came
   // from the commit rather than the imports, this is the correct write and the
   // failure path re-issues it — banking from the snapshot instead would re-queue
@@ -206,6 +215,7 @@ export const importAllNotes = async () => {
             await midenClientProxy.importNoteBytes(byteArray);
             // Success: the note is intentionally NOT pushed to `retry`, so it drops
             // out of the queue.
+            imported.add(note);
           } catch (e) {
             const attempts = note.attempts + 1;
             const firstFailureAt = anchorOf(note, now);
@@ -216,6 +226,7 @@ export const importAllNotes = async () => {
             // this store exists to raise.
             if (isAlreadyImported(e)) {
               logger.info('Queued note is already in the client; dropping it from the import queue');
+              imported.add(note);
               continue;
             }
             // A poison eviction is transport-shaped, per the repo-wide rule that
@@ -238,7 +249,15 @@ export const importAllNotes = async () => {
                 failedAt: now,
                 attempts
               });
-              if (!stored) retry.push({ bytes: note.bytes, attempts, firstFailureAt });
+              // Carried with a MAXIMUM backoff stamp, not bare. `giveUp` stays true
+              // from here on, so a bare carry is eligible on every later pass and the
+              // note re-runs a full import + dead-letter round trip every lap, forever
+              // — the hot loop the give-up exists to end. The dead-letter store being
+              // full or unwritable is a condition that changes on a timescale of
+              // minutes at best, so this is spaced at the curve's ceiling.
+              if (!stored) {
+                retry.push({ bytes: note.bytes, attempts, firstFailureAt, nextEligibleAt: now + BACKOFF_MAX_MS });
+              }
             } else if (transient) {
               // Back off before the next attempt so a persistent outage doesn't
               // hammer a recovering node every loop tick.
@@ -293,13 +312,14 @@ export const importAllNotes = async () => {
     // Only the IN-FLIGHT note is charged. The loop is sequential, so it is the one
     // note the tear-down interrupted; charging the rest would inflate attempts
     // toward the poison cap and anchor a 24h budget on notes that were never tried.
-    // Every other note is carried unchanged, including ones this pass may already
-    // have imported — which of them landed is unknowable, and a re-import is what
-    // every other retry here already does.
+    // Notes the loop had already imported are dropped rather than carried: they are
+    // in the client, and re-queueing them made every later pass re-import a note it
+    // already held (see `imported`).
     const now = Date.now();
     const charged = inFlight.note;
     const banked: QueuedNoteImport[] = [];
     for (const note of snapshot) {
+      if (imported.has(note)) continue;
       if (note !== charged) {
         banked.push(note);
         continue;
@@ -308,7 +328,11 @@ export const importAllNotes = async () => {
       const firstFailureAt = anchorOf(note, now);
       if (elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS) {
         const stored = await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts });
-        if (!stored) banked.push({ bytes: note.bytes, attempts, firstFailureAt });
+        // Backoff-stamped for the same reason as the per-note give-up above: bare, it
+        // would be eligible every lap with `giveUp` permanently true.
+        if (!stored) {
+          banked.push({ bytes: note.bytes, attempts, firstFailureAt, nextEligibleAt: now + BACKOFF_MAX_MS });
+        }
         continue;
       }
       const backoffMs = Math.min(BACKOFF_BASE_MS * 2 ** (attempts - 1), BACKOFF_MAX_MS);

@@ -154,13 +154,17 @@ export function useSyncTrigger() {
     // off from. Monotonic, not `Date.now()`, and `null` rather than 0 for "no
     // window", because 0 is a real stamp on that clock — see `monotonicNowMs`.
     let syncBackoffUntilMs: number | null = null;
-    // Whether the NEXT run was asked for by the user (banner Retry, app
-    // foreground) rather than the timer. Granted by `retryNow`, consumed by the
-    // run it precedes. Its job is to keep a user's attempt out of the automatic
-    // cadence's two ledgers — it neither escalates the breaker nor adds to (or
-    // withdraws from) the fuse's evidence. It grants no SCHEDULING privilege,
-    // because a forced run needs none: it punches through an open window via
-    // `retryAfterCurrentRun`, and no guard gates the probe on the fuse.
+    // Whether the NEXT probe was asked for by the user (banner Retry, app
+    // foreground) rather than the timer. Granted by `retryNow` and consumed by
+    // the next run that actually PROBES — a run the guards skip leaves it
+    // standing, since spending it on a tick that never reached the node would
+    // silently discard the user's request. Its job is to keep a user's attempt
+    // out of the automatic cadence's two ledgers: it neither escalates the
+    // breaker nor adds to (or withdraws from) the fuse's evidence. It grants no
+    // scheduling privilege for its own probe — that punches through an open
+    // window via `retryAfterCurrentRun` — but while it is unspent it does hold
+    // the loop at the base cadence, so a pending request is not left sitting
+    // behind a fused deadline.
     let forceNextRun = false;
 
     const runAndSchedule = async () => {
@@ -170,8 +174,6 @@ export function useSyncTrigger() {
         return;
       }
 
-      const forced = forceNextRun;
-      forceNextRun = false;
       isRunning = true;
       try {
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
@@ -186,6 +188,13 @@ export function useSyncTrigger() {
         // remaining checks (the generating-transaction route and the send flow) are
         // what actually keep a sync from queueing behind a long prove.
         if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused()) {
+          // Consumed HERE, not at the top of the run: a run whose guards skip it never
+          // reaches the node, so reading the grant before them SPENT it on nothing.
+          // A user tapping the banner's Retry from the generating-transaction page got
+          // a silent no-op, and then the schedule below — which honours the fuse — put
+          // the next probe up to 30 minutes out.
+          const forced = forceNextRun;
+          forceNextRun = false;
           useWalletStore.getState().setSyncStatus(true);
           try {
             // The sync-specific watchdog ceiling (#777): on wasm32 the SDK's
@@ -419,7 +428,14 @@ export function useSyncTrigger() {
             remainingMs(syncBackoffUntilMs, MAX_SYNC_BACKOFF_MS),
             remainingMs(realmFusedUntilMs, FUSED_SYNC_PROBE_INTERVAL_MS)
           );
-          const delay = retryAfterCurrentRun ? 0 : idleMs;
+          //
+          // An UNSPENT forced grant means the guards skipped this tick with a user
+          // request still pending — the grant is only consumed on the path that
+          // actually probes. Poll at the base cadence until the guard clears rather
+          // than serving out a fused half hour: no attempt reached the node, so the
+          // fuse has no evidence to spend on this tick either way, and the guards
+          // themselves are transient (a prove, a send flow).
+          const delay = retryAfterCurrentRun ? 0 : forceNextRun ? SYNC_INTERVAL_MS : idleMs;
           retryAfterCurrentRun = false;
           timer = setTimeout(runAndSchedule, delay);
         }

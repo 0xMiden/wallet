@@ -616,7 +616,7 @@ describe('useSyncTrigger', () => {
     evictionReason = 'watchdog';
     mockSyncState.mockResolvedValue(undefined);
 
-    const { unmount } = render(<HookHost />);
+    const first = render(<HookHost />);
     await driveToBlownFuse();
 
     // Most of the fused window elapses…
@@ -625,14 +625,17 @@ describe('useSyncTrigger', () => {
     });
     expect(mockSyncState).toHaveBeenCalledTimes(4);
 
-    // …and then a run happens that the guards skip — the user opened the send
-    // flow, or foregrounded the app while on the generating-transaction page.
-    // As a per-run delay rather than a deadline, the fuse re-armed its FULL
-    // cadence here, so every such tick pushed the next probe out by another half
-    // hour and a user who kept touching the wallet was never probed again.
+    // …and then a run happens that the guards skip — a remount (idle lock and
+    // unlock) landing while the send flow is open. Deliberately NOT a banner
+    // Retry: a user's request holds the loop at the base cadence on purpose, so
+    // it could not tell a preserved deadline from a restarted one. As a per-run
+    // delay rather than a deadline, the fuse re-armed its FULL cadence here, so
+    // every such tick pushed the next probe out by another half hour and a user
+    // who kept touching the wallet was never probed again.
     (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+    first.unmount();
+    const second = render(<HookHost />);
     await act(async () => {
-      requestImmediateSync();
       await jest.advanceTimersByTimeAsync(0);
     });
     expect(mockSyncState).toHaveBeenCalledTimes(4);
@@ -643,6 +646,49 @@ describe('useSyncTrigger', () => {
       await jest.advanceTimersByTimeAsync(60_000);
     });
     expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    second.unmount();
+  });
+
+  it('mobile/desktop: a Retry the guards skip keeps its grant instead of spending it on nothing', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    process.env.MIDEN_E2E_TEST = 'true';
+    evictEveryLockHold = true;
+    evictionReason = 'watchdog';
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await driveToBlownFuse();
+
+    // The user taps Retry from a screen the guards skip — the generating-
+    // transaction page, or mid send flow. Nothing reaches the node.
+    (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__ = true;
+    await act(async () => {
+      requestImmediateSync();
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(4);
+
+    // The guard clears seconds later. Read at the TOP of the run, the grant was
+    // spent by that skipped tick: the request was silently dropped, and the loop
+    // — honouring the fuse it had no new evidence about — went quiet for half an
+    // hour with the user staring at a Retry they had already tapped.
+    evictEveryLockHold = false;
+    delete (globalThis as { __TEST_SYNC_PAUSED__?: boolean }).__TEST_SYNC_PAUSED__;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(5);
+
+    // And it is still spent as a FORCED probe, not an automatic one: it succeeded,
+    // so the fuse lifts and the base cadence resumes rather than the probe being
+    // counted against the breaker.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_000);
+    });
+    expect(mockSyncState).toHaveBeenCalledTimes(6);
 
     unmount();
   });
@@ -781,28 +827,24 @@ describe('useSyncTrigger', () => {
     });
     expect(mockSyncState).toHaveBeenCalledTimes(3);
 
-    // A 30s window is open as of t=6000. Enter the send flow and force a tick
-    // STRICTLY INSIDE it: the guard skips the probe, and the reschedule that
-    // follows is where a per-run delay and a deadline diverge. A skipped tick at
-    // the window's own expiry would NOT discriminate — both shapes compute 3s
-    // there — which is why this drives the tick mid-window instead.
+    // A 30s window is open as of t=6000. Enter the send flow, so the tick at that
+    // window's expiry is skipped by the guard without ever reaching the node.
+    // Deliberately the AUTOMATIC tick and not a banner Retry: a user's request is
+    // held at the base cadence on purpose, which would mask the shape under test.
     window.location.hash = '#/send';
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(4_000);
-    });
-    await act(async () => {
-      requestImmediateSync();
-      await jest.advanceTimersByTimeAsync(0);
+      await jest.advanceTimersByTimeAsync(30_000);
     });
     expect(mockSyncState).toHaveBeenCalledTimes(3);
 
-    // Leave the flow. The loop must still be waiting out the REMAINDER of the
-    // original window (to t=36000), not the 3s the skipped tick would have
-    // reset it to — with a per-run delay it probed at t=13000, handing the node
-    // back the 3s cadence it had just been backed off from.
+    // Leave the flow. The reschedule after that skipped tick is where a per-run
+    // delay and a deadline diverge: reading the DEADLINE, the window is spent and
+    // the loop is back at 3s; recomputing a delay from the failure count instead
+    // re-armed the whole 30s — so a user who kept the send flow open served a
+    // fresh backoff for every lap, having failed nothing.
     window.location.hash = '';
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(25_999);
+      await jest.advanceTimersByTimeAsync(2_999);
     });
     expect(mockSyncState).toHaveBeenCalledTimes(3);
     await act(async () => {

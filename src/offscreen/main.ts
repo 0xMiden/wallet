@@ -71,7 +71,7 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
+import { poisonReasonOf, wasmClientGeneration, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -956,9 +956,16 @@ const DISPATCH: Record<string, DispatchFn> = {
       // that is unobservable (the caller has already been rejected), but the poisoned
       // case can fire while this dispatch is still live and awaited — and a guardian
       // leaf reads a false commit as licence to run its structural completion.
+      //
+      // And it throws a POISON error specifically, which the dispatch serializes with
+      // its reason and the SW rebuilds. That matters because the tx a plain `Error`
+      // reaches gets written Failed like any ordinary failure, when what actually
+      // happened is that this confirmation was ABANDONED — the submit may well have
+      // landed. `isWasmClientPoisonedError` is what every kill classifier reads to
+      // tell those apart.
       if (client.isDisposed || getCurrentWasmLockHold() !== context.hold) {
         console.warn('[offscreen] abandoning a confirmation poll whose client or lock hold is gone');
-        throw new Error(`Transaction confirmation abandoned: ${transactionId}`);
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
       }
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
@@ -967,8 +974,13 @@ const DISPATCH: Record<string, DispatchFn> = {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
         await client.client.syncChain();
-      } catch {
-        /* transient sync failure — keep polling, exactly as the SDK waitFor does */
+      } catch (e) {
+        // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
+        // silent. A sync that fails EVERY lap makes the poll run blind: it lists
+        // transactions against state that never advances, so the only outcome
+        // left is the timeout, reported as "confirmation timed out" with nothing
+        // anywhere saying the chain was never read.
+        console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
       const txs = await client.client.transactions.list({ ids: [transactionId] });
       const status = txs?.[0]?.transactionStatus?.();

@@ -1116,8 +1116,8 @@ describe('poisoned client recovery', () => {
     return { mod, free, create, markPoisoned, poison };
   };
 
-  it('after watchdog recovery the next acquirer gets a freshly constructed client, not the disposed one', async () => {
-    const { mod, free, create } = await loadIsolated();
+  it('after watchdog recovery the next acquirer gets a freshly constructed client, not the evicted one', async () => {
+    const { mod, free, markPoisoned, create } = await loadIsolated();
     const clientBefore = await mod.getMidenClient();
 
     const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
@@ -1125,7 +1125,13 @@ describe('poisoned client recovery', () => {
     await jest.advanceTimersByTimeAsync(300_000);
     await wedgedRejects;
 
-    expect(free).toHaveBeenCalledTimes(1);
+    // MARKED, not freed. The evicted holder is abandoned rather than cancelled and
+    // resolved its client inside the hold, so it is still holding that reference and
+    // still inside a WASM call; freeing under it fails a transaction that may already
+    // have submitted. The property this test is really about — the next acquirer gets
+    // a fresh client — is unaffected.
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
     const clientAfter = await mod.getMidenClient();
     expect(create).toHaveBeenCalledTimes(2);
     expect(clientAfter).not.toBe(clientBefore);
@@ -1149,7 +1155,7 @@ describe('poisoned client recovery', () => {
   });
 
   it('a realm-error eviction also hands the next acquirer a fresh client', async () => {
-    const { mod, free, create } = await loadIsolated();
+    const { mod, free, markPoisoned, create } = await loadIsolated();
     const clientBefore = await mod.getMidenClient();
 
     const wedged = mod.withWasmClientLock(() => new Promise<never>(() => {}));
@@ -1167,7 +1173,9 @@ describe('poisoned client recovery', () => {
     await jest.advanceTimersByTimeAsync(0);
     await wedgedRejects;
 
-    expect(free).toHaveBeenCalledTimes(1);
+    // Marked rather than freed, for the same reason as the watchdog eviction above.
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
     const clientAfter = await mod.getMidenClient();
     expect(create).toHaveBeenCalledTimes(2);
     expect(clientAfter).not.toBe(clientBefore);

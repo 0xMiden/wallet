@@ -33,6 +33,7 @@ import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/trans
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { NoteExportType } from '../sdk/constants';
@@ -345,7 +346,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
         if (isLikelyNetworkError(e)) {
-          await queueNoteImport(req.noteBytes).catch(() => {});
+          // Logged rather than swallowed: the throw below reports the IMPORT
+          // failure, which says nothing about whether the background retry was
+          // actually armed. Losing both silently is what made this look like a
+          // blip the loop would clean up when nothing had been queued at all.
+          await queueNoteImport(req.noteBytes).catch(queueError =>
+            logger.error('[ImportNoteBytesRequest] failed to queue the note for background retry', queueError)
+          );
         }
         throw e;
       }

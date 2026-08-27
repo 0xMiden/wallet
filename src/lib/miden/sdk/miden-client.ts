@@ -382,15 +382,30 @@ function notifyWasmClientPoisoned(): void {
  * between terminating it and merely marking it by whether anyone is still
  * legitimately using it (issue #775).
  *
- * A holder suspended inside `yieldWasmClientLock` — a send awaiting the
- * offscreen prove, while the 1 s sync holds the mutex and can be the one
- * evicted — is past the mutex and holds a direct client reference. `free()`ing
- * under it fails a transaction that may already have landed, so those cases
- * poison-in-place instead and accept the untermed instance. Nobody mid-yield,
- * and terminating is both safe and the tidier outcome.
+ * `evictedHolderKeepsReference` is the caller stating that some flow it just
+ * abandoned is still holding a direct client reference, so `free()` would pull
+ * the module out from under it. EVERY eviction is such a caller: an evicted
+ * operation is abandoned, not cancelled, and every write resolves its client
+ * INSIDE the hold — so the evicted flow is past the mutex, holding a reference,
+ * and by construction still inside a WASM call. `free()`ing there fails a
+ * transaction that may already have submitted.
+ *
+ * Keying that decision on `yieldedHolderCount` alone was wrong, and wrong in
+ * the worst place: every yield call site in the app is an offscreen-prove path,
+ * which only the extension has. On mobile and desktop the count is therefore
+ * permanently zero, so every eviction took the `free()` branch — including a
+ * mobile write, which has no transport deadline and no JS deadline, and for
+ * which the watchdog is the ONLY bound. That is the one flow most likely to be
+ * mid-submit when the ceiling expires.
+ *
+ * Only a trap with NO holder at all can safely terminate: the module is already
+ * aborted and nobody is using the instance. Marking instead leaks a `useWorker`
+ * client's method worker until the realm goes away, which `poisonAllInstances`
+ * documents accepting — a leaked worker against a possibly-paid transaction is
+ * not a close trade.
  */
-function replaceClientSingletons(): void {
-  if (yieldedHolderCount > 0) {
+function replaceClientSingletons(evictedHolderKeepsReference: boolean): void {
+  if (evictedHolderKeepsReference || yieldedHolderCount > 0) {
     midenClientSingleton.poisonAllInstances();
   } else {
     midenClientSingleton.disposeAllInstances();
@@ -441,14 +456,15 @@ function recoverFromTrap(cause: unknown): void {
       cause
     );
     lastRecoveryAt = monotonicNow();
-    replaceClientSingletons();
+    replaceClientSingletons(true);
   } else {
-    // No holder to evict, but the trap still aborted the module instance —
-    // dispose so the next getMidenClient() constructs a fresh client instead
-    // of handing out the poisoned one.
+    // No holder to evict, and nobody suspended — the ONLY case that can safely
+    // terminate. The trap still aborted the module instance, so dispose and let
+    // the next getMidenClient() construct a fresh client rather than handing out
+    // the poisoned one.
     console.error('[miden-client] WASM trap with no lock holder — disposing client singletons:', cause);
     lastRecoveryAt = monotonicNow();
-    replaceClientSingletons();
+    replaceClientSingletons(false);
   }
 }
 
@@ -657,7 +673,8 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
     // `runningMs` alone cannot say which bound was in force (#777).
     normalCeilingMs: holder.normalCeilingMs,
     yieldedHolders: yieldedHolderCount,
-    mode: yieldedHolderCount > 0 ? 'poison-in-place' : 'free',
+    // Always in-place for an eviction — the evicted flow keeps its reference.
+    mode: 'poison-in-place',
     error
   });
   holder.abort(error);
@@ -665,11 +682,12 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // fails, so releasing the mutex alone would hand the next operation a dead
   // client. Replace it first (deliberately NOT via resetMidenClient(), which
   // takes this same lock and would deadlock), then release so the queue
-  // drains onto a freshly constructed client. Replacing rather than always
-  // disposing matters here too: the holder being evicted is not necessarily
-  // the only flow with a reference — the 1 s sync can be the wedged one while
-  // a send sits suspended mid-yield awaiting its prove.
-  replaceClientSingletons();
+  // drains onto a freshly constructed client. MARKING rather than freeing: the
+  // holder being evicted is abandoned, not cancelled, and it resolved its client
+  // inside the hold — so it is past the mutex, still holding that reference, and
+  // by construction still inside a WASM call. Freeing under it fails a
+  // transaction that may already have submitted.
+  replaceClientSingletons(true);
   wasmClientMutex.release();
 }
 
@@ -966,12 +984,9 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
         runningMs: Math.round(holder.unpausedElapsedMs),
         error
       });
-      // BEFORE `settleYieldCount()`, and that order is load-bearing:
-      // `replaceClientSingletons` picks marking over freeing by whether anyone is
-      // still mid-yield, and this holder — the one that must keep its reference —
-      // is only counted until the settle. Freeing first, then aborting, is how a
-      // suspended send loses its client mid-flight.
-      replaceClientSingletons();
+      // Marking, not freeing: this holder is suspended mid-yield and keeps using
+      // the reference it already has.
+      replaceClientSingletons(true);
       settleYieldCount();
       holder.abort(error);
     },

@@ -2225,11 +2225,12 @@ export const generateTransactionsLoop = async (
 
   // Import any notes needed for queued transactions.
   //
-  // Isolated from the rest of the lap. This runs BEFORE the try below, so a throw
-  // here aborts the whole lap and lands in the caller's bare catch: no queued
-  // transaction picked up, no row failed, nothing but a log line — for as long as
-  // the import keeps failing. Every driver funnels through this one loop, so that
-  // is the whole pipeline: no send, no swap, no claim, in any realm.
+  // Isolated from the rest of the lap by its OWN try/catch, which is the point.
+  // Unguarded — and it runs ahead of the lap's own try — a throw here aborted the
+  // whole lap into the caller's bare catch: no queued transaction picked up, no row
+  // failed, nothing but a log line, for as long as the import kept failing. Every
+  // driver funnels through this one loop, so that is the whole pipeline: no send,
+  // no swap, no claim, in any realm.
   //
   // Continuing costs the dependent row instead, and that trade is deliberate.
   // `queueNoteImport` is followed by a consume of that note, so a lap that
