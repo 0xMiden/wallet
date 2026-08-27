@@ -1,5 +1,9 @@
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
-import { identifyGuardianOperator, verifyEndpointMatchesCommitment } from 'lib/miden/guardian/operator-map';
+import {
+  checkEndpointCommitment,
+  identifyGuardianOperator,
+  verifyEndpointMatchesCommitment
+} from 'lib/miden/guardian/operator-map';
 import type { GuardianSyncStatus } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -27,11 +31,14 @@ interface GuardianDriftVault {
  * except that if a prior run got stranded (baseline already advanced but
  * status never got finalized to `'in-sync'`, e.g. from a partial write),
  * this re-affirms the status so the account self-heals. If they differ,
- * tries to auto-resolve by matching the on-chain commitment against the
- * built-in operators (`identifyGuardianOperator`); on a match the new
- * endpoint + status + commitment are persisted and the account is back in
- * sync, otherwise the account is flagged `needs-user-input` for manual
- * resolution.
+ * asks the endpoint already stored on the account whether IT holds the on-chain
+ * commitment (the common case right after a deliberate custom-URL switch), and
+ * only if it answers with a different key does it try to name the new operator
+ * among the built-ins (`identifyGuardianOperator`); on a match the new endpoint +
+ * status + commitment are persisted and the account is back in sync, otherwise
+ * the account is flagged `needs-user-input` for manual resolution. A stored
+ * endpoint that cannot be reached at all changes nothing and is retried next
+ * tick — an unanswered probe is not evidence of drift.
  *
  * Write order matters: the commitment baseline is always written LAST, after
  * the status is finalized to `'in-sync'`. If the final write fails, the
@@ -69,6 +76,37 @@ export async function resolveGuardianDrift(
     return { status: 'in-sync', changed: false };
   }
 
+  // Ask the endpoint already STORED on the account first, BEFORE writing any
+  // status and before interrogating every built-in operator. Two reasons.
+  //
+  // Accuracy: a deliberate in-wallet switch to a custom operator persists the new
+  // endpoint (completeSwitchGuardianTransaction → setGuardianEndpoint) but
+  // nothing advances the commitment baseline, so this tick sees "drift" for a
+  // switch the user just completed — which used to flag every custom-URL
+  // rotation `needs-user-input`. The stored endpoint is therefore the LIKELIEST
+  // answer here, not the last resort.
+  //
+  // And a `'unreachable'` verdict must be able to change nothing at all. While
+  // the endpoint is down there is no evidence either way, so writing
+  // `needs-user-input` would accuse an endpoint that may be exactly right, and
+  // writing `'resolving'` first would strand the account in a status with no
+  // banner and no recovery path if we then bail. Returning before any write
+  // leaves the account as it was and lets the next tick retry.
+  if (account.guardianEndpoint) {
+    const stored = await checkEndpointCommitment(account.guardianEndpoint, onChain);
+    if (stored === 'match') {
+      await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+      await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
+      return { status: 'in-sync', changed: true };
+    }
+    if (stored === 'unreachable') {
+      return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+    }
+  }
+
+  // The stored endpoint answered and it is NOT the on-chain guardian: a genuine
+  // out-of-band switch. Try to name the new operator among the built-ins before
+  // falling through to the banner.
   await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
   const operator = await identifyGuardianOperator(onChain);
   if (operator) {
@@ -76,26 +114,6 @@ export async function resolveGuardianDrift(
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
     await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
     return { status: 'in-sync', changed: true };
-  }
-
-  // Not a built-in operator — but before asking the user for a URL, check the
-  // one already STORED on the account. A deliberate in-wallet switch to a
-  // custom operator persists the new endpoint (completeSwitchGuardianTransaction
-  // → setGuardianEndpoint) but nothing advances the commitment baseline, so
-  // this tick sees "drift" for a switch the user just completed and flagged
-  // every custom-URL rotation `needs-user-input`. If the stored endpoint's own
-  // pubkey commitment matches on-chain, the account is already pointed at the
-  // right guardian: affirm in-sync and advance the baseline (same write order
-  // as the branches above). Only a stored endpoint that DOESN'T match — a
-  // genuine out-of-band switch to an unknown operator — falls through to the
-  // banner.
-  if (account.guardianEndpoint) {
-    const storedEndpointMatches = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
-    if (storedEndpointMatches) {
-      await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-      await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-      return { status: 'in-sync', changed: true };
-    }
   }
 
   await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');

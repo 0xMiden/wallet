@@ -28,10 +28,22 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
     setAvailability({});
     const targets = endpointsKey === '' ? [] : endpointsKey.split('\n');
     targets.forEach(endpoint => {
-      pingGuardianEndpoint(endpoint).then(online => {
-        if (cancelled) return;
-        setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
-      });
+      // The rejection arm is not dead code insurance for a documented
+      // never-throws contract: `pingGuardianEndpoint` calls
+      // `registerGuardianOrigin` OUTSIDE its own try, so the contract currently
+      // holds only because that helper swallows its own URL-parse failure. A
+      // hostile or malformed endpoint reads as offline rather than becoming an
+      // unhandled rejection per endpoint per mount.
+      pingGuardianEndpoint(endpoint).then(
+        online => {
+          if (cancelled) return;
+          setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
+        },
+        () => {
+          if (cancelled) return;
+          setAvailability(prev => ({ ...prev, [endpoint]: 'offline' }));
+        }
+      );
     });
     return () => {
       cancelled = true;

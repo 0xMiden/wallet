@@ -18,6 +18,7 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 
 import {
   buildOperatorKeyMap,
+  checkEndpointCommitment,
   identifyGuardianOperator,
   normalizeHex,
   verifyEndpointMatchesCommitment
@@ -89,6 +90,47 @@ describe('identifyGuardianOperator', () => {
   });
 });
 
+// The tri-state exists so a caller can tell "it said no" from "it never
+// answered": collapsing them makes a network blip indistinguishable from a
+// genuine out-of-band guardian switch, and the drift reconciler acts on that
+// difference.
+describe('checkEndpointCommitment', () => {
+  it('reports a match when the endpoint pubkey commitment matches (normalized)', async () => {
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe('match');
+  });
+
+  it('reports a mismatch when the endpoint answers with a different key', async () => {
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe('mismatch');
+  });
+
+  it('reports unreachable when the endpoint fetch throws', async () => {
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
+      throw new Error('network unreachable');
+    });
+
+    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe('unreachable');
+  });
+
+  // An answer carrying no commitment is not a guardian answering, so it is no
+  // more evidence of a mismatch than a dropped connection is.
+  it('reports unreachable when the endpoint answers without a commitment', async () => {
+    expect(await checkEndpointCommitment('https://not-a-guardian.test', 'aaa')).toBe('unreachable');
+  });
+
+  // This runs from the ~3s sync tick and the guardian client exposes no abort, so
+  // an unbounded wait would park one request per tick against a hung operator.
+  it('reports unreachable when the endpoint never answers', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
+
+    const verdict = checkEndpointCommitment('https://hung.guardian', 'aaa');
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(await verdict).toBe('unreachable');
+    jest.useRealTimers();
+  });
+});
+
 describe('verifyEndpointMatchesCommitment', () => {
   it('returns true when the endpoint pubkey commitment matches (normalized)', async () => {
     expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe(true);
@@ -98,6 +140,8 @@ describe('verifyEndpointMatchesCommitment', () => {
     expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe(false);
   });
 
+  // Boolean by design for callers about to WRITE the endpoint: unreachable and
+  // mismatched are the same answer there — do not persist the unconfirmed.
   it('returns false when the endpoint fetch throws', async () => {
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
       throw new Error('network unreachable');

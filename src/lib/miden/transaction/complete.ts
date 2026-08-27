@@ -526,15 +526,40 @@ export const completeSwitchGuardianTransaction = async (
     const { newGuardianEndpoint } = tx.extraInputs;
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
-    // switch_guardian proposals: register on the new guardian with the
-    // updated account state before anything else touches the local cache
-    // or storage. If this throws, storage + status stay untouched so the
-    // user can retry.
+    // switch_guardian proposals: register on the new guardian with the updated
+    // account state, so the new operator holds the post-switch blob.
+    //
+    // Best-effort, like `replace-hot-key`'s post-rotation re-register: by the
+    // time this runs, `update_guardian` has COMMITTED, so the account's guardian
+    // IS the new operator and a vault still naming the old one is simply wrong.
+    // Aborting here used to leave exactly that state, and the comment claiming
+    // "the user can retry" was not true — `switch-guardian` is in no requeue set
+    // and `isRequeueableTransaction` excludes it, so the row was terminal.
+    //
+    // On the DIRECT path that stranding is unrecoverable rather than merely
+    // untidy, because the direct path's whole premise is that the OLD operator is
+    // unreachable: `syncGuardianAccounts` builds its service from the STORED
+    // endpoint, so a vault pointing at the dead operator makes `service.sync()`
+    // throw before `checkGuardianDrift` is ever reached — the reconciler that
+    // rescues the coordinated path cannot run. Persisting the endpoint is what
+    // restores it: the next tick talks to the new operator, and a missing
+    // registration surfaces as a 401, which the existing cold-re-register
+    // self-heal repairs.
     await setTransactionStage(tx.id, 'registering-guardian');
-    if (multisigService) {
-      await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
-    } else {
-      await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+    let registerFailed = false;
+    try {
+      if (multisigService) {
+        await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+      } else {
+        await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+      }
+    } catch (registerError) {
+      registerFailed = true;
+      console.error(
+        'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
+          'unauthorized (401) with the new operator until the guardian-sync self-heal lands a registration:',
+        registerError
+      );
     }
 
     // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
@@ -547,6 +572,9 @@ export const completeSwitchGuardianTransaction = async (
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
+      // Preserve the audit fields (updateTransactionStatus Object.assigns the
+      // whole extraInputs) and record whether the registration landed.
+      extraInputs: { ...tx.extraInputs, registerFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // switch is already on chain, we just lack the local TransactionResult.
       ...(result && {

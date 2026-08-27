@@ -63,6 +63,12 @@ export interface IBridgedReceiveExtraInputs {
 export interface ISwitchGuardianExtraInputs {
   previousGuardianEndpoint?: string;
   newGuardianEndpoint: string;
+  // `registerFailed`: the on-chain `update_guardian` committed but registering
+  // the account on the NEW operator did not land. Observable-only, exactly like
+  // `replace-hot-key`'s `reRegisterFailed` — recovery is owned by the
+  // guardian-sync 401 self-heal, which can only run once the stored endpoint
+  // points at the new operator.
+  registerFailed?: boolean;
 }
 
 /**

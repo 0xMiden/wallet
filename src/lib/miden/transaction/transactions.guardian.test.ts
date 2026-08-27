@@ -326,7 +326,14 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.displayMessage).toBe('Guardian switched');
   });
 
-  it('marks the row Failed and skips the endpoint write when registration throws', async () => {
+  // By the time this runs, `update_guardian` has COMMITTED — the account's
+  // guardian IS the new operator, so a vault still naming the old one is wrong,
+  // and the row is terminal either way (`switch-guardian` is in no requeue set
+  // and is excluded from user Retry, so "storage stays untouched so the user can
+  // retry" was never true). Registration is therefore best-effort, exactly like
+  // `replace-hot-key`'s post-rotation re-register: persist the pointer, record
+  // the miss, and let the guardian-sync 401 self-heal land the registration.
+  it('persists the endpoint and records registerFailed when registration throws', async () => {
     const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
 
@@ -337,15 +344,51 @@ describe('completeSwitchGuardianTransaction', () => {
     };
     const setGuardianEndpoint = jest.fn(async () => {});
     const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
 
-    // The endpoint was NOT persisted because the guardian rejected the new state.
-    expect(setGuardianEndpoint).not.toHaveBeenCalled();
+    // The pointer moves regardless: leaving it on the old operator is what blocks
+    // every recovery path, since `syncGuardianAccounts` builds its service from
+    // the STORED endpoint and throws before `checkGuardianDrift` is reached.
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1', 'https://new.guardian');
     const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
-    expect(row.status).toBe(ITransactionStatus.Failed);
-    expect(row.displayMessage).toBe('Failed to switch guardian');
-    expect(row.error).toBe('register failed');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Guardian switched');
+    expect(row.extraInputs).toMatchObject({ newGuardianEndpoint: 'https://new.guardian', registerFailed: true });
+  });
+
+  it('records registerFailed=false on a clean switch', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.extraInputs).toMatchObject({ registerFailed: false });
+  });
+
+  // The DIRECT path has no MultisigService; the same best-effort contract has to
+  // hold there, because that path's premise is that the OLD operator is dead —
+  // so a vault left pointing at it is unrecoverable rather than merely untidy.
+  it('persists the endpoint when the DIRECT registration exhausts its retries', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    mockFinalizeDirectSwitch.mockRejectedValueOnce(new Error('new guardian never answered'));
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await completeSwitchGuardianTransaction(tx, makeResult() as never, undefined, provider as never);
+
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('acc-1', 'https://new.guardian');
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({ registerFailed: true });
   });
 });
 
@@ -3653,10 +3696,11 @@ describe('generateTransaction — Guardian routing', () => {
     // the cold service load (guardian getState) fails.
     const multisigService = {
       createSwitchGuardianProposal: jest.fn(async () => ({
-        proposal: { id: 'prop-switch' },
+        proposal: { id: 'prop-switch', nonce: 31 },
         newEndpoint: 'https://new.guardian'
       })),
       signAndCreateTransactionRequest: jest.fn(),
+      abandonCandidate: jest.fn(async () => {}),
       sync: jest.fn(async () => {})
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
@@ -3698,7 +3742,136 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The proposal path was abandoned mid-flight; the hot sign never ran.
     expect(multisigService.signAndCreateTransactionRequest).not.toHaveBeenCalled();
+    // The delta pushed a moment ago is retracted before the direct switch takes
+    // over. `switch-guardian` is in neither the requeue-on-409 set nor the Retry
+    // set, so a delta left pending on a recovered operator cancels the NEXT
+    // coordinated switch outright — leaving it is not harmless.
+    expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // The retraction needs the operator that was just unreachable, so it usually
+  // fails. That must stay non-fatal: the direct switch is the recovery path and
+  // cannot be gated on the dead guardian answering.
+  it('Guardian switch-guardian: a failing delta retraction does not block the direct fallback', async () => {
+    const txId = 'switch-guardian-direct-abandon-fails';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    const multisigService = {
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-switch', nonce: 33 },
+        newEndpoint: 'https://new.guardian'
+      })),
+      signAndCreateTransactionRequest: jest.fn(),
+      abandonCandidate: jest.fn(async () => {
+        throw new Error('Failed to fetch');
+      }),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig')
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(multisigService.abandonCandidate).toHaveBeenCalledWith(33);
+    expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+    expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // The direct switch is reached only when the OLD guardian is already
+  // unreachable, and `switch-guardian` is excluded from requeue and from Retry —
+  // so a commit-wait failure that skipped completion would leave the vault naming
+  // an operator it cannot talk to, with nothing left to retry. `service.sync()`
+  // against that endpoint then throws before `checkGuardianDrift` runs, so the
+  // reconciler that would otherwise repair the pointer never executes.
+  it('Guardian switch-guardian: a failed commit wait still persists the new endpoint (direct path)', async () => {
+    const txId = 'switch-guardian-direct-waitfail';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new Error('Deadline expired before operation could complete');
+      }),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);

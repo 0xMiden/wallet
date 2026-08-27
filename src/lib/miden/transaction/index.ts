@@ -1676,9 +1676,33 @@ const generateDirectSwitchGuardianTransaction = async (
 
   // Same commit-wait as the proposal path: the new guardian must be seeded
   // with the POST-switch state, so registration only runs after inclusion.
+  //
+  // A wait FAILURE must not skip the completion, though. The transaction is
+  // already submitted and applied locally, and completion is what persists the
+  // new endpoint — without it the vault keeps naming the operator this path
+  // exists because it cannot reach, which makes `syncGuardianAccounts` throw on
+  // `service.sync()` before `checkGuardianDrift` runs, so the reconciler that
+  // rescues the coordinated path never gets to repair anything. The row is
+  // terminal (`switch-guardian` is excluded from requeue and from Retry), so
+  // there is no second attempt to fall back on.
+  //
+  // Proceeding is the better trade in BOTH directions. If the switch did land,
+  // completion is simply correct. If it never landed, `resolveGuardianDrift`
+  // repairs it from the other side: the on-chain commitment still names the old
+  // operator, `identifyGuardianOperator` matches it, and the endpoint is
+  // repointed — and that reconciler can now run, because the stored endpoint is
+  // one the wallet can actually talk to.
   const id = result.executedTransaction().id().toHex();
   await setTransactionStage(transaction.id, 'confirming');
-  await midenClientProxy.waitForTransactionCommit(id);
+  try {
+    await midenClientProxy.waitForTransactionCommit(id);
+  } catch (waitError) {
+    console.warn(
+      `Direct guardian switch ${id} was submitted but its commit wait failed; finalizing anyway so the new ` +
+        'endpoint is persisted and the account is not stranded on the unreachable operator:',
+      waitError
+    );
+  }
 
   await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider);
   await setTransactionStage(transaction.id, 'complete');
@@ -2056,12 +2080,31 @@ const generateGuardianTransaction = async (
       await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
     } catch (error) {
       // Connectivity to the outgoing guardian dropped between proposal push and
-      // cold co-sign: fall back to the direct on-chain switch. The already-pushed
-      // delta stays pending on the unreachable old guardian — harmless, since a
-      // rotated-out guardian has no on-chain authority (and abandoning it would
-      // require the very guardian we can't reach).
+      // cold co-sign: fall back to the direct on-chain switch.
       if (!isGuardianUnreachableError(error)) throw error;
       console.warn('[Guardian] outgoing guardian unreachable at cold co-sign — switching directly on-chain:', error);
+      // Try to retract the pushed delta first, best-effort and swallowed — the
+      // same idiom the submission failure path below uses. It will usually fail
+      // (it needs the operator we just failed to reach), but "the call may fail"
+      // is not a reason to skip it: the guardian may have been down only for the
+      // co-sign window, and a delta left pending outlives this switch. Because
+      // `switch-guardian` is in neither `REQUEUEABLE_ON_PENDING_CONFLICT` nor the
+      // Retry set, a later coordinated switch that meets that stale delta gets a
+      // 409 it cannot requeue through and is cancelled — so the leftover is not
+      // harmless whenever the operator comes back.
+      //
+      // Safe to retract here, unlike the poison case further down: no chain
+      // submission has happened on this path yet (the proposal is only a delta on
+      // the guardian, and the direct switch submits its own transaction), so
+      // there is no co-signature the chain may be about to consume.
+      try {
+        await service.abandonCandidate(proposalResult.nonce);
+      } catch (abandonError) {
+        console.warn('[Guardian] could not abandon the pending delta before the direct switch (non-fatal)', {
+          nonce: proposalResult.nonce,
+          error: abandonError
+        });
+      }
       await generateDirectSwitchGuardianTransaction(
         transaction as SwitchGuardianTransaction,
         signCallback,

@@ -48,12 +48,64 @@ export async function identifyGuardianOperator(
   return map.get(normalizeHex(onChainCommitment));
 }
 
-/** Verify a specific endpoint's operator key matches the on-chain commitment. */
-export async function verifyEndpointMatchesCommitment(endpoint: string, onChainCommitment: string): Promise<boolean> {
+/** Outcome of asking one endpoint whether it holds a given commitment. */
+export type EndpointCommitmentCheck = 'match' | 'mismatch' | 'unreachable';
+
+/**
+ * Per-check deadline. The guardian client exposes no abort, so a late response
+ * is dropped rather than cancelled — but the wait itself must be bounded,
+ * because this runs from the ~3s guardian-sync tick and a hanging operator would
+ * otherwise park a request per tick indefinitely. Same budget as the picker's
+ * liveness ping.
+ */
+const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
+
+/**
+ * Ask one endpoint whether its operator key matches `onChainCommitment`,
+ * distinguishing "it said no" from "it never answered".
+ *
+ * The distinction is the point: a caller that collapses them cannot tell a
+ * genuine out-of-band guardian switch from a network blip, and treating a blip
+ * as a mismatch accuses an endpoint that may be perfectly correct.
+ */
+export async function checkEndpointCommitment(
+  endpoint: string,
+  onChainCommitment: string
+): Promise<EndpointCommitmentCheck> {
   try {
-    const { commitment } = await new GuardianHttpClient(endpoint).getPubkey('ecdsa');
-    return Boolean(commitment) && normalizeHex(commitment) === normalizeHex(onChainCommitment);
+    const commitment = await new Promise<string | undefined>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`guardian pubkey check for ${endpoint} timed out`)),
+        ENDPOINT_CHECK_TIMEOUT_MS
+      );
+      new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
+        value => {
+          clearTimeout(timer);
+          resolve(value?.commitment);
+        },
+        error => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+    // An answer with no commitment is not a guardian answering, so it is no
+    // more evidence of a mismatch than a dropped connection is.
+    if (!commitment) return 'unreachable';
+    return normalizeHex(commitment) === normalizeHex(onChainCommitment) ? 'match' : 'mismatch';
   } catch {
-    return false;
+    return 'unreachable';
   }
+}
+
+/**
+ * Verify a specific endpoint's operator key matches the on-chain commitment.
+ *
+ * Boolean by design for callers that are about to WRITE the endpoint: there,
+ * unreachable and mismatched are the same answer — do not persist something that
+ * could not be confirmed. Callers that instead have to choose between "leave it
+ * alone" and "flag the user" want `checkEndpointCommitment`.
+ */
+export async function verifyEndpointMatchesCommitment(endpoint: string, onChainCommitment: string): Promise<boolean> {
+  return (await checkEndpointCommitment(endpoint, onChainCommitment)) === 'match';
 }

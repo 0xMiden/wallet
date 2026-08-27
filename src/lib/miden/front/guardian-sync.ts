@@ -144,10 +144,17 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
   if (outageAccounts.delete(accountPublicKey)) notifyOutageListeners();
 }
 
-/** Test-only: reset the outage tracking between cases. */
+/**
+ * Test-only: reset the outage tracking between cases. Notifies subscribers, so a
+ * `useSyncExternalStore` reader that outlives the reset cannot keep a snapshot
+ * the module no longer agrees with.
+ */
 export function __resetGuardianSyncOutageForTest(): void {
   consecutiveServerFailures.clear();
+  const hadOutage = outageAccounts.size > 0;
   outageAccounts.clear();
+  syncInFlight = undefined;
+  if (hadOutage) notifyOutageListeners();
 }
 
 /**
@@ -251,7 +258,36 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
   }
 }
 
-export async function syncGuardianAccounts(): Promise<void> {
+/**
+ * Coalesces overlapping runs onto the in-flight one. The extension's 3s tick
+ * fires `syncGuardianAccounts()` without awaiting it (`useSyncTrigger`), and a
+ * guardian request has no client-side deadline, so a slow or hanging operator
+ * lets runs stack — and two of this function's own invariants are per-run, not
+ * per-account:
+ *
+ *  - `consecutiveServerFailures` would count CALLERS rather than attempts.
+ *    `MultisigService.sync()` returns one shared in-flight promise, so N
+ *    overlapping runs all await the same request and all catch the same
+ *    rejection, each incrementing the counter. `GUARDIAN_SYNC_OUTAGE_THRESHOLD`
+ *    would then arm after fewer than 6 actual failures and the "~threshold × 3s"
+ *    cadence documented above would not hold.
+ *  - the `rateLimitedUntil` check reads the cooldown at the top of the loop
+ *    body, so overlapping runs all read it before any of them writes it and the
+ *    429 backoff is bypassed N ways — against an operator that just asked to be
+ *    left alone.
+ *
+ * A dropped overlapping tick costs nothing: the next one is 3 seconds away.
+ */
+let syncInFlight: Promise<void> | undefined;
+
+export function syncGuardianAccounts(): Promise<void> {
+  syncInFlight ??= runGuardianAccountsSync().finally(() => {
+    syncInFlight = undefined;
+  });
+  return syncInFlight;
+}
+
+async function runGuardianAccountsSync(): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
 
