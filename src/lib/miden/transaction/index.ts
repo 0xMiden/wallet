@@ -2301,15 +2301,23 @@ export const generateTransactionsLoop = async (
     // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
     // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
     // rather than marking it Failed.
-    // The poison exclusion has to sit on the WHOLE condition, not just inside
+    // The abandonment exclusion has to sit on the WHOLE condition, not just inside
     // `isLockedError` (issue #775). `authReason` is ambient client state, read
     // after the fact and not derived from `e` at all, so an eviction paired with
     // a stale `locked` reason would take the defer branch — which requeues the
     // row as a fresh write while the abandoned pipeline can still submit,
     // turning one send into two payments. The requeue's "strictly pre-submit"
-    // justification below is exactly what an eviction breaks.
+    // justification below is exactly what an abandonment breaks.
+    //
+    // BOTH kill shapes, not just poison. An offscreen deadline arrives as
+    // `OperationAbortedError` from the identical point and is equally still
+    // running — `cancel.ts` treats the two as one equivalence class for exactly
+    // this reason, and `dispatchOffscreenWrite` re-tags whatever it caught with
+    // `reason:'locked'` whenever the op's sign reported locked, so either shape
+    // can reach `isLockedError` here.
     const authReason = await readLastAuthReason();
-    if (!isWasmClientPoisonedError(e) && (authReason === 'locked' || isLockedError(e))) {
+    const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+    if (!abandoned && (authReason === 'locked' || isLockedError(e))) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly

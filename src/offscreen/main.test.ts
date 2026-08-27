@@ -92,6 +92,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 // because loadModule() re-runs this factory after jest.resetModules().
 jest.mock('lib/miden/sdk/miden-client', () => {
   const g = globalThis as any;
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
   let locked = false;
   const waiters: Array<() => void> = [];
   const acquire = async (): Promise<void> => {
@@ -145,7 +146,12 @@ jest.mock('lib/miden/sdk/miden-client', () => {
         // The operation is deliberately NOT awaited or cancelled here.
         deadHolds.add(hold);
         releaseOnce();
-        reject(new Error('WASM client poisoned (realm-error): evicted by the test harness'));
+        // The REAL class, not a look-alike `Error`. `handleCall` forwards
+        // `errorName`/`errorReason` only for `WasmClientPoisonedError`, and the SW's
+        // kill classifiers key off exactly that — so a plain error made every
+        // eviction test here silently assert the ORDINARY-failure path, which is the
+        // one shape the poison contract exists to keep it out of.
+        reject(new PoisonError('realm-error', new Error('evicted by the test harness')));
       };
     });
     try {
@@ -810,6 +816,50 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(started.op_id).toBe('op-start');
     // The dispatched op still completed normally.
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+  });
+
+  it('abandons a call evicted while its client was still building, before touching the ambient id (#777)', async () => {
+    // The build is a parking await INSIDE the hold, and its eager genesis fetch goes
+    // to the very node a `syncState` dispatch is now bounded against — so an eviction
+    // here is reachable, not theoretical. What resumes is worse than an unmutexed WASM
+    // call: `currentOpId` and `reassertCurrentOpId` are AMBIENT, so a corpse would
+    // overwrite the successor's, routing the successor's mid-execute sign to the
+    // corpse's callbacks and deadline, and then null the id on its own way out.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+
+    const buildClient = G.__off.getMidenClient;
+    let releaseBuild!: () => void;
+    const parkedBuild = new Promise<void>(resolve => {
+      releaseBuild = resolve;
+    });
+    G.__off.getMidenClient = jest.fn(async (...args: unknown[]) => {
+      await parkedBuild;
+      return buildClient(...args);
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-evicted-in-build', method: 'syncState', argsB64: [] }), {}, sendResponse);
+    await flush();
+    // Parked in the build, holding the lock, having touched nothing yet.
+    expect(posted.find(m => m?.type === 'OFFSCREEN_OP_STARTED')).toBeUndefined();
+
+    miden.__evictHolder();
+    releaseBuild();
+    await flush();
+
+    // Reported as the abandonment it is, and it never claimed the op: no deadline is
+    // armed for a call that will not run, and no dispatch happens with no mutex held.
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+    expect(posted.find(m => m?.type === 'OFFSCREEN_OP_STARTED')).toBeUndefined();
+    expect(G.__off.clientSyncState).not.toHaveBeenCalled();
   });
 
   it('does NOT post OFFSCREEN_OP_STARTED for an unknown method (never wins the mutex)', async () => {

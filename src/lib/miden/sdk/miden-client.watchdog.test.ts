@@ -1072,9 +1072,17 @@ describe('watchdog pause and yield', () => {
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
 
     await jest.advanceTimersByTimeAsync(0);
+    // 1_799_000 paused, so the close finds 1 s left and takes the one slice: the
+    // ledger is rewritten to "30 s remaining", of which the yield banks 25 s.
     await jest.advanceTimersByTimeAsync(1_799_000);
     await jest.advanceTimersByTimeAsync(25_000);
-    await jest.advanceTimersByTimeAsync(30_000);
+    // So the third transition arms on the 5 s REMAINDER. Asserted at the boundary,
+    // not merely "dead by 30 s": every renewal bug — a fresh 30 s slice per close,
+    // or the `>=` that let a zero-elapsed transition re-take the early return — is
+    // also dead by 30 s, so a single late assertion cannot see the difference.
+    await jest.advanceTimersByTimeAsync(4_999);
+    expect(isWasmClientBusy()).toBe(true);
+    await jest.advanceTimersByTimeAsync(1);
     expect(isWasmClientBusy()).toBe(false);
     await opRejects;
   });
@@ -1512,6 +1520,107 @@ describe('poisoned client recovery', () => {
     expect(mod.isWasmClientBusy()).toBe(false);
     await expect(mod.withWasmClientLock(async () => 'ok')).resolves.toBe('ok');
     expect(mod.getCurrentWasmLockHold()).toBeNull();
+  });
+
+  it("keeps a LIVE mutex owner in the yield watchdog's retainer census, so its corpse is not freed under", async () => {
+    // The census is `[currentHolder, ...yieldedHolders]`, and the owner is the member
+    // that looks redundant: a yielded flow cannot settle while somebody else holds the
+    // mutex, so waiting on the yielded one appears to imply waiting on the owner too.
+    // That stops being true the moment the owner is ITSELF evicted — the mutex is
+    // released while its abandoned callback keeps running, so the yielded flow can
+    // settle first and, with the owner omitted, `free()` would land on an instance the
+    // owner's corpse still has in hand.
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    let finishOwner!: () => void;
+    const ownerGate = new Promise<void>(resolve => {
+      finishOwner = resolve;
+    });
+
+    const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    const yieldedRejects = expectRejection(yielded, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    // The owner parks in a pause bracket, so it is a legitimate long-lived holder
+    // rather than something the normal ceiling evicts first.
+    const owner = mod.withWasmClientLock(hold => mod.withWasmLockWatchdogPaused(() => ownerGate, hold));
+    const ownerRejects = expectRejection(owner, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+
+    // Both relaxed ceilings expire here; the yield's timer was armed first.
+    await jest.advanceTimersByTimeAsync(1_800_000);
+    await yieldedRejects;
+    await ownerRejects;
+    expect(markPoisoned).toHaveBeenCalled();
+    expect(free).not.toHaveBeenCalled();
+
+    // The yielded flow answers and finishes. The owner's callback is still running,
+    // so nothing may be freed yet — this is the assertion the census composition is
+    // load-bearing for.
+    releaseYield();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).not.toHaveBeenCalled();
+
+    // Only once the owner's corpse settles too.
+    finishOwner();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+  });
+
+  it('an options refresh while a holder is mid-yield marks the old client, then reclaims it', async () => {
+    // The routine refresh path, not a recovery: `getMidenClient(options)` disposes
+    // whatever is in the with-options slot, and it must not terminate an instance a
+    // suspended flow still holds. Marking alone was the other half — the reference
+    // was dropped with nothing waiting to reclaim it, so this leaked a whole client
+    // per refresh on the highest-frequency path there is.
+    const { mod, free } = await loadIsolated();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    await mod.getMidenClient({ rpcUrl: 'https://one.example' });
+    await mod.getMidenClient({ rpcUrl: 'https://two.example' });
+    // The first with-options instance is detached but still reachable by the
+    // suspended flow, so it is marked rather than freed.
+    expect(free).not.toHaveBeenCalled();
+
+    releaseYield();
+    await jest.advanceTimersByTimeAsync(0);
+    await expect(yielded).resolves.toBeUndefined();
+    expect(free).toHaveBeenCalledTimes(1);
+  });
+
+  it('an endpoint-change reset does not free a client a yielded holder still has in hand', async () => {
+    // `resetMidenClient` takes the mutex, which a holder suspended mid-yield does NOT
+    // hold — so the reset could reach a straight `free()` while that flow still had
+    // the instance, the one path left violating the rule every poison path is built
+    // around. It is deferred instead, and still reclaimed.
+    const { mod, free } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    await mod.resetMidenClient();
+    expect(free).not.toHaveBeenCalled();
+
+    releaseYield();
+    await jest.advanceTimersByTimeAsync(0);
+    await expect(yielded).resolves.toBeUndefined();
+    expect(free).toHaveBeenCalledTimes(1);
   });
 
   it('restores the suspended count after a yield-watchdog eviction, so a later trap frees rather than poisons', async () => {

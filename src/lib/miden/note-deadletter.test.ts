@@ -62,6 +62,24 @@ describe('note-deadletter', () => {
     expect(list[0]?.attempts).toBe(9);
   });
 
+  it('treats a present-but-unusable stored value as an unreadable store, never as an empty one', async () => {
+    // The desktop and Capacitor adapters hand back the RAW STRING when the stored
+    // JSON does not parse, which the queue side already guards three times over. Here
+    // it went straight into `existing.filter(...)`: a `TypeError` out of the give-up
+    // path, past a caller with no try around it, so the whole import pass rejected on
+    // every lap and no note could ever be dead-lettered again — while the queue kept
+    // carrying notes it could no longer retire.
+    _g.__dlTest.store['miden-note-import-deadletter'] = '{corrupt';
+
+    await expect(addToNoteDeadletter(entry('aaa'))).resolves.toBe(false);
+    // And the readers do not read a string's length as a count of dead-lettered notes.
+    expect(await listDeadletteredNotes()).toEqual([]);
+    expect(await hasDeadletteredNotes()).toBe(false);
+    // Refused, not reset: the value may be a truncated write over records whose bytes
+    // are the only copy of the funds they carry, so it is left exactly as found.
+    expect(_g.__dlTest.store['miden-note-import-deadletter']).toBe('{corrupt');
+  });
+
   it('refuses a new note at capacity rather than evicting an older one', async () => {
     // The cap bounds storage against a pathological run, but honouring it by dropping
     // the oldest record destroys note bytes that may be the only copy of the funds

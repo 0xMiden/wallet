@@ -10,6 +10,7 @@ import {
   WasmClientPoisonedError,
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from '../sdk/wasm-client-poison';
+import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
 const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
@@ -36,6 +37,14 @@ const BACKOFF_BASE_MS = 5_000;
 // "in the future" — a stamp of `now + 3s` satisfies the weaker assertion while still
 // re-running the whole give-up round trip on the next lap.
 export const BACKOFF_MAX_MS = 5 * 60 * 1000;
+
+// A `firstFailureAt` older than this cannot have been written by this wallet, so
+// it is a wrong-clock artefact rather than an expired budget (see `anchorOf`).
+const MIN_PLAUSIBLE_EPOCH_MS = Date.UTC(2020, 0, 1);
+// How long one pass may keep STARTING imports. Half the hold's ceiling, so a
+// backlog too large to drain inside the ceiling is spread across passes instead
+// of being evicted on every one of them.
+const NOTE_IMPORT_PASS_BUDGET_MS = WASM_LOCK_SYNC_WATCHDOG_MS / 2;
 
 // Persisted queue entries. Legacy entries were bare base64 strings; they are
 // normalized to the object form on read, so no migration step is needed.
@@ -279,8 +288,17 @@ export const importAllNotes = async () => {
   // budget never expires — the note is retried forever and never dead-lettered.
   // A first failure cannot be in the future, so a stamp that is gets re-anchored,
   // which restarts the budget rather than voiding it.
+  // Clamped from BELOW too, and by absolute plausibility rather than by age: a
+  // device that first failed while its RTC still read 1970 stamps an anchor near
+  // zero, and after NTP corrects it every later pass reads the 24h budget as
+  // decades expired — so the next transient failure dead-letters a note that was
+  // only ever waiting on the network. Age alone cannot be the test, because a
+  // genuinely month-old anchor SHOULD expire the budget; a pre-2020 stamp cannot
+  // be a real one from this wallet, so that is what gets re-anchored.
   const anchorOf = (note: QueuedNoteImport, now: number) =>
-    note.firstFailureAt === undefined || note.firstFailureAt > now ? now : note.firstFailureAt;
+    note.firstFailureAt === undefined || note.firstFailureAt > now || note.firstFailureAt < MIN_PLAUSIBLE_EPOCH_MS
+      ? now
+      : note.firstFailureAt;
   const elapsedSince = (from: number, now: number) => Math.max(0, now - from);
 
   // The note whose import is in flight. An eviction abandons the callback mid-call,
@@ -323,6 +341,9 @@ export const importAllNotes = async () => {
     await withWasmClientLock(
       async hold => {
         const now = Date.now();
+        const passStartedAt = monotonicNowMs();
+        let attempted = 0;
+        let budgetSpent = false;
         const retry: QueuedNoteImport[] = [];
         for (const note of snapshot) {
           // Stop the moment this pass no longer holds the mutex. An eviction rejects
@@ -353,6 +374,28 @@ export const importAllNotes = async () => {
             retry.push(note);
             continue;
           }
+          // Stop STARTING imports once the pass has spent its slice of the hold's
+          // ceiling. The ceiling below bounds the whole loop, not one import, so a
+          // backlog big enough to take longer than it — exactly what the 24h
+          // transient budget is designed to let accumulate across an outage — was
+          // evicted on EVERY lap: progress was still head-first, but each lap paid a
+          // client poison-and-rebuild and counted a realm eviction, which is what
+          // arms the idle-sync fuse. Half the ceiling, so the import already in
+          // flight when the budget runs out still has the other half to answer in.
+          // Remaining notes are carried untouched, which is what `continue` does
+          // here — a `break` would leave them out of `retry` and the commit would
+          // delete bytes that may be the only copy of the funds they carry.
+          if (attempted > 0 && monotonicNowMs() - passStartedAt >= NOTE_IMPORT_PASS_BUDGET_MS) {
+            if (!budgetSpent) {
+              budgetSpent = true;
+              logger.info(
+                `[importAllNotes] pass budget spent after ${attempted} imports; carrying the rest to the next pass`
+              );
+            }
+            retry.push(note);
+            continue;
+          }
+          attempted++;
           try {
             const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
             inFlight.note = note;

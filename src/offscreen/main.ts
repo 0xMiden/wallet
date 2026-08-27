@@ -972,7 +972,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       // landed. `isWasmClientPoisonedError` is what every kill classifier reads to
       // tell those apart.
       if (getCurrentWasmLockHold() !== context.hold) {
-        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (at the loop top)');
         throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
       }
       // Ahead of the rebuild below: a poll already past its deadline has no business
@@ -1005,7 +1005,7 @@ const DISPATCH: Record<string, DispatchFn> = {
         // and the first WASM call below would then run with no mutex held. Same guard,
         // same reason, as the one after the sync.
         if (getCurrentWasmLockHold() !== context.hold) {
-          console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
+          console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the rebuild)');
           throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
         }
       }
@@ -1025,7 +1025,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       // failure is swallowed just above) would otherwise let this second WASM call
       // run unmutexed, which is the whole hazard the loop-top guard exists for.
       if (getCurrentWasmLockHold() !== context.hold) {
-        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the sync)');
         throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
       }
       const txs = await polling.client.transactions.list({ ids: [transactionId] });
@@ -1249,6 +1249,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await getOrCreateClient();
+      // The client build is a parking await inside the hold — its eager genesis fetch
+      // goes to the very node a `syncState` dispatch is now bounded against (above),
+      // so an eviction here is reachable rather than theoretical. An eviction abandons
+      // this callback instead of stopping it, and what resumes would not merely call
+      // WASM unmutexed: the assignments below are AMBIENT, so a corpse would overwrite
+      // the successor's `currentOpId` and `reassertCurrentOpId`, routing the
+      // successor's mid-execute sign to the corpse's callbacks and deadline, and then
+      // clear the id on its own way out. Same guard, same reason, as the confirmation
+      // poll's — placed before the first ambient write, not just before the dispatch.
+      if (getCurrentWasmLockHold() !== hold) {
+        console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
+        throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
+      }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so

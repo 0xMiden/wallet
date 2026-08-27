@@ -85,6 +85,8 @@ jest.mock('shared/logger', () => ({
   logger: { error: jest.fn(), warning: jest.fn(), info: jest.fn() }
 }));
 
+import { logger } from 'shared/logger';
+
 import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
@@ -271,6 +273,12 @@ describe('importAllNotes', () => {
     );
     expect(bytesLeft).toEqual(['aGVsbG8=', 'bmV3LW9uZQ==', 'bmV3LXR3bw==']);
     expect(queue[0]).toMatchObject({ attempts: 1 });
+    // And the refusal is on the record. On a phone this is the only signal that a
+    // corpse tried to rewrite the only copy of a private note; without it the queue
+    // bytes are the sole evidence, and they look the same as a pass that never ran.
+    expect(logger.warning).toHaveBeenCalledWith(
+      expect.stringContaining('superseded queue write from an abandoned import pass')
+    );
   });
 
   it("refuses an abandoned pass's write on the PASS TOKEN, not just on its own commit flag (#777)", async () => {
@@ -426,6 +434,59 @@ describe('importAllNotes', () => {
     const queue = _g.__notesTest.store['miden-notes-pending-import'];
     expect(queue).toHaveLength(1);
     expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('re-anchors an implausibly OLD budget stamp, so a bad RTC cannot dead-letter a good note', async () => {
+    // The mirror of the future-stamp case, and the one that costs something: a device
+    // that first failed while its clock still read 1970 stamps an anchor near zero,
+    // and after NTP corrects it every later pass reads the 24h budget as decades
+    // expired. The next transient failure then dead-letters a note that was only ever
+    // waiting on the network. Age alone cannot be the test — a genuinely month-old
+    // anchor SHOULD expire the budget — so plausibility is: a pre-2020 stamp is not
+    // one this wallet wrote.
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 1, firstFailureAt: 1000 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Failed to fetch'));
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    // Carried with a real budget, not dead-lettered.
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0].firstFailureAt).toBeGreaterThan(1000);
+  });
+
+  it('stops STARTING imports once the pass has spent its slice of the hold ceiling (#777)', async () => {
+    // The 2-minute ceiling bounds the whole loop, not one import, so a backlog too
+    // large to drain inside it was evicted on EVERY lap — and each of those evictions
+    // poisons the client and counts a realm eviction, which is what arms the idle-sync
+    // fuse. A backlog is exactly what the 24h transient budget is designed to let
+    // accumulate across an outage, so this is the ordinary shape of a recovery, not a
+    // pathological one.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8=', 'd29ybGQ=', 'YnllZQ=='];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockImplementation(async () => {
+      // One slow import spends the whole per-pass budget.
+      jest.advanceTimersByTime(61_000);
+    });
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    // The first import landed and dropped out; the rest are carried UNTOUCHED, in the
+    // legacy bare-string form that says nothing was spent on them. Carried, not
+    // dropped: a `break` would leave them out of the commit, which deletes bytes that
+    // may be the only copy of the funds they carry.
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['d29ybGQ=', 'YnllZQ==']);
   });
 
   it('dead-letters rather than carrying a note whose transient budget is spent, when the hold is evicted (#777)', async () => {

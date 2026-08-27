@@ -83,7 +83,21 @@ const withDeadletterLock = <T>(fn: () => Promise<T>): Promise<T> => {
  */
 async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
   try {
-    return (await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY)) ?? [];
+    const stored = await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY);
+    if (stored === undefined || stored === null) return [];
+    // A present-but-unusable value counts as a FAILED read, not an empty store.
+    // The desktop and Capacitor adapters hand back the raw string when the stored
+    // JSON does not parse, and `addToNoteDeadletter` went straight into
+    // `existing.filter(...)` on it — a `TypeError` thrown out of the give-up path,
+    // past a caller with no try around it, so the import pass rejected on every
+    // lap and no note could ever be dead-lettered again. Refusing is also why this
+    // is not "reset to empty": the value may be a truncated write over records
+    // whose bytes are the only copy of the funds they carry.
+    if (!Array.isArray(stored)) {
+      logger.error('[note-deadletter] stored value is not an array; treating it as an unreadable store');
+      return null;
+    }
+    return stored;
   } catch (e) {
     logger.warning('[note-deadletter] read failed', e);
     return null;

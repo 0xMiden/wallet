@@ -586,7 +586,12 @@ function ensureRealmErrorListener(): void {
  */
 function pausedCeilingFor(holder: LockHolder): number {
   const remaining = WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs;
-  if (remaining >= WASM_LOCK_MIN_WATCHDOG_MS) return remaining;
+  // Strictly greater, so the grace below is genuinely once per hold. On `>=`, the
+  // ledger the grace writes (`PAUSED - MIN`) reads back as exactly `MIN`, so a
+  // second transition banking no wall-clock in between — two brackets inside one
+  // `performance.now()` tick — took this early return and got a second full slice
+  // without ever consuming `pausedGraceUsed`.
+  if (remaining > WASM_LOCK_MIN_WATCHDOG_MS) return remaining;
   if (!holder.pausedGraceUsed) {
     // Credited to the ledger, not just to this timer, for the reason spelled out
     // on `graceUsed` below: overriding only the timer leaves the ledger past the
@@ -1088,6 +1093,13 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     console.error('[miden-client] evicting holder wedged while yielded:', {
       pausedMs: Math.round(holder.pausedElapsedMs),
       runningMs: Math.round(holder.unpausedElapsedMs),
+      // The rest of what `recoverFromWedgedHolder` logs, for the same reason it
+      // logs it: this is the same money-safety event seen from the yield, and
+      // without these fields a field report cannot tell whether a live owner was
+      // retained or how much of the relaxed budget the hold had already spent.
+      pausedGraceUsed: holder.pausedGraceUsed,
+      yieldedHolders: yieldedHolders.size,
+      liveMutexOwner: currentHolder !== null,
       error
     });
     // Marking, not freeing: this holder is suspended mid-yield and keeps using
@@ -1281,18 +1293,38 @@ class MidenClientSingleton {
     // await it forever, and recovery could not clear it (issue #775).
     this.initializingPromiseWithOptions = null;
     if (this.instanceWithOptions) {
-      if (yieldedHolders.size > 0) {
-        // A holder suspended mid-yield may still be using this instance (the
-        // routine options-refresh dispose races the same suspended flows a
-        // trap recovery does — see poisonAllInstances). Mark instead of
-        // terminating, so its isDisposed guards fire without failing a write
-        // that may already have submitted.
-        this.instanceWithOptions.markPoisoned();
-      } else {
-        this.freeGuarded(this.instanceWithOptions);
-      }
+      this.detachOrFree(this.instanceWithOptions);
       this.instanceWithOptions = null;
     }
+  }
+
+  /**
+   * Retire an instance this singleton is dropping: free it outright when nobody
+   * else can still be holding it, otherwise mark it and free it once they are done.
+   *
+   * A holder suspended mid-yield resolved the instance INSIDE its hold and keeps a
+   * direct reference, so terminating here would pull the client out from under a
+   * flow that may already have submitted. Marking alone was the other half of the
+   * bug: the reference was dropped with nothing waiting to reclaim it, so a whole
+   * WASM client (and off mobile its method worker) leaked — and unlike a trap
+   * recovery this runs on the ROUTINE options refresh, i.e. once per
+   * `getMidenClient(options)` call that finds a populated slot.
+   */
+  private detachOrFree(instance: MidenClientInterface): void {
+    if (yieldedHolders.size === 0) {
+      this.freeGuarded(instance);
+      return;
+    }
+    instance.markPoisoned();
+    const reclaimAfter = reclaimWhenIdle(yieldedHolders);
+    // Unobservable (a retainer with no operation promise attached yet) leaves the
+    // instance marked rather than freed — the same fail-safe direction
+    // `replaceClientSingletons` takes.
+    if (!reclaimAfter) return;
+    void reclaimAfter.then(() => {
+      console.warn('[miden-client] every flow holding the detached client has settled — reclaiming it');
+      this.freeDetachedInstances([instance]);
+    });
   }
 
   /**
@@ -1326,7 +1358,12 @@ class MidenClientSingleton {
     bumpWasmClientGeneration();
     this.generation++;
     if (this.instance) {
-      this.freeGuarded(this.instance);
+      // Routed through the same retirement path as the with-options slot. An
+      // endpoint change takes the mutex, which a holder suspended mid-yield does
+      // NOT hold — so this reset could reach a straight `free()` while that flow
+      // still had the instance in hand, the one path left violating the
+      // never-free-under-a-retainer rule the poison paths were built around.
+      this.detachOrFree(this.instance);
       this.instance = null;
     }
     // Null unconditionally, not just inside the `this.instance` guard above: if a
