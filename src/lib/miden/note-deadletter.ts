@@ -209,28 +209,45 @@ export async function hasDeadletteredNotes(): Promise<boolean> {
 }
 
 /**
- * Remove a single note (by bytes) — used after a successful manual retry.
+ * Remove one dead-lettered note — used after a successful manual retry.
  *
  * Under the same lock as the add: this is a read-modify-write too, and racing one
  * against an add resurrects the removed note or erases the added one.
  *
- * Returns whether the store is now provably free of those bytes, the mirror of
+ * Takes the RECORD the caller listed, not just its bytes, and removes only while
+ * the stored record is still that one. `addToNoteDeadletter` dedupes by bytes, so
+ * a fresh give-up on the same note REPLACES the record rather than adding a
+ * second — which means bytes alone cannot tell "the record I drained" from "a
+ * record a later import pass has since re-created". Removing by bytes deleted the
+ * newer one, and since that pass also still holds those bytes on the import queue
+ * and drops them at commit, the note went from both stores at once. That is the
+ * give-up invariant broken in the same shape it was broken before, one pass
+ * later, and for a private note it is unrecoverable fund loss. `failedAt` is the
+ * generation marker: every add stamps a fresh one.
+ *
+ * Returns whether the store is now provably free of THAT record, the mirror of
  * `addToNoteDeadletter`'s contract. The drain counts drained notes from this, so
  * a swallowed read/write failure reported as success left the notice claiming a
  * smaller store than it has and the user with no way to tell the retry did not
- * land. A note that was already absent counts as removed — that is the same
- * postcondition, reached earlier.
+ * land. A record that was already absent counts as removed — that is the same
+ * postcondition, reached earlier. A record REPLACED by a newer give-up does not:
+ * the note is dead-lettered again, the notice should keep saying so, and the new
+ * record's own bytes have not been drained.
  */
-export async function removeFromNoteDeadletter(bytes: string): Promise<boolean> {
+export async function removeFromNoteDeadletter(entry: DeadletteredNote): Promise<boolean> {
   return withDeadletterLock(async () => {
     const existing = await readAllOrFail();
     if (existing === null) {
       logger.error('[note-deadletter] could not read the store; the note stays dead-lettered');
       return false;
     }
-    const next = existing.filter(n => n.bytes !== bytes);
-    if (next.length === existing.length) return true;
-    return writeAll(next);
+    const stored = existing.find(n => n.bytes === entry.bytes);
+    if (stored === undefined) return true;
+    if (stored.failedAt !== entry.failedAt) {
+      logger.warning('[note-deadletter] the note was dead-lettered again since it was listed; leaving the new record');
+      return false;
+    }
+    return writeAll(existing.filter(n => n !== stored));
   });
 }
 

@@ -531,18 +531,28 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  exportNote: async (_context, client, noteId: string, exportType) => {
+  exportNote: async (context, client, noteId: string, exportType) => {
     // `exportNote` already returns serialized note bytes — ship them verbatim;
     // the SW hands them straight to the intercom without re-hydrating.
-    return await client.exportNote(noteId, exportType);
+    // The serialize happens INSIDE the interface method, on a live borrow of the
+    // shared client, so the re-check has to go in with it — same shape as
+    // `getAccount` above, just one call frame deeper (#788).
+    return await client.exportNote(noteId, exportType, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen exportNote before serializing the export')
+    );
   },
 
-  getInputNoteDetails: async (_context, client, query) => {
+  getInputNoteDetails: async (context, client, query) => {
     // Plain-DTO result (§1.4 rule "a"): the interface method already reduces
     // each `InputNoteRecord` to a JSON-safe DTO, so JSON-encode it to bytes.
     // `?? undefined` maps a JSON-`null` arg (an `undefined` query round-tripped
     // through encodeArg) back to the SDK's optional-query shape.
-    const details = await client.getInputNoteDetails(query ?? undefined);
+    // That reduction reaches through every listed record — each a borrow of the
+    // shared client — so it is refused once the hold is stale, the same as the
+    // reductions this table does inline (#788).
+    const details = await client.getInputNoteDetails(query ?? undefined, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteDetails before reducing the records')
+    );
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
@@ -566,8 +576,13 @@ const DISPATCH: Record<string, DispatchFn> = {
   // carrying every field each caller reads (the live `InputNoteRecord` — with no
   // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
   // itself cross the boundary; the reduced DTO can).
-  getConsumableNotes: async (_context, client, accountId: string) => {
-    const dtos = await client.getConsumableNoteDtos(accountId);
+  getConsumableNotes: async (context, client, accountId: string) => {
+    // The reducer's records come from a transient client, but the sync height
+    // the gate compares them against is a SECOND call on the shared client after
+    // the listing's await — so that call needs the hold to still be ours (#788).
+    const dtos = await client.getConsumableNoteDtos(accountId, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes before reading the sync height')
+    );
     return new TextEncoder().encode(JSON.stringify(dtos));
   },
 

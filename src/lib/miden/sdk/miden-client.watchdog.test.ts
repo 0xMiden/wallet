@@ -552,7 +552,7 @@ describe('assertWasmHoldCurrent (#788 follow-up)', () => {
     // the mutex belongs to somebody else now.
     let thrown: unknown;
     try {
-      assertWasmHoldCurrent(capturedHold, 'after the account read');
+      assertWasmHoldCurrent(capturedHold!, 'after the account read');
     } catch (e) {
       thrown = e;
     }

@@ -102,6 +102,44 @@ describe('sync fuse (#777)', () => {
       noteSyncWatchdogEviction('note-import');
       expect(isSyncFused('note-import')).toBe(false);
     });
+
+    // The other half of "no-op on an unlit fuse", and the one an entry-presence
+    // check alone gets wrong: a key with an entry but no fuse. An expired
+    // deadline written there reads as UNFUSED to `isSyncFused` but as FUSED to
+    // `noteNonEvictionSyncFailure`, so the next ordinary failure armed the full
+    // half hour on zero eviction evidence. Reachable on the plainest path there
+    // is — any dead-lettered note means a grant on every Retry, and every
+    // non-watchdog import failure lands in that writer.
+    it.each([
+      [
+        'a key that has an entry but has never fused',
+        () => {
+          noteNonEvictionSyncFailure('note-import');
+        }
+      ],
+      [
+        'a key part-way through its evidence budget',
+        () => {
+          noteSyncWatchdogEviction('note-import');
+        }
+      ],
+      [
+        'a key whose fuse a success has already cleared',
+        () => {
+          evictUntilLit('note-import');
+          noteSyncSuccess('note-import');
+        }
+      ]
+    ])('leaves %s unfused when the next probe fails', (_label, arrange) => {
+      arrange();
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+
+      grantManualSyncProbe('note-import');
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+
+      noteNonEvictionSyncFailure('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+    });
   });
 
   it('needs the full run of evictions before it lights, and then stands for the fused interval', () => {

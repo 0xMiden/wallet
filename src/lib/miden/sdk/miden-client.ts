@@ -281,9 +281,20 @@ export function getCurrentWasmLockHold(): WasmLockHold | null {
  * contract says to check: provably pre-submit transitions. Never guard
  * post-submit steps with it — completing beats aborting once a transaction may
  * have been broadcast.
+ *
+ * `hold` is NON-NULLABLE, unlike the permissive {@link holdIsCurrent} that backs
+ * `yield`/`pause`. The two read `null` in opposite directions on purpose —
+ * "nobody told me, so trust the lock" is right for relaxing a watchdog and
+ * catastrophic for an abort check — and accepting `null` here made the wrong one
+ * reachable by accident: `assertWasmHoldCurrent(getCurrentWasmLockHold(), …)`
+ * typechecks and is tautologically true, so it fails OPEN in the one case the
+ * guard exists for. Requiring the captured hold makes that a compile error, the
+ * same reason `DispatchContext.hold` is non-nullable. The runtime null test
+ * stays behind the type as a backstop: an untyped or `as`-cast caller must not
+ * be able to reach the fails-open comparison when nothing holds the mutex.
  */
-export function assertWasmHoldCurrent(hold: WasmLockHold | null, where: string): void {
-  if (hold !== null && getCurrentWasmLockHold() === hold) return;
+export function assertWasmHoldCurrent(hold: WasmLockHold, where: string): void {
+  if (hold != null && getCurrentWasmLockHold() === hold) return;
   throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
 }
 

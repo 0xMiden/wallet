@@ -1068,6 +1068,54 @@ describe('importAllNotes', () => {
       expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([]);
     });
 
+    // "Fresh budget" has to hold for the note this drain most often finds — the
+    // one a pass is mid-flight on, which is therefore ALREADY queued, carrying
+    // the very counters that just exhausted. Adding only the absent ones left
+    // that entry untouched, so Retry bought one more attempt instead of a real
+    // retry and the note was one failure from being dead-lettered again.
+    it('rewrites a still-queued note as bare bytes, resetting its spent budget', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'spent', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [
+        { bytes: 'spent', attempts: 2, poisonAttempts: 2, firstFailureAt: 1, nextEligibleAt: Date.now() + 300_000 },
+        'untouched'
+      ];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 1 });
+
+      // Bare bytes: `normalizeEntry` reads that back as attempts 0, no backoff
+      // stamp and no poison count. The unrelated entry is left exactly as it was.
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['untouched', 'spent']);
+    });
+
+    // The remaining half of the both-stores window, one pass later than the
+    // interleaving above: a NEW pass (whose token the drain's bump cannot
+    // supersede, because it started afterwards) gives up on the same note again
+    // between the queue write and the removal loop. The add dedupes by bytes, so
+    // it REPLACES the record — and that pass still carries those bytes on the
+    // queue and drops them at commit. Removing by bytes here took the note out
+    // of both stores; removal is matched on the record's generation instead.
+    it('refuses to remove a dead-letter record a later give-up has replaced', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'racy', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [];
+      _g.__notesTest.beforeSet = (items: Record<string, unknown>) => {
+        if (!('miden-notes-pending-import' in items)) return;
+        _g.__notesTest.beforeSet = undefined;
+        _g.__notesTest.store['miden-note-import-deadletter'] = [
+          { bytes: 'racy', reason: 'malformed', failedAt: 2, attempts: 3 }
+        ];
+      };
+
+      // Not counted, because it was not drained — and the notice keeps saying so.
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 0 });
+      expect(
+        (_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>).map(n => n.bytes)
+      ).toEqual(['racy']);
+    });
+
     // The fund-loss interleaving the "queued before removed" invariant exists to
     // prevent, and which per-note `queueNoteImport` did NOT prevent.
     //

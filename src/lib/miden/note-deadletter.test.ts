@@ -170,16 +170,59 @@ describe('note-deadletter', () => {
   });
 
   it('serializes a remove against a concurrent add', async () => {
-    await addToNoteDeadletter(entry('aaa'));
-    await Promise.all([removeFromNoteDeadletter('aaa'), addToNoteDeadletter(entry('bbb'))]);
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    await Promise.all([removeFromNoteDeadletter(aaa), addToNoteDeadletter(entry('bbb'))]);
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
   });
 
-  it('removes a single note by bytes', async () => {
-    await addToNoteDeadletter(entry('aaa'));
+  it('removes a single record and reports that it went', async () => {
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
     await addToNoteDeadletter(entry('bbb'));
-    await removeFromNoteDeadletter('aaa');
+    expect(await removeFromNoteDeadletter(aaa)).toBe(true);
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
+  });
+
+  it('reports an already-absent record as removed — the same postcondition, reached earlier', async () => {
+    expect(await removeFromNoteDeadletter(entry('aaa'))).toBe(true);
+  });
+
+  it('REFUSES to remove a record that a later give-up has replaced', async () => {
+    // The drain's fund-loss window: it lists a record, requeues the bytes, and
+    // before its removal loop gets there a fresh import pass gives up on the
+    // same note again. That add REPLACES the record (the store dedupes by
+    // bytes) and the pass still holds those bytes on the import queue, dropping
+    // them at commit — so removing by bytes here would take the note out of
+    // both stores at once. `failedAt` is the generation marker that refuses it.
+    const listed = entry('aaa');
+    await addToNoteDeadletter(listed);
+    await addToNoteDeadletter({ ...listed, failedAt: listed.failedAt + 1, attempts: listed.attempts + 1 });
+
+    expect(await removeFromNoteDeadletter(listed)).toBe(false);
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('reports a failed write as not removed, leaving the record in place', async () => {
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    _g.__dlTest.beforeSet = () => {
+      throw new Error('quota exceeded');
+    };
+
+    expect(await removeFromNoteDeadletter(aaa)).toBe(false);
+    _g.__dlTest.beforeSet = undefined;
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('reports an unreadable store as not removed', async () => {
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    _g.__dlTest.failReads = true;
+
+    expect(await removeFromNoteDeadletter(aaa)).toBe(false);
+    _g.__dlTest.failReads = false;
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
   });
 
   it('clears the whole store', async () => {

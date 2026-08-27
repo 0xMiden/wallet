@@ -228,6 +228,24 @@ export interface ClientLiveness {
 }
 
 /**
+ * A caller-supplied post-await liveness re-check (#788), for the reads whose
+ * reach-through happens INSIDE this class rather than at the call site.
+ *
+ * The rule is "re-check ownership before every WASM call that follows a parking
+ * await", and the call site can only apply it either side of the whole method —
+ * useless when the second borrow is a `.serialize()` or a `.metadata()` this
+ * class makes between two of its own awaits. Passing the check in lets the
+ * offscreen dispatch guard those the same way it guards the reductions it does
+ * itself, without this module having to know what a WASM lock hold is.
+ *
+ * Defaults to a no-op, so the SW-inline path (which does not thread a hold) and
+ * every existing caller are unchanged.
+ */
+export type AssertLive = () => void;
+
+const noAssertLive: AssertLive = () => {};
+
+/**
  * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
  * #775): the sign fires from inside the SDK mid-execute, while the caller's
  * `withWasmClientLock` hold is live, and can wait as long as the user takes to
@@ -950,8 +968,9 @@ export class MidenClientInterface {
     return await this.client.notes.list(query);
   }
 
-  async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
+  async getInputNoteDetails(query?: NoteQuery, assertLive: AssertLive = noAssertLive): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
+    assertLive();
     return allInputNotes.flatMap(note => {
       // A partial (metadata-less) record has no note ID — and, since 0.15
       // nullifiers fold in metadata, no nullifier either. It cannot be
@@ -987,13 +1006,18 @@ export class MidenClientInterface {
     return await this.client.sync();
   }
 
-  async exportNote(noteId: string, exportType: NoteExportType): Promise<Uint8Array> {
+  async exportNote(
+    noteId: string,
+    exportType: NoteExportType,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<Uint8Array> {
     const formatMap: Record<string, NoteExportFormat> = {
       [NoteExportType.ID]: NoteExportFormat.Id,
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
+    assertLive();
     return result.serialize();
   }
 
@@ -1051,8 +1075,13 @@ export class MidenClientInterface {
    * SW-inline height. The reduction is behavior-preserving: it relocates the exact
    * reach-through the callers used into one shared reducer.
    */
-  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+  async getConsumableNoteDtos(accountId: string, assertLive: AssertLive = noAssertLive): Promise<ConsumableNoteDto[]> {
     const records = await this.getConsumableNotes(accountId);
+    // `getSyncHeight` is a second WASM call on the SHARED client following a
+    // parking await, so the caller's hold has to still be live before it runs.
+    // The reduction below needs no such check: those records were read through
+    // the transient `inner` client, not this one's RefCell.
+    assertLive();
     const syncHeight = await this.client.getSyncHeight();
     return reduceConsumableNoteRecords(records, syncHeight);
   }

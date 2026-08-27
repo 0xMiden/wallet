@@ -1,10 +1,10 @@
-import React, { FC, useCallback, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { DeadletteredNote, listDeadletteredNotes } from 'lib/miden/note-deadletter';
+import { listDeadletteredNotes } from 'lib/miden/note-deadletter';
 import { hapticLight } from 'lib/mobile/haptics';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
@@ -28,14 +28,37 @@ export interface DeadletteredNotesNoticeProps {
  * the queue's writes must happen in the realm that owns the import pass — the
  * SW on extension — and a popup-side write would race its read-modify-writes.
  */
+/**
+ * How long a drain may hold the button disabled. The intercom request has no
+ * deadline of its own and an MV3 worker teardown drops an in-flight one without
+ * rejecting it, so an unbounded guard turns one unlucky press into a Retry the
+ * user can never press again this session. Generous, because a drain of a full
+ * store is a read-modify-write per note and re-enabling under a live drain is
+ * the thing the guard exists to prevent.
+ */
+const RETRY_GUARD_MAX_MS = 60_000;
+
 export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ className }) => {
   const { t } = useTranslation();
-  const { data, mutate } = useRetryableSWR<DeadletteredNote[]>('deadlettered-notes', () => listDeadletteredNotes(), {
-    refreshInterval: 10_000
-  });
+  // Only the COUNT crosses into the component. The records carry raw note bytes
+  // that may be the only copy of the funds they carry, and nothing here renders
+  // them — keeping them out of props, the SWR cache and any error-boundary
+  // serialization costs nothing and is one fewer place they can leak from.
+  const { data, mutate } = useRetryableSWR<number>(
+    'deadlettered-notes',
+    () => listDeadletteredNotes().then(notes => notes.length),
+    { refreshInterval: 10_000 }
+  );
 
-  const count = data?.length ?? 0;
+  const count = data ?? 0;
   const [retrying, setRetrying] = useState(false);
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    []
+  );
 
   const onRetry = useCallback(() => {
     // Guarded against a second press, and not merely for tidiness: each drain
@@ -46,14 +69,20 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
     if (retrying) return;
     setRetrying(true);
     hapticLight();
-    void getIntercom()
-      .request({ type: WalletMessageType.RetryDeadletteredNotesRequest })
-      .catch(() => {})
-      // Revalidate regardless of outcome: a partial drain (queue write failed
-      // mid-way) leaves a smaller store, and the count shown should say so.
-      .then(() => mutate())
-      .catch(() => {})
-      .then(() => setRetrying(false));
+    const release = () => {
+      if (mounted.current) setRetrying(false);
+    };
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, RETRY_GUARD_MAX_MS));
+    void Promise.race([
+      getIntercom()
+        .request({ type: WalletMessageType.RetryDeadletteredNotesRequest })
+        .catch(() => {})
+        // Revalidate regardless of outcome: a partial drain (queue write failed
+        // mid-way) leaves a smaller store, and the count shown should say so.
+        .then(() => mutate())
+        .catch(() => {}),
+      timeout
+    ]).then(release, release);
   }, [mutate, retrying]);
 
   if (count === 0) return null;

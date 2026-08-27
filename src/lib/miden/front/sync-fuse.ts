@@ -188,10 +188,21 @@ export function noteSyncSuccess(key: SyncFuseKey): void {
  * conclusion nothing had contradicted. An already-expired deadline reads as
  * unfused to `isSyncFused` — which is the one probe the gesture buys — while
  * every writer still sees a lit fuse and re-arms it.
+ *
+ * Which is exactly why an UNLIT fuse must be left alone rather than stamped
+ * with an expired deadline. Writing one there says "fused, window over" about a
+ * probe that never blew a fuse at all, and `noteNonEvictionSyncFailure` reads
+ * that as a lit fuse and arms the full 30 min on the next ordinary failure. The
+ * common case is not exotic: a store with any dead-lettered note grants on
+ * every drain, and `importAllNotes` routes every non-watchdog failure there —
+ * so one Retry followed by one storage blip silenced note import for half an
+ * hour on zero eviction evidence, throttling the very imports the drain exists
+ * to rescue. A gesture buys a probe THROUGH a fuse; with no fuse in the way
+ * there is nothing to buy.
  */
 export function grantManualSyncProbe(key: SyncFuseKey): void {
   const entry = ledger.get(key);
-  if (!entry) return;
+  if (!entry || entry.fusedUntilMs === null) return;
   entry.fusedUntilMs = monotonicNowMs();
 }
 

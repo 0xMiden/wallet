@@ -910,6 +910,68 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
+  // The same guard for the three reads whose reach-through happens one frame
+  // deeper, INSIDE `MidenClientInterface`, where the dispatch cannot place a
+  // check either side of it: `exportNote` serializes the live export result,
+  // `getInputNoteDetails` reduces live records, and `getConsumableNoteDtos`
+  // makes a second shared-client call (`getSyncHeight`) after the listing's
+  // await. Each is handed a liveness callback, and these dispatches used to be
+  // marked `_context` — the reach-through was simply unguarded.
+  //
+  // The assertion is on the CALLBACK, not just its presence: a dispatch that
+  // passes a function which never throws satisfies `expect.any(Function)` and
+  // guards nothing.
+  it.each([
+    ['exportNote', 'clientExportNote', ['note-x', 'Details']],
+    ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }]],
+    ['getConsumableNotes', 'clientGetConsumableNoteDtos', ['mtst1qqaccount']]
+  ] as const)(
+    '%s: hands the interface a liveness check that refuses after an eviction (#788)',
+    async (method, clientFn, args) => {
+      await loadModule();
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      let assertLive!: () => void;
+      let releaseRead!: () => void;
+      const parkedRead = new Promise<void>(resolve => {
+        releaseRead = resolve;
+      });
+      G.__off[clientFn] = jest.fn(async (...called: unknown[]) => {
+        assertLive = called[called.length - 1] as () => void;
+        await parkedRead;
+        return [];
+      });
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ op_id: `op-${method}-evicted`, method, argsB64: args.map(encodeArg) }),
+        {},
+        sendResponse
+      );
+      await flush();
+
+      // While the hold is still ours the check is silent — the falsifier for the
+      // throw below, which would otherwise pass against a callback that always
+      // throws and guards nothing either.
+      expect(() => assertLive()).not.toThrow();
+
+      miden.__evictHolder();
+      let thrown: unknown;
+      try {
+        assertLive();
+      } catch (e) {
+        thrown = e;
+      }
+      // The poison class, so the SW's kill classifiers read it as an abandonment
+      // rather than an ordinary failure; the site names itself on the `cause`.
+      expect((thrown as Error)?.name).toBe('WasmClientPoisonedError');
+      expect(((thrown as Error).cause as Error).message).toContain('in offscreen');
+
+      releaseRead();
+      await flush();
+      expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+    }
+  );
+
   it('does NOT post OFFSCREEN_OP_STARTED for an unknown method (never wins the mutex)', async () => {
     await loadModule();
     const posted: any[] = [];
@@ -1851,7 +1913,9 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // Both args decoded across the wire.
-    expect(G.__off.clientExportNote).toHaveBeenCalledWith('note-x', 'Details');
+    // Both args decoded, plus the post-await liveness re-check the interface
+    // method runs before the serialize (see the guarded-reach-through test below).
+    expect(G.__off.clientExportNote).toHaveBeenCalledWith('note-x', 'Details', expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66]);
@@ -1869,7 +1933,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // The plain-object query decoded back intact.
-    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['0xabc'] });
+    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['0xabc'] }, expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     // resultB64 is the UTF-8 JSON of the DTO array — decode + parse it back and
@@ -1917,7 +1981,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // accountId arg decoded across the wire; reduction ran on the offscreen client.
-    expect(G.__off.clientGetConsumableNoteDtos).toHaveBeenCalledWith('mtst1qqaccount');
+    expect(G.__off.clientGetConsumableNoteDtos).toHaveBeenCalledWith('mtst1qqaccount', expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
@@ -2349,7 +2413,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     capturedListener!(callReq({ method: 'getInputNoteDetails', argsB64: [encodeArg(undefined)] }), {}, sendResponse);
     await flush();
 
-    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith(undefined);
+    expect(G.__off.clientGetInputNoteDetails).toHaveBeenCalledWith(undefined, expect.any(Function));
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
