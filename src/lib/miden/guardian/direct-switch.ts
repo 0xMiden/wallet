@@ -101,6 +101,20 @@ export const isGuardianUnreachableError = (err: unknown): boolean => {
     return err.status >= 500 && err.status <= 599;
   }
 
+  // A body that failed to PARSE carries no status — the guardian client calls
+  // `response.json()` on any 2xx — yet V8 embeds the offending body prefix in the
+  // `SyntaxError` message. That is the same attacker-chosen text the ordering
+  // above exists to keep away from the heuristic, arriving by a different door,
+  // and it decides in both directions: a body beginning `connection reset…`
+  // matches, while the far likelier captive-portal or CDN reply beginning
+  // `<html>502…` does not — so a genuinely dead operator would be read as a
+  // reachable one and the fallback would never fire.
+  //
+  // Decide it structurally instead. A 2xx whose body is not JSON is not a
+  // guardian answering, whatever the bytes say, so it belongs with the transport
+  // failures; and this way no response content reaches the substring match.
+  if (err instanceof SyntaxError) return true;
+
   // No status: a transport failure that never reached an HTTP response, which is
   // the only case where the message is the sole evidence available.
   return isLikelyNetworkError(err);

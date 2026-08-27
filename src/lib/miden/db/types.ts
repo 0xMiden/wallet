@@ -64,11 +64,18 @@ export interface ISwitchGuardianExtraInputs {
   previousGuardianEndpoint?: string;
   newGuardianEndpoint: string;
   // `registerFailed`: the on-chain `update_guardian` committed but registering
-  // the account on the NEW operator did not land. Observable-only, exactly like
-  // `replace-hot-key`'s `reRegisterFailed` — recovery is owned by the
-  // guardian-sync 401 self-heal, which can only run once the stored endpoint
-  // points at the new operator.
+  // the account on the NEW operator did not land, so that operator has no record
+  // of the account. Recovery is owned by guardian-sync's missing-registration
+  // self-heal (`attemptMissingRegistrationSelfHeal`), which is reachable because
+  // the endpoint write below it always lands first — deliberately NOT the 401
+  // cold-re-register self-heal, which needs a guardian state load and therefore
+  // cannot run against an operator that has never seen the account.
   registerFailed?: boolean;
+  // `endpointPersistFailed`: the rotation committed on chain but the vault still
+  // names the previous operator (e.g. the wallet auto-locked mid-rotation, so the
+  // encrypted write was refused). Guardian drift reconciliation is the repair
+  // path; recorded so a support log can tell this apart from a clean switch.
+  endpointPersistFailed?: boolean;
 }
 
 /**

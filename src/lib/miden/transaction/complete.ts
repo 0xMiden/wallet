@@ -539,13 +539,37 @@ export const completeSwitchGuardianTransaction = async (
     // On the DIRECT path that stranding is unrecoverable rather than merely
     // untidy, because the direct path's whole premise is that the OLD operator is
     // unreachable: `syncGuardianAccounts` builds its service from the STORED
-    // endpoint, so a vault pointing at the dead operator makes `service.sync()`
-    // throw before `checkGuardianDrift` is ever reached — the reconciler that
-    // rescues the coordinated path cannot run. Persisting the endpoint is what
-    // restores it: the next tick talks to the new operator, and a missing
-    // registration surfaces as a 401, which the existing cold-re-register
-    // self-heal repairs.
+    // endpoint, so a vault pointing at the dead operator can never reach the new
+    // one. Persisting the endpoint is what restores recoverability — the next
+    // tick talks to the new operator, and an account it has no record of is
+    // repaired by `guardian-sync`'s missing-registration self-heal.
+    //
+    // So the endpoint write goes FIRST, ahead of the registration it used to
+    // follow. It is the load-bearing anti-stranding write and it is idempotent,
+    // while registration is the step allowed to fail; ordering it second put the
+    // only unguarded call after a multi-minute rotation, where an auto-lock makes
+    // `setGuardianEndpoint` throw `Wallet is locked` — and the outer catch then
+    // marked a COMMITTED rotation Failed with the dead operator still stored,
+    // which is precisely the state this ordering exists to prevent. Both steps
+    // now record their outcome instead of aborting the completion.
     await setTransactionStage(tx.id, 'registering-guardian');
+
+    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
+    // Guardian accounts on different operators aren't clobbered. Backend
+    // providers implement setGuardianEndpoint; the optional-call guard keeps a
+    // frontend provider without it from throwing.
+    let endpointPersistFailed = false;
+    try {
+      await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
+    } catch (persistError) {
+      endpointPersistFailed = true;
+      console.error(
+        'On-chain guardian switch committed but persisting the new endpoint failed — the vault still names the ' +
+          'previous operator; guardian drift reconciliation is the remaining repair path:',
+        persistError
+      );
+    }
+
     let registerFailed = false;
     try {
       if (multisigService) {
@@ -557,24 +581,19 @@ export const completeSwitchGuardianTransaction = async (
       registerFailed = true;
       console.error(
         'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
-          'unauthorized (401) with the new operator until the guardian-sync self-heal lands a registration:',
+          'unknown to the new operator until the guardian-sync self-heal lands a registration:',
         registerError
       );
     }
 
-    // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
-    // Guardian accounts on different operators aren't clobbered. Backend
-    // providers implement setGuardianEndpoint; the optional-call guard keeps a
-    // frontend provider without it from throwing.
-    await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
-      // whole extraInputs) and record whether the registration landed.
-      extraInputs: { ...tx.extraInputs, registerFailed },
+      // whole extraInputs) and record which post-commit steps landed.
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // switch is already on chain, we just lack the local TransactionResult.
       ...(result && {

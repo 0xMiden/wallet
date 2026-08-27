@@ -96,7 +96,7 @@ import {
 import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
-import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import { extractSdkErrorCode, isApplyAfterSubmitError, isTransactionDiscardedError } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
@@ -1615,6 +1615,63 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
 /**
+ * Wall-clock ceiling on one round-trip to the OUTGOING guardian during a
+ * switch-guardian, after which the wallet stops waiting and treats the operator
+ * as unreachable.
+ *
+ * Generous — this is a backstop against an operator that has stopped answering,
+ * not a latency target. It has to sit above an honestly slow guardian on a cold
+ * start, because expiring early costs the user a coordinated switch they could
+ * have had.
+ */
+const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
+
+/**
+ * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
+ * guardian answering, with a message the unreachability classifier recognizes.
+ *
+ * Applied ONLY to the switch-guardian arms, because they are the only ones with
+ * somewhere better to go: every other guardian operation needs the operator, so
+ * failing it sooner buys nothing.
+ *
+ * WHY a deadline is needed at all, when the WASM lock already has a watchdog.
+ * The guardian transport carries no client-side deadline (`GuardianHttpClient`
+ * calls bare `fetch` with no `AbortSignal`), and the service load happens INSIDE
+ * `withWasmClientLock`. So an operator that accepts the connection and then goes
+ * silent — the wedged-operator outage this whole path exists to escape — never
+ * produced a classifiable error at all: the hold ran out the 5-minute watchdog,
+ * the eviction arrived as `WasmClientPoisonedError`, and that is deliberately
+ * NOT unreachable (it is a local kill), so the fallback never fired and the row
+ * failed terminally with no requeue and no Retry. The single outage shape most
+ * likely to need the direct switch was the one shape that could not reach it.
+ *
+ * The deadline does not cancel the request or release the lock — nothing can, the
+ * fetch has no abort — so the abandoned hold still waits out the watchdog. What
+ * it changes is that the CALLER gets an unreachable verdict at 30s and commits to
+ * the direct path; that path's own `withWasmClientLock` then queues behind the
+ * wedged holder and is admitted when the watchdog evicts it onto a fresh client.
+ * Slow, but it completes, where before it could not.
+ */
+const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
+      OUTGOING_GUARDIAN_DEADLINE_MS
+    );
+    run().then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+
+/**
  * DIRECT on-chain guardian switch — the fallback when the OUTGOING guardian is
  * unreachable. The proposal flow needs the old guardian as a coordination
  * mailbox (service load, proposal push, signature accumulation), but the
@@ -1677,29 +1734,32 @@ const generateDirectSwitchGuardianTransaction = async (
   // Same commit-wait as the proposal path: the new guardian must be seeded
   // with the POST-switch state, so registration only runs after inclusion.
   //
-  // A wait FAILURE must not skip the completion, though. The transaction is
-  // already submitted and applied locally, and completion is what persists the
-  // new endpoint — without it the vault keeps naming the operator this path
-  // exists because it cannot reach, which makes `syncGuardianAccounts` throw on
-  // `service.sync()` before `checkGuardianDrift` runs, so the reconciler that
-  // rescues the coordinated path never gets to repair anything. The row is
-  // terminal (`switch-guardian` is excluded from requeue and from Retry), so
-  // there is no second attempt to fall back on.
+  // An INDETERMINATE wait failure must not skip the completion, though. The
+  // transaction is already submitted and applied locally, and completion is what
+  // persists the new endpoint — without it the vault keeps naming the operator
+  // this path exists because it cannot reach, and the row is terminal
+  // (`switch-guardian` is excluded from requeue and from Retry), so there is no
+  // second attempt to fall back on. Proceeding is the better trade in both
+  // directions: if the switch did land, completion is simply correct; if it did
+  // not, `resolveGuardianDrift` repairs the pointer from the other side, because
+  // the on-chain commitment still names the old operator and
+  // `identifyGuardianOperator` can match it.
   //
-  // Proceeding is the better trade in BOTH directions. If the switch did land,
-  // completion is simply correct. If it never landed, `resolveGuardianDrift`
-  // repairs it from the other side: the on-chain commitment still names the old
-  // operator, `identifyGuardianOperator` matches it, and the endpoint is
-  // repointed — and that reconciler can now run, because the stored endpoint is
-  // one the wallet can actually talk to.
+  // A DISCARD is the one failure where that reasoning inverts. There the node
+  // has ruled: the rotation provably did not happen, so persisting the new
+  // endpoint and reporting "Guardian switched" would be a lie the user acts on,
+  // and it would hand the account to an operator with no on-chain authority over
+  // it. Fail the row and leave the vault naming the guardian that still holds
+  // the account.
   const id = result.executedTransaction().id().toHex();
   await setTransactionStage(transaction.id, 'confirming');
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
+    if (isTransactionDiscardedError(waitError)) throw waitError;
     console.warn(
-      `Direct guardian switch ${id} was submitted but its commit wait failed; finalizing anyway so the new ` +
-        'endpoint is persisted and the account is not stranded on the unreachable operator:',
+      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; finalizing ` +
+        'anyway so the new endpoint is persisted and the account is not stranded on the unreachable operator:',
       waitError
     );
   }
@@ -1825,9 +1885,15 @@ const generateGuardianTransaction = async (
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
       try {
-        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        service = await withOutgoingGuardianDeadline(
+          () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
+          'loading the outgoing guardian service'
+        );
         const { proposal } = await withGuardianConflictRetry(() =>
-          service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
+          withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
+            'pushing the switch-guardian proposal'
+          )
         );
         proposalResult = proposal;
       } catch (error) {
@@ -2069,15 +2135,22 @@ const generateGuardianTransaction = async (
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
     try {
-      const coldService = await MultisigService.buildColdMultisigService(
-        sdkAccount,
-        walletAccount,
-        guardianProvider.signWord
+      // Bounded for the same reason as the two arms above: this loads state from
+      // the OUTGOING guardian, and a silent operator here would otherwise wedge
+      // the lock rather than reach the fallback below.
+      const coldService = await withOutgoingGuardianDeadline(
+        () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
+        'loading the cold co-signing service from the outgoing guardian'
       );
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
       // otherwise a prior delta mid-canonicalization fails the whole switch even
       // though the hot proposal already landed.
-      await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
+      await withGuardianConflictRetry(() =>
+        withOutgoingGuardianDeadline(
+          () => coldService.signProposal(proposalResult.id),
+          'cold co-signing the switch-guardian proposal'
+        )
+      );
     } catch (error) {
       // Connectivity to the outgoing guardian dropped between proposal push and
       // cold co-sign: fall back to the direct on-chain switch.

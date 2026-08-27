@@ -132,3 +132,28 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
     /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
   );
 }
+
+/**
+ * True when a commit wait ended because the node DISCARDED the transaction —
+ * a definitive "this will never land", as opposed to the indeterminate
+ * timeout the same call throws when the poll window simply expires.
+ *
+ * The distinction is what lets a caller decide whether "submitted, outcome
+ * unknown" is a safe assumption. A timeout leaves the transaction possibly on
+ * chain, so optimistically finalizing is the better trade; a discard means the
+ * chain state provably did NOT change, so finalizing would report a failure as
+ * a success and persist local state describing a rotation that never happened.
+ *
+ * Both realms produce the same text, from the same `isDiscarded()` branch:
+ * flag-off the SDK's `TransactionsResource.waitFor` throws
+ * `Transaction rejected: <id>`, and the offscreen realm's in-realm poll loop
+ * (`offscreen/main.ts`) reproduces it verbatim for exactly that reason — so one
+ * matcher covers extension, mobile and desktop.
+ */
+export function isTransactionDiscardedError(err: unknown): boolean {
+  // Same ordering rationale as isApplyAfterSubmitError: an eviction carries the
+  // raw realm error in its `cause`, and this walks the chain, so a trap whose
+  // text happened to embed the phrase must not be read as a node verdict.
+  if (isWasmClientPoisonedError(err)) return false;
+  return errorMessageParts(err).some(part => /transaction rejected/i.test(part));
+}

@@ -127,12 +127,22 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
   );
   // The dismissed ACCOUNT, not a bare boolean: the flag is per-account, so with
   // two guardian accounts on two dead operators a boolean would let a dismiss on
-  // the first silently suppress the second's banner — `guardianOutage` stays
-  // `true` across that switch, so the reset effect never fires.
+  // the first silently suppress the second's banner.
   const [dismissedAccountPk, setDismissedAccountPk] = useState<string | undefined>(undefined);
+  // Expire the dismiss on the DISMISSED account's own flag, not the current
+  // account's. Watching `guardianOutage` meant merely selecting a healthy or
+  // non-guardian account read as "the outage ended" and threw the dismiss away —
+  // and since this view stays mounted across account switches, coming back
+  // re-surfaced a banner the user had already dismissed. Reading the dismissed
+  // account's flag also means a recovery that happens while the user is on
+  // ANOTHER account still expires the dismiss, so a later, genuinely new outage
+  // is not suppressed by a stale one.
+  const dismissedAccountInOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    dismissedAccountPk ? isGuardianSyncOutage(dismissedAccountPk) : false
+  );
   useEffect(() => {
-    if (!guardianOutage) setDismissedAccountPk(undefined);
-  }, [guardianOutage]);
+    if (dismissedAccountPk !== undefined && !dismissedAccountInOutage) setDismissedAccountPk(undefined);
+  }, [dismissedAccountInOutage, dismissedAccountPk]);
   const guardianDismissed = dismissedAccountPk !== undefined && dismissedAccountPk === currentAccountPk;
 
   const active = useMemo(

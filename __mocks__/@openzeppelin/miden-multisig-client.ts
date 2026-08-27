@@ -95,9 +95,20 @@ export const buildUpdateGuardianTransactionRequest = jest.fn(async () => ({
   salt: { toHex: () => 'salt-hex' }
 }));
 
-// Real heuristic (copied from the package's connectivity.ts) — the direct-switch
-// fallback's unreachable-vs-semantic-error routing depends on it behaving
-// faithfully, so this is NOT a jest.fn stub.
+// The package's real heuristic, copied from its `connectivity.ts` — the
+// direct-switch fallback's unreachable-vs-semantic routing depends on it behaving
+// faithfully (an "unreachable" verdict converts a coordinated guardian switch
+// into a unilateral on-chain rotation), so this is NOT a jest.fn stub.
+//
+// It has to be a copy rather than a delegation: `moduleNameMapper` points this
+// specifier at this file, so `jest.requireActual` on it resolves back here, and
+// the package ships ESM that `transformIgnorePatterns` excludes from transform,
+// so reaching its file path directly does not work either.
+//
+// The copy is pinned instead — `direct-switch.test.ts` derives the token list
+// from the shipped `connectivity.js` and asserts this function matches it, so a
+// package-side change fails a test rather than silently leaving every
+// classification test asserting semantics that no longer exist.
 export const isLikelyNetworkError = (err: unknown): boolean => {
   const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');
   const lower = message.toLowerCase();

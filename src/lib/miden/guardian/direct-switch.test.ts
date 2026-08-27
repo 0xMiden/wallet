@@ -214,6 +214,29 @@ describe('isGuardianUnreachableError', () => {
     expect(mockedMultisigClient.isLikelyNetworkError(error)).toBe(false);
     expect(isGuardianUnreachableError(error)).toBe(true);
   });
+
+  // The other door the response body can come through: the client calls
+  // `response.json()` on any 2xx, and V8 embeds the offending body prefix in the
+  // `SyntaxError` message — which carries NO status, so the status guard above
+  // does not apply and the text would reach the heuristic. It decides in both
+  // directions, and the likelier direction is the damaging one: a captive-portal
+  // or CDN interstitial (`<html>502…`) misses every token, so a genuinely dead
+  // operator would read as reachable and the fallback would never fire.
+  it.each([
+    ['a CDN interstitial', new SyntaxError('Unexpected token \'<\', "<html><body>502 Bad Gateway" is not valid JSON')],
+    ['an empty body', new SyntaxError('Unexpected end of JSON input')],
+    ['a body chosen to match the heuristic', new SyntaxError('Unexpected token \'c\', "connection reset by peer"')]
+  ])('treats a 2xx whose body is not JSON as unreachable (%s)', (_label, error) => {
+    expect(isGuardianUnreachableError(error)).toBe(true);
+  });
+
+  it('classifies a non-JSON body structurally, not by what the body says', () => {
+    // The interstitial case above is the one the heuristic gets WRONG, so pin
+    // that the verdict does not come from the text.
+    const interstitial = new SyntaxError('Unexpected token \'<\', "<html><body>502 Bad Gateway" is not valid JSON');
+    expect(mockedMultisigClient.isLikelyNetworkError(interstitial)).toBe(false);
+    expect(isGuardianUnreachableError(interstitial)).toBe(true);
+  });
 });
 
 describe('createDirectSwitchGuardianRequest', () => {
@@ -430,5 +453,48 @@ describe('finalizeDirectGuardianSwitch', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xmissing', 'https://g.test', guardianProvider as any)
     ).rejects.toThrow('not found in provider');
+  });
+});
+
+// The classifier above is only as good as the heuristic it delegates to, and that
+// heuristic reaches these tests through a manual mock that COPIES the package's
+// token list (moduleNameMapper points the specifier at the mock, and the package
+// ships untransformed ESM, so neither `requireActual` route reaches the real
+// function). A copy that drifts is worse than a stub: every test here stays green
+// while asserting classification semantics the shipped package no longer has.
+//
+// So derive the tokens from the shipped `connectivity.js` and hold the copy to
+// them. A token the package adds and the mock lacks fails here.
+describe('the mocked isLikelyNetworkError tracks the shipped package', () => {
+  const readShippedTokens = (): string[] => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { readFileSync } = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { join } = require('path');
+    const source: string = readFileSync(
+      join(__dirname, '../../../../node_modules/@openzeppelin/miden-multisig-client/dist/connectivity.js'),
+      'utf8'
+    );
+    const start = source.indexOf('export function isLikelyNetworkError');
+    expect(start).toBeGreaterThan(-1);
+    // The function ends at the next top-level `export`, or the file's end.
+    const rest = source.slice(start + 1);
+    const end = rest.indexOf('\nexport ');
+    const body = end === -1 ? rest : rest.slice(0, end);
+    const tokens = [...body.matchAll(/includes\('([^']+)'\)/g)].flatMap(match => (match[1] ? [match[1]] : []));
+    expect(tokens.length).toBeGreaterThan(5); // the parse found a real body, not nothing
+    return tokens;
+  };
+
+  it('flags every transport token the package flags', () => {
+    for (const token of readShippedTokens()) {
+      expect(mockedMultisigClient.isLikelyNetworkError(new Error(`operation failed: ${token}`))).toBe(true);
+    }
+  });
+
+  it('still leaves semantic guardian errors unflagged', () => {
+    // From the package's own test corpus, so a copy that over-matches also fails.
+    expect(mockedMultisigClient.isLikelyNetworkError(new Error('account is paused'))).toBe(false);
+    expect(mockedMultisigClient.isLikelyNetworkError(new Error('insufficient signatures'))).toBe(false);
   });
 });

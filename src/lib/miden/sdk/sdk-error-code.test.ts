@@ -1,4 +1,4 @@
-import { extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
+import { extractSdkErrorCode, isApplyAfterSubmitError, isTransactionDiscardedError } from './sdk-error-code';
 
 /**
  * The verbatim `Display` text miden-client produces for
@@ -143,5 +143,48 @@ describe('isApplyAfterSubmitError', () => {
     );
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isTransactionDiscardedError', () => {
+  // Verbatim from both producers of this verdict: the SDK's
+  // `TransactionsResource.waitFor` (`throw new Error(\`Transaction rejected: ${hex}\`)`
+  // in its `isDiscarded()` branch) and the offscreen realm's in-realm poll loop,
+  // which reproduces the same text so one matcher covers all three platforms.
+  const DISCARDED_MESSAGE = 'Transaction rejected: 0x1234abcd';
+
+  it('matches the discard text both realms produce', () => {
+    expect(isTransactionDiscardedError(new Error(DISCARDED_MESSAGE))).toBe(true);
+  });
+
+  it('matches through the offscreen bus wrapper and a cause chain', () => {
+    expect(
+      isTransactionDiscardedError(new Error(`Offscreen call 'waitForTransactionCommit' failed: ${DISCARDED_MESSAGE}`))
+    ).toBe(true);
+    expect(isTransactionDiscardedError(new Error('commit wait failed', { cause: new Error(DISCARDED_MESSAGE) }))).toBe(
+      true
+    );
+  });
+
+  it('does NOT match an indeterminate timeout', () => {
+    // The whole point of the distinction: a timeout leaves the transaction
+    // possibly on chain, so the caller optimistically finalizes. Matching here
+    // would turn every slow commit into a hard failure.
+    expect(isTransactionDiscardedError(new Error('Timed out waiting for transaction 0xabc to commit'))).toBe(false);
+    expect(isTransactionDiscardedError(new Error('network request failed'))).toBe(false);
+    expect(isTransactionDiscardedError(undefined)).toBe(false);
+    expect(isTransactionDiscardedError(null)).toBe(false);
+    expect(isTransactionDiscardedError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a node verdict (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // An eviction is abandonment, not a chain verdict — and its `cause` carries
+    // the raw realm error verbatim. Reading it as "discarded" would fail a row
+    // whose transaction may well have submitted.
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('realm-error', new Error(DISCARDED_MESSAGE)))).toBe(
+      false
+    );
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
 });

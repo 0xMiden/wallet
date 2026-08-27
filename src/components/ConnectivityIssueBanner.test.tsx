@@ -286,6 +286,59 @@ describe('ConnectivityIssueBanner', () => {
     expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
   });
 
+  // The commonest switch of all: one guardian account in outage plus a healthy
+  // (or non-guardian) second account. Expiring the dismiss on the CURRENT
+  // account's flag threw it away the moment the healthy account was selected,
+  // so coming back re-surfaced a banner the user had already dismissed — and
+  // this view stays mounted across account switches, so nothing else reset it.
+  it('keeps the guardian dismiss across a switch to a HEALTHY account and back', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The other half of keying the expiry on the dismissed account: a recovery
+  // that lands while the user is elsewhere must still expire the dismiss, so a
+  // later, genuinely new outage is not suppressed by a stale one.
+  it('expires the dismiss when the dismissed account recovers while another account is selected', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+      guardianOutage.accounts.add('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
   it('clears the guardian banner when the sync loop stands the flag down', () => {
     guardianOutage.accounts.add('acct-1');
     render(<ConnectivityIssueBanner />);

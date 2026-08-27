@@ -1,6 +1,6 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
-import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { finalizeDirectGuardianSwitch, isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -67,6 +67,15 @@ const hardeningChecked = new Set<string>();
 // lives in decideColdReRegisterSelfHeal (guardian-selfheal.ts, unit-tested).
 const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
+
+// Accounts this session has already tried to re-register on an operator that
+// reported never having seen them. Bounded to one attempt per session on
+// purpose: `/configure` is account-wide and revokes whatever request-auth the
+// account previously had, so retrying it on a 3s tick against an operator that
+// keeps saying "unknown account" would hammer a write with real authority on the
+// strength of a verdict that is not changing. Cleared on a successful sync, so a
+// genuine later recurrence gets a fresh attempt.
+const missingRegistrationHealed = new Set<string>();
 
 /**
  * `Date.now()` before which an account's sync is paused because the guardian
@@ -154,7 +163,65 @@ export function __resetGuardianSyncOutageForTest(): void {
   const hadOutage = outageAccounts.size > 0;
   outageAccounts.clear();
   syncInFlight = undefined;
+  missingRegistrationHealed.clear();
   if (hadOutage) notifyOutageListeners();
+}
+
+/**
+ * The operator answered, and its answer is "I have no record of this account".
+ *
+ * Distinct from a 401, which means "I know this account but not this signer" —
+ * the two need different repairs, and conflating them is why the missing
+ * registration had none. Matched on the guardian's stable machine-readable codes
+ * rather than on text; `data_unavailable` and its account-scoped sibling are
+ * included because the server uses them for a state blob it cannot produce,
+ * which is the same practical condition.
+ */
+function isGuardianAccountUnknown(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = 'code' in err ? err.code : undefined;
+  return (
+    code === 'account_not_found' ||
+    code === 'state_not_found' ||
+    code === 'account_data_unavailable' ||
+    code === 'data_unavailable'
+  );
+}
+
+/**
+ * Push a registration to an operator that reports no record of the account.
+ *
+ * This is the recovery half of `registerFailed` (see `ISwitchGuardianExtraInputs`).
+ * A rotation whose `update_guardian` committed but whose post-commit
+ * `/configure` did not land leaves the account in a state no other self-heal can
+ * reach: on chain the new operator IS the guardian, so nothing is "drifted" for
+ * the drift reconciler to fix, and every guardian-authenticated call fails
+ * because the operator holds no state to authenticate against — including the
+ * state load that the 401 self-heal's cold service needs before it can
+ * re-register.
+ *
+ * `finalizeDirectGuardianSwitch` is the one registration path with no such
+ * precondition: it reads the signer allowlist from the LOCAL account and POSTs
+ * `/configure` directly.
+ */
+async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
+  if (missingRegistrationHealed.has(account.publicKey)) return;
+  const endpoint = account.guardianEndpoint;
+  if (!endpoint) return;
+  missingRegistrationHealed.add(account.publicKey);
+
+  try {
+    await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider);
+    clearGuardianServiceFor(account.publicKey);
+    console.warn(
+      `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
+    );
+  } catch (e) {
+    console.warn(
+      `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} (not retried this session):`,
+      e
+    );
+  }
 }
 
 /**
@@ -303,6 +370,25 @@ async function runGuardianAccountsSync(): Promise<void> {
       rateLimitedUntil.delete(account.publicKey);
     }
 
+    // Reconcile the guardian POINTER before anything that depends on it, and
+    // regardless of whether the guardian round-trip below succeeds.
+    //
+    // This used to sit after `service.sync()`, inside the success block — which
+    // made the reconciler unreachable in exactly the states that need it. A wrong
+    // or stale stored endpoint is what drift reconciliation exists to repair, and
+    // a wrong endpoint is precisely what makes `getOrCreateMultisigService` /
+    // `service.sync()` throw first: the service is built by loading account state
+    // FROM the stored endpoint. So the check ran only when the pointer was already
+    // good. It needs nothing from the guardian service — just the vault and a
+    // local `getAccount`, plus its own bounded endpoint probes — so hoisting it is
+    // free and makes the recovery paths the direct switch relies on real.
+    //
+    // Best-effort: a drift-check failure must never break the sync loop.
+    await useWalletStore
+      .getState()
+      .checkGuardianDrift(account.publicKey)
+      .catch(() => {});
+
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
@@ -312,13 +398,8 @@ async function runGuardianAccountsSync(): Promise<void> {
       // fresh, and stand down the guardian-unreachable prompt.
       consecutiveAuthFailures.delete(account.publicKey);
       selfHealState.delete(account.publicKey);
+      missingRegistrationHealed.delete(account.publicKey);
       clearGuardianServerFailures(account.publicKey);
-
-      // Best-effort: a drift-check failure must never break the sync loop.
-      await useWalletStore
-        .getState()
-        .checkGuardianDrift(account.publicKey)
-        .catch(() => {});
 
       // Self-heal the update_guardian threshold-2 hardening: if a migrated
       // account's original hardening tx was dropped, it would otherwise sit at
@@ -379,6 +460,24 @@ async function runGuardianAccountsSync(): Promise<void> {
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
         );
         continue;
+      } else if (isGuardianAccountUnknown(error)) {
+        // The operator answered and says it has never heard of this account. The
+        // reachable cause is a rotation whose post-commit registration did not
+        // land (`registerFailed` on the switch-guardian row): the account's
+        // guardian IS this operator on chain, but the operator holds no state for
+        // it, so every co-sign will fail until a registration is pushed.
+        //
+        // The 401 cold-re-register self-heal cannot repair this — it builds a cold
+        // MultisigService, which loads state from the guardian and therefore hits
+        // the same "no such account". `finalizeDirectGuardianSwitch` is the
+        // load-free registration (it derives the signer allowlist from the LOCAL
+        // account and POSTs `/configure`), so it is what this branch runs.
+        //
+        // A server answering is not an outage, so the failure count resets rather
+        // than arming the banner.
+        consecutiveAuthFailures.delete(account.publicKey);
+        clearGuardianServerFailures(account.publicKey);
+        await attemptMissingRegistrationSelfHeal(account);
       } else {
         // Non-auth error — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);

@@ -39,6 +39,10 @@ jest.mock('@openzeppelin/guardian-client', () => ({
   }
 }));
 
+jest.mock('lib/miden/guardian/native-http', () => ({
+  registerGuardianOrigin: jest.fn()
+}));
+
 afterEach(() => {
   jest.restoreAllMocks();
 });
@@ -148,5 +152,61 @@ describe('verifyEndpointMatchesCommitment', () => {
     });
 
     expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe(false);
+  });
+
+  // This is one-shot and user-initiated, so it gets a far longer budget than the
+  // repeating sync tick's: on the tick a slow operator is simply retried in 3s,
+  // whereas here a `false` is shown to the user as "that URL is the WRONG
+  // operator" and blocks the write. A cold-starting but perfectly correct
+  // self-hosted guardian must not be reported that way.
+  it('waits well past the tick budget before giving up on a slow endpoint', async () => {
+    jest.useFakeTimers();
+    jest
+      .spyOn(GuardianHttpClient.prototype, 'getPubkey')
+      .mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve({ commitment: '0xAAA' }), 12_000)));
+
+    const verdict = verifyEndpointMatchesCommitment('https://slow.self-hosted.test', 'aaa');
+    await jest.advanceTimersByTimeAsync(12_000);
+
+    expect(await verdict).toBe(true);
+    jest.useRealTimers();
+  });
+
+  it('still gives up eventually on an endpoint that never answers', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(() => new Promise(() => {}));
+
+    const verdict = verifyEndpointMatchesCommitment('https://hung.self-hosted.test', 'aaa');
+    await jest.advanceTimersByTimeAsync(20_000);
+
+    expect(await verdict).toBe(false);
+    jest.useRealTimers();
+  });
+});
+
+// On mobile, guardian traffic reaches the network only through the CapacitorHttp
+// CORS bypass, and that interceptor routes REGISTERED origins only. The built-ins
+// are pre-seeded, so this is what makes a custom / self-hosted endpoint work —
+// and the custom endpoint is exactly what the drift reconciler and the
+// manual-URL apply hand to these probes.
+describe('mobile CORS-bypass registration', () => {
+  const { registerGuardianOrigin } = jest.requireMock('lib/miden/guardian/native-http');
+
+  beforeEach(() => registerGuardianOrigin.mockClear());
+
+  it('registers the probed origin from checkEndpointCommitment', async () => {
+    await checkEndpointCommitment('https://custom.guardian.test', 'aaa');
+    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://custom.guardian.test');
+  });
+
+  it('registers the probed origin from verifyEndpointMatchesCommitment', async () => {
+    await verifyEndpointMatchesCommitment('https://custom.guardian.test', 'aaa');
+    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://custom.guardian.test');
+  });
+
+  it('registers every built-in origin it probes from buildOperatorKeyMap', async () => {
+    await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
+    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://guardian.openzeppelin.com');
+    expect(registerGuardianOrigin).toHaveBeenCalledWith('https://miden-guardian.lambdaclass.com');
   });
 });
