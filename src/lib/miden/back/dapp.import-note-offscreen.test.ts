@@ -127,9 +127,33 @@ jest.mock('lib/miden/back/vault', () => ({
 // Bridge the alias → relative specifier so any residual passthrough hits the same
 // raw-client mock (there should be none on the import path after 7c).
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
+// `importDAppPrivateNote` re-checks it via `assertWasmHoldCurrent` between the
+// import and its sync. The assert re-implements the real comparison (a no-op
+// would make the eviction test below vacuous) and throws the REAL poison class
+// so the queue-on-abandonment gate classifies it as it would in production.
+let currentWasmHold: object | null = null;
+// Simulates the watchdog handing the mutex to a successor while the current client
+// call is still parked — call from inside a client-method mock.
+const revokeWasmHold = (): void => {
+  currentWasmHold = null;
+};
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappImportNoteTest.midenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -291,6 +315,38 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
       )
     ).rejects.toBeDefined();
 
+    expect(queueNoteImport).toHaveBeenCalledTimes(1);
+    expect(queueNoteImport).toHaveBeenCalledWith('aGVsbG8=');
+  });
+
+  it('an eviction between the import and its sync queues the note and never runs the dead sync (#788)', async () => {
+    // The import itself lands, but while it was parked the watchdog handed the
+    // mutex to a successor: ownership is gone by the time the callback resumes,
+    // so the follow-up sync would borrow a client somebody else is inside.
+    const { queueNoteImport } = require('lib/miden/activity');
+    queueNoteImport.mockClear();
+    queueNoteImport.mockResolvedValue(undefined);
+    mockProxyImportNoteBytes.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return 'OFFSCREEN-NOTE-ID';
+    });
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestImportPrivateNote('https://miden.xyz', {
+            type: MidenDAppMessageType.ImportPrivateNoteRequest,
+            sourcePublicKey: 'miden-account-1',
+            note: 'aGVsbG8='
+          } as never),
+        MidenMessageType.DAppImportPrivateNoteConfirmationRequest
+      )
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    // The dead sync must not run…
+    expect(mockProxySyncState).not.toHaveBeenCalled();
+    // …and the note still reaches the background-retry queue: whether the import
+    // landed is unknown, and these bytes can be the only copy of the funds.
     expect(queueNoteImport).toHaveBeenCalledTimes(1);
     expect(queueNoteImport).toHaveBeenCalledWith('aGVsbG8=');
   });

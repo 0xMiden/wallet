@@ -45,7 +45,7 @@ import {
 import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -481,7 +481,9 @@ export class Vault {
       } else {
         console.log('[Vault.spawn] Step 7b: acquiring WASM client lock for create/import path...');
         const created = await withWasmClientLock(
-          async (): Promise<{
+          async (
+            hold
+          ): Promise<{
             accountId: string;
             accAuthScheme: AuthScheme;
             guardianKeys?: CreatedGuardianKeys;
@@ -490,9 +492,20 @@ export class Vault {
             // Re-resolved now that the lock is held — the reference taken before
             // queueing may have been disposed by recovery in the meantime (#775).
             const client = await liveClient();
+            // Two liveness questions, both needed: liveClient() answers "is this
+            // client REFERENCE still alive"; the hold checks below answer "does
+            // this flow still OWN the mutex". A watchdog eviction hands the lock
+            // to a successor without necessarily disposing anything this flow can
+            // see, so ownership is re-checked after every parking await — all of
+            // it provably pre-write: no account exists until the create/import
+            // calls, and the vault writes happen after the lock releases.
+            assertWasmHoldCurrent(hold, 'in Vault.spawn after the client build');
             if (walletType === WalletType.Guardian) {
               console.log('[Vault.spawn] Step 8: syncing state then creating Guardian account...');
               await client.syncState();
+              // The sync parks on the network; an abandoned flow must not go on
+              // to mint a guardian account nobody is waiting for.
+              assertWasmHoldCurrent(hold, 'in Vault.spawn after the guardian-path sync');
               // Pass the caller's picked endpoint (stage 1 of #408) as the
               // override; createGuardianAccount falls back to the network default
               // when it is undefined (it no longer consults the frozen global key
@@ -515,6 +528,13 @@ export class Vault {
               // restorers work too. If neither probe finds an on-chain match the
               // mnemonic is "fresh" — fall through to a brand-new ECDSA create.
               for (const scheme of RESTORE_PROBE_SCHEMES) {
+                // Per-iteration: each probe is a parking on-chain lookup, and an
+                // eviction during probe N must neither let probe N+1 re-borrow a
+                // client a successor is inside, nor let the loop fall through to
+                // the fresh-create below — which would mint an EMPTY wallet off
+                // an abandoned restore, the same fund-loss shape as the
+                // network-error abort.
+                assertWasmHoldCurrent(hold, 'in Vault.spawn before an import probe');
                 try {
                   console.log(`[Vault.spawn] Step 8a: probing ${scheme} import...`);
                   const id = await client.importPublicMidenWalletFromSeed(walletSeed, scheme);
@@ -539,9 +559,14 @@ export class Vault {
               }
               console.warn('[Vault.spawn] no on-chain account at hdIndex=0 under any scheme; creating fresh');
             }
+            // When the probe loop ran, control arrives here off its last
+            // (rejected) await; on the plain create path this re-asks the
+            // top-of-lock question one line later, which is cheap.
+            assertWasmHoldCurrent(hold, 'in Vault.spawn before the pre-create sync');
             // Sync to chain tip BEFORE creating first account (no accounts = no tags = fast sync)
             console.log('[Vault.spawn] Step 8b: syncing state...');
             await client.syncState();
+            assertWasmHoldCurrent(hold, 'in Vault.spawn before the wallet create');
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
             return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
@@ -661,13 +686,31 @@ export class Vault {
       };
 
       // Wrap WASM client operations in a lock to prevent concurrent access
-      await withWasmClientLock(async () => {
+      await withWasmClientLock(async hold => {
         const midenClient = await getMidenClient(options);
+        // The client build can park (a genesis fetch against a slow node); a
+        // watchdog eviction during it hands the mutex to a successor, and the
+        // reads below would then be a second borrow of a client somebody else
+        // is inside. Every guard in this restore is provably pre-write for the
+        // account it protects, and aborting mid-loop is safe: the whole spawn
+        // rejects, so a partial keystore is never surfaced as a finished
+        // wallet — the user simply retries the import.
+        assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the client build');
         const accountHeaders = await midenClient.getAccounts();
 
         // Have to do this sequentially else the wasm fails
         for (const accountHeader of accountHeaders) {
+          // Per-iteration: each pass parks twice (getAccount, keystore.insert),
+          // and an eviction during account N must not let account N+1 re-borrow
+          // the client.
+          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient before an account read');
           const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
+          // Before touching the returned Account: `isFaucet()`/`id()` are WASM
+          // calls on an object borrowed from the client's RefCell, so reading
+          // them after an eviction is the double borrow, not merely a stale
+          // read. This also covers the keystore insert below — nothing between
+          // here and it parks.
+          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after an account read');
           if (!account || account.isFaucet()) {
             continue;
           }
@@ -815,13 +858,24 @@ export class Vault {
       // wallet.
       const newScheme: AuthScheme = NEW_ACCOUNT_AUTH_SCHEME;
       const created = await withWasmClientLock(
-        async (): Promise<{
+        async (
+          hold
+        ): Promise<{
           accountId: string;
           guardianKeys?: CreatedGuardianKeys;
           guardianEndpoint?: string;
         }> => {
           console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
           const midenClient = await getMidenClient(options);
+          // The client build is the only parking await before the create/import
+          // calls below; a watchdog eviction during it hands the mutex to a
+          // successor, and each of those calls would then be a second borrow of
+          // a client somebody else is inside. Provably pre-write: no account
+          // exists yet and every vault write happens after the lock releases.
+          // (The catch below keeps its own corpse-guard for evictions DURING
+          // the import, where the disposed/poisoned client reference is the
+          // observable signal.)
+          assertWasmHoldCurrent(hold, 'in createHDAccount after the client build');
           console.log('[Vault.createHDAccount] Step 7: client ready, network =', midenClient.network);
 
           if (walletType === WalletType.Guardian) {
@@ -952,8 +1006,15 @@ export class Vault {
         insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
       };
 
-      const { publicKey, importedAuthScheme } = await withWasmClientLock(async () => {
+      const { publicKey, importedAuthScheme } = await withWasmClientLock(async hold => {
         const midenClient = await getMidenClient(options);
+        // The client build is the only parking await before the WASM work
+        // below: the deserialize/builder chain is synchronous and runs straight
+        // into the two inserts. Deliberately NO guard between accounts.insert
+        // and keystore.insert — once the account row has landed, completing the
+        // key write beats aborting (an account without its key cannot sign, and
+        // this path has no way to re-attach one later).
+        assertWasmHoldCurrent(hold, 'in importAccountFromPrivateKey after the client build');
         let secretKey: AuthSecretKey;
         try {
           secretKey = AuthSecretKey.deserialize(secretKeyBytes);
@@ -1377,8 +1438,17 @@ export class Vault {
 
       for (const acc of legacy) {
         try {
-          const onChainCommitment = await withWasmClientLock(async () => {
-            const sdkAccount = await (await getMidenClient()).getAccount(acc.publicKey);
+          const onChainCommitment = await withWasmClientLock(async hold => {
+            const client = await getMidenClient();
+            // The client build can park; re-check ownership before borrowing it.
+            assertWasmHoldCurrent(hold, 'in backfillGuardianEndpoints before the account read');
+            const sdkAccount = await client.getAccount(acc.publicKey);
+            // The commitment read walks the returned Account's storage — a
+            // borrow of the client's RefCell, not a snapshot — so ownership is
+            // re-checked after the read's parking await too. A throw lands in
+            // the per-account catch below: the account is left unstamped and
+            // retries next unlock, this backfill's designed failure mode.
+            assertWasmHoldCurrent(hold, 'in backfillGuardianEndpoints after the account read');
             return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
           });
           // No on-chain guardian commitment to resolve (account not synced yet,

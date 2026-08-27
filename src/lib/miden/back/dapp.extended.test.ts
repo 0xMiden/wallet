@@ -12,6 +12,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 
 // ── Shared mocks ───────────────────────────────────────────────────
@@ -127,6 +128,18 @@ const mockImportNoteBytes = _g.__dappTestMockImportNoteBytes;
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP, not just mutual exclusion (#788 follow-up): the lock hands
+// its callback a hold, and dapp.ts re-checks it via `assertWasmHoldCurrent` after
+// every parking await. A hold-less pass-through would make those guards a TypeError
+// on the happy path and unreachable for the eviction tests below; a no-op assert
+// would make them vacuous. The closures run at test time, after this `let`
+// initializes, so the factory-hoisting caveat above doesn't bite them.
+let currentWasmHold: object | null = null;
+// Simulates the watchdog handing the mutex to a successor while the current client
+// call is still parked — call from inside a client-method mock.
+const revokeWasmHold = (): void => {
+  currentWasmHold = null;
+};
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
@@ -137,7 +150,23 @@ jest.mock('../sdk/miden-client', () => ({
     syncState: () => (globalThis as any).__dappTestMockSyncState(),
     on: jest.fn()
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  // Re-implements the real comparison against this mock's hold, and throws the
+  // REAL poison class so dapp.ts's `isWasmClientPoisonedError` routing sees the
+  // shape the poison contract promises.
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -1476,5 +1505,98 @@ describe('requestPermission (mobile)', () => {
         force: false
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+// ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
+
+describe('a watchdog eviction mid-read abandons the dApp flow instead of double-borrowing', () => {
+  // Each test revokes hold ownership from INSIDE the parking client call — the
+  // moment the real watchdog hands the mutex to a successor — and pins that the
+  // next WASM step never runs (that call would be a second borrow of a client
+  // somebody else is inside) and that the caller sees the retryable poison
+  // error, not a false permissions/params verdict.
+
+  it('requestPermission stops before reading the evicted account commitments', async () => {
+    const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
+    _g.__dappTestMockGetAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return { getPublicKeyCommitments };
+    });
+    mockRequestConfirmation.mockResolvedValueOnce({
+      confirmed: true,
+      accountPublicKey: 'miden-account-1',
+      privateDataPermission: 'UPON_REQUEST'
+    });
+    delete (storageState[STORAGE_KEY] as any)['https://evicted.xyz'];
+    await expect(
+      dapp.requestPermission('https://evicted.xyz', {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'Evicted Dapp' },
+        network: 'testnet',
+        privateDataPermission: 'UPON_REQUEST',
+        allowedPrivateData: 0,
+        force: false
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    // The commitments (and their serialize()) are borrows of the client the
+    // successor now owns — the abandoned flow must never touch them…
+    expect(getPublicKeyCommitments).not.toHaveBeenCalled();
+    // …and no session may be persisted off the abandoned read.
+    expect((storageState[STORAGE_KEY] as any)['https://evicted.xyz']).toBeUndefined();
+  });
+
+  it('requestAssets (Auto) stops before the vault borrow chain', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }
+    ];
+    const vault = jest.fn();
+    _g.__dappTestMockGetAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return { vault };
+    });
+    await expect(
+      dapp.requestAssets('https://miden.xyz', {
+        type: MidenDAppMessageType.AssetsRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(vault).not.toHaveBeenCalled();
+  });
+
+  it('requestConsumableNotes (Auto) stops between the sync and the note read', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
+    ];
+    // Sync is THE parking await on this path — network-bound, tens of seconds
+    // on a slow node — so it is where a real eviction lands.
+    _g.__dappTestMockSyncState.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+    await expect(
+      dapp.requestConsumableNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
+  });
+
+  it('requestPrivateNotes (Auto) stops between the note read and the consumability scope read', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }
+    ];
+    _g.__dappTestMockGetInputNoteDetails.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return [];
+    });
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'miden-account-1',
+        notefilterType: 'All'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
   });
 });

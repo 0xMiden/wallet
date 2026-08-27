@@ -5,14 +5,14 @@
  * store wrapper then dereferences (the exact drift this module exists to end).
  */
 
+import { WalletMessageType, WalletRequest } from 'lib/shared/types';
+
+import { processInProcessRequest } from './in-process-request-handler';
+
 const mockRetryDeadletteredNotes = jest.fn(async () => ({ requeued: 3 }));
 jest.mock('lib/miden/back/actions', () => ({
   retryDeadletteredNotes: () => mockRetryDeadletteredNotes()
 }));
-
-import { WalletMessageType, WalletRequest } from 'lib/shared/types';
-
-import { processInProcessRequest } from './in-process-request-handler';
 
 describe('processInProcessRequest', () => {
   beforeEach(() => {

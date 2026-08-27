@@ -4,7 +4,12 @@ import { executeForSummary } from '@openzeppelin/miden-multisig-client';
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  withWasmClientLock,
+  type WasmLockHold
+} from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -62,9 +67,24 @@ const SIMULATION_TIMEOUT_MS = 20_000;
  * the user already owned removes their only view of their own funds. When the
  * lookup is broken for every id the quarantine simply degrades to a no-op.
  */
-async function idsNotAlreadyHeld(client: { getInputNote(id: string): Promise<unknown> }, ids: string[]) {
+async function idsNotAlreadyHeld(
+  client: { getInputNote(id: string): Promise<unknown> },
+  ids: string[],
+  /**
+   * The caller's lock hold. REQUIRED rather than optional: the loop below is one
+   * WASM round trip per dApp-supplied id, and an optional guard is one a future
+   * caller disables by forgetting it.
+   */
+  hold: WasmLockHold
+) {
   const introduced: string[] = [];
   for (const id of ids) {
+    // Per-iteration: an eviction during any lookup hands the mutex to a
+    // successor without stopping this loop, and the next lookup would borrow a
+    // client somebody else is inside. The check sits OUTSIDE the try below —
+    // inside it, the poison would be swallowed as "already held" and the loop
+    // would carry on.
+    assertWasmHoldCurrent(hold, 'before the provenance lookup');
     try {
       if (!(await client.getInputNote(id))) introduced.push(id);
     } catch {
@@ -100,15 +120,26 @@ async function idsNotAlreadyHeld(client: { getInputNote(id: string): Promise<unk
  * the abandoned work eventually finishes.
  *
  * Residual limitation: a slow `syncState` (or import/execute) still holds the
- * WASM lock until it completes — the timeout only bounds how long the UI
- * waits, not how long the lock is held. A fuller fix would decouple syncing
- * from the lock entirely; left as a follow-up.
+ * WASM lock until it completes or the #775 watchdog evicts it — the timeout
+ * only bounds how long the UI waits, not how long the lock is held. What an
+ * eviction no longer leaves behind is a live hazard: the callback re-checks
+ * its hold at every transition below, so the abandoned dry run stops at its
+ * next WASM call instead of running to completion inside a client a successor
+ * now owns. A fuller fix would decouple syncing from the lock entirely; left
+ * as a follow-up.
  */
 export async function simulateCustomTransaction(input: SimulateCustomTxInput): Promise<SimulateCustomTxResult> {
   const work: Promise<SimulateCustomTxResult> = (async () => {
     try {
-      return await withWasmClientLock(async () => {
+      return await withWasmClientLock(async hold => {
         const client = await getMidenClient();
+        // The client build is a parking await (on a cold start it is the long
+        // one); an eviction during it hands the mutex to a successor without
+        // stopping this callback, so every WASM call below would be a second
+        // borrow of a client somebody else is inside. This is a dry run —
+        // nothing here ever submits — so every transition through the end of
+        // the callback is guardable, and the hold is re-checked at each one.
+        assertWasmHoldCurrent(hold, 'after the client build');
 
         // Quarantine BEFORE importing: these notes are about to land in the
         // real client DB purely so `executeForSummary` can resolve them for
@@ -123,12 +154,25 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // nothing, so quarantining by id alone would let any dApp hide the
         // user's own claimable notes just by opening a confirm dialog they
         // then cancel. See lib/miden/note-quarantine.ts for the full lifecycle.
-        await quarantineNoteIds(await idsNotAlreadyHeld(client, importedNoteIds(input.importNotes)));
+        await quarantineNoteIds(await idsNotAlreadyHeld(client, importedNoteIds(input.importNotes), hold));
+        // The quarantine write is Dexie, not WASM — but it is still an await,
+        // and the watchdog does not pause for it, so the check has to sit
+        // between it and the next WASM call rather than before it (same
+        // precedent as the sync-manager's quarantine read).
+        assertWasmHoldCurrent(hold, 'after the quarantine write');
 
         for (const noteB64 of input.importNotes ?? []) {
+          // Per-iteration, and the count is dApp-controlled — one guard before
+          // the loop only covers the first import.
+          assertWasmHoldCurrent(hold, 'before the note import');
           await client.importNoteBytes(b64ToU8(noteB64));
         }
+        assertWasmHoldCurrent(hold, 'after the note imports');
         await client.syncState();
+        // `accountIdStringToSdk` and `TransactionRequest.deserialize` below are
+        // WASM calls too, not just the execution — and the sync is the await
+        // most likely to outlive the watchdog.
+        assertWasmHoldCurrent(hold, 'after the sync');
 
         // Fix C: executeForSummary wants a hex account-id string (it does
         // AccountId.fromHex). The custom-tx address is usually bech32, but
@@ -157,6 +201,13 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
             request,
             getEffectiveRpcUrl()
           );
+          // Before touching what it returned: `summary.serialize()` is a WASM
+          // call on an object from the evicted client's realm, and so is the
+          // anchor's `free` — which is why the anchor is deliberately NOT freed
+          // on the abandoned path (the check sits above the try/finally):
+          // stranding one anchor beats making the very call the guard exists to
+          // prevent, and the poison recovery owns the old client's cleanup.
+          assertWasmHoldCurrent(hold, 'before the summary serialize');
           try {
             return { summaryBytes: u8ToB64(summary.serialize()) };
           } finally {
@@ -164,6 +215,12 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
           }
         } catch (e) {
           if (!isAlreadyAuthorizedError(e)) throw e;
+          // The already-authorized rejection still ends the executeForSummary
+          // parking await, so re-check before the fallback executes anything.
+          // (A poison error never matches `isAlreadyAuthorizedError`, so an
+          // eviction thrown by the guards above rethrows past this catch into
+          // `{ error }` rather than being retried as a local execution.)
+          assertWasmHoldCurrent(hold, 'before the local execution fallback');
           // Ordinary (non-guardian) account: nothing is pending authorization, so
           // there is no summary — but the dry run itself is still available and is
           // the same ground truth. `executeRequest` executes locally and submits,
@@ -179,6 +236,9 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
             accountIdHex,
             TransactionRequest.deserialize(b64ToU8(input.transactionRequest))
           );
+          // `result.serialize()` borrows the same client — same rule as the
+          // summary above. Still pre-submit: executeRequest broadcasts nothing.
+          assertWasmHoldCurrent(hold, 'before the result serialize');
           return { executedBytes: u8ToB64(executed.result.serialize()) };
         }
       });

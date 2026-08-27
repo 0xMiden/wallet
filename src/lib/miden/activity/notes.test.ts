@@ -85,9 +85,8 @@ jest.mock('shared/logger', () => ({
   logger: { error: jest.fn(), warning: jest.fn(), info: jest.fn() }
 }));
 
-import { logger } from 'shared/logger';
-
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import { logger } from 'shared/logger';
 
 import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport, retryDeadletteredNotes } from './notes';
 import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';

@@ -12,6 +12,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
 // ── Capture intercom listeners via the mock ────────────────────────
@@ -130,9 +131,33 @@ jest.mock('lib/miden/back/vault', () => ({
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await. The
+// assert re-implements the real comparison (a no-op would make the eviction tests
+// below vacuous) and throws the REAL poison class so `isWasmClientPoisonedError`
+// routing sees the shape the poison contract promises.
+let currentWasmHold: object | null = null;
+// Simulates the watchdog handing the mutex to a successor while the current client
+// call is still parked — call from inside a client-method mock.
+const revokeWasmHold = (): void => {
+  currentWasmHold = null;
+};
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -1228,5 +1253,70 @@ describe('Full confirmation cycles in extension mode', () => {
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
+  });
+});
+
+// ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
+
+describe('a watchdog eviction mid-read abandons the extension flow instead of double-borrowing', () => {
+  // Both tests revoke hold ownership from INSIDE the parking account read — the
+  // moment the real watchdog hands the mutex to a successor — and pin that the
+  // commitment reads on the returned Account never run: those are borrows of the
+  // client's RefCell, so touching them after the eviction IS the double borrow.
+
+  it('requestPermission declines and stores no session when evicted during the account read', async () => {
+    delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz'];
+    const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
+      revokeWasmHold();
+      return { getPublicKeyCommitments };
+    });
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://evicted-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Evicted Dapp', url: 'https://evicted-dapp.xyz' },
+            force: false,
+            network: 'testnet',
+            privateDataPermission: 'UPON_REQUEST',
+            allowedPrivateData: 0
+          } as never),
+        MidenMessageType.DAppPermConfirmationRequest,
+        { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    // The abandoned flow must not have touched the borrowed account…
+    expect(getPublicKeyCommitments).not.toHaveBeenCalled();
+    // …nor persisted a session with a publicKey it never safely read.
+    expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz']).toBeUndefined();
+  });
+
+  it('requestSign rejects with the poison error, not a false NotGranted, when evicted during the authorization read', async () => {
+    arrangeSignerAccount();
+    const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => SIGNER_COMMITMENT }]);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
+      revokeWasmHold();
+      return { getPublicKeyCommitments };
+    });
+    const signData = jest.fn(async () => 'stolen-signature');
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          } as never),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      )
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(getPublicKeyCommitments).not.toHaveBeenCalled();
+    // An abandoned authorization must fail the request, never sign anyway.
+    expect(signData).not.toHaveBeenCalled();
   });
 });

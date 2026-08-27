@@ -25,7 +25,7 @@ import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
-import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -527,14 +527,22 @@ export class MultisigService {
     // WASM client is single-threaded, so resolving the client outside the lock
     // (or splitting the build/execute into two lock windows) leaves a gap where
     // another holder can run and trigger "recursive use ... unsafe aliasing".
-    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async () => {
+    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async hold => {
       const webClient = (await getMidenClient()).client;
+      // An eviction ABANDONS this callback rather than cancelling it, so every
+      // WASM call after a parking await needs the ownership re-check — the build,
+      // the request construction, and the summary execution can each park on the
+      // network, and past an eviction the mutex (and the client) belong to a
+      // successor. All three transitions are pre-sign/pre-submit: stopping costs
+      // the user a retry and nothing else.
+      assertWasmHoldCurrent(hold, 'replace-hot-key: after the client build');
       const { request, salt } = await buildUpdateSignersTransactionRequest(
         webClient,
         targetThreshold,
         targetSignerCommitments,
         { signatureScheme: 'ecdsa', midenRpcEndpoint: getEffectiveRpcUrl() }
       );
+      assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
       // Since protocol 0.16 the signed summary binds the reference block
       // commitment, so it only reproduces when re-executed at that same block.
       // The anchor names that block; without shipping it on the proposal, a
@@ -547,6 +555,11 @@ export class MultisigService {
       // blockchain) instead of leaving it to the finalizer — the same
       // serialize-then-free every multisig-client proposal creator does (#784).
       try {
+        // Inside the try on purpose: summary/salt/anchor are borrows of the
+        // client's RefCell, so touching them past an eviction IS the double
+        // borrow — but the anchor release must still run on this throw
+        // (freeChainAnchor swallows a disposed-object failure).
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
         return {
           summaryBase64: u8ToB64(summary.serialize()),
           saltHex: salt.toHex(),
@@ -587,12 +600,21 @@ export class MultisigService {
   async finalizeGuardianSwitch(newGuardianEndpoint: string): Promise<void> {
     try {
       console.log('Finalizing guardian switch to new endpoint:', newGuardianEndpoint);
-      const updatedStateBase64 = await withWasmClientLock(async () => {
+      const updatedStateBase64 = await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
+        // The sync is the canonical parking await (a node that never answers),
+        // and an eviction during it hands the mutex to a successor without
+        // stopping this callback — the account read below would then be an
+        // unmutexed call into a client somebody else is inside. Pre-registration,
+        // so failing here just re-runs the (retried) finalize.
+        assertWasmHoldCurrent(hold, 'finalize-switch: after the state sync');
         const account = await midenClientProxy.getAccount(this.accountId);
         if (!account) {
           throw new Error(`Updated account ${this.accountId} is missing from local client`);
         }
+        // serialize() reads through the Account's borrow of the client's
+        // RefCell, so the read await needs its own re-check.
+        assertWasmHoldCurrent(hold, 'finalize-switch: after the account read');
         return u8ToB64(account.serialize());
       });
 
@@ -649,12 +671,22 @@ export class MultisigService {
    * window (NOT on the first sign of lag — see `runSync`).
    */
   async reRegisterCurrentStateOnGuardian(): Promise<void> {
-    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async () => {
+    const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
+      // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
+      // unattended loop whose failure mode is a sync parked on a dead node, i.e.
+      // the population the watchdog eviction exists for. An abandoned callback
+      // must not carry on into the reads below (each a borrow of a client a
+      // successor now owns); everything here is pre-registration, so stopping is
+      // strictly cheaper.
+      assertWasmHoldCurrent(hold, 're-register: after the state sync');
       const account = await midenClientProxy.getAccount(this.accountId);
       if (!account) {
         throw new Error(`Account ${this.accountId} is missing from local client`);
       }
+      // The inspector walks account storage and serialize() reads through the
+      // same RefCell — both are borrows, so the read await gets its own re-check.
+      assertWasmHoldCurrent(hold, 're-register: after the account read');
       // #619 gap (3): derive the guardian allowlist (`auth.cosigner_commitments`,
       // written by registerOnGuardian from `multisig.signerCommitments`) from the
       // SAME freshly-synced on-chain account as the state blob — NOT the cached

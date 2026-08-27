@@ -201,6 +201,14 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     isWasmClientBusy,
     __evictHolder,
     getCurrentWasmLockHold: () => currentHold,
+    // #788 follow-up: the shared post-await ownership re-check the dispatches run.
+    // Re-implements the REAL comparison against this mock's own `currentHold` —
+    // a no-op here would satisfy every eviction test below vacuously, because the
+    // guards under test could then never fire.
+    assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+      if (hold !== null && hold === currentHold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    },
     onWasmClientPoisoned: (listener: () => void) => {
       g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
       g.__off.poisonedListeners.push(listener);
@@ -862,6 +870,44 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.errorName).toBe('WasmClientPoisonedError');
     expect(posted.find(m => m?.type === 'OFFSCREEN_OP_STARTED')).toBeUndefined();
     expect(G.__off.clientSyncState).not.toHaveBeenCalled();
+  });
+
+  it('getAccount: refuses to serialize the account read before an eviction (#788)', async () => {
+    // The Account the read returns is a borrow of the shared client's RefCell, not
+    // a snapshot — so when an eviction during the read hands the mutex to a
+    // successor, the abandoned dispatch's `serialize()` would be a second borrow
+    // alongside whatever the successor is doing. The guard must stop this
+    // read-only dispatch at its first post-await WASM touch.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const serializeSpy = jest.fn(() => new Uint8Array([10, 20, 30]));
+    let releaseRead!: () => void;
+    const parkedRead = new Promise<void>(resolve => {
+      releaseRead = resolve;
+    });
+    G.__off.clientGetAccount = jest.fn(async () => {
+      await parkedRead;
+      return { serialize: serializeSpy };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-acc-evicted', method: 'getAccount', argsB64: [encodeArg('mtst1qqaccount')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseRead();
+    await flush();
+
+    // The corpse never touched the account it was handed; the SW-side answer is the
+    // eviction's own poison classification.
+    expect(serializeSpy).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
   it('does NOT post OFFSCREEN_OP_STARTED for an unknown method (never wins the mutex)', async () => {
@@ -1720,6 +1766,44 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     }
   });
 
+  it('stops before the status read when the hold goes stale during the transactions.list await (#788)', async () => {
+    // The post-sync guard covers the `transactions.list` CALL, but the list is an
+    // await of its own, and the records it returns are borrows of the shared
+    // client — a `transactionStatus()` read after an eviction landing inside the
+    // list would double-borrow alongside the successor. A read-only poll, so the
+    // never-guard-post-submit rule does not apply.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const statusSpy = jest.fn(() => ({ isCommitted: () => true, isDiscarded: () => false }));
+    let releaseList!: () => void;
+    const parkedList = new Promise<void>(resolve => {
+      releaseList = resolve;
+    });
+    G.__off.clientTransactionsList = jest.fn(async () => {
+      await parkedList;
+      return [{ transactionStatus: statusSpy }];
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-evicted-in-list', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    // Evicted while parked INSIDE the list, then the list answers late — with a
+    // status that reads COMMITTED, so an unguarded loop would report success.
+    miden.__evictHolder();
+    releaseList();
+    await flush();
+
+    expect(statusSpy).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
   it('a LIVE commit-wait whose replacement client is ALSO poisoned still never reports a commit (#775)', async () => {
     // The rebuild is not a licence to answer "committed" without seeing one. If the
     // realm keeps poisoning every client it builds, the poll must run out of time and
@@ -1883,6 +1967,40 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(JSON.parse(Buffer.from(resp.resultB64, 'base64').toString('utf8'))).toBe(5000);
   });
 
+  it('getSyncHeight(fresh): refuses to read blockNum() off the summary after an eviction (#788)', async () => {
+    // The fresh branch parks on a network sync, and the SyncSummary it returns is
+    // a borrow of the shared client — `.blockNum()` after an eviction is the
+    // double borrow the hold re-check exists to refuse.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const blockNumSpy = jest.fn(() => 5000);
+    let releaseSync!: () => void;
+    const parkedSync = new Promise<void>(resolve => {
+      releaseSync = resolve;
+    });
+    G.__off.clientSync = jest.fn(async () => {
+      await parkedSync;
+      return { blockNum: blockNumSpy };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-height-evicted', method: 'getSyncHeight', argsB64: [encodeArg(true)] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseSync();
+    await flush();
+
+    expect(blockNumSpy).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
   it('dispatches getPswapLineage → reduces the live record in-realm to a JSON DTO', async () => {
     await loadModule();
     const sendResponse = jest.fn();
@@ -1916,6 +2034,67 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
+  it('getPswapLineage: refuses to reduce the live record after an eviction (#788)', async () => {
+    // The reduction reaches through the record's live WASM methods, and the record
+    // is a borrow of the shared client — an eviction during the lineage read must
+    // stop the dispatch before the first touch. One tracking spy behind EVERY
+    // record method: the reducer's read order is its own business, so the
+    // assertion is that no method was touched at all.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const recordRead = jest.fn();
+    let releaseLineage!: () => void;
+    const parkedLineage = new Promise<void>(resolve => {
+      releaseLineage = resolve;
+    });
+    G.__off.clientLineage = jest.fn(async () => {
+      await parkedLineage;
+      return {
+        orderId: () => {
+          recordRead();
+          return '77';
+        },
+        currentTipNoteId: () => {
+          recordRead();
+          return { toString: () => '0xtip' };
+        },
+        currentDepth: () => {
+          recordRead();
+          return 2;
+        },
+        state: () => {
+          recordRead();
+          return 1;
+        },
+        remainingOffered: () => {
+          recordRead();
+          return 10n;
+        },
+        remainingRequested: () => {
+          recordRead();
+          return 20n;
+        }
+      };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-lineage-evicted', method: 'getPswapLineage', argsB64: [encodeArg('77')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseLineage();
+    await flush();
+
+    expect(recordRead).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
   it('dispatches getInputNoteSummary → reduces the live record to its noteType (JSON DTO)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
@@ -1938,6 +2117,40 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.resultB64).toBeNull();
+  });
+
+  it('getInputNoteSummary: refuses to reduce the live record after an eviction (#788)', async () => {
+    // Same shape as the lineage guard: the InputNoteRecord is a borrow of the
+    // shared client, and the reduction's `metadata()` reach-through after an
+    // eviction would double-borrow alongside the successor.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const metadataSpy = jest.fn(() => ({ noteType: () => 1 }));
+    let releaseNote!: () => void;
+    const parkedNote = new Promise<void>(resolve => {
+      releaseNote = resolve;
+    });
+    G.__off.clientGetInputNote = jest.fn(async () => {
+      await parkedNote;
+      return { metadata: metadataSpy };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({ op_id: 'op-summary-evicted', method: 'getInputNoteSummary', argsB64: [encodeArg('0xn')] }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseNote();
+    await flush();
+
+    expect(metadataSpy).not.toHaveBeenCalled();
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
   it('dispatches importNoteBytes → imports into the offscreen store and ships the id back as bytes', async () => {
@@ -2063,6 +2276,70 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       { noteId: 'n1', state: 'Invalid', assets: [], nullifier: '0xn1' },
       { noteId: 'n2', state: 'Invalid', assets: [], nullifier: '0xn2' }
     ]);
+  });
+
+  it('getSerializedInputNoteDetails: an eviction mid-loop stops the record reduction AND every later fetch (#788)', async () => {
+    // The shared loop swallows per-note throws (a not-found note is a skip), so no
+    // single up-front check can stop it — the liveness question is PER-ITERATION:
+    // the record read after each await and the NEXT iteration's fetch are both
+    // WASM borrows. Note 1 resolves before the eviction; the eviction lands during
+    // note 2's fetch; note 2's record must never be read and note 3 must never be
+    // fetched at all.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const secondRecordRead = jest.fn();
+    let releaseSecond!: () => void;
+    const parkedSecond = new Promise<void>(resolve => {
+      releaseSecond = resolve;
+    });
+    G.__off.clientGetInputNote = jest.fn(async (id: string) => {
+      if (id === 'n2') {
+        await parkedSecond;
+        return {
+          details: () => {
+            secondRecordRead();
+            return { assets: () => ({ fungibleAssets: () => [] }) };
+          },
+          state: () => {
+            secondRecordRead();
+            return { toString: () => 'Invalid' };
+          },
+          nullifier: () => {
+            secondRecordRead();
+            return { toString: () => '0xn2' };
+          }
+        };
+      }
+      return {
+        details: () => ({ assets: () => ({ fungibleAssets: () => [] }) }),
+        state: () => ({ toString: () => 'Invalid' }),
+        nullifier: () => ({ toString: () => `0x${id}` })
+      };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-details-evicted',
+        method: 'getSerializedInputNoteDetails',
+        argsB64: [encodeArg(['n1', 'n2', 'n3'])]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseSecond();
+    await flush();
+
+    // Note 2's record was fetched before the eviction but never READ after it, and
+    // note 3's fetch — a WASM call in its own right — never happened.
+    expect(secondRecordRead).not.toHaveBeenCalled();
+    expect(G.__off.clientGetInputNote).toHaveBeenCalledTimes(2);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
   it('getInputNoteDetails maps a JSON-null query arg back to undefined for the SDK', async () => {
@@ -2229,6 +2506,58 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([11, 22, 33]);
+  });
+
+  it('sendTransaction: an evicted dispatch still serializes its result — post-submit is never guarded (#788)', async () => {
+    // `client.sendTransaction` is execute→prove→submit→apply in one opaque call,
+    // so when control returns here the transaction may already be broadcast.
+    // Completing beats aborting past a possible submit — a hold re-check before
+    // the serialize would abandon a write the network may have accepted — so this
+    // dispatch deliberately has NONE. Pinned so a future guard sweep doesn't add
+    // one.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const serializeSpy = jest.fn(() => new Uint8Array([11, 22, 33]));
+    let releaseWrite!: () => void;
+    const parkedWrite = new Promise<void>(resolve => {
+      releaseWrite = resolve;
+    });
+    G.__off.clientSendTransaction = jest.fn(async () => {
+      await parkedWrite;
+      return { serialize: serializeSpy };
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-send-evicted',
+        method: 'sendTransaction',
+        argsB64: [
+          encodeArg({
+            accountId: 'mtst1qacc',
+            secondaryAccountId: 'mtst1qrecipient',
+            faucetId: 'mtst1qfaucet',
+            noteType: 'public',
+            amount: '1000',
+            extraInputs: {}
+          })
+        ]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseWrite();
+    await flush();
+
+    // The corpse finished its serialize; the SW was answered by the eviction's
+    // poison classification, which is what tells it the submit may have landed.
+    expect(serializeSpy).toHaveBeenCalledTimes(1);
+    const resp = sendResponse.mock.calls[0][0];
+    expect(resp.ok).toBe(false);
+    expect(resp.errorName).toBe('WasmClientPoisonedError');
   });
 
   // PR #524: the staged send's per-step stamps are the one thing the SW still needs

@@ -17,7 +17,7 @@ import {
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_BRIDGE_ID, getAgglayerFaucetId } from './constant';
@@ -90,8 +90,17 @@ export async function initiateB2AggBridge(args: {
   // compares it verbatim against the bech32 id of the token whose history is
   // open. Storing hex here made the row render as "Unknown" with the 6-decimal
   // metadata fallback and dropped it out of that token's history entirely.
-  const { requestBytes, faucetBech32 } = await withWasmClientLock(async () => {
+  const { requestBytes, faucetBech32 } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
+    // The awaited note build parks (the lazy SDK load can be the long one), and
+    // an eviction during it hands the mutex to a successor without stopping this
+    // callback — everything below is WASM work that would then run alongside the
+    // successor's, unmutexed. Everything in this hold is write PREP: the request
+    // is only built and serialized here, submission happens later in the
+    // transaction pipeline, so aborting is always safe — and it must happen
+    // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
+    // would hand the abandoned request to the processor as a fresh write.
+    assertWasmHoldCurrent(hold, 'before the bridge request build');
     const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);

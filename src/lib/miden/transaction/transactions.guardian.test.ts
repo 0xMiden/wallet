@@ -119,12 +119,24 @@ const mockCreateWasmWebClient = jest.fn();
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
-  withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
-  getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
-  getCurrentWasmLockHold: () => currentHold
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+    withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
+    getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
+    getCurrentWasmLockHold: () => currentHold,
+    // The shared post-await re-check (#788 follow-up). Re-implements the
+    // comparison against this mock's current hold — a no-op stub would make it
+    // pass vacuously with revoked ownership.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && currentHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    }
+  };
+});
 
 jest.mock('lib/intercom', () => ({
   getIntercom: () => ({ broadcast: jest.fn(), request: jest.fn() })

@@ -90,11 +90,44 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
-  runWhenClientIdle: () => {}
-}));
+// The lock hands its callback a HOLD, and vault's onboarding/restore flows
+// re-check ownership of that hold before every pre-write WASM call that
+// follows a parking await (#788 follow-up). Model ownership here: a
+// pass-through mock with no hold would make those guards a TypeError, and a
+// no-op assertWasmHoldCurrent would make the eviction tests below vacuous.
+let currentWasmHold: object | null = null;
+// Simulates a watchdog eviction landing mid-flow: the mutex moves on while
+// the abandoned callback keeps running.
+const revokeWasmHold = () => {
+  currentWasmHold = null;
+};
+jest.mock('../sdk/miden-client', () => {
+  // Real poison error class so the code under test's classification helpers
+  // (isWasmClientPoisonedError, from the unmocked wasm-client-poison module)
+  // see the production error shape.
+  const { WasmClientPoisonedError } =
+    jest.requireActual<typeof import('../sdk/wasm-client-poison')>('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
+    getCurrentWasmLockHold: () => currentWasmHold,
+    // Re-implements the real comparison against the mock's own hold — a no-op
+    // here would silently pass every eviction test.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && hold === currentWasmHold) return;
+      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+      const hold = {};
+      currentWasmHold = hold;
+      try {
+        return await fn(hold);
+      } finally {
+        if (currentWasmHold === hold) currentWasmHold = null;
+      }
+    },
+    runWhenClientIdle: () => {}
+  };
+});
 
 // Mock the secure-hot-key facade so reveal/swap paths don't try to deserialize
 // real AuthSecretKey blobs out of fake ciphertexts. Tests set the resolved
@@ -1954,5 +1987,149 @@ describe('Vault.backfillGuardianEndpoints', () => {
     const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
     jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
     await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WASM-lock eviction mid-flow (#788 follow-up). An evicted operation is
+// ABANDONED, not cancelled: the watchdog hands the mutex to a successor while
+// the abandoned callback keeps running, so its next WASM call is a second
+// borrow of a client somebody else is inside. Every guard under test sits at
+// a provably pre-write transition — the assertion is always "the next WASM
+// call was NOT made", never that a landed write was rolled back.
+// ---------------------------------------------------------------------------
+describe('WASM-lock eviction mid-flow (hold liveness)', () => {
+  beforeEach(() => {
+    // A test that rejects mid-loop leaves un-consumed mockResolvedValueOnce
+    // entries queued (clearAllMocks does not drop Once queues) — reset so each
+    // test's getAccount script starts clean.
+    mockGetAccount.mockReset();
+    mockGetAccount.mockResolvedValue(null);
+  });
+
+  it('Vault.spawn (guardian create): eviction during the pre-create sync stops the guardian create', async () => {
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+    await expect(Vault.spawn(WalletType.Guardian, 'pw')).rejects.toThrow(PublicError);
+    // The whole point: no guardian account is minted off an abandoned flow.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn (restore probes): eviction during a probe stops the next probe AND the fresh-create fallback', async () => {
+    // Probe 1 loses the mutex mid-lookup and then reports a definitive miss.
+    // Pre-guard, the loop would carry on: probe 2 re-borrows the client, and a
+    // full miss falls through to mint a fresh EMPTY wallet off an abandoned
+    // restore — the fund-loss shape the per-iteration check exists to stop.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      throw new Error('account not found on chain');
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toThrow(PublicError);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn (fresh create): eviction during the pre-create sync stops createMidenWallet', async () => {
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it("spawnFromMidenClient: eviction during one account's keystore insert stops the next account's read", async () => {
+    const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false };
+    const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
+    mockKeystoreInsert.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
+      ])
+    ).rejects.toThrow(PublicError);
+    // Account 1's insert landed (a landed write is never rolled back); the
+    // per-iteration guard stops account 2 before its client read.
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('spawnFromMidenClient: eviction during an account read stops the isFaucet/id borrows', async () => {
+    // isFaucet()/id() are WASM calls on an object borrowed from the client's
+    // RefCell — touching them after an eviction IS the double borrow.
+    const isFaucet = jest.fn(() => false);
+    const fakeAcc = { id: () => 'pk-1' as any, isFaucet };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
+    mockMidenClient.getAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return fakeAcc;
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toThrow(PublicError);
+    expect(isFaucet).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount: eviction during the client build stops the wallet create', async () => {
+    const vault = await seedVault('pw');
+    const defaultImpl = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (options?: any) => {
+      revokeWasmHold();
+      return defaultImpl(options);
+    });
+
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toThrow(PublicError);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+  });
+
+  it('importAccountFromPrivateKey: eviction during the client build stops the account/keystore inserts', async () => {
+    const vault = await seedVault('pw');
+    mockAuthSecretKeyDeserialize.mockReturnValue({ sign: jest.fn(), signData: jest.fn() } as any);
+    const defaultImpl = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (options?: any) => {
+      revokeWasmHold();
+      return defaultImpl(options);
+    });
+
+    await expect(
+      vault.importAccountFromPrivateKey('deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef')
+    ).rejects.toThrow(PublicError);
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('backfillGuardianEndpoints: eviction during the account read leaves the account unstamped (non-fatal)', async () => {
+    const legacyGuardian = {
+      publicKey: 'guardian-legacy',
+      name: 'Guardian 1',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0
+    };
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', { id: 'oz', endpoint: 'https://oz.example' }]]));
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
+    mockMidenClient.getAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return { id: () => ({ toString: () => 'guardian-legacy' }) };
+    });
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+
+    // Best-effort by design: the per-account catch swallows the abandonment…
+    await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
+    // …but the commitment read (a borrow of the returned Account) never ran,
+    // and no endpoint was stamped — the account simply retries next unlock.
+    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.guardianEndpoint).toBeUndefined();
   });
 });

@@ -97,7 +97,7 @@ import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import {
@@ -153,8 +153,21 @@ async function dappLog(message: string): Promise<void> {
   /* c8 ignore stop */
 }
 
-async function getAccountPublicKeyB64(accountId: string): Promise<string> {
+/**
+ * The connected account's first auth public-key commitment, b64-encoded.
+ *
+ * `hold` is the caller's lock hold, REQUIRED rather than optional: both connect
+ * paths run this inside `withWasmClientLock`, and an optional guard is one a
+ * future caller disables by forgetting it.
+ */
+async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Promise<string> {
   const account = await midenClientProxy.getAccount(accountId);
+  // The account read parks (offscreen round trip, or inline store/gRPC work). A
+  // watchdog eviction during it hands the mutex to a successor without stopping
+  // this callback, and the commitment resolution + `serialize()` below are WASM
+  // reads on an Account borrowed from the client's RefCell — continuing would be
+  // the double borrow the lock exists to prevent, not merely a stale read.
+  assertWasmHoldCurrent(hold, 'after the connect account read');
   if (!account) {
     throw new Error('Account not found');
   }
@@ -205,10 +218,23 @@ function commitmentToHex(value: string): string | undefined {
  * page fills in with its own connected account so the permission check passes.
  * So the key has to be checked against the account here, or not at all.
  */
-async function publicKeyBelongsToAccount(accountId: string, suppliedPublicKey: string): Promise<boolean> {
+async function publicKeyBelongsToAccount(
+  accountId: string,
+  suppliedPublicKey: string,
+  // The caller's lock hold, REQUIRED rather than optional for the same reason as
+  // getAccountPublicKeyB64's: an optional guard is one a future caller disables
+  // by forgetting it.
+  hold: WasmLockHold
+): Promise<boolean> {
   const supplied = commitmentToHex(suppliedPublicKey);
   if (supplied === undefined) return false;
   const account = await midenClientProxy.getAccount(accountId);
+  // Between the parking account read and the commitment reads: an eviction
+  // during the read hands the mutex to a successor, and `serialize()` below is a
+  // WASM call on the borrowed Account. This runs pre-signature, so aborting is
+  // safe — and the poison throw is routed as a retryable failure by the caller,
+  // never as an authorization verdict.
+  assertWasmHoldCurrent(hold, 'after the sign-authorization account read');
   if (!account) return false;
   return resolvePublicKeyCommitments(account).some(
     commitment => commitmentToHex(Buffer.from(commitment.serialize()).toString('hex')) === supplied
@@ -378,8 +404,8 @@ export async function generatePromisifyRequestPermission(
 
     try {
       publicKey = await withUnlocked(async () => {
-        return await withWasmClientLock(async () => {
-          return await getAccountPublicKeyB64(accountPublicKey);
+        return await withWasmClientLock(async hold => {
+          return await getAccountPublicKeyB64(accountPublicKey, hold);
         });
       });
     } catch (e) {
@@ -437,8 +463,8 @@ export async function generatePromisifyRequestPermission(
             try {
               publicKey = await withUnlocked(async () => {
                 // Wrap WASM client operations in a lock to prevent concurrent access
-                return await withWasmClientLock(async () => {
-                  return await getAccountPublicKeyB64(accountPublicKey);
+                return await withWasmClientLock(async hold => {
+                  return await getAccountPublicKeyB64(accountPublicKey, hold);
                 });
               });
             } catch (e) {
@@ -681,7 +707,7 @@ const generatePromisifySign = async (
           // would refuse legitimate requests that arrive while locked, which is
           // worse than approving and then declining.
           const authorized = await withUnlocked(() =>
-            withWasmClientLock(() => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey))
+            withWasmClientLock(hold => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold))
           ).catch(err => (isWasmClientPoisonedError(err) ? err : false));
           if (authorized !== true) {
             // A lock-recovery eviction (issue #775) is not an authorization
@@ -882,9 +908,15 @@ async function getPrivateNoteDetails(
   let privateNotes: InputNoteDetails[] = [];
   try {
     privateNotes = await withUnlocked(async () => {
-      return await withWasmClientLock(async () => {
+      return await withWasmClientLock(async hold => {
         const query = noteFilterTypeToQuery(notefilterType, noteIds);
         const allNotes = await midenClientProxy.getInputNoteDetails(query);
+        // Between the two reads: an eviction during the note-details read hands
+        // the mutex to a successor without stopping this callback, and the
+        // consumability read below would then run inside a client somebody else
+        // is inside. Both reads return plain DTOs, so this is the only WASM
+        // transition left to guard.
+        assertWasmHoldCurrent(hold, 'after the private-note read');
         const ownNoteIds = new Set(
           (await midenClientProxy.getConsumableNotes(accountId)).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
@@ -1022,8 +1054,13 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
   try {
     consumableNotes = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
-      return await withWasmClientLock(async () => {
+      return await withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
+        // Sync is THE parking await on this path (network-bound, tens of seconds
+        // on a slow node) — a watchdog eviction during it hands the mutex to a
+        // successor, and the consumable-notes read below would be a second
+        // borrow of a client somebody else is inside.
+        assertWasmHoldCurrent(hold, 'after the consumable-notes sync');
         // Consumable notes as DTOs (issue #260, slice 4). The reclaim gate + the
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
@@ -1181,8 +1218,13 @@ async function getAssets(accountId: string): Promise<Asset[]> {
   try {
     assets = await withUnlocked(async () => {
       // Wrap WASM client operations in a lock to prevent concurrent access
-      return await withWasmClientLock(async () => {
+      return await withWasmClientLock(async hold => {
         const account = await midenClientProxy.getAccount(accountId);
+        // Before the borrow chain: `vault()` / `fungibleAssets()` / `faucetId()`
+        // / `amount()` are WASM calls on an Account borrowed from the client's
+        // RefCell, so touching them after an eviction during the account read IS
+        // the double borrow, not merely a stale balance.
+        assertWasmHoldCurrent(hold, 'after the assets account read');
         const fungibleAssets = account?.vault().fungibleAssets() || [];
         const balances = fungibleAssets.map(asset => ({
           faucetId: getBech32AddressFromAccountId(asset.faucetId()),
@@ -1299,9 +1341,15 @@ export async function requestImportPrivateNote(
 async function importDAppPrivateNote(note: string): Promise<string> {
   try {
     return await withUnlocked(async () =>
-      withWasmClientLock(async () => {
+      withWasmClientLock(async hold => {
         const noteAsUint8Array = b64ToU8(note);
         const noteId = await midenClientProxy.importNoteBytes(noteAsUint8Array);
+        // Between the import and its sync: an eviction while the import was
+        // parked leaves it unknown whether the note landed, and the sync below
+        // would borrow a client a successor now owns. The poison throw routes
+        // through the catch below into the same queue-for-background-retry path
+        // as an eviction of the import itself — the note is preserved either way.
+        assertWasmHoldCurrent(hold, 'between the dApp note import and its sync');
         await midenClientProxy.syncState();
         return noteId;
       })
