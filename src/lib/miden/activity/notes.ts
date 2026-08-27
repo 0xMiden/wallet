@@ -5,7 +5,7 @@ import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError } from './connectivity-classify';
 import { addToNoteDeadletter } from '../note-deadletter';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { syncUnderBoundedLock } from '../sync-lock';
 
 const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
@@ -40,6 +40,13 @@ type StoredEntry = string | QueuedNoteImport;
 const normalizeEntry = (entry: StoredEntry): QueuedNoteImport =>
   typeof entry === 'string' ? { bytes: entry, attempts: 0 } : entry;
 
+// "The client already has this note" is a DONE verdict, not a failure: the SDK's
+// import is an upsert, but a consumed note is refused by text.
+const isAlreadyImported = (error: unknown): boolean => {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  return message.includes('already been consumed') || message.includes('already exists');
+};
+
 // Serializes every read-modify-write of IMPORT_NOTES_KEY so enqueues and the
 // import-pass rewrite can't interleave. Without it, an enqueue landing between
 // the rewrite's read and write is clobbered — losing a private note whose bytes
@@ -62,27 +69,93 @@ export const queueNoteImport = async (noteBytes: string) =>
     await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
   });
 
+/**
+ * The number of passes started. A pass that was ABANDONED — a watchdog eviction
+ * rejects the lock holder's promise but does not stop its callback, which resumes
+ * whenever its parked `importNoteBytes` finally settles — must not write the queue
+ * on the way out. Its view is minutes stale, and a stale write both regresses the
+ * attempt counts the failure path has since banked and (before `commitQueue`
+ * stopped keying on array position) deleted every note enqueued in the meantime.
+ */
+let importPassToken = 0;
+
+const isUsableEntry = (entry: StoredEntry): boolean =>
+  typeof entry === 'string' ? entry.length > 0 : typeof entry?.bytes === 'string';
+
 export const importAllNotes = async () => {
   const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-  if (rawQueue.length === 0) {
+  // A corrupt value is skipped rather than thrown on: `DesktopStorage.get` hands
+  // back the raw string when `JSON.parse` fails, and normalizing that used to
+  // throw from OUTSIDE the pass's try — jamming note import permanently with no
+  // banking, no dead-letter and no drain. Unusable entries are left in place by
+  // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
+  if (!Array.isArray(rawQueue) || rawQueue.length === 0) {
     return;
   }
-  const snapshot = rawQueue.map(normalizeEntry);
+  const snapshot = rawQueue.filter(isUsableEntry).map(normalizeEntry);
+  if (snapshot.length === 0) {
+    return;
+  }
 
+  const myToken = ++importPassToken;
+  let committed = false;
+
+  // Rewrite the queue as `retry` plus every entry that is not ours.
+  //
+  // Refused outright once this pass has committed, or once a newer pass has
+  // started, so only ONE write per pass lands. That is what makes an abandoned
+  // pass safe: an eviction rejects the holder's promise but does not stop its
+  // callback, which resumes when its parked import finally settles and tries to
+  // commit a minutes-stale view — over a queue a successor has since rewritten,
+  // and over notes enqueued in the meantime whose bytes, for a private note, are
+  // the only copy of the funds they carry.
+  //
+  // Entries are matched by BYTES as a multiset rather than by array position,
+  // which the guard above makes belt-and-braces rather than load-bearing: with one
+  // writer per pass, position and identity agree. It stops being redundant the
+  // moment a second writer exists (a frontend call site, another realm), because
+  // `current.slice(rawQueue.length)` silently DELETES the difference whenever the
+  // queue has shrunk, where a multiset merge can only ever re-add our own notes.
   const commitQueue = (retry: QueuedNoteImport[]) =>
-    // The read-slice-write runs under withQueueLock, the same lock queueNoteImport
-    // holds, so a concurrent enqueue can't land between the read and write and be
-    // clobbered (or cause a processed note to be re-added). The lock covers only
-    // this storage rewrite — not the import work or the trailing sync — so enqueues
-    // are never blocked for more than a storage round-trip.
     withQueueLock(async () => {
+      if (committed || myToken !== importPassToken) {
+        logger.warning('[importAllNotes] dropping a superseded queue write from an abandoned import pass');
+        return;
+      }
       const current = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-      // Rebuild as the retry-eligible notes plus anything queueNoteImport appended
-      // during this pass — it only ever appends, so those are exactly the entries
-      // beyond our snapshot.
-      const appendedDuringPass = current.slice(rawQueue.length);
-      await putToStorage(IMPORT_NOTES_KEY, [...retry, ...appendedDuringPass]);
+      const owed = new Map<string, number>();
+      for (const note of snapshot) owed.set(note.bytes, (owed.get(note.bytes) ?? 0) + 1);
+      const notOurs = current.filter(entry => {
+        const bytes = typeof entry === 'string' ? entry : entry?.bytes;
+        const remaining = owed.get(bytes) ?? 0;
+        if (remaining === 0) return true;
+        owed.set(bytes, remaining - 1);
+        return false;
+      });
+      await putToStorage(IMPORT_NOTES_KEY, [...retry, ...notOurs]);
+      committed = true;
     });
+
+  // A wall-clock stamp stepped forward (a device whose RTC is wrong until NTP
+  // settles) would otherwise strand a note forever: never eligible, and never
+  // expired either, because the elapsed budget goes negative. Clamped both ways,
+  // the same way the sync breaker clamps its persisted deadline (#777).
+  const isEligible = (note: QueuedNoteImport, now: number) =>
+    note.nextEligibleAt === undefined || note.nextEligibleAt <= now || note.nextEligibleAt - now > BACKOFF_MAX_MS;
+  const elapsedSince = (from: number | undefined, now: number) => Math.max(0, now - (from ?? now));
+
+  // The note whose import is in flight. An eviction abandons the callback mid-call,
+  // so this is the ONLY note the failure path can charge: the loop is sequential,
+  // so every other entry either finished or was never attempted.
+  // A holder rather than a bare `let`: the assignments happen inside the lock
+  // callback, which control-flow analysis does not see, so a plain variable narrows
+  // to `null` for the whole failure path.
+  const inFlight: { note: QueuedNoteImport | null } = { note: null };
+  // The retry list the loop built, once it finished building it. If the throw came
+  // from the commit rather than the imports, this is the correct write and the
+  // failure path re-issues it — banking from the snapshot instead would re-queue
+  // notes the loop had just imported or dead-lettered.
+  let loopRetry: QueuedNoteImport[] | null = null;
 
   // Wrap the import work in a lock to prevent concurrent WASM access. The import
   // routes through `midenClientProxy` (issue #260, slice 7a) so flag-ON it hits the
@@ -98,32 +171,49 @@ export const importAllNotes = async () => {
         for (const note of snapshot) {
           // Respect per-note backoff: a note not yet eligible is carried to a later
           // pass untouched (no attempt is spent, so backoff actually spaces retries).
-          if (note.nextEligibleAt && note.nextEligibleAt > now) {
+          if (!isEligible(note, now)) {
             retry.push(note);
             continue;
           }
           try {
             const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
+            inFlight.note = note;
             await midenClientProxy.importNoteBytes(byteArray);
             // Success: the note is intentionally NOT pushed to `retry`, so it drops
             // out of the queue.
           } catch (e) {
             const attempts = note.attempts + 1;
             const firstFailureAt = note.firstFailureAt ?? now;
-            const transient = isLikelyNetworkError(e);
+            // An already-consumed note is DONE, not poison: re-importing one is
+            // routine here (an abandoned pass carries notes it may already have
+            // imported), and counting it toward the poison cap dead-lettered a
+            // note whose funds were safely claimed — and burned the one signal
+            // this store exists to raise.
+            if (isAlreadyImported(e)) {
+              logger.info('Queued note is already in the client; dropping it from the import queue');
+              continue;
+            }
+            // A poison eviction is transport-shaped, per the repo-wide rule that
+            // `WasmClientPoisonedError` is an abandonment rather than a verdict.
+            // Left on the poison cap it dead-lettered a perfectly good note as
+            // `malformed` after three wedged laps.
+            const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e);
             const giveUp = transient
-              ? now - firstFailureAt >= TRANSIENT_RETRY_BUDGET_MS
+              ? elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS
               : attempts >= POISON_MAX_ATTEMPTS;
 
             if (giveUp) {
               // Never silently drop: move to the dead-letter store (recoverable +
-              // surfaceable). The note leaves the active queue (not pushed to retry).
-              await addToNoteDeadletter({
+              // surfaceable). The note only leaves the active queue if the
+              // dead-letter write actually landed — a full storage quota otherwise
+              // took the bytes out of both stores at once.
+              const stored = await addToNoteDeadletter({
                 bytes: note.bytes,
                 reason: transient ? 'transport' : 'malformed',
                 failedAt: now,
                 attempts
               });
+              if (!stored) retry.push({ bytes: note.bytes, attempts, firstFailureAt });
             } else if (transient) {
               // Back off before the next attempt so a persistent outage doesn't
               // hammer a recovering node every loop tick.
@@ -142,9 +232,12 @@ export const importAllNotes = async () => {
               );
               retry.push({ bytes: note.bytes, attempts, firstFailureAt });
             }
+          } finally {
+            inFlight.note = null;
           }
         }
 
+        loopRetry = retry;
         // Committed inside the hold and before the trailing sync, so a failure
         // after this point can't leave processed notes queued for retry without
         // bumping their attempt count — which would let a poison note loop
@@ -159,35 +252,44 @@ export const importAllNotes = async () => {
       { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
     );
   } catch (e) {
-    // The hold was torn down (an eviction abandons its callback mid-loop, so
-    // neither the per-note catch nor the commit inside it ran). Bank the attempt
-    // here or the queue is byte-identical next lap and the note re-enters the same
-    // hold forever: nothing spends an attempt, so `POISON_MAX_ATTEMPTS` never
-    // caps, the dead-letter store is never reached, and the anti-brick property
-    // this queue is built on — a note that cannot import must DRAIN — is lost.
+    // The hold failed. Two shapes, and they need opposite writes.
     //
-    // Treated as transient, which is the conservative reading: an eviction says
-    // the WASM realm was torn off a parked call, not that the note is malformed,
-    // so it earns backoff and the 24h wall-clock budget rather than a prompt
-    // dead-letter. The backoff is what ends the loop — a carried note stops being
-    // eligible, so the next pass imports nothing and cannot fail this way again.
+    // If the loop finished, the throw came from the commit itself: `loopRetry` IS
+    // the correct queue, so re-issue it rather than rebuilding from the snapshot.
     //
-    // No note is dropped: which imports had already landed before the tear-down is
-    // unknowable, so every eligible note is carried. A re-import of a note that did
-    // land is what every other retry here already does.
+    // Otherwise the hold was torn down mid-import (an eviction abandons its
+    // callback, so neither the per-note catch nor the commit ran) and the attempt
+    // has to be banked here. Without it the queue is byte-identical next lap and
+    // the same note re-enters the same hold forever: nothing spends an attempt, so
+    // `POISON_MAX_ATTEMPTS` never caps, the dead-letter store is never reached, and
+    // the anti-brick property this queue is built on is lost. The backoff is what
+    // ends it for that note — carried, it stops being eligible.
+    //
+    // Only the IN-FLIGHT note is charged. The loop is sequential, so it is the one
+    // note the tear-down interrupted; charging the rest would inflate attempts
+    // toward the poison cap and anchor a 24h budget on notes that were never tried.
+    // Every other note is carried unchanged, including ones this pass may already
+    // have imported — which of them landed is unknowable, and a re-import is what
+    // every other retry here already does.
     const now = Date.now();
-    const banked = snapshot.map(note => {
-      if (note.nextEligibleAt && note.nextEligibleAt > now) return note;
+    const charged = inFlight.note;
+    const banked: QueuedNoteImport[] = [];
+    for (const note of snapshot) {
+      if (note !== charged) {
+        banked.push(note);
+        continue;
+      }
       const attempts = note.attempts + 1;
       const firstFailureAt = note.firstFailureAt ?? now;
+      if (elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS) {
+        const stored = await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts });
+        if (!stored) banked.push({ bytes: note.bytes, attempts, firstFailureAt });
+        continue;
+      }
       const backoffMs = Math.min(BACKOFF_BASE_MS * 2 ** (attempts - 1), BACKOFF_MAX_MS);
-      return { bytes: note.bytes, attempts, firstFailureAt, nextEligibleAt: now + backoffMs };
-    });
-    const expired = banked.filter(note => now - (note.firstFailureAt ?? now) >= TRANSIENT_RETRY_BUDGET_MS);
-    for (const note of expired) {
-      await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts: note.attempts });
+      banked.push({ bytes: note.bytes, attempts, firstFailureAt, nextEligibleAt: now + backoffMs });
     }
-    await commitQueue(banked.filter(note => !expired.includes(note)));
+    await commitQueue(loopRetry ?? banked);
     throw e;
   }
 

@@ -53,26 +53,42 @@ async function readAll(): Promise<DeadletteredNote[]> {
   }
 }
 
-async function writeAll(entries: DeadletteredNote[]): Promise<void> {
+/**
+ * Whether the write landed. A caller that is about to DROP the note it just
+ * dead-lettered has to know: swallowing the failure and reporting success meant a
+ * full storage quota took the note out of both stores at once.
+ */
+async function writeAll(entries: DeadletteredNote[]): Promise<boolean> {
   try {
     await putToStorage(DEADLETTER_KEY, entries.slice(-MAX_DEADLETTERED));
+    return true;
   } catch (e) {
     logger.warning('[note-deadletter] write failed', e);
+    return false;
   }
 }
 
 /**
  * Move a note to the dead-letter store. Deduped by `bytes` (a re-give-up on the
  * same note refreshes its record rather than duplicating it).
+ *
+ * Returns whether the note is now safely stored HERE, which the import queue uses
+ * to decide whether it may stop carrying those bytes. A private note's bytes can
+ * be its only copy, so "dead-lettered" has to mean persisted, not attempted.
  */
-export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<void> {
+export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<boolean> {
   const existing = await readAll();
   const deduped = existing.filter(n => n.bytes !== entry.bytes);
   deduped.push(entry);
-  await writeAll(deduped);
+  const stored = await writeAll(deduped);
+  if (!stored) {
+    logger.error('[note-deadletter] could not persist a note we gave up importing; the import queue keeps carrying it');
+    return false;
+  }
   logger.error(
     `[note-deadletter] gave up importing an incoming note (${entry.reason}, ${entry.attempts} attempts, ${entry.bytes.length} b64 chars) — moved to dead-letter for retry`
   );
+  return true;
 }
 
 /** List all dead-lettered notes (newest last). */

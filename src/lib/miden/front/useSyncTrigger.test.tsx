@@ -202,6 +202,28 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: a rejected guardian leg is logged and does not park the cadence (#777)', async () => {
+    // The leg is fired without await (a hung guardian endpoint otherwise held the
+    // loop's cadence, with its failure swallowed, so the breaker, the fuse and the
+    // banner never saw the freeze). Fire-and-forget must still SAY something: an
+    // empty catch made a throw from the accounts read the one failure on this path
+    // that logged nothing at all.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
+    mockSyncGuardianAccounts.mockRejectedValueOnce(new Error('guardian unreachable'));
+
+    const { unmount } = render(<HookHost />);
+
+    await waitFor(() =>
+      expect(warnSpy).toHaveBeenCalledWith('[useSyncTrigger] guardian sync failed', expect.any(Error))
+    );
+    // And the chain sync ran anyway: the guardian's failure is not this loop's.
+    expect(mockSyncState).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    unmount();
+  });
+
   it('mobile/desktop: drives syncState directly and flips the store sync flag', async () => {
     const { unmount } = render(<HookHost />);
 

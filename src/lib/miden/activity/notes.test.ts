@@ -10,9 +10,13 @@ _g.__notesTest = {
   // Every hold's options, so a test can assert the ceiling a hold was taken with —
   // a pass-through lock mock makes an unbounded hold indistinguishable otherwise.
   lockOptions: [] as unknown[],
-  // When set, the NEXT hold is torn down instead of run: the shape of a watchdog
-  // eviction, which abandons its callback rather than letting it finish.
-  evictNextHold: false
+  // When set, the NEXT hold is EVICTED: the callback is started and keeps running,
+  // and the hold's promise rejects out from under it. Modelling this as "the
+  // callback never ran" would be strictly weaker than production — the abandoned
+  // callback resuming later is the whole hazard.
+  evictNextHold: false,
+  // The abandoned callback, so a test can let it finish and observe what it writes.
+  abandonedHold: null as Promise<unknown> | null
 };
 
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -40,6 +44,9 @@ jest.mock('../sdk/miden-client', () => ({
     t.lockOptions.push(options);
     if (t.evictNextHold) {
       t.evictNextHold = false;
+      const running = fn();
+      running.catch(() => {});
+      t.abandonedHold = running;
       throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: 'watchdog' });
     }
     return fn();
@@ -62,11 +69,27 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 beforeEach(() => {
   for (const k of Object.keys(_g.__notesTest.store)) delete _g.__notesTest.store[k];
   _g.__notesTest.beforeSet = undefined;
-  _g.__notesTest.midenClient.importNoteBytes.mockClear();
-  _g.__notesTest.midenClient.syncState.mockClear();
+  // mockReset, not mockClear: a test that installs a rejecting or parked
+  // implementation would otherwise hand it to every test that follows.
+  _g.__notesTest.midenClient.importNoteBytes.mockReset();
+  _g.__notesTest.midenClient.importNoteBytes.mockResolvedValue(undefined);
+  _g.__notesTest.midenClient.syncState.mockReset();
+  _g.__notesTest.midenClient.syncState.mockResolvedValue(undefined);
   _g.__notesTest.lockOptions = [];
   _g.__notesTest.evictNextHold = false;
+  _g.__notesTest.abandonedHold = null;
 });
+
+// A note whose import parks: the state an eviction actually interrupts.
+const parkedImport = () => {
+  let release!: () => void;
+  const parked = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  _g.__notesTest.midenClient.importNoteBytes.mockReset();
+  _g.__notesTest.midenClient.importNoteBytes.mockImplementation(async () => parked);
+  return release;
+};
 
 describe('queueNoteImport', () => {
   it('appends a note bytes string to the queue', async () => {
@@ -103,25 +126,68 @@ describe('importAllNotes', () => {
     jest.useRealTimers();
   });
 
-  it('banks the attempt when the import hold is evicted mid-pass (#777)', async () => {
+  it('charges the attempt to the note the eviction interrupted, and only that one (#777)', async () => {
     // An eviction abandons the callback, so neither the per-note catch nor the
     // queue rewrite inside the hold runs. Without banking here the next lap reads a
     // byte-identical queue and re-enters the same hold: no attempt is ever spent,
     // so the poison cap never trips, the dead-letter store is never reached, and
-    // the note jams the import pass — and therefore the transaction lap — forever.
-    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    // the note jams the import pass forever.
+    //
+    // Only the IN-FLIGHT note may be charged. The loop is sequential, so the others
+    // were never attempted; charging them walks untried notes toward the poison cap
+    // and anchors a 24h give-up budget on them.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8=', 'd29ybGQ='];
+    const release = parkedImport();
     _g.__notesTest.evictNextHold = true;
 
     await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
 
     const queue = _g.__notesTest.store['miden-notes-pending-import'];
-    expect(queue).toHaveLength(1);
+    expect(queue).toHaveLength(2);
     expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', attempts: 1 });
-    // And it earns backoff, which is what gives the jam an exit: a carried note
-    // stops being eligible, so the next pass imports nothing and cannot be evicted
-    // on this note again.
+    // Backoff is what gives the jam an exit: the charged note stops being eligible,
+    // so the next pass does not park on it again.
     expect(queue[0].nextEligibleAt).toBeGreaterThan(Date.now());
-    expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
+    // The note the loop never reached is carried with nothing spent on it.
+    expect(queue[1]).toMatchObject({ bytes: 'd29ybGQ=', attempts: 0 });
+    expect(queue[1].nextEligibleAt).toBeUndefined();
+    expect(queue[1].firstFailureAt).toBeUndefined();
+
+    release();
+    await _g.__notesTest.abandonedHold;
+  });
+
+  it('refuses a superseded queue write from an abandoned pass, so notes queued since survive (#777)', async () => {
+    // The hazard the positional rewrite created: an eviction does not stop the
+    // callback, it resumes when its parked import finally settles — minutes later,
+    // against a queue a successor has since rewritten. Keyed on array position that
+    // write DELETED every note enqueued in the meantime, which for a private note
+    // is the only copy of the funds it carries.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    const release = parkedImport();
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    // Two private notes arrive while the abandoned pass is still parked.
+    await queueNoteImport('bmV3LW9uZQ==');
+    await queueNoteImport('bmV3LXR3bw==');
+
+    // Now the corpse wakes up, finishes its loop and tries to commit its own
+    // minutes-stale view of the queue.
+    release();
+    await _g.__notesTest.abandonedHold;
+
+    // Nothing the corpse writes may land: the two new notes are intact, and the
+    // note IT was importing keeps the attempt the failure path banked rather than
+    // being resurrected at attempts 0 (which would erase the backoff that is the
+    // jam's only exit).
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    const bytesLeft = queue.map((entry: unknown) =>
+      typeof entry === 'string' ? entry : (entry as { bytes: string }).bytes
+    );
+    expect(bytesLeft).toEqual(['aGVsbG8=', 'bmV3LW9uZQ==', 'bmV3LXR3bw==']);
+    expect(queue[0]).toMatchObject({ attempts: 1 });
   });
 
   it('dead-letters rather than carrying a note whose transient budget is spent, when the hold is evicted (#777)', async () => {
@@ -130,6 +196,7 @@ describe('importAllNotes', () => {
     // store where it stays recoverable.
     const longAgo = Date.now() - 25 * 60 * 60 * 1000;
     _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9, firstFailureAt: longAgo }];
+    const release = parkedImport();
     _g.__notesTest.evictNextHold = true;
 
     await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
@@ -138,11 +205,53 @@ describe('importAllNotes', () => {
     const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
     expect(deadletter).toHaveLength(1);
     expect(deadletter[0]).toMatchObject({ bytes: 'aGVsbG8=', reason: 'transport', attempts: 10 });
+
+    release();
+    await _g.__notesTest.abandonedHold;
   });
 
-  it('is a no-op when the queue is empty', async () => {
-    await importAllNotes();
-    expect(_g.__notesTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+  it('keeps carrying a note whose dead-letter write did not land (#777)', async () => {
+    // `addToNoteDeadletter` is defensive by design and swallows its own storage
+    // failure. Reporting success anyway meant a full quota took the bytes out of
+    // BOTH stores at once — the silent fund loss this queue exists to prevent.
+    const longAgo = Date.now() - 25 * 60 * 60 * 1000;
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9, firstFailureAt: longAgo }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Failed to fetch'));
+    _g.__notesTest.beforeSet = async (items: Record<string, unknown>) => {
+      if ('miden-note-import-deadletter' in items) throw new Error('QuotaExceededError');
+    };
+    jest.useFakeTimers();
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      { bytes: 'aGVsbG8=', attempts: 10, firstFailureAt: longAgo }
+    ]);
+    jest.useRealTimers();
+  });
+
+  it('does not strand a note whose backoff stamp came from a jumped clock (#777)', async () => {
+    // `nextEligibleAt` is wall-clock, so a device whose RTC is wrong until NTP
+    // settles can stamp a deadline days out. Uncapped, that note is never eligible
+    // again AND never expires (its elapsed budget goes negative), so it is carried
+    // forever: not imported, not dead-lettered, no signal. Anything beyond the
+    // curve's own maximum is therefore treated as due now.
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, nextEligibleAt: Date.now() + 30 * 24 * 60 * 60 * 1000 }
+    ];
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    jest.useRealTimers();
   });
 
   it('imports each queued note and clears the queue afterwards', async () => {

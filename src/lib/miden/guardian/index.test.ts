@@ -367,6 +367,19 @@ describe('MultisigService', () => {
       expect(service.syncRetryCount).toBe(0);
     });
 
+    it('bounds adoptGuardianStateOnce too, not just the retrying sync (#777)', async () => {
+      // The read-half adopt takes its own hold, and it is the one a cold restore
+      // and the stale-allowlist check go through — an unbounded hold there is the
+      // same five-minute app-wide WASM freeze as the retrying sync's.
+      wasmLockOptionsSeen.length = 0;
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.adoptGuardianStateOnce();
+
+      expect(wasmLockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }]);
+    });
+
     it('holds the WASM lock on the bounded sync ceiling (#777)', async () => {
       // A guardian sync is a pure-sync hold whose RPC carries no transport
       // deadline on wasm32, and guardian is the wallet's default account type — on
