@@ -50,6 +50,7 @@ describe('useGuardianAvailability', () => {
   });
 
   it('drops a late verdict after unmount instead of setting state', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const resolvers = deferredPings();
     const endpoint = 'https://late.example.com';
     const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
@@ -57,7 +58,9 @@ describe('useGuardianAvailability', () => {
     unmount();
     // Resolving after unmount must be inert — no React "setState on unmounted
     // component" warning, no throw.
-    await act(async () => resolvers.get(endpoint)!(true));
+    await expect(act(async () => resolvers.get(endpoint)!(true))).resolves.toBeUndefined();
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   // Regression: the effect used to key on array IDENTITY, so a caller passing
