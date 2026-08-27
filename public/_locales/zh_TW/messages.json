@@ -3250,6 +3250,10 @@
     "message": "收到的 notes 連結需要重新嘗試",
     "englishSource": "Incoming notes need a retry"
   },
+  "deadletteredNotesTitleOne": {
+    "message": "傳入的 note 需要重新嘗試",
+    "englishSource": "An incoming note needs a retry"
+  },
   "deadletteredNotesBody": {
     "message": "$count$ 無法自動匯入。",
     "englishSource": "$count$ couldn't be imported automatically.",
@@ -3258,6 +3262,10 @@
         "content": "$1"
       }
     }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 無法自動匯入 note。",
+    "englishSource": "1 note couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "明天",

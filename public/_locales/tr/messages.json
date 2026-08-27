@@ -3250,6 +3250,10 @@
     "message": "Gelen \"notes\" işlemleri için yeniden deneme gerekir",
     "englishSource": "Incoming notes need a retry"
   },
+  "deadletteredNotesTitleOne": {
+    "message": "Gelen bir note işlemi için yeniden deneme gerekir",
+    "englishSource": "An incoming note needs a retry"
+  },
   "deadletteredNotesBody": {
     "message": "$count$ otomatik olarak içe aktarılamadı.",
     "englishSource": "$count$ couldn't be imported automatically.",
@@ -3258,6 +3262,10 @@
         "content": "$1"
       }
     }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note otomatik olarak içe aktarılamadı.",
+    "englishSource": "1 note couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Yarın",

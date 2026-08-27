@@ -3250,6 +3250,10 @@
     "message": "Входящие запросы «notes» требуют повторной попытки",
     "englishSource": "Incoming notes need a retry"
   },
+  "deadletteredNotesTitleOne": {
+    "message": "Для входящего запроса «note» требуется повторная попытка",
+    "englishSource": "An incoming note needs a retry"
+  },
   "deadletteredNotesBody": {
     "message": "$count$ не удалось импортировать автоматически.",
     "englishSource": "$count$ couldn't be imported automatically.",
@@ -3258,6 +3262,10 @@
         "content": "$1"
       }
     }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note не удалось импортировать автоматически.",
+    "englishSource": "1 note couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "Завтра",

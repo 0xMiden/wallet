@@ -3250,6 +3250,10 @@
     "message": "수신 중인 notes는 재시도해야 합니다",
     "englishSource": "Incoming notes need a retry"
   },
+  "deadletteredNotesTitleOne": {
+    "message": "수신 중인 'note'는 재시도가 필요합니다",
+    "englishSource": "An incoming note needs a retry"
+  },
   "deadletteredNotesBody": {
     "message": "$count$ 자동으로 가져올 수 없었습니다.",
     "englishSource": "$count$ couldn't be imported automatically.",
@@ -3258,6 +3262,10 @@
         "content": "$1"
       }
     }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note는 자동으로 가져올 수 없었습니다.",
+    "englishSource": "1 note couldn't be imported automatically."
   },
   "tomorrow": {
     "message": "내일",
