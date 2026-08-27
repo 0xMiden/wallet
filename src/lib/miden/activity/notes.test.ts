@@ -87,8 +87,10 @@ jest.mock('shared/logger', () => ({
 
 import { logger } from 'shared/logger';
 
-import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
-import { __resetSyncFuseStateForTests } from '../front/sync-fuse';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+
+import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport, retryDeadletteredNotes } from './notes';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
@@ -1032,6 +1034,58 @@ describe('importAllNotes', () => {
     expect(deadletter[0]).toMatchObject({ bytes: 'poison', reason: 'malformed', attempts: 3 });
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(3);
     jest.useRealTimers();
+  });
+
+  // #788 follow-up: the manual drain behind the Activity notice's Retry.
+  // Order is load-bearing: a note is QUEUED before it leaves the dead-letter
+  // store, the mirror of the give-up invariant, so bytes are never absent from
+  // both stores. The drain also grants one probe through a lit 'note-import'
+  // fuse — the user just asked for this pass; a lit fuse must not swallow it.
+  describe('retryDeadletteredNotes (#788 follow-up)', () => {
+    it('requeues every dead-lettered note (fresh budgets), empties the store, and reports the count', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'dead-a', reason: 'transport', failedAt: 1, attempts: 9 },
+        { bytes: 'dead-b', reason: 'rejected', failedAt: 2, attempts: 3 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 2 });
+
+      const queue = _g.__notesTest.store['miden-notes-pending-import'] as Array<unknown>;
+      // Queued as bare bytes — normalizeEntry gives a requeued note attempts: 0,
+      // i.e. a fresh 24h budget and a fresh poison cap.
+      expect(queue).toEqual(['dead-a', 'dead-b']);
+      expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([]);
+    });
+
+    it('is idempotent against a note already back on the queue', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'dupe', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = ['dupe'];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 1 });
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['dupe']);
+      expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([]);
+    });
+
+    it('grants one probe through a lit note-import fuse so the pass actually runs', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'fused-note', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+
+      await retryDeadletteredNotes();
+
+      expect(isSyncFused('note-import')).toBe(false);
+    });
+
+    it('resolves to zero on an empty store without touching the queue', async () => {
+      _g.__notesTest.store['miden-notes-pending-import'] = ['existing'];
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 0 });
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['existing']);
+    });
   });
 
   // #788 follow-up (F-235): a PROVABLY PERMANENT HTTP rejection — tonic's

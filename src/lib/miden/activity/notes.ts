@@ -4,8 +4,14 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError, isPermanentHttpRejection } from './connectivity-classify';
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
-import { addToNoteDeadletter } from '../note-deadletter';
+import {
+  grantManualSyncProbe,
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction
+} from '../front/sync-fuse';
+import { addToNoteDeadletter, listDeadletteredNotes, removeFromNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
   isSyncWatchdogEviction,
@@ -173,6 +179,36 @@ export const queueNoteImport = async (noteBytes: string) =>
     }
     await putToStorage(IMPORT_NOTES_KEY, [...queuedImports, noteBytes]);
   });
+
+/**
+ * Manual drain of the dead-letter store (#788 follow-up) — the action behind the
+ * Activity notice's Retry.
+ *
+ * Order is the mirror of the give-up invariant: a note is QUEUED before it
+ * leaves the dead-letter store, so its bytes — possibly the only copy of the
+ * funds — are never absent from both stores. A note that fails to requeue stays
+ * dead-lettered and stops the drain there rather than pressing on past a broken
+ * queue write. Requeued as bare bytes deliberately: `normalizeEntry` reads that
+ * back as `attempts: 0`, i.e. a fresh 24h transient budget and a fresh poison
+ * cap — the user asked for a real retry, not a replay of the exhausted one.
+ *
+ * The user's gesture also buys the pass one probe through a lit `note-import`
+ * fuse; the evidence stands, so a still-parked call re-fuses on its next
+ * eviction. Kicking the import pass itself is the CALLER's job (the intercom
+ * handler runs in the realm that owns the pass) — this function owns only the
+ * queue semantics.
+ */
+export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> => {
+  const entries = await listDeadletteredNotes();
+  let requeued = 0;
+  for (const entry of entries) {
+    await queueNoteImport(entry.bytes);
+    await removeFromNoteDeadletter(entry.bytes);
+    requeued++;
+  }
+  if (requeued > 0) grantManualSyncProbe('note-import');
+  return { requeued };
+};
 
 /**
  * The number of passes started. A pass that was ABANDONED — a watchdog eviction

@@ -170,6 +170,21 @@ export function noteSyncSuccess(key: SyncFuseKey): void {
 }
 
 /**
+ * A user gesture buys this probe ONE immediate attempt through a lit fuse
+ * (#788 follow-up: the dead-letter drain's Retry). The deadline is cleared so
+ * the next automatic pass runs now, but the EVIDENCE stands: if the granted
+ * probe parks again, the very next eviction re-lights the fuse rather than
+ * starting a fresh evidence budget — a gesture is one probe, never a licence
+ * to walk the realm back onto the fast cadence against a still-parked call.
+ * Same philosophy as the idle loop's Retry exemption in #788.
+ */
+export function grantManualSyncProbe(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry) return;
+  entry.fusedUntilMs = null;
+}
+
+/**
  * Every probe's evidence is void — the realm now talks to a different node.
  *
  * The fuse's claim is about one node's parked call, so an endpoint change invalidates it

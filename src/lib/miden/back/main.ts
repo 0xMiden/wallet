@@ -387,6 +387,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         throw e;
       }
     }
+    case WalletMessageType.RetryDeadletteredNotesRequest: {
+      const { requeued } = await Actions.retryDeadletteredNotes();
+      return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
+    }
     case WalletMessageType.ExportNoteRequest: {
       const exportedBytes = await withWasmClientLock(async () =>
         midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS)

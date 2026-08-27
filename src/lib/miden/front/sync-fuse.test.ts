@@ -2,6 +2,7 @@ import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from
 
 import {
   guardianSyncFuseKey,
+  grantManualSyncProbe,
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
@@ -33,6 +34,38 @@ describe('sync fuse (#777)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     __resetSyncFuseStateForTests();
+  });
+
+  // #788 follow-up: the dead-letter drain is a USER GESTURE, and a lit
+  // 'note-import' fuse would otherwise swallow the very pass the user just
+  // asked for, for up to half an hour. A grant buys exactly one probe.
+  describe('grantManualSyncProbe', () => {
+    it('unfuses the key so the next automatic pass runs now', () => {
+      evictUntilLit('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+
+      grantManualSyncProbe('note-import');
+
+      expect(isSyncFused('note-import')).toBe(false);
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+    });
+
+    it('keeps the evidence: one more eviction re-fuses immediately, not after a fresh run', () => {
+      evictUntilLit('note-import');
+      grantManualSyncProbe('note-import');
+
+      // The granted probe parks again — the very next eviction must re-light
+      // the fuse. A gesture is one probe, never a fresh evidence budget.
+      noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+    });
+
+    it('is a no-op on a key with no evidence', () => {
+      grantManualSyncProbe('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+      noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+    });
   });
 
   it('needs the full run of evictions before it lights, and then stands for the fused interval', () => {
