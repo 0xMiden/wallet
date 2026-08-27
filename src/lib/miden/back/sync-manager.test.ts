@@ -642,6 +642,20 @@ describe('doSync', () => {
       await isolated();
       expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeDueProbe + 1);
 
+      // …and it must not SHORTEN the fuse either, which is the direction that actually
+      // hurts: the breaker's arm is unconditional while the fuse's re-arm is not, so with
+      // both deadlines in one field two failed Retry taps replaced half an hour of
+      // enforced quiet with thirty seconds and put the automatic loop straight back into
+      // the park it had concluded to stay out of. The probe above lit the fuse afresh;
+      // two forced failures now, then a wait that clears any breaker window, must still
+      // find the automatic probe fused.
+      await isolated(true);
+      await isolated(true);
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      const callsBeforeFusedProbe = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeFusedProbe);
+
       nowSpy.mockRestore();
       monotonicSpy.mockRestore();
       randSpy.mockRestore();

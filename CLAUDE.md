@@ -79,6 +79,13 @@ The service worker keeps its own copy of the same rule in `sync-manager.ts`, cou
 
 An evicted operation is abandoned, not cancelled — treat `WasmClientPoisonedError` like `OperationAbortedError` in any kill classifier (`isWasmClientPoisonedError`), and never assume the pipeline stopped. Concretely, inside a hold: **re-check ownership before every WASM call that follows a parking await** (`getCurrentWasmLockHold() !== hold` → throw `WasmClientPoisonedError`), not just after the client build. The mutex is handed to a successor the instant the watchdog fires, so the abandoned callback's next call is a second borrow of a client somebody else is inside — and objects returned from an earlier call (an `Account`, a note record) are themselves borrowed from that client's RefCell, so touching `acc.vault()` after an eviction is the double borrow, not a stale read. Guarded this way already: the SW sync's downstream read (four transitions), `fetchBalances`, `settleSwapOrders`, the manual note import, the note-import queue, the guardian leaf pipelines and the offscreen poll. Concretely: never route a poison error onto a path that requeues a row as a fresh write, because the abandoned pipeline can still submit and the requeue becomes a second payment.
 
+### Post-await liveness inside a LOOP, not just at its boundary
+A guard at a callee's entry only proves ownership for its first WASM call. Where a helper
+loops over user-sized input — `classifySwapOrderNotes` does one lineage round trip per open
+order — the hold has to be threaded in and re-checked per iteration; the caller's guards
+cannot see inside. Same rule as the per-call re-checks: an eviction mid-loop releases the
+mutex and every later call in that loop runs on somebody else's client.
+
 ### Duplicate dexie / duplicate `@miden-sdk/miden-sdk` ("Two different versions of Dexie loaded")
 The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is *inlined*, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
 

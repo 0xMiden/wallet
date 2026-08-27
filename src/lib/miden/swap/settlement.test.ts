@@ -365,6 +365,53 @@ describe('swap order note settlement', () => {
       expect(isSyncFused('claimable-notes')).toBe(true);
     });
 
+    it('withdraws the shared fuse evidence on its own success, so it is not write-only (#777)', async () => {
+      // This probe shares the `claimable-notes` key with the SWR poll, and a producer that
+      // only ever ADDS evidence is a one-way door: four evictions of the settlement tick
+      // would fuse the claimable-notes poll for half an hour at a time with nothing on
+      // this path able to put it out.
+      const { noteSyncWatchdogEviction, isSyncFused, __resetSyncFuseStateForTests } = require('../front/sync-fuse');
+      const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+      __resetSyncFuseStateForTests();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+
+      // Fused, so this call is a no-op and must NOT report a success it did not observe.
+      await settleSwapOrders('account-1');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+
+      // Serve out the window; the probe that gets through and succeeds clears it.
+      jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 40 * 60_000);
+      await settleSwapOrders('account-1');
+      jest.restoreAllMocks();
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      __resetSyncFuseStateForTests();
+    });
+
+    it('stops MID-LOOP when the eviction lands between two orders\u2019 lineage reads', async () => {
+      // The loop inside `classifySwapOrderNotes` is one WASM round trip per open order —
+      // the longest unguarded stretch of WASM work in the wallet, and its length is the
+      // user's order count rather than a constant. Guarding only at the caller's
+      // boundaries could catch an eviction before the loop or after it, never inside.
+      toArray.mockResolvedValue([tx(), tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 78n } })]);
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockResolvedValue([note('tip-2')]);
+      (midenClientProxy.getPswapLineage as jest.Mock).mockImplementationOnce(async () => {
+        currentHold = null;
+        return null;
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      // One lineage read, not two: the second order's read is the call the guard exists
+      // to stop, and it would have run on a hold handed to somebody else.
+      expect(midenClientProxy.getPswapLineage).toHaveBeenCalledTimes(1);
+
+      // Falsifier: with the hold intact both orders are read.
+      (midenClientProxy.getPswapLineage as jest.Mock).mockClear();
+      (midenClientProxy.getPswapLineage as jest.Mock).mockResolvedValue(null);
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.getPswapLineage).toHaveBeenCalledTimes(2);
+    });
+
     it('stops before the lineage read when the note read was evicted mid-flight', async () => {
       // The mutex is released the moment the watchdog evicts, but this callback keeps
       // running — so the lineage read below would be WASM work with no lock held.

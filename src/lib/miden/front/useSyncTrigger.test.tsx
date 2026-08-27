@@ -267,7 +267,7 @@ describe('useSyncTrigger', () => {
     const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
     storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
-      noteSyncWatchdogEviction(guardianSyncFuseKey('g1'));
+      noteSyncWatchdogEviction(guardianSyncFuseKey('g1', 'https://guardian.test'));
     }
 
     const { unmount } = render(<HookHost />);
@@ -285,7 +285,7 @@ describe('useSyncTrigger', () => {
     const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
     storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
-      noteSyncWatchdogEviction(guardianSyncFuseKey('g1'));
+      noteSyncWatchdogEviction(guardianSyncFuseKey('g1', 'https://guardian.test'));
     }
     expect(isSyncFused('idle-sync')).toBe(false);
 

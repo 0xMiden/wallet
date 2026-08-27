@@ -7,7 +7,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
+import { wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
@@ -132,9 +132,14 @@ export async function getOrCreateMultisigService(
     }
 
     // Get the Account object from the Miden client.
-    // Bounded and labelled (#777): the sync loop reaches this builder on its cadence, so
-    // an unbounded hold here parks the realm's only WASM mutex for the five-minute
-    // backstop on a read that answers in milliseconds when the node is up.
+    // LABELLED but deliberately NOT bounded at the sync ceiling (#777). This builder has
+    // one sync-loop caller and ten transaction-pipeline callers, and one of those —
+    // `reconcileStructuralApplyFailure` — runs AFTER a structural change is on chain,
+    // where its whole job is to avoid stranding an account whose local apply failed.
+    // Tightening every caller to two minutes to bound the one on a cadence would make
+    // that recovery give up three minutes sooner, which is the opposite trade from the
+    // rest of this change: probes get the ceiling, writes a user is waiting on keep the
+    // five-minute backstop. The label still names the hold in an eviction record.
     const { sdkAccount } = await withWasmClientLock(
       async () => {
         // Use the matched account's stored publicKey (the form the in-wallet path
@@ -142,7 +147,7 @@ export async function getOrCreateMultisigService(
         const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
         return { sdkAccount };
       },
-      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+      { label: 'guardian-service-build' }
     );
 
     if (!sdkAccount) {

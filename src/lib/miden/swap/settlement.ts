@@ -9,7 +9,7 @@ import {
 } from './classification';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncWatchdogEviction } from '../front/sync-fuse';
+import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -201,7 +201,7 @@ export async function settleSwapOrders(
     if (getCurrentWasmLockHold() !== hold) {
       throw new WasmClientPoisonedError('watchdog', new Error('swap settlement abandoned after the note read'));
     }
-    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders);
+    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders, hold);
     return rawNotes.flatMap<ConsumableNote>(note => {
       const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
@@ -224,5 +224,9 @@ export async function settleSwapOrders(
     else noteNonEvictionSyncFailure('claimable-notes');
     throw e;
   });
+  // A probe that reports only failures is a ratchet: its evidence could never be
+  // withdrawn by the probe that produced it, and it relied on the claimable-notes poll
+  // happening to run and clear the shared key for it.
+  noteSyncSuccess('claimable-notes');
   return reconcileSwapOrderNotes(accountId, managedNotes, delegateTransaction, undefined, orders);
 }

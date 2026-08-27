@@ -19,8 +19,8 @@ const evictUntilLit = (key: Parameters<typeof noteSyncWatchdogEviction>[0]) => {
 };
 
 /** Two guardian accounts, which after #777 means two independent fuse keys. */
-const GUARDIAN_A = guardianSyncFuseKey('0xguardian-a');
-const GUARDIAN_B = guardianSyncFuseKey('0xguardian-b');
+const GUARDIAN_A = guardianSyncFuseKey('0xguardian-a', 'https://guardian.test');
+const GUARDIAN_B = guardianSyncFuseKey('0xguardian-b', 'https://guardian.test');
 
 describe('sync fuse (#777)', () => {
   beforeEach(() => {

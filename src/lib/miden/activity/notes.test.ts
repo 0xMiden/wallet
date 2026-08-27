@@ -88,9 +88,14 @@ jest.mock('shared/logger', () => ({
 import { logger } from 'shared/logger';
 
 import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
+import { __resetSyncFuseStateForTests } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
+  // The import pass now feeds and consults the realm's sync fuse, which is module state:
+  // without this reset a test that evicts a hold leaves the NEXT test's pass fused, and
+  // that test then asserts against a pass which never ran.
+  __resetSyncFuseStateForTests();
   for (const k of Object.keys(_g.__notesTest.store)) delete _g.__notesTest.store[k];
   _g.__notesTest.beforeSet = undefined;
   // mockReset, not mockClear: a test that installs a rejecting or parked
@@ -833,6 +838,44 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
     jest.useRealTimers();
+  });
+
+  it('stops running the pass once its own fuse is lit, and resumes after a completed pass (#777)', async () => {
+    // The pass is bounded but was UNFUSED: driven by the transaction loop against a node
+    // that never answers, it parked the realm's only WASM mutex for two minutes and leaked
+    // the poisoned client on every lap, and the sync loop's fuse could not see it because
+    // it counts only the sync loop's own holds.
+    const { noteSyncWatchdogEviction, noteSyncSuccess, isSyncFused } = require('../front/sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('note-import');
+    expect(isSyncFused('note-import')).toBe(true);
+
+    await importAllNotes();
+
+    // No hold taken and no import attempted — and, critically, the note is still queued.
+    expect(_g.__notesTest.lockOptions).toHaveLength(0);
+    expect(_g.__notesTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['aGVsbG8=']);
+
+    // Falsifier: with the fuse out the same queue imports as before, so the assertion
+    // above is about the gate rather than about the fixture.
+    noteSyncSuccess('note-import');
+    await importAllNotes();
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('lights its own fuse after repeated evictions of the import hold (#777)', async () => {
+    const { isSyncFused } = require('../front/sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8='];
+      _g.__notesTest.evictNextHold = true;
+      await importAllNotes().catch(() => {});
+    }
+
+    expect(isSyncFused('note-import')).toBe(true);
   });
 
   it('imports each queued note and clears the queue afterwards', async () => {

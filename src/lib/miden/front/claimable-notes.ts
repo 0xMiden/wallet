@@ -200,10 +200,13 @@ async function fetchNotesFromLocalClient(
   // read no longer takes — one hold further down the same function.
   let swapOrders;
   try {
-    swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress), {
-      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-      label: 'claimable-notes-swap-lineage'
-    });
+    swapOrders = await withWasmClientLock(
+      async hold => classifySwapOrderNotes(rawNotes, publicAddress, undefined, hold),
+      {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'claimable-notes-swap-lineage'
+      }
+    );
   } catch (e) {
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.

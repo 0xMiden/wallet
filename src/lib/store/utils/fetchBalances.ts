@@ -176,13 +176,6 @@ export async function fetchBalances(
   const read = await tryWithWasmClientLock(
     async hold => {
       const acc = await midenClientProxy.getAccount(address);
-      // The account read is a parking await, and an eviction during it releases the mutex
-      // without stopping this callback — so `vault()` below, a WASM call on an object
-      // borrowed from the client's RefCell, would run concurrently with whoever holds the
-      // lock now. That is the double borrow the lock exists to prevent, not a stale read.
-      if (getCurrentWasmLockHold() !== hold) {
-        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned after the account read'));
-      }
 
       // E2E-only: capture a Guardian account's on-chain auth structure while we
       // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
@@ -192,6 +185,15 @@ export async function fetchBalances(
       // production.
       if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
         await captureGuardianAuthStructureForTest(address, acc);
+      }
+
+      // Checked immediately before the vault read, and after EVERY await above it —
+      // the account read and, under the E2E flag, the guardian-auth capture. An eviction
+      // during either releases the mutex without stopping this callback, and `vault()` is
+      // a WASM call on an object borrowed from the client's RefCell, so continuing is the
+      // double borrow the lock exists to prevent rather than a merely stale read.
+      if (getCurrentWasmLockHold() !== hold) {
+        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the vault read'));
       }
 
       // `fungibleAssets()` is on the Account object (not the shared WebClient

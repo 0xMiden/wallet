@@ -4,9 +4,11 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError } from './connectivity-classify';
 import { isOperationAbortedError } from '../back/offscreen-codec';
+import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { addToNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
+  isSyncWatchdogEviction,
   isWasmClientPoisonedError,
   WasmClientPoisonedError,
   WASM_LOCK_SYNC_WATCHDOG_MS
@@ -351,6 +353,19 @@ export const importAllNotes = async () => {
   // (possibly private) note isn't stranded in the dormant SW store. Flag-OFF is
   // byte-identical to the inline call under this lock. The trailing sync goes
   // through the same proxy, in its own bounded hold below.
+  // Fused like every other unattended hold on this client (#777). The pass is bounded at
+  // the sync ceiling and driven by the transaction loop, so against a node that takes a
+  // request and never answers it parked the realm's only WASM mutex for two minutes and
+  // leaked the poisoned client, once per lap, with nothing counting it — the sync loop's
+  // fuse only ever saw the sync loop's own holds. Skipping is safe because the queue is
+  // durable and wall-clock based: the notes keep their attempts and their backoff, and the
+  // consume waiting on one fails recoverably (nothing was submitted, the note stays
+  // claimable) rather than the whole wallet paying a park every lap.
+  if (isSyncFused('note-import')) {
+    logger.info('[importAllNotes] skipping the pass: the note-import fuse is lit');
+    return;
+  }
+
   try {
     await withWasmClientLock(
       async hold => {
@@ -576,8 +591,15 @@ export const importAllNotes = async () => {
       banked.push({ ...note, attempts, firstFailureAt, nextEligibleAt: now + backoffMs });
     }
     await commitQueue(loopRetry ?? banked);
+    // Evidence for this probe's own fuse, in the same shape as the sync probes': an
+    // eviction says the client is parked, any other failure does not.
+    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('note-import');
+    else noteNonEvictionSyncFailure('note-import');
     throw e;
   }
+
+  // The pass completed — the only observation that withdraws its evidence.
+  noteSyncSuccess('note-import');
 
   // Outside the import hold, and bounded (#777).
   //

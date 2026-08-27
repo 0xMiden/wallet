@@ -1,5 +1,5 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
-import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -231,7 +231,10 @@ export async function syncGuardianAccounts(): Promise<void> {
     // function — the extension's post-`SyncRequest` trigger reaches it as well, and a
     // caller-side gate covered only the mobile/desktop loop while this producer went on
     // feeding a ledger nobody read there (#777).
-    const fuseKey = guardianSyncFuseKey(account.publicKey);
+    // Resolved before the gate because the key carries the endpoint: for any account
+    // created since that field existed this is a plain property read, and a legacy record
+    // pays one storage read per lap.
+    const fuseKey = guardianSyncFuseKey(account.publicKey, await resolveGuardianEndpoint(account));
     if (isSyncFused(fuseKey)) continue;
 
     try {
@@ -307,6 +310,12 @@ export async function syncGuardianAccounts(): Promise<void> {
         console.warn(
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
         );
+        // Reported before the `continue`, like every other failure shape. A 429 is not a
+        // success, so it must not leave a LIT fuse un-re-armed: the rate-limit cooldown is
+        // 30–120s, so a guardian answering every probe with a 429 would otherwise pull a
+        // fused account back onto a two-minute cadence, when the fuse's contract is one
+        // probe per 30 minutes until one SUCCEEDS.
+        noteNonEvictionSyncFailure(fuseKey);
         continue;
       } else {
         // Non-auth error (e.g. network) — don't accumulate auth-failure count.

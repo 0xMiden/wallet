@@ -22,10 +22,20 @@ import {
  * minutes forever. Guardian is the wallet's DEFAULT account type, so that path is the
  * likeliest one in the product, not a corner.
  */
-export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | `guardian-sync:${string}`;
+export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | 'note-import' | `guardian-sync:${string}`;
 
-/** The fuse key for one guardian account's sync probe. */
-export const guardianSyncFuseKey = (accountPublicKey: string): SyncFuseKey => `guardian-sync:${accountPublicKey}`;
+/**
+ * The fuse key for one guardian account's sync probe.
+ *
+ * Carries the ENDPOINT as well as the account, on the same principle as
+ * {@link clearSyncFuseForEndpointChange}: every conclusion in this ledger is about one
+ * node, and repointing an account at a different guardian makes the old conclusion
+ * meaningless. Folding it into the key invalidates that evidence by construction — there
+ * is no clear-on-change hook to remember, and no way for a lit fuse to keep a
+ * freshly-repointed account quiet for the next half hour.
+ */
+export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
+  `guardian-sync:${accountPublicKey}@${guardianEndpoint}`;
 
 interface FuseEntry {
   evictions: number;

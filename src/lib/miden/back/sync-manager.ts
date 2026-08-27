@@ -99,6 +99,25 @@ let consecutiveSyncFailures = 0;
 // window": 0 is a real stamp on this clock (it is the time origin), so the
 // sentinel has to be outside the number domain — see `monotonicNowMs`.
 let syncBackoffUntilMs: number | null = null;
+/**
+ * The FUSED deadline, kept apart from the breaker's (#777).
+ *
+ * They used to share `syncBackoffUntilMs`, written breaker-first and fuse-last so the
+ * longer one won. That held for automatic probes and broke for forced ones: the breaker's
+ * arm is unconditional, the fuse's re-arm is `!force`, and `consecutiveSyncFailures` keeps
+ * climbing on forced failures — so two failed Retry taps against a parked node overwrote a
+ * 30-minute fused window with a 30-second breaker one, and the automatic loop went back to
+ * re-entering the park it had just concluded it should stop entering. Separate fields make
+ * the read take the later of the two, which is what "a fuse is a floor, not a value" means.
+ */
+let syncFusedUntilMs: number | null = null;
+
+/** The later of the breaker's window and the fuse's, or null when neither is armed. */
+const currentSyncBackoffDeadlineMs = (): number | null => {
+  if (syncBackoffUntilMs === null) return syncFusedUntilMs;
+  if (syncFusedUntilMs === null) return syncBackoffUntilMs;
+  return Math.max(syncBackoffUntilMs, syncFusedUntilMs);
+};
 // How many times the breaker has tripped in a row (drives the exponential
 // backoff); reset by any successful sync.
 let breakerTripCount = 0;
@@ -115,6 +134,7 @@ export function resetSyncBackoffForEndpointChange(): void {
   consecutiveSyncFailures = 0;
   consecutiveWatchdogEvictions = 0;
   syncBackoffUntilMs = null;
+  syncFusedUntilMs = null;
   breakerTripCount = 0;
 }
 
@@ -147,7 +167,8 @@ export function doSync(force = false): Promise<void> {
   // Circuit-breaker: short-circuit if recent syncs failed and we're waiting out
   // the backoff window. Returning resolved-void here keeps the existing contract
   // for callers (triggerSync, alarm) that don't distinguish success from skip.
-  if (!force && syncBackoffUntilMs !== null && monotonicNowMs() < syncBackoffUntilMs) {
+  const backoffDeadlineMs = currentSyncBackoffDeadlineMs();
+  if (!force && backoffDeadlineMs !== null && monotonicNowMs() < backoffDeadlineMs) {
     return Promise.resolve();
   }
   inFlight = runSync(force).finally(() => {
@@ -214,6 +235,7 @@ async function runSync(force: boolean): Promise<void> {
       );
       consecutiveSyncFailures = 0;
       syncBackoffUntilMs = null;
+      syncFusedUntilMs = null;
       breakerTripCount = 0;
       // The only thing that clears the fuse: a sync that goes through proves this
       // realm's sync is not parked after all.
@@ -306,13 +328,12 @@ async function runSync(force: boolean): Promise<void> {
           `[SyncManager] circuit breaker open (trip ${breakerTripCount}) — skipping syncs for ${backoffMs}ms`
         );
       }
-      // The fused window, applied AFTER the breaker's — the two deadlines share this
-      // one field here (unlike the frontend loop, which keeps them apart, since there
-      // the same field is also cleared on a mid-window success), so the longer one has
-      // to be written last or a trip lap would silently shorten a lit fuse to a
-      // thirtieth of its length. `Math.max` rather than a bare assignment because the
-      // breaker's window can legitimately outlast a fresh fused one only via a clock
-      // jump, and taking the later of the two costs nothing when it cannot.
+      // The fused window, in its OWN field: the reader takes the later of the two
+      // deadlines (`currentSyncBackoffDeadlineMs`). Sharing one field and writing the
+      // fuse last looked equivalent and was not — the breaker's arm above is
+      // unconditional while this re-arm is `!force`, so a failed Retry overwrote a lit
+      // 30-minute fuse with a 30-second breaker window and handed the automatic loop
+      // straight back into the park.
       //
       // Re-armed on every qualifying failure while the evidence stands, not only on
       // the eviction that lit it: "one probe per 30 min until one succeeds" is the
@@ -325,7 +346,7 @@ async function runSync(force: boolean): Promise<void> {
           `[SyncManager] sync fuse lit after ${consecutiveWatchdogEvictions} watchdog evictions — ` +
             `probing once per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one succeeds`
         );
-        syncBackoffUntilMs = Math.max(syncBackoffUntilMs ?? 0, monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS);
+        syncFusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
       }
       // Continue to the downstream read path: the client may still have
       // cached state from a prior successful sync worth surfacing.
@@ -407,7 +428,18 @@ async function runSync(force: boolean): Promise<void> {
           // custom transaction — hidden from the claimable UI until the user
           // confirms (or forever, if they cancel). See note-quarantine.ts.
           const quarantined = await getQuarantinedNoteIds();
-          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows);
+          // The quarantine read is Dexie, not WASM — but it is still an await, and the
+          // watchdog does not pause for it, so the check has to sit between it and the
+          // next WASM call rather than before it.
+          //
+          // Not independently falsifiable from outside, and deliberately kept anyway: with
+          // no open swap orders the classification issues no WASM calls, so the next guard
+          // catches the same eviction one await later, and the site string only travels in
+          // the error's `cause`, which `WasmClientPoisonedError` does not render. What it
+          // buys is the window where the user DOES have open orders — covered by the
+          // classifier's own per-order guard — plus an accurate attribution when it fires.
+          stillOurs('after the quarantine read');
+          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows, hold);
           stillOurs('after the swap-order lineage read');
           const notes: SerializedConsumableNote[] = rawNotes
             .map((note): SerializedConsumableNote | null => {

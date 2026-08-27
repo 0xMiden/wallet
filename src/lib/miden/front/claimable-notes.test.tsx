@@ -493,7 +493,7 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     // is the aliasing that made one shared counter useless.
     __resetSyncFuseStateForTests();
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++)
-      noteSyncWatchdogEviction(guardianSyncFuseKey('0xother'));
+      noteSyncWatchdogEviction(guardianSyncFuseKey('0xother', 'https://guardian.test'));
     expect(isPaused()).toBe(false);
     __resetSyncFuseStateForTests();
   });

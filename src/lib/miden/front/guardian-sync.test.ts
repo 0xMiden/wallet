@@ -14,11 +14,22 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
-import { SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, syncGuardianAccounts, zustandProvider } from './guardian-sync';
+import {
+  SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
+  SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
+  syncGuardianAccounts,
+  zustandProvider
+} from './guardian-sync';
 import { guardianSyncFuseKey, __resetSyncFuseStateForTests, syncFuseUntilMs } from './sync-fuse';
 
 const storeState: {
-  accounts: Array<{ publicKey: string; type: WalletType; requiresHotKeyRotation?: boolean; hotPublicKey?: string }>;
+  accounts: Array<{
+    publicKey: string;
+    type: WalletType;
+    requiresHotKeyRotation?: boolean;
+    hotPublicKey?: string;
+    guardianEndpoint?: string;
+  }>;
   getPublicKeyForCommitment: jest.Mock;
   signWord: jest.Mock;
   persistNewHotKey: jest.Mock;
@@ -88,7 +99,10 @@ jest.mock('lib/miden/guardian', () => ({
 // `sameCommitment` is pure, so it runs for real.
 const mockGetSignerDetails = jest.fn();
 jest.mock('lib/miden/guardian/account', () => ({
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
+  // The fuse key carries the endpoint, so the loop resolves it per account per lap.
+  resolveGuardianEndpoint: async (account: { guardianEndpoint?: string }) =>
+    account.guardianEndpoint ?? 'https://guardian.test'
 }));
 const mockCommitmentFromPublicKeyHex = jest.fn();
 jest.mock('lib/secure-hot-key/commitment', () => ({
@@ -277,7 +291,7 @@ describe('syncGuardianAccounts', () => {
     expect(sync).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     // The fuse is lit, and the deadline it published is the one the idle loop reads.
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('consecutive watchdog evictions of'));
-    const until = syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'));
+    const until = syncFuseUntilMs(guardianSyncFuseKey('guardian-parked', 'https://guardian.test'));
     expect(until).not.toBeNull();
     expect(until! - monotonicNowMs()).toBeGreaterThan(FUSED_SYNC_PROBE_INTERVAL_MS / 2);
 
@@ -291,7 +305,7 @@ describe('syncGuardianAccounts', () => {
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
       await syncGuardianAccounts();
     }
-    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).toBeNull();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked', 'https://guardian.test'))).toBeNull();
 
     __resetSyncFuseStateForTests();
     warnSpy.mockRestore();
@@ -320,7 +334,7 @@ describe('syncGuardianAccounts', () => {
     }));
 
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await syncGuardianAccounts();
-    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).not.toBeNull();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked', 'https://guardian.test'))).not.toBeNull();
 
     const parkedCallsWhenLit = parkedSync.mock.calls.length;
     const healthyCallsWhenLit = healthySync.mock.calls.length;
@@ -332,7 +346,82 @@ describe('syncGuardianAccounts', () => {
     // this assertion fails in one direction or the other whichever way the bug goes:
     // shared keys never light, a coarse gate stops both.
     expect(healthySync).toHaveBeenCalledTimes(healthyCallsWhenLit + 1);
-    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-healthy'))).toBeNull();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-healthy', 'https://guardian.test'))).toBeNull();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('does not carry a lit fuse across a guardian ENDPOINT change for the same account (#777)', async () => {
+    // Every conclusion in the ledger is about one node. Repointing an account at a
+    // different guardian makes the old conclusion meaningless, so the endpoint is part of
+    // the key rather than something a clear-on-change hook has to remember.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [
+      { publicKey: 'g1', type: WalletType.Guardian, hotPublicKey: 'hot1', guardianEndpoint: 'https://old.guardian' }
+    ];
+    const sync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await syncGuardianAccounts();
+    const callsWhenFused = sync.mock.calls.length;
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(callsWhenFused); // fused against the old endpoint
+
+    // Same account, new guardian: it must be probed again immediately.
+    storeState.accounts = [
+      { publicKey: 'g1', type: WalletType.Guardian, hotPublicKey: 'hot1', guardianEndpoint: 'https://new.guardian' }
+    ];
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(callsWhenFused + 1);
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  it('reports a guardian 429 to the fuse like any other non-eviction failure (#777)', async () => {
+    // The rate-limit branch `continue`s before the shared reporting block, so it used to
+    // leave the ledger untouched. That is wrong in both directions: below the threshold a
+    // 429 breaks the "consecutive evictions" chain and must withdraw the evidence, and
+    // above it a 429 is not a success and must not let the 30–120s rate-limit cooldown
+    // pull a fused account back onto a two-minute cadence.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian, hotPublicKey: 'hot1' }];
+    const key = guardianSyncFuseKey('g1', 'https://guardian.test');
+    const rateLimited: Error & { status?: number; meta?: Record<string, unknown> } = new Error('429 Too Many Requests');
+    rateLimited.status = 429;
+    rateLimited.meta = { retry_after_secs: 0 };
+    const sync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    // One short of the threshold…
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) await syncGuardianAccounts();
+    expect(syncFuseUntilMs(key)).toBeNull();
+
+    // …then a 429, which breaks the chain…
+    sync.mockImplementationOnce(async () => {
+      throw rateLimited;
+    });
+    await syncGuardianAccounts();
+
+    // …and past the 429's own rate-limit cooldown, which otherwise skips the next lap at
+    // the cooldown gate and makes this test vacuous.
+    let nowMs = Date.now();
+    jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
+    nowMs += SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 1_000;
+
+    // …so the next eviction cannot be the fourth CONSECUTIVE one. Without the report the
+    // chain was never broken and this lap lights the fuse.
+    await syncGuardianAccounts();
+    expect(syncFuseUntilMs(key)).toBeNull();
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
@@ -361,7 +450,7 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts();
     await syncGuardianAccounts();
 
-    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked'))).toBeNull();
+    expect(syncFuseUntilMs(guardianSyncFuseKey('guardian-parked', 'https://guardian.test'))).toBeNull();
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
