@@ -52,16 +52,21 @@ describe('isPermanentHttpRejection', () => {
     // tonic's fallback shape when a gateway answers gRPC-web with a bare HTTP
     // error and no grpc-status trailer — the exact string is in the shipped wasm.
     'grpc-status header missing, mapped from HTTP status code 400',
-    'grpc-status header missing, mapped from HTTP status code 401',
-    'grpc-status header missing, mapped from HTTP status code 403',
     'grpc-status header missing, mapped from HTTP status code 404',
-    'prover responded with status code: 403',
+    'prover responded with status code: 400',
     'unexpected status code 404 from the gateway'
   ])('returns true for %p', message => {
     expect(isPermanentHttpRejection(new Error(message))).toBe(true);
   });
 
   it.each([
+    // 401 and 403 read as rejections but are not PROVABLY permanent: a WAF or
+    // bot-challenge layer in front of a node answers 403 for a minute, and an
+    // expired gateway credential answers 401 until it refreshes. Both heal with
+    // the note's bytes unchanged, so they keep the 24h budget rather than the
+    // three-lap cap.
+    'grpc-status header missing, mapped from HTTP status code 401',
+    'grpc-status header missing, mapped from HTTP status code 403',
     // Retryable statuses keep their transient verdict.
     'grpc-status header missing, mapped from HTTP status code 408',
     'grpc-status header missing, mapped from HTTP status code 429',
@@ -80,7 +85,7 @@ describe('isPermanentHttpRejection', () => {
   it('handles null/undefined/non-Error values', () => {
     expect(isPermanentHttpRejection(null)).toBe(false);
     expect(isPermanentHttpRejection(undefined)).toBe(false);
-    expect(isPermanentHttpRejection('mapped from HTTP status code 403')).toBe(true);
+    expect(isPermanentHttpRejection('mapped from HTTP status code 400')).toBe(true);
     expect(isPermanentHttpRejection({})).toBe(false);
   });
 });

@@ -191,33 +191,6 @@ export type RecoveryRangeResult = {
 };
 
 /**
- * Resolves note bytes to a {@link NoteFile} for import.
- *
- * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
- * `ConsumeTransaction` `noteBytes`, whose type is just `Uint8Array` with no
- * documented format) commonly pass a serialized `Note` — the natural output of
- * `note.serialize()`. Both are accepted: a `NoteFile` is used directly, and a
- * bare `Note` is wrapped into a `NoteFile` (the `NoteDetails` variant, matching
- * what `NoteFile.fromInputNote` produces when no inclusion proof is available).
- * Bytes that are neither raise a clear, actionable error instead of the opaque
- * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
- * `Note` bytes are fed straight into `NoteFile.deserialize`.
- *
- * The wrapped variant is the `NoteDetails` one, so the note is stored as
- * `Expected` until a sync commits it — and it is wrapped with the note's REAL
- * tag (`metadata().tag()`), because that tag is the only thing that can commit
- * it. `client.notes.import` resolves an expected note by asking the node for the
- * notes carrying the file's tag between its after-block hint and the chain tip,
- * and it subscribes the client to that tag for later syncs. On 0.16
- * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
- * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
- * the node returns nothing for it and an already-committed private note stayed
- * `Expected` forever (absent from the claimable list, never consumable), leaving
- * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
- * `Note` carries no block information; scanning from genesis is slower than a
- * real hint but correct.
- */
-/**
  * Whether the client this callback belongs to is still live. Shared by
  * reference between `MidenClientInterface` and the keystore callbacks it hands
  * the SDK, because those callbacks are built inside `create()` before the
@@ -275,6 +248,33 @@ function wrapSignWithWatchdogPause(
       : withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
 }
 
+/**
+ * Resolves note bytes to a {@link NoteFile} for import.
+ *
+ * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
+ * `ConsumeTransaction` `noteBytes`, whose type is just `Uint8Array` with no
+ * documented format) commonly pass a serialized `Note` — the natural output of
+ * `note.serialize()`. Both are accepted: a `NoteFile` is used directly, and a
+ * bare `Note` is wrapped into a `NoteFile` (the `NoteDetails` variant, matching
+ * what `NoteFile.fromInputNote` produces when no inclusion proof is available).
+ * Bytes that are neither raise a clear, actionable error instead of the opaque
+ * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
+ * `Note` bytes are fed straight into `NoteFile.deserialize`.
+ *
+ * The wrapped variant is the `NoteDetails` one, so the note is stored as
+ * `Expected` until a sync commits it — and it is wrapped with the note's REAL
+ * tag (`metadata().tag()`), because that tag is the only thing that can commit
+ * it. `client.notes.import` resolves an expected note by asking the node for the
+ * notes carrying the file's tag between its after-block hint and the chain tip,
+ * and it subscribes the client to that tag for later syncs. On 0.16
+ * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
+ * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
+ * the node returns nothing for it and an already-committed private note stayed
+ * `Expected` forever (absent from the claimable list, never consumable), leaving
+ * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
+ * `Note` carries no block information; scanning from genesis is slower than a
+ * real hint but correct.
+ */
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);

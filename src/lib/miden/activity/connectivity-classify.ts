@@ -42,14 +42,26 @@ export function isLikelyNetworkError(err: unknown): boolean {
  * answer. Deliberately the short, provable list — everything else (408, 425,
  * 429, 5xx, or no extractable number at all) keeps whatever verdict
  * `isLikelyNetworkError` gives it.
+ *
+ * 401 and 403 are deliberately NOT here, though they read as rejections. The
+ * test this set has to pass is not "is the request refused" but "can the same
+ * bytes at the same endpoint get a different answer later", and for both of
+ * those the answer is yes without the note changing at all: 403 is what a WAF
+ * or bot-challenge layer in front of a node returns for a minute, and 401 is
+ * what an expired gateway credential returns until it refreshes. Treating them
+ * as permanent collapsed a note's 24-hour budget to the three-lap poison cap —
+ * about fifteen seconds — so a transient challenge dead-lettered every incoming
+ * note and asked the user to press Retry, which re-queued them into the same
+ * fifteen seconds. Over-inclusion here costs lock-held retries; under-inclusion
+ * costs a false give-up on bytes that can be a note's only copy.
  */
-const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404]);
+const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 404]);
 
 /**
  * Is this error a PROVABLY PERMANENT HTTP rejection? (#788 follow-up, F-235)
  *
  * `isLikelyNetworkError`'s bare `'status code'` token accepts any status, so a
- * permanent 400/403 classified as transient and burned the note-import queue's
+ * permanent 400/404 classified as transient and burned the note-import queue's
  * 24-hour budget — ~288 retries, each an RPC inside a WASM-lock hold — before
  * dead-lettering, mislabeled as a transport failure. This predicate extracts
  * the number from the shapes that actually carry one (tonic's
@@ -59,8 +71,9 @@ const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404
  *
  * Used by the note-import queue's BUDGET SELECTION only. Everything else keeps
  * the broad predicate deliberately: the queue-admission gates still admit a
- * permanent rejection (the bounded cap below is what bounds it, and refusing at
- * the door would drop bytes that can be a note's only copy), and the
+ * permanent rejection (the bounded poison cap in `activity/notes.ts` is what
+ * bounds it, and refusing at the door would drop bytes that can be a note's
+ * only copy), and the
  * connectivity banner and the seed-restore fund-loss guard want over-inclusion
  * — narrowing them would change banner behaviour far outside the import path.
  */

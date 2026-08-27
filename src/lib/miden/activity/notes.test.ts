@@ -1189,11 +1189,20 @@ describe('importAllNotes', () => {
         .mockImplementationOnce(() => new Promise<void>(resolve => (releaseParked = resolve)));
 
       const inFlight = importAllNotes();
-      for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+      // Spin until the pass reaches the mid-flight state rather than for a fixed
+      // number of microtasks: the pass takes the queue lock before it reads, so a
+      // magic tick count silently stops reproducing the window it is testing the
+      // moment an await is added ahead of it.
+      const deadletteredBytes = () =>
+        ((_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>) ?? []).map(n => n.bytes);
+      for (let tick = 0; tick < 100 && !deadletteredBytes().includes('doomed'); tick++) await Promise.resolve();
       // Precondition: the pass has given up on 'doomed' but not yet rewritten
       // the queue, so both stores hold those bytes right now.
+      expect(deadletteredBytes()).toContain('doomed');
       expect(
-        ((_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>) ?? []).map(n => n.bytes)
+        ((_g.__notesTest.store['miden-notes-pending-import'] as Array<string | { bytes: string }>) ?? []).map(e =>
+          typeof e === 'string' ? e : e.bytes
+        )
       ).toContain('doomed');
 
       // The user presses Retry inside that window.
@@ -1256,7 +1265,7 @@ describe('importAllNotes', () => {
   });
 
   // #788 follow-up (F-235): a PROVABLY PERMANENT HTTP rejection — tonic's
-  // "mapped from HTTP status code 400/403" fallback when a gateway answers
+  // "mapped from HTTP status code 400/404" fallback when a gateway answers
   // gRPC-web with a bare HTTP error — must not ride the 24h transient budget
   // (~288 lock-held retries) before dead-lettering. It takes the bounded
   // poison-style cap instead, and its dead-letter record says what happened:
@@ -1267,7 +1276,7 @@ describe('importAllNotes', () => {
     _g.__notesTest.store['miden-notes-pending-import'] = ['rejected-note'];
     _g.__notesTest.midenClient.importNoteBytes.mockReset();
     _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
-      new Error('grpc-status header missing, mapped from HTTP status code 403')
+      new Error('grpc-status header missing, mapped from HTTP status code 400')
     );
 
     for (const expectedAttempts of [1, 2]) {

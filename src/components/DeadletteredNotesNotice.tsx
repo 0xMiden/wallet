@@ -18,9 +18,9 @@ export interface DeadletteredNotesNoticeProps {
  * How long a drain may hold the button disabled. The intercom request has no
  * deadline of its own and an MV3 worker teardown drops an in-flight one without
  * rejecting it, so an unbounded guard turns one unlucky press into a Retry the
- * user can never press again this session. Generous, because a drain of a full
- * store is a read-modify-write per note and re-enabling under a live drain is
- * the thing the guard exists to prevent.
+ * user can never press again this session. Generous, because the drain still has
+ * to re-queue every note and rewrite the whole store, and re-enabling under a
+ * live drain is the thing the guard exists to prevent.
  */
 const RETRY_GUARD_MAX_MS = 60_000;
 

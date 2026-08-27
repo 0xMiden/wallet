@@ -12,7 +12,7 @@ import {
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
@@ -168,8 +168,19 @@ export function useClaimNotes(): ClaimNotesState {
           }
         } else {
           const noteIds = notes.map(n => n.id);
-          const noteDetails = await withWasmClientLock(async () =>
-            midenClientProxy.getInputNoteDetails({ ids: noteIds })
+          // `getInputNoteDetails` lists the notes and then reads state off the
+          // returned records, which are borrows of this client's RefCell rather
+          // than snapshots. On this branch (mobile, desktop, and any build with
+          // the offscreen client off) the call runs INLINE against the hold taken
+          // right here, so the liveness check has to be handed down from here —
+          // the default is a no-op and the reach-through would run on a client a
+          // successor owns.
+          const noteDetails = await withWasmClientLock(
+            async hold =>
+              midenClientProxy.getInputNoteDetails({ ids: noteIds }, () =>
+                assertWasmHoldCurrent(hold, 'while reading input note details for the claim check')
+              ),
+            { label: 'claim-note-state-check' }
           );
 
           for (const note of noteDetails) {

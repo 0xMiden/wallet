@@ -42,7 +42,11 @@ export type NoteDeadletterReason = 'transport' | 'malformed' | 'rejected';
 export interface DeadletteredNote {
   /** Base64 note bytes — the same form the import queue holds. */
   bytes: string;
-  /** Why we gave up: `transport` = sustained outage; `malformed` = unparseable. */
+  /**
+   * Why we gave up: `transport` = sustained outage; `malformed` = unparseable;
+   * `rejected` = the node refused these bytes with a status that retrying cannot
+   * change (see `isPermanentHttpRejection`).
+   */
   reason: NoteDeadletterReason;
   /** ms epoch when the note was dead-lettered. */
   failedAt: number;
@@ -75,12 +79,6 @@ const withDeadletterLock = <T>(fn: () => Promise<T>): Promise<T> => {
   return run;
 };
 
-/**
- * `null` when the read itself failed, which is NOT the same as an empty store.
- * Conflating them let a transient read failure turn the following write into a
- * store-wide erase: every previously dead-lettered note replaced by the one being
- * added, and none of them still on the import queue to re-derive from.
- */
 /** A stored member this module can actually work with: it has bytes to preserve. */
 const isRecord = (value: unknown): value is DeadletteredNote =>
   typeof value === 'object' &&
@@ -88,6 +86,12 @@ const isRecord = (value: unknown): value is DeadletteredNote =>
   typeof (value as { bytes?: unknown }).bytes === 'string' &&
   (value as { bytes: string }).bytes.length > 0;
 
+/**
+ * `null` when the read itself failed, which is NOT the same as an empty store.
+ * Conflating them let a transient read failure turn the following write into a
+ * store-wide erase: every previously dead-lettered note replaced by the one being
+ * added, and none of them still on the import queue to re-derive from.
+ */
 async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
   try {
     const stored = await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY);
@@ -229,7 +233,7 @@ export async function countDeadletteredNotes(): Promise<number> {
  * whole quadratic drain ran to completion without yielding: seconds of frozen UI
  * from a single tap.
  *
- * Same generation rule as the single-record removal, applied per record: a note
+ * The generation rule is applied per record: a note
  * whose stored `failedAt` has moved on was dead-lettered again by a later pass
  * that still carries those bytes on the import queue, so removing it here would
  * take the note out of both stores. Those are left behind and reported as not

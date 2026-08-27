@@ -1681,9 +1681,17 @@ const runGuardianPipeline = async (
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
-    await setStage('submitting');
-    // Still provably pre-submit — the broadcast is the next line — so throwing
+    // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
+    // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
+    // the abandoned callback keeps running and can still reach `submit()`, so a
+    // row that throws here must carry the crossing rather than look never-
+    // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
+    // the error shape, and exempts only the stages that are provably pre-WRITE;
+    // checking before the write would drop this pipeline's own record of it.
+    //
+    // Still pre-submit as to the BROADCAST — that is the next line — so throwing
     // here cannot orphan a transaction the network has seen.
+    await setStage('submitting');
     assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();

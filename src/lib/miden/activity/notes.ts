@@ -287,26 +287,40 @@ export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> =>
 };
 
 export const importAllNotes = async () => {
-  const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-  // A corrupt value is skipped rather than thrown on: `DesktopStorage.get` hands
-  // back the raw string when `JSON.parse` fails, and normalizing that used to
-  // throw from OUTSIDE the pass's try — jamming note import permanently with no
-  // banking, no dead-letter and no drain. Unusable entries are left in place by
-  // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
-  // Salvaged the same way `queueNoteImport` and `commitQueue` do. Returning early
-  // on a non-array left a note that lost its array wrapper sitting in storage
-  // unimported — and unable to reach the dead-letter store either — until some
-  // unrelated enqueue happened to rebuild the array around it.
-  const queued = Array.isArray(rawQueue) ? rawQueue : salvageEntries(rawQueue);
-  if (queued.length === 0) {
+  // The snapshot read and this pass's token are taken TOGETHER under the queue
+  // lock. Allocating the token after an unlocked read let a manual Retry land
+  // between the two: Retry takes the lock, bumps the token and awaits its
+  // storage write, this pass reads the pre-Retry queue and then claims a HIGHER
+  // token, and the staleness guard below — which only asks whether some newer
+  // pass exists — waved through a commit built from the counters Retry had just
+  // reset. The user's Retry silently bought nothing.
+  //
+  // A pass with nothing to do allocates NO token and returns null. Bumping it
+  // before the emptiness checks would make an idle tick invalidate the commit of
+  // a pass that is legitimately in flight — its notes are still on the queue
+  // until it commits, so an idle tick is exactly the case where there is nothing
+  // to supersede.
+  const pass = await withQueueLock(async () => {
+    const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+    // A corrupt value is skipped rather than thrown on: `DesktopStorage.get` hands
+    // back the raw string when `JSON.parse` fails, and normalizing that used to
+    // throw from OUTSIDE the pass's try — jamming note import permanently with no
+    // banking, no dead-letter and no drain. Unusable entries are left in place by
+    // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
+    // Salvaged the same way `queueNoteImport` and `commitQueue` do. Returning early
+    // on a non-array left a note that lost its array wrapper sitting in storage
+    // unimported — and unable to reach the dead-letter store either — until some
+    // unrelated enqueue happened to rebuild the array around it.
+    const queued = Array.isArray(rawQueue) ? rawQueue : salvageEntries(rawQueue);
+    if (queued.length === 0) return null;
+    const snapshot = queued.filter(isUsableEntry).map(normalizeEntry);
+    if (snapshot.length === 0) return null;
+    return { snapshot, myToken: ++importPassToken };
+  });
+  if (pass === null) {
     return;
   }
-  const snapshot = queued.filter(isUsableEntry).map(normalizeEntry);
-  if (snapshot.length === 0) {
-    return;
-  }
-
-  const myToken = ++importPassToken;
+  const { snapshot, myToken } = pass;
   let committed = false;
 
   // Rewrite the queue as `retry` plus every entry that is not ours.
@@ -550,12 +564,12 @@ export const importAllNotes = async () => {
             // `isLikelyNetworkError`'s 'abort' token. That coincidence is not a contract: the
             // token list is transport-text heuristics that get re-tuned, and if 'abort' ever
             // leaves it an abandonment would start charging the POISON budget, which
-            // dead-letters the note as malformed after two laps. A private note's bytes can be
+            // dead-letters the note as malformed after three laps. A private note's bytes can be
             // its only copy, so the classification of an abandonment must not rest on a
             // substring of wallet-authored text.
             // A provably permanent HTTP rejection (tonic's "mapped from HTTP status
-            // code 400/403" fallback) is carved OUT of the transient set (#788
-            // follow-up, F-235): retrying the same bytes cannot change a 403, so it
+            // code 400/404" fallback) is carved OUT of the transient set (#788
+            // follow-up, F-235): retrying the same bytes cannot change a 400, so it
             // takes the bounded poison-style cap instead of a day of lock-held
             // retries. It cannot shadow a poison/abort eviction: those errors carry
             // closed wallet-authored messages with no HTTP status in them.
