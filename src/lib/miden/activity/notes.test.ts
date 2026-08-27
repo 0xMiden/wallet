@@ -531,6 +531,47 @@ describe('importAllNotes', () => {
     await _g.__notesTest.abandonedHold;
   });
 
+  it('keeps the poison count a note earned earlier in the same pass when the hold is evicted (#777)', async () => {
+    // The tear-down used to rebuild the queue from the PRE-PASS snapshot, discarding
+    // every decision the loop had already made. A poison note therefore went back with
+    // its counter at zero, so `POISON_MAX_ATTEMPTS` could never cap it: with any parked
+    // import later in the same snapshot, the pass is torn down every lap and the note
+    // that will never import is retried forever instead of dead-lettering.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ==', 'Yg=='];
+    let release!: () => void;
+    const parked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes
+      .mockImplementationOnce(async () => {
+        throw new Error('malformed note bytes');
+      })
+      .mockImplementationOnce(async () => parked);
+    let evict!: () => void;
+    _g.__notesTest.evictNextHold = new Promise<void>(resolve => {
+      evict = resolve;
+    });
+
+    const pass = importAllNotes();
+    for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+    evict();
+    await expect(pass).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(2);
+    // The poison verdict survives: one strike spent, and promptly retryable (no
+    // backoff) so it reaches the cap fast.
+    expect(queue[0]).toMatchObject({ bytes: 'YQ==', attempts: 1, poisonAttempts: 1 });
+    expect(queue[0].nextEligibleAt).toBeUndefined();
+    // And the interrupted note is charged a transient attempt, not a poison one.
+    expect(queue[1]).toMatchObject({ bytes: 'Yg==', attempts: 1 });
+    expect(queue[1].poisonAttempts ?? 0).toBe(0);
+
+    release();
+    await _g.__notesTest.abandonedHold;
+  });
+
   it('treats an already-consumed note as landed when banking an eviction (#777)', async () => {
     // The other half of the same rule. A note the client refuses because it has
     // already been CONSUMED is done — its funds are claimed — so the banking path
@@ -770,6 +811,26 @@ describe('importAllNotes', () => {
     const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
     expect(deadletter).toHaveLength(1);
     expect(deadletter[0]).toMatchObject({ bytes: 'transient', reason: 'transport' });
+    jest.useRealTimers();
+  });
+
+  it('skips the trailing sleep and sync when the pass imported nothing (#777)', async () => {
+    // The tail exists to surface notes this pass imported. A queue that is entirely
+    // backed off still paid its 2s sleep plus a full sync hold on every lap of the
+    // caller's loop — once a second on mobile — for a sync with nothing to surface.
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'YQ==', attempts: 1, firstFailureAt: Date.now(), nextEligibleAt: Date.now() + 60_000 }
+    ];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.syncState.mockReset();
+    _g.__notesTest.midenClient.syncState.mockResolvedValue(undefined);
+
+    // Resolves without the timers being advanced at all: no sleep was scheduled.
+    await expect(importAllNotes()).resolves.toBeUndefined();
+    expect(_g.__notesTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+    expect(_g.__notesTest.midenClient.syncState).not.toHaveBeenCalled();
+
     jest.useRealTimers();
   });
 

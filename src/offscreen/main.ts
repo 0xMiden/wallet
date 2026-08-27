@@ -977,12 +977,29 @@ const DISPATCH: Record<string, DispatchFn> = {
       // rotation may already be on chain — over somebody else's eviction. Rebuild and
       // keep polling: the applied record lives in this realm's store either way, and
       // the poison hook has already dropped the slot so this returns a fresh client.
-      if (polling.isDisposed) {
-        console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
-        polling = await getOrCreateClient();
-      }
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
+      }
+      if (polling.isDisposed) {
+        console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
+        try {
+          polling = await getOrCreateClient();
+        } catch (e) {
+          // Kept in the POISON family rather than surfacing as a plain error. The
+          // submit behind this confirmation may well have landed, and a plain error
+          // is written Failed like any ordinary failure — which for a structural
+          // guardian op means skipping a completion step for a rotation that is on
+          // chain. What happened here is still an abandonment, so it is reported as
+          // one; the cause carries why the rebuild failed.
+          throw new WasmClientPoisonedError('watchdog', e instanceof Error ? e : new Error(String(e)));
+        }
+        // The rebuild is an await like any other, so the hold can go stale across it —
+        // and the first WASM call below would then run with no mutex held. Same guard,
+        // same reason, as the one after the sync.
+        if (getCurrentWasmLockHold() !== context.hold) {
+          console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
+          throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+        }
       }
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,

@@ -352,8 +352,14 @@ export function __resetRecoveryCooldownForTests(): void {
   lastRecoveryAt = null;
 }
 
-/** Holders currently suspended inside a `yieldWasmClientLock` window. */
-let yieldedHolderCount = 0;
+/**
+ * Holders currently suspended inside a `yieldWasmClientLock` window.
+ *
+ * A SET rather than a count, because these are exactly the parties that retain a
+ * poisoned client besides the holder being evicted — and reclaiming the instance
+ * needs their promises, not their number (see `reclaimWhenIdle`).
+ */
+const yieldedHolders = new Set<LockHolder>();
 
 /**
  * Realm-local listeners run after recovery has replaced the client singletons
@@ -401,7 +407,7 @@ function notifyWasmClientPoisoned(): void {
  * and by construction still inside a WASM call. `free()`ing there fails a
  * transaction that may already have submitted.
  *
- * Keying that decision on `yieldedHolderCount` alone was wrong, and wrong in
+ * Keying that decision on the suspended-holder count alone was wrong, and wrong in
  * the worst place: every yield call site in the app is an offscreen-prove path,
  * which only the extension has. On mobile and desktop the count is therefore
  * permanently zero, so every eviction took the `free()` branch — including a
@@ -412,46 +418,60 @@ function notifyWasmClientPoisoned(): void {
  * Only a trap with NO holder at all can safely terminate immediately: the module
  * is already aborted and nobody is using the instance.
  *
- * Marking is not the same as leaking, though it was at first. `reclaim.after` is
- * the abandoned operation's own promise, and when it settles that operation has
- * stopped touching the client — so the poisoned instance is freed THEN. Without
- * it every eviction leaked a whole WASM client (a method worker and its instance
- * off mobile), and the #777 path evicts on a two-minute ceiling for as long as a
- * node stays parked, so the leak was unbounded in the realm's lifetime.
+ * Marking is not the same as leaking, though it was at first. `reclaimAfter`
+ * settles when every flow still holding that instance has finished with it, and
+ * the poisoned instance is freed THEN. Without it every eviction leaked a whole
+ * WASM client (a method worker and its instance off mobile), and the #777 path
+ * evicts on a two-minute ceiling for as long as a node stays parked, so the leak
+ * was unbounded in the realm's lifetime. What it cannot recover is an operation
+ * that never settles at all — a fetch parked forever holds its client forever,
+ * which is why the fuse bounds how often that can happen.
  *
- * `reclaim.otherRetainers` is what keeps that from becoming a use-after-free.
- * Poisoning detaches the instance so no NEW caller can be handed it, but holders
- * already suspended inside a yield are using that same instance and are not the
- * operation being waited on — freeing on the evicted flow's settle would pull the
- * module out from under a sibling that is still writing. So the deferred free
- * happens only when the evicted flow is the sole retainer; with a suspended
- * sibling, or from a caller with no promise to offer at all (a trap taken while
- * holders are mid-yield — there may be several, none of them the current holder),
- * the instance stays marked, which is the old accepted cost in the cases that
- * still have to pay it.
+ * `reclaimAfter` has to cover EVERY retainer, not just the evicted flow, or the
+ * deferred free becomes a use-after-free. Poisoning detaches the instance so no
+ * NEW caller can be handed it, but a holder already suspended inside a yield is
+ * using that same instance and is not the operation being waited on — freeing on
+ * the evicted flow's settle alone would pull the module out from under a sibling
+ * that is still writing. `reclaimWhenIdle` builds the promise from all of them.
  */
-interface PoisonReclaim {
-  /** The abandoned operation. Its settle is the signal the client is idle. */
-  after: Promise<unknown> | null;
-  /** Parties OTHER than `after` still holding the instance (suspended mid-yield). */
-  otherRetainers: number;
-}
-
-function replaceClientSingletons(evictedHolderKeepsReference: boolean, reclaim?: PoisonReclaim): void {
-  if (evictedHolderKeepsReference || yieldedHolderCount > 0) {
+function replaceClientSingletons(evictedHolderKeepsReference: boolean, reclaimAfter?: Promise<unknown> | null): void {
+  if (evictedHolderKeepsReference || yieldedHolders.size > 0) {
     const poisoned = midenClientSingleton.poisonAllInstances();
-    if (reclaim?.after && reclaim.otherRetainers === 0 && poisoned.length > 0) {
-      void reclaim.after
-        .catch(() => undefined)
-        .then(() => {
-          console.warn('[miden-client] abandoned operation settled — reclaiming its poisoned client');
-          midenClientSingleton.freeDetachedInstances(poisoned);
-        });
+    if (reclaimAfter && poisoned.length > 0) {
+      void reclaimAfter.then(() => {
+        console.warn('[miden-client] every flow holding the poisoned client has settled — reclaiming it');
+        midenClientSingleton.freeDetachedInstances(poisoned);
+      });
     }
   } else {
     midenClientSingleton.disposeAllInstances();
   }
   notifyWasmClientPoisoned();
+}
+
+/**
+ * When every party still holding the about-to-be-poisoned client has finished
+ * with it — or `null` when that moment is not observable, in which case the
+ * instance stays marked rather than being freed under a live flow.
+ *
+ * The retainers are the flow being evicted plus every holder suspended mid-yield:
+ * both resolved the instance inside their hold and hold a direct reference, and
+ * poisoning only stops NEW callers from being handed it. A retainer whose
+ * operation promise is not attached yet (a hold evicted in the few synchronous
+ * statements before the lock wrapper attaches it) makes the whole set
+ * unobservable, so the answer is `null` rather than a partial wait.
+ *
+ * `allSettled`, not `all`: these promises usually REJECT (an evicted holder is
+ * rejected with `WasmClientPoisonedError`), and a rejection is just as good a
+ * signal that the flow has stopped touching the client.
+ */
+function reclaimWhenIdle(retainers: Iterable<LockHolder>): Promise<unknown> | null {
+  const running: Promise<unknown>[] = [];
+  for (const retainer of retainers) {
+    if (!retainer.running) return null;
+    running.push(retainer.running);
+  }
+  return running.length > 0 ? Promise.allSettled(running) : null;
 }
 
 function onRealmError(event: ErrorEvent): void {
@@ -480,7 +500,7 @@ function recoverFromTrap(cause: unknown): void {
   }
   if (currentHolder) {
     recoverFromWedgedHolder(currentHolder, 'realm-error', cause);
-  } else if (yieldedHolderCount > 0) {
+  } else if (yieldedHolders.size > 0) {
     // A holder is suspended mid-yield (e.g. awaiting an offscreen prove).
     // TERMINATING the client would pull it out from under that flow when it
     // reacquires — past its point-of-no-return that would falsely Fail a
@@ -497,7 +517,7 @@ function recoverFromTrap(cause: unknown): void {
       cause
     );
     lastRecoveryAt = monotonicNow();
-    replaceClientSingletons(true);
+    replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
   } else {
     // No holder to evict, and nobody suspended — the ONLY case that can safely
     // terminate. The trap still aborted the module instance, so dispose and let
@@ -714,7 +734,7 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
     // started on the 5-minute backstop produce indistinguishable records —
     // `runningMs` alone cannot say which bound was in force (#777).
     normalCeilingMs: holder.normalCeilingMs,
-    yieldedHolders: yieldedHolderCount,
+    yieldedHolders: yieldedHolders.size,
     // Always in-place for an eviction — the evicted flow keeps its reference, and
     // the instance is reclaimed once that flow's own promise settles.
     mode: 'poison-in-place',
@@ -732,8 +752,8 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // transaction that may already have submitted — so the instance is freed later
   // instead, when that flow's own promise settles.
   // The evicted holder is the current mutex owner, so it is not itself yielded:
-  // anything counted in `yieldedHolderCount` is a sibling still using the instance.
-  replaceClientSingletons(true, { after: holder.running, otherRetainers: yieldedHolderCount });
+  // every member of `yieldedHolders` is a sibling still using the same instance.
+  replaceClientSingletons(true, reclaimWhenIdle([holder, ...yieldedHolders]));
   wasmClientMutex.release();
 }
 
@@ -989,11 +1009,16 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     clearTimeout(holder.watchdogTimer);
     holder.watchdogTimer = null;
   }
-  // Not running while yielded, so this time is charged against neither ceiling.
+  // Not RUNNING while yielded, so this time is charged against the normal ceiling
+  // no more than a pause is. It is still banked (below, on the way out) against
+  // the relaxed one: the ceiling is a bound on the HOLD, and letting each yield
+  // start a fresh 30 minutes is the same "sequential brackets buy unlimited
+  // unwatched time" loophole `pausedElapsedMs` exists to close for pauses.
   endUnpausedSegment(holder);
   endPausedSegment(holder);
+  const yieldStartedAt = monotonicNow();
   currentHolder = null;
-  yieldedHolderCount++;
+  yieldedHolders.add(holder);
   // The count must settle exactly once whether the yielded wait resolves or the
   // yield watchdog below gives up on it: a wait that never settles used to leave
   // the count elevated forever, permanently degrading every future recovery to
@@ -1003,7 +1028,7 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   const settleYieldCount = (): void => {
     if (yieldCountSettled) return;
     yieldCountSettled = true;
-    yieldedHolderCount--;
+    yieldedHolders.delete(holder);
   };
   // A yielded wait is legitimately long (an offscreen prove) but must not be
   // UNWATCHED: the same relaxed ceiling a pause gets, minus paused time already
@@ -1033,10 +1058,10 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
         error
       });
       // Marking, not freeing: this holder is suspended mid-yield and keeps using
-      // the reference it already has. It is freed once this flow's own operation
-      // settles — but only if no OTHER holder is suspended on the same instance,
-      // hence the -1 for this one (the count settles just below, not here).
-      replaceClientSingletons(true, { after: holder.running, otherRetainers: yieldedHolderCount - 1 });
+      // the reference it already has. It is freed once every flow holding that
+      // instance has settled — this one included, so it needs no special case
+      // (it is still a member of `yieldedHolders` here; the set settles below).
+      replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
       settleYieldCount();
       holder.abort(error);
     },
@@ -1047,6 +1072,7 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     return await operation();
   } finally {
     clearTimeout(yieldWatchdog);
+    holder.pausedElapsedMs += Math.max(0, monotonicNow() - yieldStartedAt);
     await wasmClientMutex.acquire();
     settleYieldCount();
     if (!holder.killed) {
@@ -1217,7 +1243,7 @@ class MidenClientSingleton {
     // await it forever, and recovery could not clear it (issue #775).
     this.initializingPromiseWithOptions = null;
     if (this.instanceWithOptions) {
-      if (yieldedHolderCount > 0) {
+      if (yieldedHolders.size > 0) {
         // A holder suspended mid-yield may still be using this instance (the
         // routine options-refresh dispose races the same suspended flows a
         // trap recovery does — see poisonAllInstances). Mark instead of

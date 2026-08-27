@@ -120,6 +120,13 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // still queues on `acquire()` and therefore can never observe a successor
   // holding the lock, which is the entire hazard.
   let currentHold: object | null = null;
+  // Holds that were EVICTED. The real module sets `killed` on the holder, and its
+  // in-flight yield then reacquires, sees the flag and hands the mutex straight
+  // back WITHOUT becoming owner again. Modelling only the release let an evicted
+  // flow reclaim ownership on the way out of its sleep, which made every
+  // hold-liveness guard downstream of a yield look satisfied — the corpse read as
+  // the legitimate owner, which is exactly the state those guards exist to reject.
+  const deadHolds = new WeakSet<object>();
   const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>): Promise<T> => {
     await acquire();
     const hold = { mock: 'wasm-lock-hold' };
@@ -134,6 +141,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     const evicted = new Promise<never>((_resolve, reject) => {
       evictCurrent = () => {
         // The operation is deliberately NOT awaited or cancelled here.
+        deadHolds.add(hold);
         releaseOnce();
         reject(new Error('WASM client poisoned (realm-error): evicted by the test harness'));
       };
@@ -165,7 +173,12 @@ jest.mock('lib/miden/sdk/miden-client', () => {
       return await op();
     } finally {
       await acquire();
-      if (hold !== undefined) currentHold = hold;
+      if (hold !== undefined && !deadHolds.has(hold)) {
+        currentHold = hold;
+      } else {
+        // Evicted while suspended: this flow must not resume as owner.
+        release();
+      }
     }
   };
   // Test hook: true while the shared lock is held (used to assert the commit-wait
@@ -388,47 +401,63 @@ function resetControl() {
     // Set by a test to model the client being poisoned under a live flow — a trap
     // taken by ANOTHER flow marks the shared client, and the corpse guards read it.
     clientIsDisposed: false,
-    getMidenClient: jest.fn(async () => ({
-      get isDisposed() {
-        return (globalThis as any).__off.clientIsDisposed;
-      },
-      markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
-      getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
-      syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
-      waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
-      exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
-      getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
-      getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
-      getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
-      consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
-      sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
-      swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
-      newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a),
-      // Slice-7a: getInputNote / importNoteBytes are interface methods on the
-      // offscreen-owned client; the DISPATCH reduces getInputNote in-realm.
-      getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
-      importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
-      drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
-      importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
-      recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
-      sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
-      relayPrivateNoteById: (...a: any[]) => (globalThis as any).__off.clientRelayPrivateNoteById(...a),
-      isOutputNoteConsumed: (...a: any[]) => (globalThis as any).__off.clientIsOutputNoteConsumed(...a),
-      // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
-      // reads drive directly.
-      client: {
-        transactions: {
-          executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
-          // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
-          list: (...a: any[]) => (globalThis as any).__off.clientTransactionsList(...a)
+    // Per-BUILD identity, so a rebuild is observable. The shared `clientIsDisposed`
+    // flag alone cannot tell "the poll kept using the poisoned client" from "the poll
+    // rebuilt and used the new one" — every build reads the same flag and every call
+    // lands on the same control spy. `disposedBuilds` disposes ONE build, and
+    // `listBuilds` records which build each `transactions.list` came from.
+    clientBuilds: 0,
+    disposedBuilds: new Set<number>(),
+    listBuilds: [] as number[],
+    getMidenClient: jest.fn(async () => {
+      const build = ++(globalThis as any).__off.clientBuilds;
+      return {
+        __build: build,
+        get isDisposed() {
+          const off = (globalThis as any).__off;
+          return off.clientIsDisposed || off.disposedBuilds.has(build);
         },
-        // Follow-up #1: chain-only sync the commit-wait poll loop runs each iteration.
-        syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
-        getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
-        sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
-        pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
-      }
-    }))
+        markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
+        getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
+        syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
+        waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
+        exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
+        getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
+        getTransactionCommitState: (...a: any[]) => (globalThis as any).__off.clientGetTransactionCommitState(...a),
+        getConsumableNoteDtos: (...a: any[]) => (globalThis as any).__off.clientGetConsumableNoteDtos(...a),
+        consumeNoteId: (...a: any[]) => (globalThis as any).__off.clientConsumeNoteId(...a),
+        sendTransaction: (...a: any[]) => (globalThis as any).__off.clientSendTransaction(...a),
+        swapTransaction: (...a: any[]) => (globalThis as any).__off.clientSwapTransaction(...a),
+        newTransaction: (...a: any[]) => (globalThis as any).__off.clientNewTransaction(...a),
+        // Slice-7a: getInputNote / importNoteBytes are interface methods on the
+        // offscreen-owned client; the DISPATCH reduces getInputNote in-realm.
+        getInputNote: (...a: any[]) => (globalThis as any).__off.clientGetInputNote(...a),
+        importNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportNoteBytes(...a),
+        drainPrivateNoteTransport: (...a: any[]) => (globalThis as any).__off.clientDrainPrivateNoteTransport(...a),
+        importRecoveryNoteBytes: (...a: any[]) => (globalThis as any).__off.clientImportRecoveryNoteBytes(...a),
+        recoverPublicNotesRange: (...a: any[]) => (globalThis as any).__off.clientRecoverPublicNotesRange(...a),
+        sendPrivateNote: (...a: any[]) => (globalThis as any).__off.clientSendPrivateNote(...a),
+        relayPrivateNoteById: (...a: any[]) => (globalThis as any).__off.clientRelayPrivateNoteById(...a),
+        isOutputNoteConsumed: (...a: any[]) => (globalThis as any).__off.clientIsOutputNoteConsumed(...a),
+        // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
+        // reads drive directly.
+        client: {
+          transactions: {
+            executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
+            // Follow-up #1: id-filtered transaction list the commit-wait poll loop reads.
+            list: (...a: any[]) => {
+              (globalThis as any).__off.listBuilds.push(build);
+              return (globalThis as any).__off.clientTransactionsList(...a);
+            }
+          },
+          // Follow-up #1: chain-only sync the commit-wait poll loop runs each iteration.
+          syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
+          getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
+          sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
+          pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
+        }
+      };
+    })
   };
 }
 
@@ -487,6 +516,8 @@ async function loadModule(opts: { coi?: boolean; hwc?: number | undefined } = {}
 beforeEach(() => {
   resetControl();
   G.__off.clientIsDisposed = false;
+  G.__off.disposedBuilds = new Set<number>();
+  G.__off.listBuilds = [];
   logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
   warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
   errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -1395,12 +1426,215 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       await jest.advanceTimersByTimeAsync(10_000);
 
       // Re-resolved rather than abandoned, and the answer comes from a poll that
-      // actually saw the commit. (Re-resolution goes through the realm's own memo,
-      // which the poison hook nulls in production; this harness flips only the
-      // disposed flag, so what is observable here is that the loop CONTINUED.)
+      // actually saw the commit.
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rebuilding and continuing'));
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('polls the REBUILT client, not the poisoned one it was handed (#775)', async () => {
+    // The assertion the test above cannot make: that the rebuild actually happened.
+    // Keeping the old reference would answer from a client the realm has abandoned —
+    // reading a store the poisoned module may never advance again — so the poll must
+    // be seen to move onto the new build. Only THIS build is disposed (the shared
+    // flag would dispose the replacement too), and the poison hook nulls the realm's
+    // memo exactly as production does, so the next resolve constructs build 2.
+    await loadModule();
+    const disposedBuild = G.__off.clientBuilds;
+    jest.useFakeTimers();
+    try {
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockImplementationOnce(async () => {
+          await firstPoll;
+          return [G.__off.pendingStatus];
+        })
+        .mockImplementation(async () => [G.__off.committedStatus]);
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-rebuild', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+      const pollingBuild = G.__off.listBuilds[0];
+      expect(pollingBuild).toBeGreaterThan(disposedBuild - 1);
+
+      // An interloper's eviction poisons the shared client and drops the memo.
+      G.__off.disposedBuilds.add(pollingBuild);
+      for (const listener of G.__off.poisonedListeners ?? []) listener();
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      expect(r1.mock.calls[0][0].ok).toBe(true);
+      // Every lap after the rebuild came from a LATER build than the poisoned one.
+      const buildsAfter = G.__off.listBuilds.slice(1);
+      expect(buildsAfter.length).toBeGreaterThan(0);
+      expect(buildsAfter.every((build: number) => build > pollingBuild)).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the poison classification when the REBUILD itself fails (#775)', async () => {
+    // The rebuild reaches the node (the create does an eager genesis fetch), so it can
+    // fail on its own. Surfacing that as a plain error writes the row Failed like any
+    // ordinary failure — and for a structural guardian op that means skipping a
+    // completion step for a rotation that may be on chain. What happened is still an
+    // abandonment, so it has to be reported as one: `isWasmClientPoisonedError` is
+    // what every kill classifier reads to tell those apart.
+    await loadModule();
+    const disposedBuild = G.__off.clientBuilds;
+    jest.useFakeTimers();
+    try {
+      let releasePoll!: () => void;
+      const firstPoll = new Promise<void>(resolve => {
+        releasePoll = resolve;
+      });
+      G.__off.clientTransactionsList = jest.fn(async () => {
+        await firstPoll;
+        return [G.__off.pendingStatus];
+      });
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-rebuild-fails', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      G.__off.disposedBuilds.add(G.__off.listBuilds[0] ?? disposedBuild + 1);
+      for (const listener of G.__off.poisonedListeners ?? []) listener();
+      G.__off.getMidenClient = jest.fn(async () => {
+        throw new Error('genesis fetch failed');
+      });
+      releasePoll();
+      await jest.advanceTimersByTimeAsync(10_000);
+
+      expect(r1).toHaveBeenCalledTimes(1);
+      const resp = r1.mock.calls[0][0];
+      expect(resp.ok).toBe(false);
+      // The classification is the point: unwrapped, this arrives as a plain `Error`
+      // carrying "genesis fetch failed", which the SW writes Failed like any other.
+      expect(resp.errorName).toBe('WasmClientPoisonedError');
+      expect(resp.errorReason).toBe('watchdog');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops polling when the hold goes stale during the REBUILD (#775)', async () => {
+    // The rebuild is itself an await, and a long one — the create does an eager
+    // genesis fetch against the same node whose parking caused the eviction that
+    // poisoned us. An eviction landing inside it leaves the loop holding a fresh,
+    // healthy client and NO mutex, so its next WASM call runs alongside the successor
+    // that legitimately holds the lock. The loop-top guard cannot see this: it ran
+    // before the rebuild started, and the post-sync one is already a call too late.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    jest.useFakeTimers();
+    try {
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({
+          op_id: 'op1-evicted-in-rebuild',
+          method: 'waitForTransactionCommit',
+          argsB64: [encodeArg('0xtxid')]
+        }),
+        {},
+        r1
+      );
+      // Let the first lap complete and park in its inter-poll sleep.
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      const pollingBuild = G.__off.listBuilds[0];
+
+      // An interloper's eviction poisons this build and drops the memo while we sleep,
+      // and the replacement's construction then parks.
+      G.__off.disposedBuilds.add(pollingBuild);
+      for (const listener of G.__off.poisonedListeners ?? []) listener();
+      const buildClient = G.__off.getMidenClient;
+      let releaseRebuild!: () => void;
+      const parkedRebuild = new Promise<void>(resolve => {
+        releaseRebuild = resolve;
+      });
+      G.__off.getMidenClient = jest.fn(async (...args: unknown[]) => {
+        await parkedRebuild;
+        return buildClient(...args);
+      });
+
+      // Second lap: takes the rebuild branch and parks there.
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rebuilding and continuing'));
+
+      // Evicted while the rebuild is in flight, then the rebuild succeeds.
+      miden.__evictHolder();
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      releaseRebuild();
+      await jest.advanceTimersByTimeAsync(30_000);
+
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+      // Not one further WASM call on the rebuilt client. `syncChain` is the assertion
+      // that bites: it is the FIRST call after the rebuild, so a guard only after the
+      // sync would already have let it run unmutexed.
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('stops polling when the hold goes stale during the post-sync WASM call (#775)', async () => {
+    // The loop-top guard cannot cover the window it opens itself: an eviction landing
+    // inside `syncChain()` — whose own failure is swallowed — would otherwise let
+    // `transactions.list()` run with NO mutex held, alongside the successor that
+    // legitimately holds it. That is the double-borrow the mutex exists to prevent,
+    // reached through the one await the guard sits in front of.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    jest.useFakeTimers();
+    try {
+      let releaseSync!: () => void;
+      const parkedSync = new Promise<void>(resolve => {
+        releaseSync = resolve;
+      });
+      let syncs = 0;
+      G.__off.clientSyncChain = jest.fn(async () => {
+        if (++syncs === 1) await parkedSync;
+        return { __syncSummary: true };
+      });
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-evicted-in-sync', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(0);
+
+      // Evicted while parked INSIDE the sync, then the sync answers late.
+      miden.__evictHolder();
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(r1.mock.calls[0][0].ok).toBe(false);
+
+      releaseSync();
+      await jest.advanceTimersByTimeAsync(30_000);
+
+      // The corpse never reached its WASM read, and never ran another lap.
+      expect(G.__off.clientTransactionsList).not.toHaveBeenCalled();
+      expect(syncs).toBe(1);
     } finally {
       jest.useRealTimers();
     }

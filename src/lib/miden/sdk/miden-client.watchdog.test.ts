@@ -1153,11 +1153,12 @@ describe('poisoned client recovery', () => {
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it('does NOT reclaim when a sibling is suspended mid-yield on the same instance', async () => {
-    // The deferred free waits on the EVICTED flow's promise, which says nothing about
-    // a holder suspended inside a yield: that sibling resolved the same instance before
-    // the poison and is still writing with it, so freeing on the evicted flow's settle
-    // would be a use-after-free — worse than the leak it reclaims.
+  it('waits for a sibling suspended mid-yield before reclaiming, then reclaims', async () => {
+    // The evicted flow's promise says nothing about a holder suspended inside a yield:
+    // that sibling resolved the same instance before the poison and is still writing
+    // with it, so freeing on the evicted flow's settle alone would be a use-after-free.
+    // Waiting for BOTH is what makes this a deferral rather than the permanent leak the
+    // first cut of this had — every eviction with a prove in flight leaked a client.
     const { mod, free, markPoisoned } = await loadIsolated();
     await mod.getMidenClient();
 
@@ -1185,9 +1186,11 @@ describe('poisoned client recovery', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(free).not.toHaveBeenCalled();
 
+    // The sibling comes back and finishes too. Now nobody holds that instance.
     releaseYield();
     await yielded;
-    expect(free).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
   });
 
   it('after watchdog recovery the next acquirer gets a freshly constructed client, not the evicted one', async () => {
@@ -1423,6 +1426,34 @@ describe('poisoned client recovery', () => {
 
     expect(markPoisoned).toHaveBeenCalledTimes(1);
     expect(free).not.toHaveBeenCalled();
+  });
+
+  it('reclaims after a yield-watchdog eviction once the yielded flow itself settles', async () => {
+    // The yield path has its own eviction and its own retainer census, so the deferral
+    // needs its own coverage: the corpse here is the SUSPENDED holder rather than the
+    // mutex owner. Left un-reclaimed, an offscreen prove that wedges past the relaxed
+    // ceiling leaked a client (a method worker, off mobile) for the realm's lifetime.
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_800_000);
+    await opRejects;
+
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    // The prove finally answers. The evicted flow is done with its client, so the
+    // instance is reclaimed rather than held to the end of the realm.
+    releaseYield();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
   });
 
   it('restores the suspended count after a yield-watchdog eviction, so a later trap frees rather than poisons', async () => {

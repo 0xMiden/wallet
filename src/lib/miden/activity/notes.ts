@@ -253,6 +253,14 @@ export const importAllNotes = async () => {
   // dead-lettered a perfectly good note as `malformed`, which is the one signal the
   // dead-letter store exists to raise.
   const imported = new Set<QueuedNoteImport>();
+  // What the loop DECIDED for each note it finished with — the carried entry, or
+  // `null` for one it dead-lettered. The tear-down path used to rebuild from the raw
+  // snapshot, which threw away every decision made earlier in the same pass: a note
+  // that failed as poison went back with its counter at zero (so `POISON_MAX_ATTEMPTS`
+  // could never cap it — the anti-brick property this queue is built on), and a note
+  // carried with a five-minute backoff went back bare, eligible again next lap. With a
+  // parked import later in the same snapshot, both repeat every lap forever.
+  const decided = new Map<QueuedNoteImport, QueuedNoteImport | null>();
   // The retry list the loop built, once it finished building it. If the throw came
   // from the commit rather than the imports, this is the correct write and the
   // failure path re-issues it — banking from the snapshot instead would re-queue
@@ -306,6 +314,7 @@ export const importAllNotes = async () => {
             // Success: the note is intentionally NOT pushed to `retry`, so it drops
             // out of the queue.
             imported.add(note);
+            decided.set(note, null);
           } catch (e) {
             const attempts = note.attempts + 1;
             const firstFailureAt = anchorOf(note, now);
@@ -317,6 +326,7 @@ export const importAllNotes = async () => {
             if (isAlreadyImported(e)) {
               logger.info('Queued note is already in the client; dropping it from the import queue');
               imported.add(note);
+              decided.set(note, null);
               continue;
             }
             // A poison eviction is transport-shaped, per the repo-wide rule that
@@ -346,8 +356,17 @@ export const importAllNotes = async () => {
               // — the hot loop the give-up exists to end. The dead-letter store being
               // full or unwritable is a condition that changes on a timescale of
               // minutes at best, so this is spaced at the curve's ceiling.
+              decided.set(note, null);
               if (!stored) {
-                retry.push({ ...note, attempts, poisonAttempts, firstFailureAt, nextEligibleAt: now + BACKOFF_MAX_MS });
+                const carried = {
+                  ...note,
+                  attempts,
+                  poisonAttempts,
+                  firstFailureAt,
+                  nextEligibleAt: now + BACKOFF_MAX_MS
+                };
+                decided.set(note, carried);
+                retry.push(carried);
               }
             } else if (transient) {
               // Back off before the next attempt so a persistent outage doesn't
@@ -357,7 +376,9 @@ export const importAllNotes = async () => {
                 `Failed to import queued note (transient, attempt ${attempts}); backing off then retrying`,
                 e
               );
-              retry.push({ ...note, attempts, poisonAttempts, firstFailureAt, nextEligibleAt: now + backoffMs });
+              const carried = { ...note, attempts, poisonAttempts, firstFailureAt, nextEligibleAt: now + backoffMs };
+              decided.set(note, carried);
+              retry.push(carried);
             } else {
               // Poison and not yet at cap: retry promptly (no backoff) so it either
               // succeeds (misclassification) or hits the cap fast and dead-letters.
@@ -365,7 +386,9 @@ export const importAllNotes = async () => {
                 `Failed to import queued note (poison, attempt ${poisonAttempts}/${POISON_MAX_ATTEMPTS}); will retry`,
                 e
               );
-              retry.push({ ...note, attempts, poisonAttempts, firstFailureAt });
+              const carried = { ...note, attempts, poisonAttempts, firstFailureAt };
+              decided.set(note, carried);
+              retry.push(carried);
             }
           } finally {
             inFlight.note = null;
@@ -412,7 +435,10 @@ export const importAllNotes = async () => {
     for (const note of snapshot) {
       if (imported.has(note)) continue;
       if (note !== charged) {
-        banked.push(note);
+        // The loop's own decision when it had one, the untouched entry otherwise (a
+        // note it never reached, which must go back with nothing spent on it).
+        const decision = decided.has(note) ? decided.get(note) : note;
+        if (decision) banked.push(decision);
         continue;
       }
       const attempts = note.attempts + 1;
@@ -449,6 +475,12 @@ export const importAllNotes = async () => {
   // about the queue. What the caller must still see is a failure of the IMPORT
   // phase, because a note that did not import is a note some queued consume is
   // waiting for.
+  //
+  // Skipped outright when the pass landed nothing. The sync exists to surface the
+  // notes this pass imported; with none, a queue that is entirely backed-off or
+  // dead-lettered still paid a 2s sleep and a full sync hold on every lap of the
+  // caller's loop, which on mobile is once a second.
+  if (imported.size === 0) return;
   try {
     await new Promise(resolve => setTimeout(resolve, 2000));
     await syncUnderBoundedLock();
