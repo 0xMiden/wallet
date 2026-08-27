@@ -24,6 +24,11 @@ import {
   waitForTransactionCompletion
 } from './index';
 
+// The lock's HOLD, owned for the duration of the callback: the guardian pipeline
+// re-checks ownership before proving and before submit (#777).
+// eslint-disable-next-line no-var
+var gapsHold: object | null = null;
+
 const _g = globalThis as any;
 _g.__txGapTest = {
   rows: [] as any[],
@@ -107,7 +112,18 @@ jest.mock('../sdk/miden-client', () => ({
     waitForTransactionCommit: mockWaitForCommit,
     sendPrivateNote: mockSendPrivateNote
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  // Hands out a hold and owns it for the duration: the guardian pipeline re-checks
+  // ownership before proving and before submit (#777).
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    gapsHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (gapsHold === hold) gapsHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => gapsHold,
   withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
 }));
 

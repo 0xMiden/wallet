@@ -586,11 +586,11 @@ function ensureRealmErrorListener(): void {
  */
 function pausedCeilingFor(holder: LockHolder): number {
   const remaining = WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs;
-  // Strictly greater, so the grace below is genuinely once per hold. On `>=`, the
-  // ledger the grace writes (`PAUSED - MIN`) reads back as exactly `MIN`, so a
-  // second transition banking no wall-clock in between — two brackets inside one
-  // `performance.now()` tick — took this early return and got a second full slice
-  // without ever consuming `pausedGraceUsed`.
+  // Strictly greater, which is a boundary hardening rather than a behaviour change:
+  // at `remaining === MIN` both operators hand back the same `MIN`, but `>=` did it
+  // WITHOUT consuming the grace, leaving the once-per-hold slice available to a
+  // later sub-`MIN` transition that would then refund the ledger to `PAUSED - MIN`
+  // all over again. Falling through spends the grace at the boundary instead.
   if (remaining > WASM_LOCK_MIN_WATCHDOG_MS) return remaining;
   if (!holder.pausedGraceUsed) {
     // Credited to the ledger, not just to this timer, for the reason spelled out
@@ -1090,18 +1090,6 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     holder.killed = true;
     lastRecoveryAt = monotonicNow();
     const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
-    console.error('[miden-client] evicting holder wedged while yielded:', {
-      pausedMs: Math.round(holder.pausedElapsedMs),
-      runningMs: Math.round(holder.unpausedElapsedMs),
-      // The rest of what `recoverFromWedgedHolder` logs, for the same reason it
-      // logs it: this is the same money-safety event seen from the yield, and
-      // without these fields a field report cannot tell whether a live owner was
-      // retained or how much of the relaxed budget the hold had already spent.
-      pausedGraceUsed: holder.pausedGraceUsed,
-      yieldedHolders: yieldedHolders.size,
-      liveMutexOwner: currentHolder !== null,
-      error
-    });
     // Marking, not freeing: this holder is suspended mid-yield and keeps using
     // the reference it already has. It is freed once every flow holding that
     // instance has settled — this one included, so it needs no special case
@@ -1113,6 +1101,20 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     // lock), and that stops being true the moment the owner is itself evicted:
     // its abandoned callback keeps running while the mutex is already released.
     const retainers = currentHolder ? [currentHolder, ...yieldedHolders] : [...yieldedHolders];
+    // Logged AFTER the census and as `retainers`, not as `yieldedHolders.size`: this
+    // holder is still a member of that set here (it settles below), so the raw count
+    // means something different than the identically-named field
+    // `recoverFromWedgedHolder` logs, where the evicted holder is the mutex owner and
+    // is NOT in the set. Reporting the census is unambiguous either way, and it is
+    // the number that decides when the instance can be reclaimed.
+    console.error('[miden-client] evicting holder wedged while yielded:', {
+      pausedMs: Math.round(holder.pausedElapsedMs),
+      runningMs: Math.round(holder.unpausedElapsedMs),
+      pausedGraceUsed: holder.pausedGraceUsed,
+      retainers: retainers.length,
+      liveMutexOwner: currentHolder !== null,
+      error
+    });
     replaceClientSingletons(true, reclaimWhenIdle(retainers));
     settleYieldCount();
     holder.abort(error);

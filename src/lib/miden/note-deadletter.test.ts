@@ -80,6 +80,31 @@ describe('note-deadletter', () => {
     expect(_g.__dlTest.store['miden-note-import-deadletter']).toBe('{corrupt');
   });
 
+  it('does not throw on an ARRAY whose members are not records, and keeps the ones that are', async () => {
+    // `JSON.parse('[null]')` passes an `Array.isArray` check and then throws inside
+    // `existing.filter(n => n.bytes !== ...)` — out of the give-up path, whose caller
+    // has no try, so the whole import pass rejected on every lap and the poison cap
+    // could never stick. Members with no bytes carry nothing to preserve, so they are
+    // dropped rather than making the store unreadable.
+    _g.__dlTest.store['miden-note-import-deadletter'] = [null, entry('keepme'), 7, { reason: 'no-bytes' }];
+
+    await expect(addToNoteDeadletter(entry('aaa'))).resolves.toBe(true);
+
+    const list = await listDeadletteredNotes();
+    expect(list.map(n => n.bytes)).toEqual(['keepme', 'aaa']);
+  });
+
+  it('salvages a lone record that lost its array wrapper, matching the import queue', async () => {
+    // The queue side salvages exactly this shape (the adapters can hand back one
+    // entry stripped of its array), and its reason applies here verbatim: the bytes
+    // may be the only copy of the funds they carry. Refusing on this side would have
+    // made the same fault recoverable before the give-up and terminal after it.
+    _g.__dlTest.store['miden-note-import-deadletter'] = entry('lonely');
+
+    await expect(addToNoteDeadletter(entry('aaa'))).resolves.toBe(true);
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['lonely', 'aaa']);
+  });
+
   it('refuses a new note at capacity rather than evicting an older one', async () => {
     // The cap bounds storage against a pathological run, but honouring it by dropping
     // the oldest record destroys note bytes that may be the only copy of the funds

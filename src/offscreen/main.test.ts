@@ -853,8 +853,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     releaseBuild();
     await flush();
 
-    // Reported as the abandonment it is, and it never claimed the op: no deadline is
-    // armed for a call that will not run, and no dispatch happens with no mutex held.
+    // The response comes from the EVICTION itself — the lock's rejection wins the
+    // race, so this call is answered before the parked build even resolves. Asserted
+    // to pin the classification the SW's kill rails read; the guard's own contribution
+    // is the two assertions below it.
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
@@ -2527,6 +2529,48 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-g');
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([55, 66, 77]);
+  });
+
+  it('guardianPipeline: stops before proving when the hold is evicted during executeRequest (#777)', async () => {
+    // `executeRequest` is a network round trip on the NORMAL ceiling — the pause
+    // brackets in this pipeline cover proving, not this — so a node that accepts and
+    // never answers is evicted here. An eviction abandons the callback rather than
+    // stopping it, so what resumes would prove and submit with no mutex held,
+    // alongside the successor that legitimately holds it. Both checks sit at points
+    // that are provably pre-submit, so refusing cannot orphan a broadcast tx.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    let releaseExecute!: () => void;
+    const parkedExecute = new Promise<void>(resolve => {
+      releaseExecute = resolve;
+    });
+    const realExecute = G.__off.guardianExecuteRequest;
+    G.__off.guardianExecuteRequest = jest.fn(async (...args: unknown[]) => {
+      await parkedExecute;
+      return realExecute(...args);
+    });
+
+    const sendResponse = jest.fn();
+    capturedListener!(
+      callReq({
+        op_id: 'op-g-evicted',
+        method: 'guardianPipeline',
+        argsB64: [encodeArg('mtst1qguardian'), encodeArg(new Uint8Array([1])), encodeArg(false)]
+      }),
+      {},
+      sendResponse
+    );
+    await flush();
+
+    miden.__evictHolder();
+    releaseExecute();
+    await flush();
+
+    // Nothing proved, nothing submitted, nothing applied.
+    expect(G.__off.newLocalProver).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).toBe(false);
+    expect(G.__off.guardianApplied).toBe(false);
+    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
   });
 
   // #784: the co-signatures in the crossed request were bound to a summary that

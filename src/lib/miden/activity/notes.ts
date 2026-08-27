@@ -201,10 +201,15 @@ export const importAllNotes = async () => {
   // throw from OUTSIDE the pass's try — jamming note import permanently with no
   // banking, no dead-letter and no drain. Unusable entries are left in place by
   // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
-  if (!Array.isArray(rawQueue) || rawQueue.length === 0) {
+  // Salvaged the same way `queueNoteImport` and `commitQueue` do. Returning early
+  // on a non-array left a note that lost its array wrapper sitting in storage
+  // unimported — and unable to reach the dead-letter store either — until some
+  // unrelated enqueue happened to rebuild the array around it.
+  const queued = Array.isArray(rawQueue) ? rawQueue : salvageEntries(rawQueue);
+  if (queued.length === 0) {
     return;
   }
-  const snapshot = rawQueue.filter(isUsableEntry).map(normalizeEntry);
+  const snapshot = queued.filter(isUsableEntry).map(normalizeEntry);
   if (snapshot.length === 0) {
     return;
   }
@@ -295,8 +300,16 @@ export const importAllNotes = async () => {
   // only ever waiting on the network. Age alone cannot be the test, because a
   // genuinely month-old anchor SHOULD expire the budget; a pre-2020 stamp cannot
   // be a real one from this wallet, so that is what gets re-anchored.
+  // The below-clamp is conditioned on `now` itself being plausible. On a device
+  // still reading pre-2020 the stamp and `now` sit on the SAME wrong clock, so
+  // elapsed time between them is meaningful — re-anchoring there would rewrite the
+  // anchor on every pass and the 24h budget could never expire, which is the
+  // never-expiring hole this clamp exists to close in the other direction.
+  const clockIsPlausible = (now: number) => now >= MIN_PLAUSIBLE_EPOCH_MS;
   const anchorOf = (note: QueuedNoteImport, now: number) =>
-    note.firstFailureAt === undefined || note.firstFailureAt > now || note.firstFailureAt < MIN_PLAUSIBLE_EPOCH_MS
+    note.firstFailureAt === undefined ||
+    note.firstFailureAt > now ||
+    (clockIsPlausible(now) && note.firstFailureAt < MIN_PLAUSIBLE_EPOCH_MS)
       ? now
       : note.firstFailureAt;
   const elapsedSince = (from: number, now: number) => Math.max(0, now - from);
@@ -379,8 +392,9 @@ export const importAllNotes = async () => {
           // backlog big enough to take longer than it — exactly what the 24h
           // transient budget is designed to let accumulate across an outage — was
           // evicted on EVERY lap: progress was still head-first, but each lap paid a
-          // client poison-and-rebuild and counted a realm eviction, which is what
-          // arms the idle-sync fuse. Half the ceiling, so the import already in
+          // client poison-and-rebuild on the mutex every send, claim and balance read
+          // queues on. (Not the idle-sync fuse — that counts only evictions of the
+          // sync loop's own holds.) Half the ceiling, so the import already in
           // flight when the budget runs out still has the other half to answer in.
           // Remaining notes are carried untouched, which is what `continue` does
           // here — a `break` would leave them out of `retry` and the commit would

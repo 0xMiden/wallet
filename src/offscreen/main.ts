@@ -851,6 +851,16 @@ const DISPATCH: Record<string, DispatchFn> = {
       freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
+    // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
+    // brackets below cover proving, not this), so a node that accepts and never
+    // answers is evicted here — and an eviction abandons this callback rather than
+    // stopping it, so what resumes would prove and submit with no mutex held,
+    // alongside the successor that legitimately holds it. Checked at each of the two
+    // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
+    // that already reached the network.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('guardian pipeline abandoned before proving'));
+    }
     postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -898,6 +908,12 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     }
     recordProveTiming('guardianPipeline prove returned; submitting');
+    // The prove is the longest await in the pipeline — delegated over the network or
+    // local under a relaxed ceiling — so the same question has to be asked again.
+    // Still pre-submit: nothing has been broadcast at this point.
+    if (getCurrentWasmLockHold() !== hold) {
+      throw new WasmClientPoisonedError('watchdog', new Error('guardian pipeline abandoned before submit'));
+    }
     postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
     recordProveTiming('guardianPipeline submit returned; applying');

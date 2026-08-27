@@ -93,11 +93,17 @@ import {
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock, withWasmLockWatchdogPaused } from '../sdk/miden-client';
+import {
+  getCurrentWasmLockHold,
+  getMidenClient,
+  withWasmClientLock,
+  withWasmLockWatchdogPaused,
+  type WasmLockHold
+} from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
 export * from './complete';
@@ -1495,6 +1501,20 @@ const ensureGuardianRecallableSendRequestBytes = async (
 };
 
 /**
+ * Refuse to keep driving a guardian write whose lock hold is gone.
+ *
+ * An eviction rejects the holder's promise but does NOT stop its callback, so a
+ * pipeline parked on a network round trip resumes and would run its next WASM call
+ * with no mutex held, concurrently with whoever legitimately holds it — the
+ * double-borrow the lock exists to prevent. Only ever called at points that are
+ * provably pre-submit, so failing here cannot orphan a broadcast transaction.
+ */
+const assertStillHoldingLock = (hold: WasmLockHold, where: string): void => {
+  if (getCurrentWasmLockHold() === hold) return;
+  throw new WasmClientPoisonedError('watchdog', new Error(`guardian pipeline abandoned ${where}`));
+};
+
+/**
  * The guardian write LEAF PIPELINE — `executeRequest → prove → submit → apply`
  * for an already-signed, guardian-co-signed `TransactionRequest` (issue #260,
  * slice 6a).
@@ -1557,6 +1577,11 @@ const runGuardianPipeline = async (
     } finally {
       freeChainAnchor(anchor);
     }
+    // Same two pre-submit checks as the offscreen copy of this pipeline: an eviction
+    // during `executeRequest` (a network round trip on the normal ceiling) abandons
+    // this callback instead of stopping it, and mobile/desktop run THIS copy — the
+    // platform #777 was reported on.
+    assertStillHoldingLock(hold, 'before proving');
     await setStage('proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -1610,6 +1635,7 @@ const runGuardianPipeline = async (
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
+    assertStillHoldingLock(hold, 'before submit');
     await setStage('submitting');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();

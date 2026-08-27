@@ -1077,9 +1077,11 @@ describe('watchdog pause and yield', () => {
     await jest.advanceTimersByTimeAsync(1_799_000);
     await jest.advanceTimersByTimeAsync(25_000);
     // So the third transition arms on the 5 s REMAINDER. Asserted at the boundary,
-    // not merely "dead by 30 s": every renewal bug — a fresh 30 s slice per close,
-    // or the `>=` that let a zero-elapsed transition re-take the early return — is
-    // also dead by 30 s, so a single late assertion cannot see the difference.
+    // not merely "dead by 30 s": a renewal bug — a fresh slice granted per close —
+    // is ALSO dead by 30 s, so a single late assertion cannot see the difference.
+    // (The `>=`/`>` boundary in `pausedCeilingFor` is not what this covers: both
+    // operators return the same ceiling, differing only in whether the grace is
+    // consumed at exactly `MIN`.)
     await jest.advanceTimersByTimeAsync(4_999);
     expect(isWasmClientBusy()).toBe(true);
     await jest.advanceTimersByTimeAsync(1);

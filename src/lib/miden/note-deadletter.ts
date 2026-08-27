@@ -81,6 +81,13 @@ const withDeadletterLock = <T>(fn: () => Promise<T>): Promise<T> => {
  * store-wide erase: every previously dead-lettered note replaced by the one being
  * added, and none of them still on the import queue to re-derive from.
  */
+/** A stored member this module can actually work with: it has bytes to preserve. */
+const isRecord = (value: unknown): value is DeadletteredNote =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as { bytes?: unknown }).bytes === 'string' &&
+  (value as { bytes: string }).bytes.length > 0;
+
 async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
   try {
     const stored = await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY);
@@ -93,11 +100,29 @@ async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
     // lap and no note could ever be dead-lettered again. Refusing is also why this
     // is not "reset to empty": the value may be a truncated write over records
     // whose bytes are the only copy of the funds they carry.
+    // A LONE RECORD that lost its array wrapper is salvaged, matching the import
+    // queue's own `salvageEntries` — the same adapter fault produced it, and its
+    // bytes may be the only copy of the funds they carry, so the two sides of the
+    // give-up must not disagree about whether it is recoverable.
     if (!Array.isArray(stored)) {
-      logger.error('[note-deadletter] stored value is not an array; treating it as an unreadable store');
-      return null;
+      const salvaged = isRecord(stored) ? [stored] : null;
+      if (!salvaged) {
+        logger.error('[note-deadletter] stored value is not an array; treating it as an unreadable store');
+        return null;
+      }
+      logger.warning('[note-deadletter] salvaged a lone record that lost its array wrapper');
+      return salvaged;
     }
-    return stored;
+    // An ARRAY is not enough: `JSON.parse('[null]')` passes the check above and
+    // then `existing.filter(n => n.bytes !== ...)` throws on the member — out of
+    // the give-up path, whose caller has no try, so the import pass rejected on
+    // every lap and the poison cap could never stick. Members are dropped rather
+    // than refused: a member with no `bytes` carries nothing to preserve.
+    const usable = stored.filter(isRecord);
+    if (usable.length !== stored.length) {
+      logger.error(`[note-deadletter] dropped ${stored.length - usable.length} unusable record(s) from the store`);
+    }
+    return usable;
   } catch (e) {
     logger.warning('[note-deadletter] read failed', e);
     return null;

@@ -436,6 +436,52 @@ describe('importAllNotes', () => {
     expect(queue[0].firstFailureAt).toBeLessThanOrEqual(Date.now());
   });
 
+  it('imports a lone queue entry that lost its array wrapper (#777)', async () => {
+    // `queueNoteImport` and `commitQueue` both salvage this shape, so a pass that
+    // returned early on it left the note sitting in storage — never imported, and
+    // unable to reach the dead-letter store either — until some unrelated enqueue
+    // happened to rebuild the array around it.
+    _g.__notesTest.store['miden-notes-pending-import'] = { bytes: 'aGVsbG8=', attempts: 0 };
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockResolvedValue(undefined);
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+  });
+
+  it('does not re-anchor a budget stamp when the CURRENT clock is the implausible one', async () => {
+    // On a device still reading pre-2020 the stamp and `now` sit on the same wrong
+    // clock, so elapsed time between them is meaningful. Re-anchoring there would
+    // rewrite the anchor every pass and the 24h budget could never expire — the
+    // never-expiring hole the clamp exists to close in the other direction.
+    const brokenNow = Date.UTC(2019, 5, 1);
+    const stamp = brokenNow - 25 * 60 * 60 * 1000;
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9, firstFailureAt: stamp }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Failed to fetch'));
+
+    // Driven through the fake clock rather than a `Date.now` spy: installing fake
+    // timers REPLACES `Date.now`, so a spy taken first is silently discarded and the
+    // pass would run on the real 2026 clock — which is the opposite case.
+    jest.useFakeTimers();
+    jest.setSystemTime(brokenNow);
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    // The budget expired on that clock, so the note is dead-lettered rather than
+    // retried forever.
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toHaveLength(1);
+  });
+
   it('re-anchors an implausibly OLD budget stamp, so a bad RTC cannot dead-letter a good note', async () => {
     // The mirror of the future-stamp case, and the one that costs something: a device
     // that first failed while its clock still read 1970 stamps an anchor near zero,
