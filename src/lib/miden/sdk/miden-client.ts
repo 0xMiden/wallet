@@ -174,6 +174,18 @@ interface LockHolder {
    */
   graceUsed: boolean;
   /**
+   * The same one-shot mercy for the RELAXED ceiling. It has to exist separately
+   * because the two ledgers are separate: `graceUsed` credits
+   * `unpausedElapsedMs`, so it does nothing for a hold whose paused budget is the
+   * exhausted one. A hold that spent 29 of its 30 relaxed minutes answering a
+   * sign prompt would otherwise get 60 seconds for the prove that follows — and
+   * at exactly 30, a ceiling of literally zero, evicting it on the next
+   * macrotask. That eviction lands past `'syncing'`, where the pipeline records
+   * `markMayHaveSubmitted` permanently, so the cost of a slow user behind a slow
+   * prover is a send that can never be retried.
+   */
+  pausedGraceUsed: boolean;
+  /**
    * The normal (unpaused) watchdog ceiling for THIS hold. Defaults to
    * `WASM_LOCK_WATCHDOG_MS`; a caller whose operation has a tighter known
    * bound (the sync holds, issue #777) passes a smaller one via
@@ -565,6 +577,27 @@ function ensureRealmErrorListener(): void {
  * from every transition (hold start, pause open/close, yield resume) without
  * leaking a timer or stacking two.
  */
+/**
+ * The relaxed ceiling this hold has left, with the same once-per-hold finishing
+ * slice the normal ceiling gets. Shared by the pause bracket and the yield,
+ * which are the same budget seen from two places: a yield banks its wall-clock
+ * into `pausedElapsedMs` on the way out, so a hold that alternates the two must
+ * not find the second one arming at zero.
+ */
+function pausedCeilingFor(holder: LockHolder): number {
+  const remaining = WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs;
+  if (remaining >= WASM_LOCK_MIN_WATCHDOG_MS) return remaining;
+  if (!holder.pausedGraceUsed) {
+    // Credited to the ledger, not just to this timer, for the reason spelled out
+    // on `graceUsed` below: overriding only the timer leaves the ledger past the
+    // ceiling, so the next transition re-arms at `max(negative, 0)`.
+    holder.pausedGraceUsed = true;
+    holder.pausedElapsedMs = WASM_LOCK_PAUSED_WATCHDOG_MS - WASM_LOCK_MIN_WATCHDOG_MS;
+    return WASM_LOCK_MIN_WATCHDOG_MS;
+  }
+  return Math.max(remaining, 0);
+}
+
 function armWatchdogFor(holder: LockHolder): void {
   if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
   let ceiling: number;
@@ -573,7 +606,7 @@ function armWatchdogFor(holder: LockHolder): void {
     // bracket: unpaused time already spent is not charged against it, but time
     // spent in earlier brackets is, or sequential brackets would each buy a
     // fresh 30 minutes and a bracket-looping flow would run forever unwatched.
-    ceiling = Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0);
+    ceiling = pausedCeilingFor(holder);
   } else {
     // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
     // hold rather than the segment since the last transition.
@@ -659,6 +692,7 @@ function beginHold(requestedCeilingMs?: number): LockHolder {
     pausedElapsedMs: 0,
     pausedSegmentStartedAt: null,
     graceUsed: false,
+    pausedGraceUsed: false,
     normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
     abort,
     aborted
@@ -1046,27 +1080,31 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   // release a SUCCESSOR's mutex, popping a waiter into a live WASM call, and its
   // sign would pause the successor's watchdog. That is the pre-#775 wedge reached
   // through the fix's own recovery path.
-  const yieldWatchdog = setTimeout(
-    () => {
-      if (holder.killed) return;
-      holder.killed = true;
-      lastRecoveryAt = monotonicNow();
-      const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
-      console.error('[miden-client] evicting holder wedged while yielded:', {
-        pausedMs: Math.round(holder.pausedElapsedMs),
-        runningMs: Math.round(holder.unpausedElapsedMs),
-        error
-      });
-      // Marking, not freeing: this holder is suspended mid-yield and keeps using
-      // the reference it already has. It is freed once every flow holding that
-      // instance has settled — this one included, so it needs no special case
-      // (it is still a member of `yieldedHolders` here; the set settles below).
-      replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
-      settleYieldCount();
-      holder.abort(error);
-    },
-    Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0)
-  );
+  const yieldWatchdog = setTimeout(() => {
+    if (holder.killed) return;
+    holder.killed = true;
+    lastRecoveryAt = monotonicNow();
+    const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
+    console.error('[miden-client] evicting holder wedged while yielded:', {
+      pausedMs: Math.round(holder.pausedElapsedMs),
+      runningMs: Math.round(holder.unpausedElapsedMs),
+      error
+    });
+    // Marking, not freeing: this holder is suspended mid-yield and keeps using
+    // the reference it already has. It is freed once every flow holding that
+    // instance has settled — this one included, so it needs no special case
+    // (it is still a member of `yieldedHolders` here; the set settles below).
+    // `currentHolder` is whoever legitimately took the mutex while this flow
+    // slept, and it resolved the SAME instance inside its own hold, so it
+    // retains it exactly as a yielded sibling does. Omitting it was safe only
+    // transitively (a yielded flow cannot settle while an owner holds the
+    // lock), and that stops being true the moment the owner is itself evicted:
+    // its abandoned callback keeps running while the mutex is already released.
+    const retainers = currentHolder ? [currentHolder, ...yieldedHolders] : [...yieldedHolders];
+    replaceClientSingletons(true, reclaimWhenIdle(retainers));
+    settleYieldCount();
+    holder.abort(error);
+  }, pausedCeilingFor(holder));
   wasmClientMutex.release();
   try {
     return await operation();

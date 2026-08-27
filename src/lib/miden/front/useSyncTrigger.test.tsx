@@ -58,24 +58,53 @@ const wasmLockOptionsSeen: Array<unknown> = [];
 // is abandoned, not cancelled). Reproducing that split is the only way to test
 // what the loop does when an abandoned sync settles after the loop gave up.
 let evictEveryLockHold = false;
+// Evict WITHOUT letting the callback reach its WASM call, i.e. while the client is
+// still being built. The ceiling can fire there too — a fresh client's genesis
+// fetch goes to the same parked node — and that is the one window where the
+// callback's own ownership re-check decides whether a corpse calls into WASM.
+let evictBeforeClientResolves = false;
 // Which mechanism the simulated eviction reports. The hook treats the two
 // differently, so a test that could only present one would pin half the rule.
 let evictionReason: WasmClientPoisonReason = 'watchdog';
+// Ownership, as the real module tracks it: the callback's `hold` must match
+// `getCurrentWasmLockHold()` or the flow is a corpse. An eviction clears it BEFORE
+// the abandoned callback resumes, which is what makes the hook's post-await
+// re-check observable.
+let currentLockHold: object | null = null;
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
+  getCurrentWasmLockHold: () => currentLockHold,
   // In .tsx `<T>` parses as JSX — the trailing comma disambiguates it as a generic.
-  withWasmClientLock: async <T,>(fn: () => Promise<T>, options?: unknown) => {
+  withWasmClientLock: async <T,>(fn: (hold: object) => Promise<T>, options?: unknown) => {
     wasmLockOptionsSeen.push(options);
-    const running = fn();
+    const hold = { mock: 'wasm-lock-hold' };
+    currentLockHold = hold;
+    const running = fn(hold);
+    if (evictBeforeClientResolves) {
+      running.catch(() => {});
+      currentLockHold = null;
+      throw new WasmClientPoisonedError(evictionReason);
+    }
     if (evictEveryLockHold) {
       // Mirrors the real lock parking a handler on the abandoned operation.
       running.catch(() => {});
+      // Let the callback get as far as its parked WASM call first. The real
+      // watchdog fires two minutes into a `syncState` that never answers, not
+      // before the callback has resolved its client — and the difference is
+      // load-bearing here, because a hold evicted that early is refused by the
+      // callback's own post-await ownership check and never syncs at all.
+      for (let flush = 0; flush < 3; flush++) await Promise.resolve();
+      currentLockHold = null;
       // The REAL error class, not a look-alike with the right message: the hook
       // narrows on the class and then reads `reason` off it, so a hand-rolled
       // Error would only test the hook against a stub of its own predicate.
       throw new WasmClientPoisonedError(evictionReason);
     }
-    return running;
+    try {
+      return await running;
+    } finally {
+      if (currentLockHold === hold) currentLockHold = null;
+    }
   }
 }));
 
@@ -134,6 +163,7 @@ describe('useSyncTrigger', () => {
     mockIsLikelyNetworkError.mockReturnValue(true);
     mockClassifySyncError.mockReturnValue('node');
     evictEveryLockHold = false;
+    evictBeforeClientResolves = false;
     evictionReason = 'watchdog';
     // Every mobile/desktop test pushes here; reset centrally so the tests that
     // read it can assert on position rather than depending on being the only
@@ -761,6 +791,34 @@ describe('useSyncTrigger', () => {
     rand.mockRestore();
     warn.mockRestore();
     unmount();
+    jest.useRealTimers();
+  });
+
+  it('mobile/desktop: a sync evicted while its client was still building never touches WASM (#777)', async () => {
+    // The ceiling can fire inside `getMidenClient()` — a fresh client's genesis fetch
+    // goes to the same parked node. An eviction abandons the callback rather than
+    // stopping it, so without the post-await ownership check the resume would call
+    // `syncState` with no mutex held, next to the successor that legitimately has it:
+    // the "recursive use of an object" double borrow the lock exists to prevent.
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    evictBeforeClientResolves = true;
+    mockSyncState.mockResolvedValue(undefined);
+
+    const { unmount } = render(<HookHost />);
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    // Several laps' worth of microtasks: every abandoned callback has resumed by now.
+    await act(async () => {
+      for (let flush = 0; flush < 10; flush++) await Promise.resolve();
+    });
+
+    expect(mockGetMidenClient).toHaveBeenCalled();
+    expect(mockSyncState).not.toHaveBeenCalled();
+
+    unmount();
+    evictBeforeClientResolves = false;
     jest.useRealTimers();
   });
 

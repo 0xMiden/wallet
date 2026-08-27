@@ -71,7 +71,12 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { poisonReasonOf, wasmClientGeneration, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  poisonReasonOf,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  wasmClientGeneration,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -970,6 +975,12 @@ const DISPATCH: Record<string, DispatchFn> = {
         console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
         throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
       }
+      // Ahead of the rebuild below: a poll already past its deadline has no business
+      // building a client it will never use, least of all in the realm where that
+      // build's own genesis fetch goes to the node that parked us.
+      if (Date.now() - start >= timeout) {
+        throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
+      }
       // A poisoned client while the hold is still OURS is a different situation, and
       // it is recoverable: an interloper op that took the mutex during one of our
       // sleeps was evicted, so the singleton was replaced under us while the realm
@@ -977,9 +988,6 @@ const DISPATCH: Record<string, DispatchFn> = {
       // rotation may already be on chain — over somebody else's eviction. Rebuild and
       // keep polling: the applied record lives in this realm's store either way, and
       // the poison hook has already dropped the slot so this returns a fresh client.
-      if (Date.now() - start >= timeout) {
-        throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
-      }
       if (polling.isDisposed) {
         console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
         try {
@@ -1224,6 +1232,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
+    // A pure-sync dispatch takes the sync ceiling (#777), like every other hold whose
+    // whole job is a sync. The service worker's 30s `withTimeout` bounds ITS OWN
+    // promise, not this hold: the offscreen call keeps running, so a node that accepts
+    // SyncChainMmr and never answers held THIS realm's mutex — the one every send and
+    // claim queues behind — until the five-minute last resort, with the SW having
+    // discarded the answer four and a half minutes earlier. Only the sync gets it: the
+    // writes are legitimately long (they sign and prove) and have their own deadlines.
+    const lockOptions = msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS } : undefined;
     const resultBytes = await withWasmClientLock(async hold => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
@@ -1273,7 +1289,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
-    });
+    }, lockOptions);
     sendResponse({
       ok: true,
       op_id: msg.op_id,

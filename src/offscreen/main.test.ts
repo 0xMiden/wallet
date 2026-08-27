@@ -127,7 +127,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   // hold-liveness guard downstream of a yield look satisfied — the corpse read as
   // the legitimate owner, which is exactly the state those guards exist to reject.
   const deadHolds = new WeakSet<object>();
-  const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>): Promise<T> => {
+  const lockOptionsSeen: Array<unknown> = [];
+  const withWasmClientLock = async <T>(op: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
+    lockOptionsSeen.push(options);
     await acquire();
     const hold = { mock: 'wasm-lock-hold' };
     currentHold = hold;
@@ -187,6 +189,7 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   return {
     getMidenClient: (...a: any[]) => g.__off.getMidenClient(...a),
     withWasmClientLock,
+    lockOptionsSeen,
     withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>): Promise<T> => op(),
     yieldWasmClientLock,
     isWasmClientBusy,
@@ -973,6 +976,31 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(r2.mock.calls[0][0].ok).toBe(true);
   });
 
+  it('bounds a syncState dispatch at the sync ceiling, and leaves the writes on the default (#777)', async () => {
+    // The service worker's 30s `withTimeout` bounds its OWN promise, not this hold.
+    // A node that accepts SyncChainMmr and never answers held this realm's mutex — the
+    // one every send and claim queues behind — until the five-minute last resort, with
+    // the SW having discarded the answer four and a half minutes earlier.
+    await loadModule();
+    const miden: any = await import('lib/miden/sdk/miden-client');
+    const before = miden.lockOptionsSeen.length;
+
+    capturedListener!(callReq({ op_id: 'sync-op', method: 'syncState', argsB64: [] }), {}, jest.fn());
+    await flush();
+    capturedListener!(
+      callReq({ op_id: 'export-op', method: 'exportNote', argsB64: [encodeArg('n'), encodeArg('Details')] }),
+      {},
+      jest.fn()
+    );
+    await flush();
+
+    const [syncOptions, exportOptions] = miden.lockOptionsSeen.slice(before);
+    expect(syncOptions).toEqual({ watchdogMs: 120_000 });
+    // A write is legitimately long — it signs and proves, and carries its own
+    // deadline — so it stays on the default ceiling.
+    expect(exportOptions).toBeUndefined();
+  });
+
   it('dispatches syncState, runs the sync, and returns resultB64:null (SyncSummary discarded)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
@@ -1661,6 +1689,15 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(false);
       expect(String(r1.mock.calls[0][0].error)).toContain('timed out');
+      // It really did take the rebuild branch, on every lap, rather than reaching the
+      // deadline some other way: with the branch skipped the poll polls a disposed
+      // client and still times out, so the assertions above alone cannot tell the two
+      // apart. (Build COUNT is not the signal — the realm memoizes, and nothing here
+      // poisons the memo, so every lap gets the same disposed instance back. That is
+      // the scenario: a realm that cannot produce a healthy client must run out of
+      // time rather than invent a commit.)
+      const rebuildWarnings = warnSpy.mock.calls.filter(call => String(call[0]).includes('rebuilding and continuing'));
+      expect(rebuildWarnings.length).toBeGreaterThan(1);
     } finally {
       jest.useRealTimers();
     }

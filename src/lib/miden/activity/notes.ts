@@ -68,14 +68,26 @@ const finiteOr = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 const optionalFinite = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+// Finite is not enough for a COUNTER. A negative one defeats the cap it feeds:
+// `-1e308 + 1` is still `-1e308` in IEEE-754, so `poisonAttempts >= 3` never
+// becomes true and the note the wallet cannot parse is retried until the heat
+// death of the queue. A fractional one makes the backoff curve meaningless.
+const countOr = (value: unknown, fallback: number): number => {
+  const finite = finiteOr(value, fallback);
+  return Math.min(Math.max(Math.floor(finite), 0), Number.MAX_SAFE_INTEGER);
+};
+const optionalCount = (value: unknown): number | undefined => {
+  const finite = optionalFinite(value);
+  return finite === undefined ? undefined : Math.min(Math.max(Math.floor(finite), 0), Number.MAX_SAFE_INTEGER);
+};
 
 const normalizeEntry = (entry: StoredEntry): QueuedNoteImport =>
   typeof entry === 'string'
     ? { bytes: entry, attempts: 0 }
     : {
         ...entry,
-        attempts: finiteOr(entry.attempts, 0),
-        poisonAttempts: optionalFinite(entry.poisonAttempts),
+        attempts: countOr(entry.attempts, 0),
+        poisonAttempts: optionalCount(entry.poisonAttempts),
         firstFailureAt: optionalFinite(entry.firstFailureAt),
         nextEligibleAt: optionalFinite(entry.nextEligibleAt)
       };
@@ -119,9 +131,18 @@ export const queueNoteImport = async (noteBytes: string) =>
     // (`back/main.ts`, `back/dapp.ts`), so the note was silently lost at the door.
     // Starting fresh is the safe branch here: the unparseable value holds no notes we
     // can recover, and the alternative is dropping one we can.
-    const queuedImports = Array.isArray(stored) ? stored : [];
+    // A single salvageable entry is not "unparseable": a bare base64 string is
+    // what an old version wrote, and `{ bytes }` is one entry that lost its array
+    // on the way through a storage adapter. Discarding either would drop a note
+    // whose bytes may be the only copy of the funds they carry.
+    const salvaged = salvageEntries(stored);
+    const queuedImports = Array.isArray(stored) ? stored : salvaged;
     if (stored && !Array.isArray(stored)) {
-      logger.error('[queueNoteImport] pending-import queue was unreadable; starting a fresh queue for the new note');
+      logger.error(
+        salvaged.length > 0
+          ? '[queueNoteImport] pending-import queue was not an array; recovered the single entry it held'
+          : '[queueNoteImport] pending-import queue was unreadable; starting a fresh queue for the new note'
+      );
     }
     // Identical bytes are the same note, and the import is an upsert, so a second
     // copy only buys a second WASM import per pass — and a second entry to carry,
@@ -145,6 +166,24 @@ let importPassToken = 0;
 
 const isUsableEntry = (entry: StoredEntry): boolean =>
   typeof entry === 'string' ? entry.length > 0 : typeof entry?.bytes === 'string';
+
+/**
+ * What is recoverable from a top-level value that is not an array.
+ *
+ * A single `{ bytes }` object is one queue entry that lost its array somewhere in
+ * the storage round-trip, and its bytes may be the only copy of the funds they
+ * carry — so it is salvaged rather than discarded. A top-level STRING is not:
+ * `DesktopStorage`/`CapacitorStorage` hand back the raw text when `JSON.parse`
+ * fails, so that string is unparseable JSON rather than base64, and treating it as
+ * a note only spends import attempts before dead-lettering it as malformed.
+ */
+const salvageEntries = (stored: unknown): StoredEntry[] =>
+  typeof stored === 'object' &&
+  stored !== null &&
+  typeof (stored as { bytes?: unknown }).bytes === 'string' &&
+  (stored as { bytes: string }).bytes.length > 0
+    ? [stored as QueuedNoteImport]
+    : [];
 
 export const importAllNotes = async () => {
   const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
@@ -207,7 +246,14 @@ export const importAllNotes = async () => {
         logger.warning('[importAllNotes] dropping a superseded queue write from an abandoned import pass');
         return;
       }
-      const current = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+      const stored = await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY);
+      // Same tolerance as the pass's own read. `filter` on a raw string (what a
+      // storage adapter hands back for an unparseable value) THREW here, inside the
+      // queue lock and inside the pass's try — so the pass reported a failure it had
+      // not had, and every later pass repeated it. Salvaging the single entry means a
+      // value that lost its array on the way through the adapter still gets rewritten
+      // rather than jamming.
+      const current: StoredEntry[] = Array.isArray(stored) ? stored : salvageEntries(stored);
       const owed = new Map<string, number>();
       for (const note of snapshot) owed.set(note.bytes, (owed.get(note.bytes) ?? 0) + 1);
       const notOurs = current.filter(entry => {
@@ -433,10 +479,16 @@ export const importAllNotes = async () => {
     const charged = inFlight.note;
     const banked: QueuedNoteImport[] = [];
     for (const note of snapshot) {
-      if (imported.has(note)) continue;
       if (note !== charged) {
         // The loop's own decision when it had one, the untouched entry otherwise (a
-        // note it never reached, which must go back with nothing spent on it).
+        // note it never reached, which must go back with nothing spent on it). A
+        // decision of `null` — imported, already consumed, or dead-lettered — drops
+        // the note, which is why `has` is asked rather than truthiness.
+        //
+        // ONE mechanism deliberately: `imported` also knows which notes landed, and
+        // consulting both here meant either could be broken alone without a test
+        // noticing. `imported` now answers only the question no decision can (did
+        // this pass land anything at all, for the trailing sync).
         const decision = decided.has(note) ? decided.get(note) : note;
         if (decision) banked.push(decision);
         continue;
@@ -479,7 +531,8 @@ export const importAllNotes = async () => {
   // Skipped outright when the pass landed nothing. The sync exists to surface the
   // notes this pass imported; with none, a queue that is entirely backed-off or
   // dead-lettered still paid a 2s sleep and a full sync hold on every lap of the
-  // caller's loop, which on mobile is once a second.
+  // transaction loop that calls it — every 5s while a background pass is draining,
+  // every 10s from the in-progress screen's own driver.
   if (imported.size === 0) return;
   try {
     await new Promise(resolve => setTimeout(resolve, 2000));

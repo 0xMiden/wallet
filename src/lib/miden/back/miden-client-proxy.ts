@@ -958,6 +958,13 @@ export const midenClientProxy = {
    */
   async syncState(): Promise<void> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      // No ownership re-check across this await, unlike the frontend loop's own
+      // hold (`useSyncTrigger`) and every other lock-held flow: the proxy does not
+      // own the lock on this path (the caller does, above) and is not handed the
+      // hold, so it cannot ask the question. What covers it instead is the
+      // singleton's generation check — a poison bumps the generation, so a build
+      // that raced one is freed and handed back TERMINATED, and the call below
+      // throws from the SDK's own assert rather than running unmutexed.
       await (await getMidenClient()).syncState();
       return;
     }

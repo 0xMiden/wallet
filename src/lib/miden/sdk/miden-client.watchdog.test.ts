@@ -9,6 +9,7 @@ import { isLockedError } from 'lib/miden/transaction/helper';
 
 import {
   __resetRecoveryCooldownForTests,
+  getCurrentWasmLockHold,
   isWasmClientBusy,
   tryWithWasmClientLock,
   WasmLockHold,
@@ -1032,6 +1033,52 @@ describe('watchdog pause and yield', () => {
     await opRejects;
   });
 
+  it('a hold that exhausted the relaxed budget on a pause still gets one slice for the yield that follows', async () => {
+    // The pause and the yield draw on the SAME relaxed budget (a yield banks its
+    // wall-clock into the paused ledger, or a flow alternating the two would buy a
+    // fresh 30 minutes per transition). Without a finishing slice on that ledger the
+    // second transition arms at the unspent remainder — 60s after a 29-minute sign
+    // prompt, and at exactly 30 minutes a ceiling of literally ZERO, which evicts on
+    // the next macrotask. That eviction lands past `'syncing'`, where the pipeline
+    // records `markMayHaveSubmitted` permanently: a slow user behind a slow prover
+    // would cost a send that can never be retried.
+    let released = false;
+    const op = withWasmClientLock(async hold => {
+      // A sign prompt the user answers after 29m59s — legitimate, and inside the
+      // relaxed ceiling, so it is not evicted.
+      await withWasmLockWatchdogPaused(() => new Promise<void>(resolve => setTimeout(resolve, 1_799_000)), hold);
+      // The prove that follows it. One 30s slice, not the 1s that was left.
+      await yieldWasmClientLock(() => new Promise<void>(resolve => setTimeout(resolve, 25_000)), hold);
+      released = true;
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_799_000);
+    // 25s into a 30s slice: still alive where an unspent-remainder ceiling would
+    // already have evicted it.
+    await jest.advanceTimersByTimeAsync(25_000);
+    await expect(op).resolves.toBeUndefined();
+    expect(released).toBe(true);
+  });
+
+  it('grants that finishing slice only once, so alternating pause and yield cannot renew it', async () => {
+    const op = withWasmClientLock(async hold => {
+      await withWasmLockWatchdogPaused(() => new Promise<void>(resolve => setTimeout(resolve, 1_799_000)), hold);
+      // Spends the one slice.
+      await yieldWasmClientLock(() => new Promise<void>(resolve => setTimeout(resolve, 25_000)), hold);
+      // A second unbounded wait on the same exhausted budget gets nothing.
+      await withWasmLockWatchdogPaused(() => new Promise<never>(() => {}), hold);
+    });
+    const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1_799_000);
+    await jest.advanceTimersByTimeAsync(25_000);
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(isWasmClientBusy()).toBe(false);
+    await opRejects;
+  });
+
   it('a yielded wait that never settles is evicted at the relaxed ceiling instead of wedging forever', async () => {
     const op = withWasmClientLock(hold => yieldWasmClientLock(() => new Promise<never>(() => {}), hold));
     const opRejects = expectRejection(op, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
@@ -1091,6 +1138,8 @@ describe('poisoned client recovery', () => {
     getMidenClient: (options?: unknown) => Promise<unknown>;
     resetMidenClient: () => Promise<void>;
     onWasmClientPoisoned: (listener: () => void) => () => void;
+    isWasmClientBusy: typeof isWasmClientBusy;
+    getCurrentWasmLockHold: typeof getCurrentWasmLockHold;
   }
 
   const loadIsolated = async (freeImpl?: () => void) => {
@@ -1454,6 +1503,15 @@ describe('poisoned client recovery', () => {
     releaseYield();
     await jest.advanceTimersByTimeAsync(0);
     expect(free).toHaveBeenCalledTimes(1);
+
+    // And the corpse must not come back as the mutex OWNER on its way out. Its
+    // `finally` reacquires the lock unconditionally; if a killed holder were then
+    // reinstated, `endHold` would refuse to release it and the realm would be wedged
+    // holding a lock nobody can free — the #775 freeze reached through the recovery
+    // path. The successor acquiring proves the reacquire released again.
+    expect(mod.isWasmClientBusy()).toBe(false);
+    await expect(mod.withWasmClientLock(async () => 'ok')).resolves.toBe('ok');
+    expect(mod.getCurrentWasmLockHold()).toBeNull();
   });
 
   it('restores the suspended count after a yield-watchdog eviction, so a later trap frees rather than poisons', async () => {

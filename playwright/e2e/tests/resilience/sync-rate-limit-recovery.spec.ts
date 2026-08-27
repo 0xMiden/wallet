@@ -13,8 +13,11 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *
  * Wrong realm. This suite drives the extension SERVICE WORKER sync path, which
  * this fix does not change: the SW already bounded its own sync with
- * `SYNC_TIMEOUT_MS`, and `sync-manager.ts` only had two constants and a pure
- * function moved out of it. The realm #777 was recorded in — the mobile/desktop
+ * `SYNC_TIMEOUT_MS`, and what the fix changed in `sync-manager.ts` leaves that
+ * ceiling alone: two constants and a pure function moved out to be shared, the
+ * breaker's clock moved to a monotonic one, its "no window open" sentinel became
+ * `null`, and a user-initiated Retry now punches through an open window without
+ * escalating it. The realm #777 was recorded in — the mobile/desktop
  * INLINE loop, where the fix adds the 120s per-hold watchdog ceiling and the
  * exponential breaker — has no Playwright harness. That behaviour is pinned by
  * the `useSyncTrigger`, `sync-lock` and `miden-client.watchdog` unit suites

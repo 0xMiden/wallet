@@ -2,8 +2,12 @@ import { useEffect } from 'react';
 
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  isSyncWatchdogEviction,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -206,9 +210,23 @@ export function useSyncTrigger() {
             // memoises the parked call, so the fresh client may join it (which is
             // what the fuse is for).
             const synced = await withWasmClientLock(
-              async () => {
+              async hold => {
                 const client = await getMidenClient();
                 if (!client || cancelled) return false;
+                // Building a client is itself a parking await (its genesis fetch
+                // goes to the same node), so the ceiling can fire inside it — and
+                // an eviction abandons this callback rather than stopping it, so
+                // without this check the resume would call `syncState` with no
+                // mutex held, alongside the successor that legitimately has it.
+                // The client's own generation check happens to catch today's
+                // instance, but the contract every other lock-held flow follows is
+                // this one: re-check the hold after every await.
+                if (getCurrentWasmLockHold() !== hold) {
+                  throw new WasmClientPoisonedError(
+                    'watchdog',
+                    new Error('idle sync abandoned: the lock hold is gone')
+                  );
+                }
                 await client.syncState();
                 return true;
               },

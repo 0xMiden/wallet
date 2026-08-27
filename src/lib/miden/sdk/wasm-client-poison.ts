@@ -24,12 +24,15 @@
  * bounded — guardian flows hold the lock across timeout-less HTTP round-trips,
  * and a cold-restore probes accounts on-chain under one hold. (Pure-sync holds
  * used to be on this list, and were the #777 freeze; they now carry
- * `WASM_LOCK_SYNC_WATCHDOG_MS` instead. The service worker's sync hold is the
- * one that did NOT need converting, and not because of this backstop: its own
+ * `WASM_LOCK_SYNC_WATCHDOG_MS` instead. The service worker's own sync hold is
+ * the one that did NOT need converting, and not because of this backstop: its
  * 30s `withTimeout` rejects the lock callback, so `withWasmClientLock`'s
- * `finally` releases the mutex at 30s — a tighter bound than any watchdog
- * ceiling. What survives that release is the SDK's module-level in-flight sync,
- * which no ceiling on this side reaches either way.) The known legitimately
+ * `finally` releases the SW REALM's mutex at 30s — a tighter bound than any
+ * watchdog ceiling. That bound covers only that realm: with the offscreen client
+ * on, the WASM sync itself runs in the offscreen document, on a hold the SW's
+ * timeout cannot reject, which is why THAT dispatch takes the sync ceiling
+ * explicitly (`offscreen/main.ts`). What survives either release is the SDK's
+ * module-level in-flight sync, which no ceiling on this side reaches.) The known legitimately
  * UNBOUNDED waits — keystore sign
  * round-trips (user authentication) and local prove attempts (the fallback
  * when delegated proving is down) — relax the watchdog to

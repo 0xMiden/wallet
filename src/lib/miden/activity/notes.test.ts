@@ -146,6 +146,21 @@ describe('queueNoteImport', () => {
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['d29ybGQ=']);
   });
 
+  it('salvages a lone queue entry that lost its array, but not unparseable JSON', async () => {
+    // One `{ bytes }` object is a queue entry the storage round-trip stripped of its
+    // array; its bytes may be the only copy of the funds they carry, so replacing it
+    // with a fresh queue would be a note lost to a storage quirk. A top-level STRING
+    // is the opposite case — it is the raw text of a value `JSON.parse` refused, so
+    // treating it as base64 only spends import attempts before dead-lettering it.
+    _g.__notesTest.store['miden-notes-pending-import'] = { bytes: 'YQ==', attempts: 2 };
+    await queueNoteImport('Yg==');
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([{ bytes: 'YQ==', attempts: 2 }, 'Yg==']);
+
+    _g.__notesTest.store['miden-notes-pending-import'] = '{corrupt';
+    await queueNoteImport('Yw==');
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['Yw==']);
+  });
+
   it('appends to an existing queue', async () => {
     _g.__notesTest.store['miden-notes-pending-import'] = ['first'];
     await queueNoteImport('second');
@@ -812,6 +827,39 @@ describe('importAllNotes', () => {
     expect(deadletter).toHaveLength(1);
     expect(deadletter[0]).toMatchObject({ bytes: 'transient', reason: 'transport' });
     jest.useRealTimers();
+  });
+
+  it('clamps a corrupt counter so the poison cap can still be reached (#777)', async () => {
+    // `finiteOr` accepted every finite number, and a negative one defeats the cap it
+    // feeds: `-1e308 + 1` is still `-1e308` in IEEE-754, so `poisonAttempts >= 3`
+    // never becomes true and a note the wallet cannot parse is retried forever — the
+    // brick the cap exists to prevent, reachable from one corrupt storage value.
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'YQ==', attempts: -5, poisonAttempts: -1e308 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('malformed note bytes'));
+
+    await importAllNotes();
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'YQ==', attempts: 1, poisonAttempts: 1 });
+  });
+
+  it('rewrites the queue even when the commit-time read comes back without its array (#777)', async () => {
+    // `filter` on a raw non-array THREW here — inside the queue lock and inside the
+    // pass's try, so the pass reported a failure it had not had and every later pass
+    // repeated it, with nothing draining.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ=='];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockImplementation(async () => {
+      // The adapter loses the array while the import is in flight.
+      _g.__notesTest.store['miden-notes-pending-import'] = { bytes: 'Yg==', attempts: 1 };
+    });
+
+    await importAllNotes();
+
+    // The imported note is gone and the salvaged entry survived the rewrite.
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([{ bytes: 'Yg==', attempts: 1 }]);
   });
 
   it('skips the trailing sleep and sync when the pass imported nothing (#777)', async () => {
