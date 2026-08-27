@@ -2,10 +2,16 @@ import { logger } from 'shared/logger';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
-import { isLikelyNetworkError } from './connectivity-classify';
+import { isLikelyNetworkError, isPermanentHttpRejection } from './connectivity-classify';
 import { isOperationAbortedError } from '../back/offscreen-codec';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
-import { addToNoteDeadletter } from '../note-deadletter';
+import {
+  grantManualSyncProbe,
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction
+} from '../front/sync-fuse';
+import { addToNoteDeadletter, listDeadletteredNotes, removeManyFromNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
   isSyncWatchdogEviction,
@@ -205,27 +211,116 @@ const salvageEntries = (stored: unknown): StoredEntry[] =>
     ? [stored as QueuedNoteImport]
     : [];
 
-export const importAllNotes = async () => {
-  const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
-  // A corrupt value is skipped rather than thrown on: `DesktopStorage.get` hands
-  // back the raw string when `JSON.parse` fails, and normalizing that used to
-  // throw from OUTSIDE the pass's try — jamming note import permanently with no
-  // banking, no dead-letter and no drain. Unusable entries are left in place by
-  // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
-  // Salvaged the same way `queueNoteImport` and `commitQueue` do. Returning early
-  // on a non-array left a note that lost its array wrapper sitting in storage
-  // unimported — and unable to reach the dead-letter store either — until some
-  // unrelated enqueue happened to rebuild the array around it.
-  const queued = Array.isArray(rawQueue) ? rawQueue : salvageEntries(rawQueue);
-  if (queued.length === 0) {
-    return;
-  }
-  const snapshot = queued.filter(isUsableEntry).map(normalizeEntry);
-  if (snapshot.length === 0) {
-    return;
-  }
+/**
+ * Manual drain of the dead-letter store (#788 follow-up) — the action behind the
+ * Activity notice's Retry.
+ *
+ * The give-up invariant run backwards: bytes that may be the only copy of the
+ * funds they carry are never absent from BOTH stores, so the queue write lands
+ * before the dead-letter record goes.
+ *
+ * One queue-lock critical section for the whole drain, with the pass-token bump
+ * inside it, and BOTH of those are load-bearing rather than tidiness:
+ *
+ *  - A per-note `queueNoteImport` is not enough. It treats "already queued" as
+ *    success and writes nothing, and a pass that has just dead-lettered a note
+ *    still holds those bytes in its snapshot — so its `commitQueue` deletes the
+ *    queue copy while the removal below deletes the dead-letter copy, and the
+ *    note is gone from both. Both stores holding it at once is the pass's normal
+ *    mid-flight state (`addToNoteDeadletter` lands long before `commitQueue`),
+ *    and the 10s notice poll is long enough for the user to press Retry inside
+ *    that window.
+ *  - Bumping the token refuses that stale commit, and doing it under the lock the
+ *    commit itself takes is what removes the interleaving: either the pass
+ *    committed first, and we re-add what it removed, or it is refused, and what
+ *    we add survives. Superseding a HEALTHY concurrent pass costs it the attempt
+ *    counts and backoff stamps of that lap — recoverable, and strictly cheaper
+ *    than the note.
+ *
+ * Every drained note is REWRITTEN as bare bytes, not merely added when absent.
+ * `normalizeEntry` reads that back as `attempts: 0` — a fresh 24h transient
+ * budget and a fresh poison cap — which is what the user asked for by pressing
+ * Retry. Adding only the missing ones looked equivalent and was not: the note
+ * this drain most often finds is the one a pass is mid-flight on, so it is
+ * ALREADY queued, carrying the very counters that exhausted. Left in place, the
+ * gesture bought one more attempt before the next give-up rather than a real
+ * retry — and it left the note near enough to the cap for the following pass to
+ * dead-letter it again inside the removal loop below, which is the window that
+ * removal is generation-matched against.
+ *
+ * A queue write that fails (a full quota) rejects the whole drain with every
+ * note still dead-lettered, which is the safe direction. Kicking the import pass
+ * is the CALLER's job — the intercom handler runs in the realm that owns the
+ * pass; this function owns only the queue semantics.
+ */
+export const retryDeadletteredNotes = async (): Promise<{ requeued: number }> => {
+  const entries = await listDeadletteredNotes();
+  if (entries.length === 0) return { requeued: 0 };
 
-  const myToken = ++importPassToken;
+  await withQueueLock(async () => {
+    importPassToken++;
+    const stored = await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY);
+    const current: StoredEntry[] = Array.isArray(stored) ? stored : salvageEntries(stored);
+    // A Set, so a store that somehow holds two records for one note (a corrupt
+    // value salvaged past the add's dedupe) queues those bytes once rather than
+    // handing the pass a duplicate import to spend attempts on.
+    const drained = new Set(entries.map(entry => entry.bytes));
+    const kept = current.filter(entry => !drained.has(typeof entry === 'string' ? entry : entry?.bytes));
+    await putToStorage(IMPORT_NOTES_KEY, [...kept, ...drained]);
+  });
+
+  // Only now: the bytes are on a queue no in-flight pass can rewrite. A removal
+  // that does not land leaves the note dead-lettered and uncounted, so the
+  // notice keeps saying so rather than reporting a drain that did not happen.
+  // Passing the RECORDS rather than the bytes is what keeps this safe against a
+  // pass that starts after the write above and gives up on one of these notes
+  // again before we get here: that add stamps a new `failedAt`, and the removal
+  // refuses a generation it did not list.
+  //
+  // One batched read-modify-write rather than one per note: at the store's cap
+  // the per-note form was 400 round trips over hundreds of kilobytes, which on
+  // the platforms whose storage adapter is synchronous never yielded to the
+  // event loop — one Retry tap froze the UI for seconds.
+  const requeued = (await removeManyFromNoteDeadletter(entries)).length;
+  if (requeued > 0) grantManualSyncProbe('note-import');
+  return { requeued };
+};
+
+export const importAllNotes = async () => {
+  // The snapshot read and this pass's token are taken TOGETHER under the queue
+  // lock. Allocating the token after an unlocked read let a manual Retry land
+  // between the two: Retry takes the lock, bumps the token and awaits its
+  // storage write, this pass reads the pre-Retry queue and then claims a HIGHER
+  // token, and the staleness guard below — which only asks whether some newer
+  // pass exists — waved through a commit built from the counters Retry had just
+  // reset. The user's Retry silently bought nothing.
+  //
+  // A pass with nothing to do allocates NO token and returns null. Bumping it
+  // before the emptiness checks would make an idle tick invalidate the commit of
+  // a pass that is legitimately in flight — its notes are still on the queue
+  // until it commits, so an idle tick is exactly the case where there is nothing
+  // to supersede.
+  const pass = await withQueueLock(async () => {
+    const rawQueue = (await fetchFromStorage<StoredEntry[]>(IMPORT_NOTES_KEY)) || [];
+    // A corrupt value is skipped rather than thrown on: `DesktopStorage.get` hands
+    // back the raw string when `JSON.parse` fails, and normalizing that used to
+    // throw from OUTSIDE the pass's try — jamming note import permanently with no
+    // banking, no dead-letter and no drain. Unusable entries are left in place by
+    // `commitQueue` (it only removes what it recognises), so nothing is destroyed.
+    // Salvaged the same way `queueNoteImport` and `commitQueue` do. Returning early
+    // on a non-array left a note that lost its array wrapper sitting in storage
+    // unimported — and unable to reach the dead-letter store either — until some
+    // unrelated enqueue happened to rebuild the array around it.
+    const queued = Array.isArray(rawQueue) ? rawQueue : salvageEntries(rawQueue);
+    if (queued.length === 0) return null;
+    const snapshot = queued.filter(isUsableEntry).map(normalizeEntry);
+    if (snapshot.length === 0) return null;
+    return { snapshot, myToken: ++importPassToken };
+  });
+  if (pass === null) {
+    return;
+  }
+  const { snapshot, myToken } = pass;
   let committed = false;
 
   // Rewrite the queue as `retry` plus every entry that is not ours.
@@ -469,10 +564,19 @@ export const importAllNotes = async () => {
             // `isLikelyNetworkError`'s 'abort' token. That coincidence is not a contract: the
             // token list is transport-text heuristics that get re-tuned, and if 'abort' ever
             // leaves it an abandonment would start charging the POISON budget, which
-            // dead-letters the note as malformed after two laps. A private note's bytes can be
+            // dead-letters the note as malformed after three laps. A private note's bytes can be
             // its only copy, so the classification of an abandonment must not rest on a
             // substring of wallet-authored text.
-            const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+            // A provably permanent HTTP rejection (tonic's "mapped from HTTP status
+            // code 400/404" fallback) is carved OUT of the transient set (#788
+            // follow-up, F-235): retrying the same bytes cannot change a 400, so it
+            // takes the bounded poison-style cap instead of a day of lock-held
+            // retries. It cannot shadow a poison/abort eviction: those errors carry
+            // closed wallet-authored messages with no HTTP status in them.
+            const permanentRejection = isPermanentHttpRejection(e);
+            const transient =
+              !permanentRejection &&
+              (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e));
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
             // The transient give-up needs BOTH the wall-clock budget and a plausible number
             // of attempts to have been spent. The budget alone is a single wall-clock
@@ -494,7 +598,7 @@ export const importAllNotes = async () => {
               // took the bytes out of both stores at once.
               const stored = await addToNoteDeadletter({
                 bytes: note.bytes,
-                reason: transient ? 'transport' : 'malformed',
+                reason: transient ? 'transport' : permanentRejection ? 'rejected' : 'malformed',
                 failedAt: now,
                 attempts
               });
@@ -597,7 +701,17 @@ export const importAllNotes = async () => {
       }
       const attempts = note.attempts + 1;
       const firstFailureAt = anchorOf(note, now);
-      if (elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS) {
+      // BOTH conditions, exactly as the per-note give-up above, and for exactly
+      // the reason stated there: the wall-clock budget alone is one subtraction,
+      // so a forward RTC correction reads as "failing for a day" on a note's
+      // first failure. This path is the likeliest place for the two to coincide
+      // — a device waking from sleep gets its NTP jump and, against the node it
+      // then parks on, the watchdog eviction that lands here — and without the
+      // attempt floor that pairing dead-lettered a note nothing was wrong with.
+      if (
+        elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS &&
+        attempts >= TRANSIENT_MIN_ATTEMPTS_BEFORE_GIVE_UP
+      ) {
         const stored = await addToNoteDeadletter({ bytes: note.bytes, reason: 'transport', failedAt: now, attempts });
         // Backoff-stamped for the same reason as the per-note give-up above: bare, it
         // would be eligible every lap with `giveUp` permanently true.

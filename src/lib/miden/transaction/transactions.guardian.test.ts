@@ -119,12 +119,24 @@ const mockCreateWasmWebClient = jest.fn();
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
-  withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
-  getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
-  getCurrentWasmLockHold: () => currentHold
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    withWasmClientLock: (...a: unknown[]) => mockWithWasmClientLock(...(a as [() => Promise<unknown>])),
+    withWasmLockWatchdogPaused: (...a: unknown[]) => mockWithWasmLockWatchdogPaused(...(a as [() => Promise<unknown>])),
+    getMidenClient: (...a: unknown[]) => mockGetMidenClient(...a),
+    getCurrentWasmLockHold: () => currentHold,
+    // The shared post-await re-check (#788 follow-up). Re-implements the
+    // comparison against this mock's current hold — a no-op stub would make it
+    // pass vacuously with revoked ownership.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && currentHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    }
+  };
+});
 
 jest.mock('lib/intercom', () => ({
   getIntercom: () => ({ broadcast: jest.fn(), request: jest.fn() })
@@ -3660,6 +3672,68 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(api.prove).toHaveBeenCalledTimes(1);
+    expect(api.submitProven).not.toHaveBeenCalled();
+  });
+
+  it('Guardian send: an eviction during the DELEGATED prove stops the local fallback re-prove (#777)', async () => {
+    // The delegated prove is this hold's longest parking await, and the fallback
+    // re-prove is a WASM call on the same `executedTx` — an object borrowed from
+    // the client's RefCell. The guard used to sit only AFTER the prove, so an
+    // eviction while the delegated prove was parked left the catch running on an
+    // abandoned callback and the local re-prove borrowed a client a successor
+    // already owned. Two prove calls here, not one, is the double borrow.
+    const txId = 'send-evicted-mid-delegated-prove';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet',
+      amount: '1000',
+      delegateTransaction: true
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    });
+
+    const api = makeTransactionsApi(result);
+    // The delegated prove loses the hold and THEN fails, which is the ordering
+    // that matters: a failure alone would legitimately fall back.
+    api.prove.mockImplementationOnce(async () => {
+      revokeHold();
+      throw new Error('failed to prove transaction: Deadline expired before operation could complete');
+    });
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: { transactions: api }
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'acc-1',
+        secondaryAccountId: 'recipient',
+        faucetId: 'faucet',
+        amount: '1000',
+        delegateTransaction: true
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true) as never
+    );
+
+    // Only the delegated attempt ran; no local re-prove, no submit.
+    expect(api.prove).toHaveBeenCalledTimes(1);
+    expect(TransactionProver.newLocalProver).not.toHaveBeenCalled();
     expect(api.submitProven).not.toHaveBeenCalled();
   });
 

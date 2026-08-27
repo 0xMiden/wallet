@@ -22,7 +22,7 @@ import { notifyBackgroundTransactionFailed } from '../back/background-notificati
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // On mobile, use a shorter timeout since there's no background processing
@@ -566,8 +566,10 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
       }
     }
 
-    const noteDetails = await withWasmClientLock(async () =>
-      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
+    const noteDetails = await withWasmClientLock(async hold =>
+      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] }, () =>
+        assertWasmHoldCurrent(hold, 'inside the consume-landed note read, before the record reach-through')
+      )
     );
     const note = noteDetails[0];
     if (!note) return 'unknown';

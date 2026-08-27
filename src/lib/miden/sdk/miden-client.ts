@@ -268,6 +268,37 @@ export function getCurrentWasmLockHold(): WasmLockHold | null {
 }
 
 /**
+ * The post-await ownership re-check the CLAUDE.md hold contract mandates, as
+ * one shared export (#788 follow-up): compare the hold captured at the start of
+ * a locked body against the live owner, and refuse to continue if the mutex has
+ * moved on. `where` names the transition for the forensic record — it travels
+ * on the error's `cause`, never its message, which stays closed wallet-authored
+ * text (see {@link WasmClientPoisonedError}).
+ *
+ * Call it between a parking await and the NEXT WASM call — including reads on
+ * objects returned earlier (an `Account`'s `vault()` is a borrow of the client
+ * it came from, not a stale snapshot). Throwing here is safe exactly where the
+ * contract says to check: provably pre-submit transitions. Never guard
+ * post-submit steps with it — completing beats aborting once a transaction may
+ * have been broadcast.
+ *
+ * `hold` is NON-NULLABLE, unlike the permissive {@link holdIsCurrent} that backs
+ * `yield`/`pause`. The two read `null` in opposite directions on purpose —
+ * "nobody told me, so trust the lock" is right for relaxing a watchdog and
+ * catastrophic for an abort check — and accepting `null` here made the wrong one
+ * reachable by accident: `assertWasmHoldCurrent(getCurrentWasmLockHold(), …)`
+ * typechecks and is tautologically true, so it fails OPEN in the one case the
+ * guard exists for. Requiring the captured hold makes that a compile error, the
+ * same reason `DispatchContext.hold` is non-nullable. The runtime null test
+ * stays behind the type as a backstop: an untyped or `as`-cast caller must not
+ * be able to reach the fails-open comparison when nothing holds the mutex.
+ */
+export function assertWasmHoldCurrent(hold: WasmLockHold, where: string): void {
+  if (hold != null && getCurrentWasmLockHold() === hold) return;
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+}
+
+/**
  * Is `hold` still the live owner of the mutex? A `null`/omitted hold means the
  * caller did not supply an identity, so we fall back to the pre-#775 behaviour
  * of trusting whatever holds the lock.

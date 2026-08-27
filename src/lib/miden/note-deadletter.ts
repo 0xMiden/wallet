@@ -37,12 +37,16 @@ const DEADLETTER_KEY = 'miden-note-import-deadletter';
 // bounded growth of a live queue rather than a silent loss.
 const MAX_DEADLETTERED = 200;
 
-export type NoteDeadletterReason = 'transport' | 'malformed';
+export type NoteDeadletterReason = 'transport' | 'malformed' | 'rejected';
 
 export interface DeadletteredNote {
   /** Base64 note bytes — the same form the import queue holds. */
   bytes: string;
-  /** Why we gave up: `transport` = sustained outage; `malformed` = unparseable. */
+  /**
+   * Why we gave up: `transport` = sustained outage; `malformed` = unparseable;
+   * `rejected` = the node refused these bytes with a status that retrying cannot
+   * change (see `isPermanentHttpRejection`).
+   */
   reason: NoteDeadletterReason;
   /** ms epoch when the note was dead-lettered. */
   failedAt: number;
@@ -75,12 +79,6 @@ const withDeadletterLock = <T>(fn: () => Promise<T>): Promise<T> => {
   return run;
 };
 
-/**
- * `null` when the read itself failed, which is NOT the same as an empty store.
- * Conflating them let a transient read failure turn the following write into a
- * store-wide erase: every previously dead-lettered note replaced by the one being
- * added, and none of them still on the import queue to re-derive from.
- */
 /** A stored member this module can actually work with: it has bytes to preserve. */
 const isRecord = (value: unknown): value is DeadletteredNote =>
   typeof value === 'object' &&
@@ -88,6 +86,12 @@ const isRecord = (value: unknown): value is DeadletteredNote =>
   typeof (value as { bytes?: unknown }).bytes === 'string' &&
   (value as { bytes: string }).bytes.length > 0;
 
+/**
+ * `null` when the read itself failed, which is NOT the same as an empty store.
+ * Conflating them let a transient read failure turn the following write into a
+ * store-wide erase: every previously dead-lettered note replaced by the one being
+ * added, and none of them still on the import queue to re-derive from.
+ */
 async function readAllOrFail(): Promise<DeadletteredNote[] | null> {
   try {
     const stored = await fetchFromStorage<DeadletteredNote[]>(DEADLETTER_KEY);
@@ -175,8 +179,8 @@ export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<bool
     // pathological run, and dropping the oldest record honours it by destroying
     // note bytes — the one thing this store exists to prevent. Refusing keeps the
     // new note on the import queue, where it is still carried and still retried;
-    // `hasDeadletteredNotes()` is already true, so the user-facing signal is up
-    // and a manual retry can drain the store and make room.
+    // `countDeadletteredNotes()` is already non-zero, so the user-facing signal
+    // is up and a manual retry can drain the store and make room.
     if (deduped.length >= MAX_DEADLETTERED) {
       logger.error(
         `[note-deadletter] store is full (${MAX_DEADLETTERED}); refusing to evict an older note's only copy — the import queue keeps carrying this one`
@@ -203,23 +207,82 @@ export async function listDeadletteredNotes(): Promise<DeadletteredNote[]> {
   return readAll();
 }
 
-/** True if any note is currently dead-lettered — drives a user-facing signal. */
-export async function hasDeadletteredNotes(): Promise<boolean> {
-  return (await readAll()).length > 0;
+/**
+ * How many notes are dead-lettered.
+ *
+ * The count is all the Activity notice needs, and it polls every 10 s for as
+ * long as that screen is open. Going through `listDeadletteredNotes` handed the
+ * caller up to 200 base64 note bodies — bytes that may be the only copy of the
+ * funds they carry — purely so it could read `.length`, which on the platforms
+ * whose storage adapter parses synchronously is a main-thread parse of the whole
+ * store on every tick. Reading it here keeps the bodies inside this module.
+ */
+export async function countDeadletteredNotes(): Promise<number> {
+  return (await readAll()).length;
 }
 
 /**
- * Remove a single note (by bytes) — used after a successful manual retry.
+ * Drain a whole batch out of the store in ONE read-modify-write, returning the
+ * records that are provably gone.
  *
- * Under the same lock as the add: this is a read-modify-write too, and racing one
- * against an add resurrects the removed note or erases the added one.
+ * The drain used to do this one note at a time, and each of those was a full
+ * read + filter + write of a store holding up to
+ * {@link MAX_DEADLETTERED} note bodies — 400 storage round trips over hundreds of
+ * kilobytes for one Retry press. On desktop, where the adapter's get/set bodies
+ * are synchronous, every one of those awaits resolves as a microtask, so the
+ * whole quadratic drain ran to completion without yielding: seconds of frozen UI
+ * from a single tap.
+ *
+ * The generation rule is applied per record: a note
+ * whose stored `failedAt` has moved on was dead-lettered again by a later pass
+ * that still carries those bytes on the import queue, so removing it here would
+ * take the note out of both stores. Those are left behind and reported as not
+ * drained. A read failure drains nothing, and a write failure drains only what
+ * the write was never needed for — the safe direction, since at that instant the
+ * dead-letter copy may be the only one.
  */
-export async function removeFromNoteDeadletter(bytes: string): Promise<void> {
-  await withDeadletterLock(async () => {
+export async function removeManyFromNoteDeadletter(entries: DeadletteredNote[]): Promise<DeadletteredNote[]> {
+  if (entries.length === 0) return [];
+  return withDeadletterLock(async () => {
     const existing = await readAllOrFail();
-    if (existing === null) return;
-    const next = existing.filter(n => n.bytes !== bytes);
-    if (next.length !== existing.length) await writeAll(next);
+    if (existing === null) {
+      logger.error('[note-deadletter] could not read the store; every note stays dead-lettered');
+      return [];
+    }
+    const byBytes = new Map(existing.map(record => [record.bytes, record]));
+    const drained: DeadletteredNote[] = [];
+    // The subset that needed no write at all, kept apart so a failed write can
+    // still report them.
+    const alreadyGone: DeadletteredNote[] = [];
+    const doomed = new Set<DeadletteredNote>();
+    for (const entry of entries) {
+      const stored = byBytes.get(entry.bytes);
+      // Already absent: the same postcondition, reached earlier.
+      if (stored === undefined) {
+        alreadyGone.push(entry);
+        drained.push(entry);
+        continue;
+      }
+      if (stored.failedAt !== entry.failedAt) {
+        logger.warning(
+          '[note-deadletter] the note was dead-lettered again since it was listed; leaving the new record'
+        );
+        continue;
+      }
+      doomed.add(stored);
+      drained.push(entry);
+    }
+    if (doomed.size === 0) return drained;
+    if (!(await writeAll(existing.filter(record => !doomed.has(record))))) {
+      logger.error('[note-deadletter] the drain write failed; every STORED note stays dead-lettered');
+      // Only the records the write would have removed stay. Entries that were
+      // already absent are unaffected by a failed write and must still be
+      // reported as drained: the caller reads this length as "did anything move",
+      // and reporting zero there withheld the fuse grant and told the user their
+      // Retry did nothing, on notes it had already put back on the queue.
+      return alreadyGone;
+    }
+    return drained;
   });
 }
 

@@ -37,6 +37,54 @@ export function isLikelyNetworkError(err: unknown): boolean {
 }
 
 /**
+ * Statuses that mean the request itself is rejected, not the transport
+ * struggling: retrying the same bytes at the same endpoint cannot change the
+ * answer. Deliberately the short, provable list — everything else (408, 425,
+ * 429, 5xx, or no extractable number at all) keeps whatever verdict
+ * `isLikelyNetworkError` gives it.
+ *
+ * 401 and 403 are deliberately NOT here, though they read as rejections. The
+ * test this set has to pass is not "is the request refused" but "can the same
+ * bytes at the same endpoint get a different answer later", and for both of
+ * those the answer is yes without the note changing at all: 403 is what a WAF
+ * or bot-challenge layer in front of a node returns for a minute, and 401 is
+ * what an expired gateway credential returns until it refreshes. Treating them
+ * as permanent collapsed a note's 24-hour budget to the three-lap poison cap —
+ * about fifteen seconds — so a transient challenge dead-lettered every incoming
+ * note and asked the user to press Retry, which re-queued them into the same
+ * fifteen seconds. Over-inclusion here costs lock-held retries; under-inclusion
+ * costs a false give-up on bytes that can be a note's only copy.
+ */
+const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 404]);
+
+/**
+ * Is this error a PROVABLY PERMANENT HTTP rejection? (#788 follow-up, F-235)
+ *
+ * `isLikelyNetworkError`'s bare `'status code'` token accepts any status, so a
+ * permanent 400/404 classified as transient and burned the note-import queue's
+ * 24-hour budget — ~288 retries, each an RPC inside a WASM-lock hold — before
+ * dead-lettering, mislabeled as a transport failure. This predicate extracts
+ * the number from the shapes that actually carry one (tonic's
+ * "grpc-status header missing, mapped from HTTP status code N" fallback — the
+ * literal string is in the shipped wasm — and prover-style "status code: N")
+ * and answers true only for the statuses that cannot heal on retry.
+ *
+ * Used by the note-import queue's BUDGET SELECTION only. Everything else keeps
+ * the broad predicate deliberately: the queue-admission gates still admit a
+ * permanent rejection (the bounded poison cap in `activity/notes.ts` is what
+ * bounds it, and refusing at the door would drop bytes that can be a note's
+ * only copy), and the
+ * connectivity banner and the seed-restore fund-loss guard want over-inclusion
+ * — narrowing them would change banner behaviour far outside the import path.
+ */
+export function isPermanentHttpRejection(err: unknown): boolean {
+  const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');
+  const match = /status code:?\s*(\d{3})\b/i.exec(message);
+  if (!match) return false;
+  return PERMANENT_HTTP_STATUSES.has(Number(match[1]));
+}
+
+/**
  * `navigator.onLine` is famously unreliable (returns true if a network
  * interface is up, regardless of whether anything is reachable on the other
  * end). It's still useful as a one-way signal: if it returns FALSE, the

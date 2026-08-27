@@ -138,6 +138,8 @@ export enum WalletMessageType {
   // Note operations (popup → SW)
   ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
   ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
+  RetryDeadletteredNotesRequest = 'RETRY_DEADLETTERED_NOTES_REQUEST',
+  RetryDeadletteredNotesResponse = 'RETRY_DEADLETTERED_NOTES_RESPONSE',
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
@@ -280,6 +282,21 @@ export interface ImportNoteBytesRequest extends WalletMessageBase {
 export interface ImportNoteBytesResponse extends WalletMessageBase {
   type: WalletMessageType.ImportNoteBytesResponse;
   noteId: string;
+}
+
+/**
+ * Drain the note dead-letter store back onto the import queue (#788 follow-up)
+ * — the Activity notice's Retry. Handled in the realm that owns the import
+ * pass: the SW on extension, the single realm on mobile/desktop.
+ */
+export interface RetryDeadletteredNotesRequest extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesRequest;
+}
+
+export interface RetryDeadletteredNotesResponse extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesResponse;
+  /** How many notes were moved back onto the import queue. */
+  requeued: number;
 }
 
 export interface ExportNoteRequest extends WalletMessageBase {
@@ -1068,6 +1085,7 @@ export type WalletRequest =
   | ProcessTransactionsRequest
   | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
+  | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
   | SpeculateSendRequest
@@ -1132,6 +1150,7 @@ export type WalletResponse =
   | ProcessTransactionsResponse
   | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
+  | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
   | SpeculateSendResponse

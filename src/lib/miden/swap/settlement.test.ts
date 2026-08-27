@@ -14,13 +14,22 @@ import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
 // lineage reads, so the mock has to be able to take one away.
 let currentHold: object | null = null;
 const lockOptionsSeen: unknown[] = [];
+// Fires at the instant the mutex is handed over, which is the only place a test
+// can act on the window between the pre-lock fuse gate and the in-hold one.
+let onLockAcquired: (() => void) | null = null;
 
 jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentHold,
+  assertWasmHoldCurrent: (hold: object, where: string): void => {
+    if (hold === currentHold) return;
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   withWasmClientLock: async <T>(operation: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
     lockOptionsSeen.push(options);
     const hold = {};
     currentHold = hold;
+    onLockAcquired?.();
     try {
       return await operation(hold);
     } finally {
@@ -358,6 +367,37 @@ describe('swap order note settlement', () => {
       expect(midenClientProxy.getConsumableNotes).not.toHaveBeenCalled();
       // Skipping is "nothing to settle this lap", not an error: the caller is a timer.
       expect(result).toEqual({ queuedTransactionIds: [], managedNoteIds: new Set() });
+    });
+
+    it('re-asks the fuse once the mutex is ours, so a tick that queued behind a park still turns back', async () => {
+      // The pre-lock gate runs before the QUEUE. This probe shares its key with
+      // the claimable-notes poll deliberately, and while that poll sits parked for
+      // its full two minutes this tick passes an unlit fuse and lines up behind
+      // it — then reaches the same parked node just after the poll's eviction lit
+      // the fuse. One check on either side of the queue is what makes the fuse
+      // cost one park per cycle rather than one per waiter.
+      const { noteSyncWatchdogEviction } = require('../front/sync-fuse');
+      const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+      __resetSyncFuseStateForTests();
+      lockOptionsSeen.length = 0;
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockClear();
+      // Lit at the handover, so the pre-lock gate was open on the way in.
+      onLockAcquired = () => {
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+      };
+
+      const result = await settleSwapOrders('account-1');
+      onLockAcquired = null;
+
+      // It took the lock — so this is not the pre-lock skip being re-tested…
+      expect(lockOptionsSeen).toHaveLength(1);
+      // …and then turned back without touching the node.
+      expect(midenClientProxy.getConsumableNotes).not.toHaveBeenCalled();
+      expect(result).toEqual({ queuedTransactionIds: [], managedNoteIds: new Set() });
+      // Critically NOT reported as a success: booking one here would withdraw the
+      // very evidence that just turned this tick away.
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      __resetSyncFuseStateForTests();
     });
 
     it('feeds its own evictions into that fuse, so four parked ticks stop the fifth', async () => {

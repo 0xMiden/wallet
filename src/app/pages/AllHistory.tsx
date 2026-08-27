@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import History from 'app/templates/history/History';
 import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
+import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { SearchInput, TabHeader } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
@@ -72,6 +73,12 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
       <TabHeader title={t('activity')} />
+
+      {/* Notes the wallet gave up importing automatically (#788 follow-up) —
+          possibly the only copy of the funds, so surfaced where the user looks
+          for their incoming activity, with the manual drain the dead-letter
+          store's contract assumes. Renders nothing while the store is empty. */}
+      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
 
       <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {filters.map(f => {

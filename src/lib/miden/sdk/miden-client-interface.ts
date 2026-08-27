@@ -191,33 +191,6 @@ export type RecoveryRangeResult = {
 };
 
 /**
- * Resolves note bytes to a {@link NoteFile} for import.
- *
- * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
- * `ConsumeTransaction` `noteBytes`, whose type is just `Uint8Array` with no
- * documented format) commonly pass a serialized `Note` — the natural output of
- * `note.serialize()`. Both are accepted: a `NoteFile` is used directly, and a
- * bare `Note` is wrapped into a `NoteFile` (the `NoteDetails` variant, matching
- * what `NoteFile.fromInputNote` produces when no inclusion proof is available).
- * Bytes that are neither raise a clear, actionable error instead of the opaque
- * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
- * `Note` bytes are fed straight into `NoteFile.deserialize`.
- *
- * The wrapped variant is the `NoteDetails` one, so the note is stored as
- * `Expected` until a sync commits it — and it is wrapped with the note's REAL
- * tag (`metadata().tag()`), because that tag is the only thing that can commit
- * it. `client.notes.import` resolves an expected note by asking the node for the
- * notes carrying the file's tag between its after-block hint and the chain tip,
- * and it subscribes the client to that tag for later syncs. On 0.16
- * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
- * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
- * the node returns nothing for it and an already-committed private note stayed
- * `Expected` forever (absent from the claimable list, never consumable), leaving
- * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
- * `Note` carries no block information; scanning from genesis is slower than a
- * real hint but correct.
- */
-/**
  * Whether the client this callback belongs to is still live. Shared by
  * reference between `MidenClientInterface` and the keystore callbacks it hands
  * the SDK, because those callbacks are built inside `create()` before the
@@ -226,6 +199,28 @@ export type RecoveryRangeResult = {
 export interface ClientLiveness {
   disposed: boolean;
 }
+
+/**
+ * A caller-supplied post-await liveness re-check (#788), for the reads whose
+ * reach-through happens INSIDE this class rather than at the call site.
+ *
+ * The rule is "re-check ownership before every WASM call that follows a parking
+ * await", and the call site can only apply it either side of the whole method —
+ * useless when the second borrow is a `.serialize()` or a `.metadata()` this
+ * class makes between two of its own awaits. Passing the check in lets the
+ * offscreen dispatch guard those the same way it guards the reductions it does
+ * itself, without this module having to know what a WASM lock hold is.
+ *
+ * Defaults to a no-op ONLY for the callers that genuinely have no hold to check
+ * against — a test double, or a read taken outside a lock. It is deliberately
+ * NOT the shape of the shipping paths: `midenClientProxy` forwards the check on
+ * its inline branch, which is the mobile, desktop, Firefox and flag-off route,
+ * so leaving the parameter off there would have made this guard reachable only
+ * from the offscreen document.
+ */
+export type AssertLive = () => void;
+
+const noAssertLive: AssertLive = () => {};
 
 /**
  * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
@@ -253,6 +248,33 @@ function wrapSignWithWatchdogPause(
       : withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
 }
 
+/**
+ * Resolves note bytes to a {@link NoteFile} for import.
+ *
+ * The import path consumes a serialized `NoteFile`, but callers (notably a dApp's
+ * `ConsumeTransaction` `noteBytes`, whose type is just `Uint8Array` with no
+ * documented format) commonly pass a serialized `Note` — the natural output of
+ * `note.serialize()`. Both are accepted: a `NoteFile` is used directly, and a
+ * bare `Note` is wrapped into a `NoteFile` (the `NoteDetails` variant, matching
+ * what `NoteFile.fromInputNote` produces when no inclusion proof is available).
+ * Bytes that are neither raise a clear, actionable error instead of the opaque
+ * `notefile deserialization failed: invalid utf-8 sequence...` that surfaces when
+ * `Note` bytes are fed straight into `NoteFile.deserialize`.
+ *
+ * The wrapped variant is the `NoteDetails` one, so the note is stored as
+ * `Expected` until a sync commits it — and it is wrapped with the note's REAL
+ * tag (`metadata().tag()`), because that tag is the only thing that can commit
+ * it. `client.notes.import` resolves an expected note by asking the node for the
+ * notes carrying the file's tag between its after-block hint and the chain tip,
+ * and it subscribes the client to that tag for later syncs. On 0.16
+ * `NoteFile.fromNoteDetails` — what this used to call — is documented as using
+ * "a zero-valued sync hint": it asks for tag 0 instead of the note's own tag, so
+ * the node returns nothing for it and an already-committed private note stayed
+ * `Expected` forever (absent from the claimable list, never consumable), leaving
+ * a dead tag-0 subscription riding every later sync request. Block 0 is the after-block hint because a bare
+ * `Note` carries no block information; scanning from genesis is slower than a
+ * real hint but correct.
+ */
 function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
@@ -950,8 +972,9 @@ export class MidenClientInterface {
     return await this.client.notes.list(query);
   }
 
-  async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
+  async getInputNoteDetails(query?: NoteQuery, assertLive: AssertLive = noAssertLive): Promise<InputNoteDetails[]> {
     const allInputNotes = await this.client.notes.list(query);
+    assertLive();
     return allInputNotes.flatMap(note => {
       // A partial (metadata-less) record has no note ID — and, since 0.15
       // nullifiers fold in metadata, no nullifier either. It cannot be
@@ -987,13 +1010,18 @@ export class MidenClientInterface {
     return await this.client.sync();
   }
 
-  async exportNote(noteId: string, exportType: NoteExportType): Promise<Uint8Array> {
+  async exportNote(
+    noteId: string,
+    exportType: NoteExportType,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<Uint8Array> {
     const formatMap: Record<string, NoteExportFormat> = {
       [NoteExportType.ID]: NoteExportFormat.Id,
       [NoteExportType.FULL]: NoteExportFormat.Full,
       [NoteExportType.DETAILS]: NoteExportFormat.Details
     };
     const result = await this.client.notes.export(noteId, { format: formatMap[exportType] ?? NoteExportFormat.Full });
+    assertLive();
     return result.serialize();
   }
 
@@ -1051,8 +1079,13 @@ export class MidenClientInterface {
    * SW-inline height. The reduction is behavior-preserving: it relocates the exact
    * reach-through the callers used into one shared reducer.
    */
-  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+  async getConsumableNoteDtos(accountId: string, assertLive: AssertLive = noAssertLive): Promise<ConsumableNoteDto[]> {
     const records = await this.getConsumableNotes(accountId);
+    // `getSyncHeight` is a second WASM call on the SHARED client following a
+    // parking await, so the caller's hold has to still be live before it runs.
+    // The reduction below needs no such check: those records were read through
+    // the transient `inner` client, not this one's RefCell.
+    assertLive();
     const syncHeight = await this.client.getSyncHeight();
     return reduceConsumableNoteRecords(records, syncHeight);
   }

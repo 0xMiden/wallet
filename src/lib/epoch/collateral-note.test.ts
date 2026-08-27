@@ -40,8 +40,32 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   })
 }));
 
+// The lock hands its callback a HOLD, and the builder re-checks ownership after
+// the account read (#788 follow-up). Model both here: a hold-less pass-through
+// would make `assertWasmHoldCurrent` throw on the happy path, and a mock with no
+// way to revoke ownership could not exercise the eviction guard at all.
+let currentWasmHold: object | null = null;
+const revokeWasmHold = () => {
+  currentWasmHold = null;
+};
+
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: async (fn: () => unknown) => fn()
+  getCurrentWasmLockHold: () => currentWasmHold,
+  // Re-implements the real comparison against the mock's current hold — a no-op
+  // here would make the eviction test below vacuously green.
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new Error(`operation abandoned ${where}`);
+  },
+  withWasmClientLock: async (fn: (hold: object) => unknown) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  }
 }));
 
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
@@ -146,6 +170,26 @@ describe('the collateral asset is taken from the slot the sender actually holds'
     mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
 
     await expect(build({ amount: 1n << 64n })).rejects.toThrow(/outside the representable range/);
+  });
+});
+
+// #788 follow-up: an eviction during the account read hands the mutex to a
+// successor without stopping this callback, and the very next step reads
+// `vault().fungibleAssets()` on the returned account — a WASM call on an object
+// borrowed from the client's RefCell, i.e. the double borrow, not a stale read.
+// Everything in this hold is write PREP (nothing is submitted), so aborting is
+// always safe.
+describe('the build is abandoned when the WASM lock hold is evicted', () => {
+  it('during the account read: neither the vault nor the note is touched', async () => {
+    mockGetAccount.mockImplementation(async () => {
+      revokeWasmHold();
+      return accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled'));
+    });
+
+    await expect(build()).rejects.toThrow('operation abandoned before the collateral vault read');
+
+    expect(FungibleAsset.fromVaultKey).not.toHaveBeenCalled();
+    expect(Note.createP2IDENote).not.toHaveBeenCalled();
   });
 });
 

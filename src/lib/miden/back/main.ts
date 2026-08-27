@@ -40,7 +40,13 @@ import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { NoteExportType } from '../sdk/constants';
-import { getCurrentWasmLockHold, getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
+  getMidenClient,
+  resetMidenClient,
+  withWasmClientLock
+} from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -387,9 +393,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         throw e;
       }
     }
+    case WalletMessageType.RetryDeadletteredNotesRequest: {
+      const { requeued } = await Actions.retryDeadletteredNotes();
+      return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
+    }
     case WalletMessageType.ExportNoteRequest: {
-      const exportedBytes = await withWasmClientLock(async () =>
-        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS)
+      const exportedBytes = await withWasmClientLock(async hold =>
+        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS, () =>
+          assertWasmHoldCurrent(hold, 'inside the note export, before serializing the export')
+        )
       );
       const exportedB64 = Buffer.from(exportedBytes).toString('base64');
       return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };

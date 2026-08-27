@@ -422,7 +422,9 @@ async function runSync(force: boolean): Promise<void> {
           // flag is on, so the gate uses the sync-running realm's height instead of
           // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
           // now routes through the proxy too (slice 7a), so it no longer needs `client`.
-          const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey);
+          const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey, () =>
+            stillOurs('inside the consumable-note read, before the sync-height read')
+          );
           stillOurs('after the consumable-note read');
           // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
           // custom transaction — hidden from the claimable UI until the user

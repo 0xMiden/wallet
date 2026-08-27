@@ -170,6 +170,43 @@ export function noteSyncSuccess(key: SyncFuseKey): void {
 }
 
 /**
+ * A user gesture buys this probe ONE immediate attempt through a lit fuse
+ * (#788 follow-up: the dead-letter drain's Retry). The deadline is cleared so
+ * the next automatic pass runs now, but the EVIDENCE stands: if the granted
+ * probe parks again, the very next eviction re-lights the fuse rather than
+ * starting a fresh evidence budget — a gesture is one probe, never a licence
+ * to walk the realm back onto the fast cadence against a still-parked call.
+ * Same philosophy as the idle loop's Retry exemption in #788.
+ *
+ * The deadline is EXPIRED rather than cleared, and the difference is the whole
+ * contract. `null` is also how this ledger spells "not fused", and
+ * `noteNonEvictionSyncFailure` reads exactly that field to decide whether to
+ * withdraw the evidence — so nulling it here meant a granted probe that then
+ * failed for any ordinary reason (a storage write, a client build) zeroed the
+ * eviction count and disarmed the fuse outright, buying
+ * `MAX_CONSECUTIVE_WATCHDOG_EVICTIONS` fresh two-minute parks to re-reach a
+ * conclusion nothing had contradicted. An already-expired deadline reads as
+ * unfused to `isSyncFused` — which is the one probe the gesture buys — while
+ * every writer still sees a lit fuse and re-arms it.
+ *
+ * Which is exactly why an UNLIT fuse must be left alone rather than stamped
+ * with an expired deadline. Writing one there says "fused, window over" about a
+ * probe that never blew a fuse at all, and `noteNonEvictionSyncFailure` reads
+ * that as a lit fuse and arms the full 30 min on the next ordinary failure. The
+ * common case is not exotic: a store with any dead-lettered note grants on
+ * every drain, and `importAllNotes` routes every non-watchdog failure there —
+ * so one Retry followed by one storage blip silenced note import for half an
+ * hour on zero eviction evidence, throttling the very imports the drain exists
+ * to rescue. A gesture buys a probe THROUGH a fuse; with no fuse in the way
+ * there is nothing to buy.
+ */
+export function grantManualSyncProbe(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry || entry.fusedUntilMs === null) return;
+  entry.fusedUntilMs = monotonicNowMs();
+}
+
+/**
  * Every probe's evidence is void — the realm now talks to a different node.
  *
  * The fuse's claim is about one node's parked call, so an endpoint change invalidates it

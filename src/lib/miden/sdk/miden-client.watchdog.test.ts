@@ -9,6 +9,7 @@ import { isLockedError } from 'lib/miden/transaction/helper';
 
 import {
   __resetRecoveryCooldownForTests,
+  assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   isWasmClientBusy,
   tryWithWasmClientLock,
@@ -18,6 +19,7 @@ import {
   yieldWasmClientLock
 } from './miden-client';
 import {
+  isWasmClientPoisonedError,
   poisonReasonOf,
   WASM_LOCK_MIN_WATCHDOG_MS,
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -516,6 +518,46 @@ describe('watchdog ceiling clamp (issue #777)', () => {
     await jest.advanceTimersByTimeAsync(1);
     await wedgedRejects;
     expect(isWasmClientBusy()).toBe(false);
+  });
+});
+
+describe('assertWasmHoldCurrent (#788 follow-up)', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    __resetRecoveryCooldownForTests();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('passes silently while the hold still owns the mutex', async () => {
+    await withWasmClientLock(async hold => {
+      expect(() => assertWasmHoldCurrent(hold, 'mid-flow')).not.toThrow();
+    });
+  });
+
+  it('throws the poison error, naming the site, once the hold has been evicted', async () => {
+    let capturedHold: WasmLockHold | null = null;
+    const wedged = withWasmClientLock(hold => {
+      capturedHold = hold;
+      return new Promise<never>(() => {});
+    });
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError', reason: 'watchdog' });
+
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+
+    // The abandoned flow re-checks before its next WASM call and must refuse:
+    // the mutex belongs to somebody else now.
+    let thrown: unknown;
+    try {
+      assertWasmHoldCurrent(capturedHold!, 'after the account read');
+    } catch (e) {
+      thrown = e;
+    }
+    expect(isWasmClientPoisonedError(thrown)).toBe(true);
+    expect(((thrown as Error).cause as Error).message).toContain('after the account read');
   });
 });
 

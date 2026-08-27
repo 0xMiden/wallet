@@ -197,7 +197,8 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
   checkGuardianDrift: jest.fn(),
-  applyUserGuardianEndpoint: jest.fn()
+  applyUserGuardianEndpoint: jest.fn(),
+  retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 }))
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -424,6 +425,18 @@ describe('processRequest', () => {
     // case the retry queue exists for.
     expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
     errorSpy.mockRestore();
+  });
+
+  // #788 follow-up: the Activity notice's Retry drains the dead-letter store in
+  // the realm that owns the import pass — here, the SW.
+  it('RetryDeadletteredNotesRequest runs the drain action and reports the requeued count', async () => {
+    Actions.retryDeadletteredNotes.mockClear();
+
+    const res = await dispatch({ type: WalletMessageType.RetryDeadletteredNotesRequest });
+
+    expect(res.type).toBe(WalletMessageType.RetryDeadletteredNotesResponse);
+    expect(res.requeued).toBe(2);
+    expect(Actions.retryDeadletteredNotes).toHaveBeenCalledTimes(1);
   });
 
   it('ExportNoteRequest returns base64-encoded export bytes', async () => {

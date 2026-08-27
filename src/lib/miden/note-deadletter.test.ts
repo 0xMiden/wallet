@@ -1,7 +1,7 @@
 /* eslint-disable import/first */
 
 const _g = globalThis as any;
-_g.__dlTest = { store: {} as Record<string, any> };
+_g.__dlTest = { store: {} as Record<string, any>, writes: 0 };
 
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
@@ -15,6 +15,7 @@ jest.mock('lib/platform/storage-adapter', () => ({
     set: async (items: Record<string, any>) => {
       const t = (globalThis as any).__dlTest;
       if (t.beforeSet) await t.beforeSet(items);
+      t.writes++;
       Object.assign(t.store, items);
     }
   })
@@ -25,9 +26,9 @@ jest.mock('shared/logger', () => ({ logger: { error: jest.fn(), warning: jest.fn
 import {
   addToNoteDeadletter,
   clearNoteDeadletter,
-  hasDeadletteredNotes,
   listDeadletteredNotes,
-  removeFromNoteDeadletter,
+  countDeadletteredNotes,
+  removeManyFromNoteDeadletter,
   type DeadletteredNote
 } from './note-deadletter';
 
@@ -43,6 +44,7 @@ beforeEach(() => {
   for (const k of Object.keys(_g.__dlTest.store)) delete _g.__dlTest.store[k];
   _g.__dlTest.failReads = false;
   _g.__dlTest.beforeSet = undefined;
+  _g.__dlTest.writes = 0;
 });
 
 describe('note-deadletter', () => {
@@ -51,7 +53,7 @@ describe('note-deadletter', () => {
     await addToNoteDeadletter(entry('bbb', { reason: 'malformed' }));
     const list = await listDeadletteredNotes();
     expect(list.map(n => n.bytes)).toEqual(['aaa', 'bbb']);
-    expect(await hasDeadletteredNotes()).toBe(true);
+    expect(await countDeadletteredNotes()).toBeGreaterThan(0);
   });
 
   it('dedupes by bytes (re-give-up refreshes, does not duplicate)', async () => {
@@ -74,7 +76,7 @@ describe('note-deadletter', () => {
     await expect(addToNoteDeadletter(entry('aaa'))).resolves.toBe(false);
     // And the readers do not read a string's length as a count of dead-lettered notes.
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
     // Refused, not reset: the value may be a truncated write over records whose bytes
     // are the only copy of the funds they carry, so it is left exactly as found.
     expect(_g.__dlTest.store['miden-note-import-deadletter']).toBe('{corrupt');
@@ -170,27 +172,117 @@ describe('note-deadletter', () => {
   });
 
   it('serializes a remove against a concurrent add', async () => {
-    await addToNoteDeadletter(entry('aaa'));
-    await Promise.all([removeFromNoteDeadletter('aaa'), addToNoteDeadletter(entry('bbb'))]);
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    await Promise.all([removeManyFromNoteDeadletter([aaa]), addToNoteDeadletter(entry('bbb'))]);
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
   });
 
-  it('removes a single note by bytes', async () => {
+  it('removes the listed records in ONE write and reports which went', async () => {
+    const aaa = entry('aaa');
+    const bbb = entry('bbb');
+    await addToNoteDeadletter(aaa);
+    await addToNoteDeadletter(bbb);
+    await addToNoteDeadletter(entry('ccc'));
+
+    const writesBefore = _g.__dlTest.writes;
+    const drained = await removeManyFromNoteDeadletter([aaa, bbb]);
+
+    expect(drained.map(n => n.bytes)).toEqual(['aaa', 'bbb']);
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['ccc']);
+    // The whole point of the batch: a Retry over a full store was 2N storage
+    // round trips, and on a synchronous adapter none of them yielded.
+    expect(_g.__dlTest.writes - writesBefore).toBe(1);
+  });
+
+  it('reports an already-absent record as drained — the same postcondition, reached earlier', async () => {
+    expect((await removeManyFromNoteDeadletter([entry('aaa')])).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('REFUSES to remove a record that a later give-up has replaced', async () => {
+    // The drain's fund-loss window: it lists a record, requeues the bytes, and
+    // before the removal lands a fresh import pass gives up on the same note
+    // again. That add REPLACES the record (the store dedupes by bytes) and the
+    // pass still holds those bytes on the import queue, dropping them at commit
+    // — so removing by bytes would take the note out of both stores at once.
+    // `failedAt` is the generation marker that refuses it.
+    const listed = entry('aaa');
+    const untouched = entry('bbb');
+    await addToNoteDeadletter(listed);
+    await addToNoteDeadletter(untouched);
+    await addToNoteDeadletter({ ...listed, failedAt: listed.failedAt + 1, attempts: listed.attempts + 1 });
+
+    // The replaced one is refused; its batch-mates still drain.
+    const drained = await removeManyFromNoteDeadletter([listed, untouched]);
+    expect(drained.map(n => n.bytes)).toEqual(['bbb']);
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('drains nothing when the write fails, leaving every record in place', async () => {
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    _g.__dlTest.beforeSet = () => {
+      throw new Error('quota exceeded');
+    };
+
+    expect(await removeManyFromNoteDeadletter([aaa])).toEqual([]);
+    _g.__dlTest.beforeSet = undefined;
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('still reports the already-absent records when the write fails', async () => {
+    // The write can only fail to remove what it was needed for. An entry that was
+    // never in the store is drained by definition, and the caller reads this
+    // length as "did anything move" — reporting zero there withheld the fuse
+    // grant and told the user the Retry did nothing, about notes it had already
+    // put back on the import queue.
+    const stayed = entry('stayed');
+    const gone = entry('gone');
+    await addToNoteDeadletter(stayed);
+    _g.__dlTest.beforeSet = () => {
+      throw new Error('quota exceeded');
+    };
+
+    expect((await removeManyFromNoteDeadletter([stayed, gone])).map(n => n.bytes)).toEqual(['gone']);
+
+    _g.__dlTest.beforeSet = undefined;
+    // …and the one the write WOULD have removed is untouched, which is the half
+    // the previous test pins.
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['stayed']);
+  });
+
+  it('drains nothing when the store is unreadable', async () => {
+    const aaa = entry('aaa');
+    await addToNoteDeadletter(aaa);
+    _g.__dlTest.failReads = true;
+
+    expect(await removeManyFromNoteDeadletter([aaa])).toEqual([]);
+    _g.__dlTest.failReads = false;
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
+  });
+
+  it('touches storage not at all for an empty batch', async () => {
+    await addToNoteDeadletter(entry('aaa'));
+    const writesBefore = _g.__dlTest.writes;
+    expect(await removeManyFromNoteDeadletter([])).toEqual([]);
+    expect(_g.__dlTest.writes).toBe(writesBefore);
+  });
+
+  it('counts without handing the caller any note bytes', async () => {
     await addToNoteDeadletter(entry('aaa'));
     await addToNoteDeadletter(entry('bbb'));
-    await removeFromNoteDeadletter('aaa');
-    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['bbb']);
+    expect(await countDeadletteredNotes()).toBe(2);
   });
 
   it('clears the whole store', async () => {
     await addToNoteDeadletter(entry('aaa'));
     await clearNoteDeadletter();
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
   });
 
   it('is a no-op (empty) when storage has never been written', async () => {
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
   });
 });

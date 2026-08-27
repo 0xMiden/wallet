@@ -11,7 +11,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
-import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
@@ -191,11 +191,23 @@ export async function settleSwapOrders(
   }
 
   const managedNotes = await withWasmClientLock(async hold => {
+    // Asked AGAIN, now that the mutex is ours. The gate above runs before the
+    // queue, so while the sibling claimable-notes probe sits parked for its full
+    // two minutes this tick passes an unlit fuse and lines up behind it — then
+    // runs into the same parked node just after that probe's eviction lit the
+    // fuse. One check on either side of the queue is what makes the fuse cost one
+    // park per cycle instead of one per waiter.
+    // `null`, not an empty list: an empty list is a real answer ("nothing of ours
+    // is consumable") and books a success below, which would WITHDRAW the very
+    // evidence that just turned us away.
+    if (isSyncFused('claimable-notes')) return null;
     // Both the consumable-note read (slice 4) and the per-order PSWAP lineage inside
     // classifySwapOrderNotes (slice 7a) now route through the proxy, so flag-ON they
     // read the offscreen client's canonical state; no live client is threaded here.
     // The caller lock still serializes the flag-OFF inline reads (byte-identical).
-    const rawNotes = await midenClientProxy.getConsumableNotes(accountId);
+    const rawNotes = await midenClientProxy.getConsumableNotes(accountId, () =>
+      assertWasmHoldCurrent(hold, 'inside the settlement consumable-notes read, before the sync-height read')
+    );
     // An eviction during that read hands the mutex on while this callback keeps going;
     // the lineage read below is more WASM work, so it would run unmutexed.
     if (getCurrentWasmLockHold() !== hold) {
@@ -224,6 +236,9 @@ export async function settleSwapOrders(
     else noteNonEvictionSyncFailure('claimable-notes');
     throw e;
   });
+  if (managedNotes === null) {
+    return { queuedTransactionIds: [], managedNoteIds: new Set() };
+  }
   // A probe that reports only failures is a ratchet: its evidence could never be
   // withdrawn by the probe that produced it, and it relied on the claimable-notes poll
   // happening to run and clear the shared key for it.

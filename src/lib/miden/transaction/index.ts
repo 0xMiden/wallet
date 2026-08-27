@@ -94,6 +94,7 @@ import {
   walletAccountIdToSdk
 } from '../sdk/helpers';
 import {
+  assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
   withWasmClientLock,
@@ -1439,7 +1440,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) return transaction.requestBytes;
-  const requestBytes = await withWasmClientLock(async () => {
+  const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
     // head, so the absolute reclaim height must be measured against a CURRENT head
@@ -1458,12 +1459,23 @@ const ensureGuardianRecallableSendRequestBytes = async (
       try {
         syncHeight = await midenClientProxy.getSyncHeight({ fresh: true });
       } catch (syncError) {
+        // The failed fresh sync was itself a parking await (it runs a network
+        // sync), and the fallback below is another WASM read — if the watchdog
+        // evicted this hold while the sync parked, taking the fallback would be
+        // an unmutexed call into a client a successor now owns. The eviction
+        // outranks the sync failure as the reason to stop, so check it first.
+        assertWasmHoldCurrent(hold, 'guardian P2IDE build: before the fallback height read');
         console.warn('[Guardian] fresh sync before P2IDE note build failed; using last-synced height', syncError);
         syncHeight = await midenClientProxy.getSyncHeight();
       }
     } else {
       syncHeight = await midenClientProxy.getSyncHeight();
     }
+    // Every await above can park (the fresh sync by design, the plain read on the
+    // inline path), and an eviction ABANDONS this callback rather than stopping
+    // it — re-check ownership before the next WASM call. Strictly pre-submit
+    // (the bytes haven't even been built), so failing here costs one retry.
+    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the height read');
     // The sender's local account supplies the outgoing asset's vault key
     // (callback flag included) — see `buildSendTransactionRequest`.
     //
@@ -1487,6 +1499,10 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // `<address>_<suffix>` form, and the SDK's `resolveAccountRef` takes `0x…`
     // directly, so neither id shape can be rejected here.
     const account = await midenClientProxy.getAccount(walletAccountIdToSdk(transaction.accountId).toString());
+    // The returned Account is a borrow of the client's RefCell — the request
+    // build reads its vault, so touching it past an eviction IS the double
+    // borrow, not merely a stale read.
+    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
     return buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
@@ -1574,8 +1590,15 @@ const runGuardianPipeline = async (
     // that reason; today this copy is covered only incidentally, because a poison
     // bumps the singleton's generation and hands a raced build back terminated.
     // Re-deriving it here makes the guarantee local instead of inherited.
-    assertStillHoldingLock(hold, 'after the client build');
+    //
+    // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
+    // `modify`, so it parks too, and a guard on its far side covers the build and
+    // the write both — an eviction is monotonic (a hold that stops being current
+    // never becomes current again), so the later check strictly subsumes the
+    // earlier one. Checked before the write, the very next statement was a WASM
+    // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
+    assertStillHoldingLock(hold, 'after the client build and the executing stage write');
     // #784: execute AT the proposal's anchored reference block, not the current
     // sync height. The co-signatures were collected over a summary that binds
     // that block's commitment (protocol 0.16), so an unanchored execute after
@@ -1596,8 +1619,8 @@ const runGuardianPipeline = async (
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
     // this callback instead of stopping it, and mobile/desktop run THIS copy — the
     // platform #777 was reported on.
-    assertStillHoldingLock(hold, 'before proving');
     await setStage('proving');
+    assertStillHoldingLock(hold, 'before proving');
     let provenTx;
     if (!delegateTransaction) {
       // Local (non-delegated) proving. The guardian pipeline drives the raw
@@ -1643,6 +1666,14 @@ const runGuardianPipeline = async (
           'Delegated guardian prove'
         );
       } catch (proveError) {
+        // The delegated prove was the longest parking await in this hold, and the
+        // fallback below is a WASM call on `executedTx` — an object borrowed from
+        // the client's RefCell. If the watchdog evicted us while the delegated
+        // prove was parked, this catch runs on an abandoned callback and the local
+        // re-prove is a second borrow of a client a successor now owns. The
+        // eviction outranks the prove failure as the reason to stop, so it is
+        // checked before the fallback rather than only after it. Still pre-submit.
+        assertStillHoldingLock(hold, 'before the local prove fallback');
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
@@ -1650,8 +1681,18 @@ const runGuardianPipeline = async (
         provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
     }
-    assertStillHoldingLock(hold, 'before submit');
+    // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
+    // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
+    // the abandoned callback keeps running and can still reach `submit()`, so a
+    // row that throws here must carry the crossing rather than look never-
+    // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
+    // the error shape, and exempts only the stages that are provably pre-WRITE;
+    // checking before the write would drop this pipeline's own record of it.
+    //
+    // Still pre-submit as to the BROADCAST — that is the next line — so throwing
+    // here cannot orphan a transaction the network has seen.
     await setStage('submitting');
+    assertStillHoldingLock(hold, 'before submit');
     const submittedTx = await provenTx.submit();
     await submittedTx.apply();
     return executedTx.result;
@@ -1929,7 +1970,7 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
-        const requestBytes = await withWasmClientLock(async () => {
+        const requestBytes = await withWasmClientLock(async hold => {
           // The offered asset has to carry the vault key of the slot it is
           // actually held in — the callback flag is part of that key, and the
           // PSWAP builder always produces the Disabled variant. Read the vault
@@ -1938,8 +1979,18 @@ const generateGuardianTransaction = async (
           // request. The proxy read is unlocked by design and this scope already
           // holds the client lock, which is what that contract requires.
           const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
+          // An eviction during the read ABANDONS this callback without stopping
+          // it: the creator Account is a borrow of a client a successor now
+          // owns, and spinning up the transient client below would burn a second
+          // multi-MB WASM instance inside somebody else's hold. Pre-proposal
+          // throughout, so stopping costs one retry.
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
           const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
           try {
+            // Inside the try on purpose: the create is the long parking await
+            // here (it fetches genesis over the network), and the guard's throw
+            // must still release the transient client via the finally.
+            assertWasmHoldCurrent(hold, 'PSWAP request build: after the transient client build');
             const tr = await client.newPswapCreateTransactionRequest(
               accountIdStringToSdk(swapTx.accountId),
               accountIdStringToSdk(swapTx.faucetId),
@@ -1949,6 +2000,10 @@ const generateGuardianTransaction = async (
               NoteType.Public,
               NoteType.Public
             );
+            // `buildPswapCreateRequest` reads the creator Account — the SHARED
+            // client's borrow, not the transient one — so the request build
+            // needs its own re-check after the await above.
+            assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
             // Built once and rewritten once, in the same scope: each builder call
             // draws a fresh serial number, which IS the order id. See
             // `buildPswapCreateRequest`.

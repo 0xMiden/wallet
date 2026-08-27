@@ -2,6 +2,7 @@ import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from
 
 import {
   guardianSyncFuseKey,
+  grantManualSyncProbe,
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
@@ -33,6 +34,112 @@ describe('sync fuse (#777)', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     __resetSyncFuseStateForTests();
+  });
+
+  // #788 follow-up: the dead-letter drain is a USER GESTURE, and a lit
+  // 'note-import' fuse would otherwise swallow the very pass the user just
+  // asked for, for up to half an hour. A grant buys exactly one probe.
+  describe('grantManualSyncProbe', () => {
+    it('unfuses the key so the next automatic pass runs now', () => {
+      evictUntilLit('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+
+      grantManualSyncProbe('note-import');
+
+      expect(isSyncFused('note-import')).toBe(false);
+      // EXPIRED, not cleared: `null` is how this ledger spells "never fused",
+      // and the writers below branch on exactly that.
+      expect(syncFuseUntilMs('note-import')).toBe(fakeNow);
+    });
+
+    it('keeps the evidence: one more eviction re-fuses immediately, not after a fresh run', () => {
+      evictUntilLit('note-import');
+      grantManualSyncProbe('note-import');
+
+      // The granted probe parks again — the very next eviction must re-light
+      // the fuse. A gesture is one probe, never a fresh evidence budget.
+      noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+    });
+
+    // The same "the evidence stands" promise, via the OTHER writer — and the
+    // one that a cleared (rather than expired) deadline silently broke.
+    // `noteNonEvictionSyncFailure` withdraws the evidence only while the fuse
+    // is unlit, so a granted probe failing for any ordinary reason (a storage
+    // write, a client build) zeroed the eviction count and disarmed the fuse
+    // outright, buying a full run of fresh two-minute parks to re-reach a
+    // conclusion nothing had contradicted.
+    it('keeps the evidence when the granted probe fails for a NON-eviction reason', () => {
+      evictUntilLit('note-import');
+      grantManualSyncProbe('note-import');
+
+      noteNonEvictionSyncFailure('note-import');
+
+      // Re-armed rather than withdrawn, exactly as a non-eviction failure
+      // against an already-fused key behaves.
+      expect(isSyncFused('note-import')).toBe(true);
+      expect(syncFuseUntilMs('note-import')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    // Falsifier for the pair above: a SUCCESS is still the one thing that
+    // withdraws the evidence, so the grant has not made the fuse unclearable.
+    it('still lets a success on the granted probe clear the fuse outright', () => {
+      evictUntilLit('note-import');
+      grantManualSyncProbe('note-import');
+
+      noteSyncSuccess('note-import');
+
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+      // Evidence gone too: the next eviction starts a fresh run rather than
+      // re-lighting on the one that remained.
+      noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+    });
+
+    it('is a no-op on a key with no evidence', () => {
+      grantManualSyncProbe('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+      noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+    });
+
+    // The other half of "no-op on an unlit fuse", and the one an entry-presence
+    // check alone gets wrong: a key with an entry but no fuse. An expired
+    // deadline written there reads as UNFUSED to `isSyncFused` but as FUSED to
+    // `noteNonEvictionSyncFailure`, so the next ordinary failure armed the full
+    // half hour on zero eviction evidence. Reachable on the plainest path there
+    // is — any dead-lettered note means a grant on every Retry, and every
+    // non-watchdog import failure lands in that writer.
+    it.each([
+      [
+        'a key that has an entry but has never fused',
+        () => {
+          noteNonEvictionSyncFailure('note-import');
+        }
+      ],
+      [
+        'a key part-way through its evidence budget',
+        () => {
+          noteSyncWatchdogEviction('note-import');
+        }
+      ],
+      [
+        'a key whose fuse a success has already cleared',
+        () => {
+          evictUntilLit('note-import');
+          noteSyncSuccess('note-import');
+        }
+      ]
+    ])('leaves %s unfused when the next probe fails', (_label, arrange) => {
+      arrange();
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+
+      grantManualSyncProbe('note-import');
+      expect(syncFuseUntilMs('note-import')).toBeNull();
+
+      noteNonEvictionSyncFailure('note-import');
+      expect(isSyncFused('note-import')).toBe(false);
+    });
   });
 
   it('needs the full run of evictions before it lights, and then stands for the fused interval', () => {

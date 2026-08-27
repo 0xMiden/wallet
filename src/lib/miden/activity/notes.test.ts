@@ -85,10 +85,11 @@ jest.mock('shared/logger', () => ({
   logger: { error: jest.fn(), warning: jest.fn(), info: jest.fn() }
 }));
 
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { logger } from 'shared/logger';
 
-import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
-import { __resetSyncFuseStateForTests } from '../front/sync-fuse';
+import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport, retryDeadletteredNotes } from './notes';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
@@ -108,6 +109,13 @@ beforeEach(() => {
   _g.__notesTest.evictNextHold = false;
   _g.__notesTest.abandonedHold = null;
   _g.__notesTest.currentHold = null;
+});
+
+// Fake timers are enabled per-test here, and an assertion that fails before a
+// test's own `useRealTimers()` would otherwise arm them for every test after it
+// in this file — a failure that reports as a timeout somewhere unrelated.
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 // A note whose import parks: the state an eviction actually interrupts.
@@ -585,6 +593,37 @@ describe('importAllNotes', () => {
     await _g.__notesTest.abandonedHold;
   });
 
+  it('does not let a clock jump plus ONE eviction dead-letter a note (#777)', async () => {
+    // The two halves of the give-up live in separate code paths, and the eviction
+    // half was missing the attempt floor the per-note half has. That pairing is not
+    // hypothetical: a device waking from sleep takes its NTP correction and, against
+    // the node it then parks on, the watchdog eviction that lands here — so a note on
+    // its first failure read as "failing for over a day" and was dead-lettered.
+    const jumped = Date.now();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000 }
+    ];
+    const release = parkedImport();
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    // Carried with the attempt banked, not dead-lettered: one attempt spent is not
+    // a day of retrying, however old the wall clock says the anchor is.
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      {
+        bytes: 'aGVsbG8=',
+        attempts: 2,
+        firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000,
+        nextEligibleAt: expect.any(Number)
+      }
+    ]);
+
+    release();
+    await _g.__notesTest.abandonedHold;
+  });
+
   it('keeps carrying a note whose dead-letter write did not land (#777)', async () => {
     // `addToNoteDeadletter` is defensive by design and swallows its own storage
     // failure. Reporting success anyway meant a full quota took the bytes out of
@@ -1031,6 +1070,256 @@ describe('importAllNotes', () => {
     expect(deadletter).toHaveLength(1);
     expect(deadletter[0]).toMatchObject({ bytes: 'poison', reason: 'malformed', attempts: 3 });
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(3);
+    jest.useRealTimers();
+  });
+
+  // #788 follow-up: the manual drain behind the Activity notice's Retry.
+  // Order is load-bearing: a note is QUEUED before it leaves the dead-letter
+  // store, the mirror of the give-up invariant, so bytes are never absent from
+  // both stores. The drain also grants one probe through a lit 'note-import'
+  // fuse — the user just asked for this pass; a lit fuse must not swallow it.
+  describe('retryDeadletteredNotes (#788 follow-up)', () => {
+    it('requeues every dead-lettered note (fresh budgets), empties the store, and reports the count', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'dead-a', reason: 'transport', failedAt: 1, attempts: 9 },
+        { bytes: 'dead-b', reason: 'rejected', failedAt: 2, attempts: 3 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 2 });
+
+      const queue = _g.__notesTest.store['miden-notes-pending-import'] as Array<unknown>;
+      // Queued as bare bytes — normalizeEntry gives a requeued note attempts: 0,
+      // i.e. a fresh 24h budget and a fresh poison cap.
+      expect(queue).toEqual(['dead-a', 'dead-b']);
+      expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([]);
+    });
+
+    it('is idempotent against a note already back on the queue', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'dupe', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = ['dupe'];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 1 });
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['dupe']);
+      expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([]);
+    });
+
+    // "Fresh budget" has to hold for the note this drain most often finds — the
+    // one a pass is mid-flight on, which is therefore ALREADY queued, carrying
+    // the very counters that just exhausted. Adding only the absent ones left
+    // that entry untouched, so Retry bought one more attempt instead of a real
+    // retry and the note was one failure from being dead-lettered again.
+    it('rewrites a still-queued note as bare bytes, resetting its spent budget', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'spent', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [
+        { bytes: 'spent', attempts: 2, poisonAttempts: 2, firstFailureAt: 1, nextEligibleAt: Date.now() + 300_000 },
+        'untouched'
+      ];
+
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 1 });
+
+      // Bare bytes: `normalizeEntry` reads that back as attempts 0, no backoff
+      // stamp and no poison count. The unrelated entry is left exactly as it was.
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['untouched', 'spent']);
+    });
+
+    // The remaining half of the both-stores window, one pass later than the
+    // interleaving above: a NEW pass (whose token the drain's bump cannot
+    // supersede, because it started afterwards) gives up on the same note again
+    // between the queue write and the removal loop. The add dedupes by bytes, so
+    // it REPLACES the record — and that pass still carries those bytes on the
+    // queue and drops them at commit. Removing by bytes here took the note out
+    // of both stores; removal is matched on the record's generation instead.
+    it('refuses to remove a dead-letter record a later give-up has replaced', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'racy', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [];
+      _g.__notesTest.beforeSet = (items: Record<string, unknown>) => {
+        if (!('miden-notes-pending-import' in items)) return;
+        _g.__notesTest.beforeSet = undefined;
+        _g.__notesTest.store['miden-note-import-deadletter'] = [
+          { bytes: 'racy', reason: 'malformed', failedAt: 2, attempts: 3 }
+        ];
+      };
+
+      // Not counted, because it was not drained — and the notice keeps saying so.
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 0 });
+      expect(
+        (_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>).map(n => n.bytes)
+      ).toEqual(['racy']);
+    });
+
+    // The fund-loss interleaving the "queued before removed" invariant exists to
+    // prevent, and which per-note `queueNoteImport` did NOT prevent.
+    //
+    // A pass writes the dead-letter record mid-flight (`addToNoteDeadletter`)
+    // and only drops the bytes from the queue at the very end (`commitQueue`),
+    // so for the rest of that pass the note sits in BOTH stores — and the
+    // notice's 10s poll is long enough for the user to press Retry inside that
+    // window. The drain then saw the note still queued, wrote nothing (the
+    // enqueue treats a duplicate as success), and deleted the dead-letter copy;
+    // the pass's commit then deleted the queue copy, subtracting it as a member
+    // of its own snapshot. Both copies gone — and for a private note those bytes
+    // can be the only copy of the funds.
+    //
+    // The drain now bumps the pass token inside the queue lock, so a commit
+    // built before the gesture is refused. Against the unfixed drain the queue
+    // assertion below is `[]`.
+    it('survives a concurrent pass committing over it: the note is never absent from both stores', async () => {
+      jest.useFakeTimers();
+      // 'doomed' arrives with its transient budget already spent, so the pass
+      // dead-letters it on this lap's first failure; 'other' then parks, which
+      // holds the pass in the mid-flight state where the record is in BOTH
+      // stores and the commit has not been written.
+      _g.__notesTest.store['miden-notes-pending-import'] = [
+        { bytes: 'doomed', attempts: 20, firstFailureAt: Date.now() - 2 * 24 * 60 * 60 * 1000 },
+        'other'
+      ];
+      _g.__notesTest.store['miden-note-import-deadletter'] = [];
+
+      let releaseParked: () => void = () => {};
+      _g.__notesTest.midenClient.importNoteBytes.mockReset();
+      _g.__notesTest.midenClient.importNoteBytes
+        .mockRejectedValueOnce(new Error('Failed to fetch'))
+        .mockImplementationOnce(() => new Promise<void>(resolve => (releaseParked = resolve)));
+
+      const inFlight = importAllNotes();
+      // Spin until the pass reaches the mid-flight state rather than for a fixed
+      // number of microtasks: the pass takes the queue lock before it reads, so a
+      // magic tick count silently stops reproducing the window it is testing the
+      // moment an await is added ahead of it.
+      const deadletteredBytes = () =>
+        ((_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>) ?? []).map(n => n.bytes);
+      for (let tick = 0; tick < 100 && !deadletteredBytes().includes('doomed'); tick++) await Promise.resolve();
+      // Precondition: the pass has given up on 'doomed' but not yet rewritten
+      // the queue, so both stores hold those bytes right now.
+      expect(deadletteredBytes()).toContain('doomed');
+      expect(
+        ((_g.__notesTest.store['miden-notes-pending-import'] as Array<string | { bytes: string }>) ?? []).map(e =>
+          typeof e === 'string' ? e : e.bytes
+        )
+      ).toContain('doomed');
+
+      // The user presses Retry inside that window.
+      await retryDeadletteredNotes();
+
+      // Now let the parked pass finish and commit its (stale) view.
+      releaseParked();
+      await jest.advanceTimersByTimeAsync(2100);
+      await inFlight;
+
+      const queue = (
+        (_g.__notesTest.store['miden-notes-pending-import'] as Array<string | { bytes: string }>) ?? []
+      ).map(e => (typeof e === 'string' ? e : e.bytes));
+      const stillDead = ((_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>) ?? []).map(
+        n => n.bytes
+      );
+      // The bytes survive, and they survive in the store the drain moved them to:
+      // the stale commit is REFUSED rather than merged, so this is one place, not
+      // either-of-two. Against the unfixed drain they survive in neither.
+      expect(queue).toContain('doomed');
+      expect(stillDead).not.toContain('doomed');
+      jest.useRealTimers();
+    });
+
+    // The queue write is what licenses the dead-letter removal, so a write that
+    // cannot land must leave the store untouched — the safe direction, since the
+    // dead-letter copy is the only one left at that instant.
+    it('keeps every note dead-lettered when the queue write fails', async () => {
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'quota-a', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+      _g.__notesTest.store['miden-notes-pending-import'] = [];
+      _g.__notesTest.beforeSet = (items: Record<string, unknown>) => {
+        if ('miden-notes-pending-import' in items) throw new Error('QuotaExceededError');
+      };
+
+      await expect(retryDeadletteredNotes()).rejects.toThrow('QuotaExceededError');
+      _g.__notesTest.beforeSet = undefined;
+
+      expect(_g.__notesTest.store['miden-note-import-deadletter']).toHaveLength(1);
+    });
+
+    it('grants one probe through a lit note-import fuse so the pass actually runs', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('note-import');
+      expect(isSyncFused('note-import')).toBe(true);
+      _g.__notesTest.store['miden-note-import-deadletter'] = [
+        { bytes: 'fused-note', reason: 'transport', failedAt: 1, attempts: 9 }
+      ];
+
+      await retryDeadletteredNotes();
+
+      expect(isSyncFused('note-import')).toBe(false);
+    });
+
+    it('resolves to zero on an empty store without touching the queue', async () => {
+      _g.__notesTest.store['miden-notes-pending-import'] = ['existing'];
+      await expect(retryDeadletteredNotes()).resolves.toEqual({ requeued: 0 });
+      expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['existing']);
+    });
+  });
+
+  // #788 follow-up (F-235): a PROVABLY PERMANENT HTTP rejection — tonic's
+  // "mapped from HTTP status code 400/404" fallback when a gateway answers
+  // gRPC-web with a bare HTTP error — must not ride the 24h transient budget
+  // (~288 lock-held retries) before dead-lettering. It takes the bounded
+  // poison-style cap instead, and its dead-letter record says what happened:
+  // 'rejected', not 'transport' (the transport never struggled) and not
+  // 'malformed' (the bytes may be fine — the endpoint refused them).
+  it('dead-letters a permanent HTTP rejection after the bounded cap, labeled rejected (#788 follow-up)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['rejected-note'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
+      new Error('grpc-status header missing, mapped from HTTP status code 400')
+    );
+
+    for (const expectedAttempts of [1, 2]) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(2100);
+      await expect(p).resolves.toBeUndefined();
+      const q = _g.__notesTest.store['miden-notes-pending-import'];
+      expect(q).toHaveLength(1);
+      expect(q[0]).toMatchObject({ bytes: 'rejected-note', attempts: expectedAttempts });
+    }
+
+    const p3 = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await expect(p3).resolves.toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
+    expect(deadletter).toHaveLength(1);
+    expect(deadletter[0]).toMatchObject({ bytes: 'rejected-note', reason: 'rejected', attempts: 3 });
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(3);
+    jest.useRealTimers();
+  });
+
+  // A retryable status keeps the transient verdict — 429 must NOT take the
+  // bounded rejection cap (the whole point of retry-after is that retrying works).
+  it('keeps a 429-shaped failure on the transient budget, not the rejection cap (#788 follow-up)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['limited-note'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
+      new Error('grpc-status header missing, mapped from HTTP status code 429')
+    );
+
+    for (let i = 0; i < 4; i++) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(2100);
+      await expect(p).resolves.toBeUndefined();
+    }
+
+    // Still queued — carried on the wall-clock budget, not dead-lettered at 3.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'] as Array<{ bytes: string }>;
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'limited-note' });
+    expect(_g.__notesTest.store['miden-note-import-deadletter'] ?? []).toEqual([]);
     jest.useRealTimers();
   });
 

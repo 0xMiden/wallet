@@ -3,10 +3,11 @@ import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib
 import * as Repo from 'lib/miden/repo';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { getCurrentWasmLockHold, type WasmLockHold } from '../sdk/miden-client';
 import type { PswapLineageDto } from '../sdk/pswap-lineage';
-import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import type { SwapOrderNoteMetadata } from '../types';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -106,6 +107,13 @@ export async function classifySwapOrderNotes(
     try {
       lineage = await midenClientProxy.getPswapLineage(orderId);
     } catch (err) {
+      // An ABANDONMENT is not a missing order. Swallowing it here left the loop
+      // to finish over the remaining orders and return a partial map, and the
+      // callers then booked `noteSyncSuccess('claimable-notes')` — withdrawing
+      // the very eviction evidence the fuse needs, from inside the probe that
+      // was evicted. The loop-top guard already says the right answer is to
+      // abandon; a failure on the last order must not escape it.
+      if (isWasmClientPoisonedError(err) || isOperationAbortedError(err)) throw err;
       console.warn('[swap-settlement] lineage lookup failed', orderId, err);
       continue;
     }

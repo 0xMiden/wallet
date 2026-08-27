@@ -3246,6 +3246,27 @@
     "message": "Ponów synchronizację",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Przychodzące powiadomienia „notes” wymagają ponownej próby",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "Wchodząca transakcja typu „note” wymaga ponownej próby",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ nie mogły zostać zaimportowane automatycznie.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 Nie udało się automatycznie zaimportować strony note.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Jutro",
     "englishSource": "Tomorrow"

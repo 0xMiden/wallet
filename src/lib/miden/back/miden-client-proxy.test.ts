@@ -766,12 +766,59 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
   });
 });
 
+describe('MidenClientProxy — the assertLive liveness check on the INLINE path', () => {
+  // These three reads reach through to a live SDK object BETWEEN two of their own
+  // awaits, so the only place the ownership re-check can go is inside the
+  // interface method. Threading it through the proxy is what makes that check
+  // reachable at all on mobile, desktop, Firefox and every flag-off build — with
+  // the parameter dropped here it existed solely for the offscreen dispatch, and
+  // the shipping paths ran unguarded.
+  it('flag OFF → forwards the caller check into each of the three reads', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const assertLive = jest.fn();
+
+    await midenClientProxy.exportNote('note-1', 'Details' as any, assertLive);
+    await midenClientProxy.getInputNoteDetails({ ids: ['n1'] } as any, assertLive);
+    await midenClientProxy.getConsumableNotes('acc-1', assertLive);
+
+    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details', assertLive);
+    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] }, assertLive);
+    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1', assertLive);
+  });
+
+  it('flag ON → does NOT try to send the check over the wire', async () => {
+    // It cannot be serialized, and it must not be: under the flag the
+    // reach-through happens in the offscreen realm under the OFFSCREEN hold, and
+    // that dispatch injects its own check. The caller's hold is the wrong hold to
+    // ask about there.
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from([1]).toString('base64'),
+      durationMs: 1
+    }));
+    const assertLive = jest.fn();
+
+    const p = midenClientProxy.exportNote('note-2', 'Details' as any, assertLive);
+    await flush();
+    fireReady();
+    await p;
+
+    const [envelope] = fakeChrome.runtime.sendMessage.mock.calls[0];
+    // The two real arguments and nothing else — a third slot here would be an
+    // un-JSON-able function tagged onto the wire.
+    expect(envelope.argsB64).toEqual(['s:"note-2"', 's:"Details"']);
+    expect(assertLive).not.toHaveBeenCalled();
+  });
+});
+
 describe('MidenClientProxy — slice-3 reads: exportNote', () => {
   it('flag OFF → exportNote goes inline and returns the raw bytes', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const bytes = await midenClientProxy.exportNote('note-1', 'Details' as any);
 
-    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details');
+    expect(G.__px.inlineExportNote).toHaveBeenCalledWith('note-1', 'Details', undefined);
     expect(Array.from(bytes)).toEqual([1, 2, 3]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -823,7 +870,7 @@ describe('MidenClientProxy — slice-3 reads: getInputNoteDetails (plain-DTO rou
     const { midenClientProxy } = await loadProxy(false);
     const details = await midenClientProxy.getInputNoteDetails({ ids: ['n1'] } as any);
 
-    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] });
+    expect(G.__px.inlineGetInputNoteDetails).toHaveBeenCalledWith({ ids: ['n1'] }, undefined);
     expect(details).toEqual([{ __inlineDetail: true }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
@@ -957,7 +1004,7 @@ describe('MidenClientProxy — slice-4 consumable notes (DTO round-trip)', () =>
     // Flag-off routes to the DTO-reducing interface method, NOT the raw
     // getConsumableNotes — so the reclaim gate + reduction run inline, exactly
     // as before this slice (just relocated into one place).
-    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1');
+    expect(G.__px.inlineGetConsumableNoteDtos).toHaveBeenCalledWith('acc-1', undefined);
     expect(notes).toEqual([{ __inlineConsumable: true }]);
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
