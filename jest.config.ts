@@ -132,8 +132,15 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
+  // The wallet-adapter packages publish only a `module` field pointing at an
+  // ESM bundle — no `main`, no `exports` — so CommonJS cannot load them and
+  // every test mocks them instead. `conformance.test.ts` is the one test that
+  // must load the REAL package, so it needs @swc/jest to transpile it; without
+  // this entry that `require` dies on `Unexpected token 'export'`, the suite
+  // catches it and skips, and it would keep skipping through every future
+  // adapter release while reporting the reason as a missing export.
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a
