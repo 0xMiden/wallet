@@ -540,6 +540,18 @@ export class Vault {
                   const id = await client.importPublicMidenWalletFromSeed(walletSeed, scheme);
                   return { accountId: id, accAuthScheme: scheme };
                 } catch (probeError) {
+                  // An abandonment is not a "not on chain" answer, and neither is a
+                  // client that was disposed under us. Swallowed as a miss, either
+                  // one lets the loop run out of schemes and fall through to the
+                  // fresh create below — an EMPTY wallet minted off a restore whose
+                  // outcome nobody knows, hiding the user's real account. Exactly
+                  // the same guard `createHDAccount` carries, and it must be here
+                  // too: the per-iteration `assertWasmHoldCurrent` above only
+                  // catches an eviction of THIS realm's hold, not a probe that
+                  // rejected because the client itself went away (issue #775).
+                  if (isWasmClientPoisonedError(probeError) || client.isDisposed) {
+                    throw probeError;
+                  }
                   // A probe miss and an UNREACHABLE NODE are different answers, and
                   // swallowing both is a fund-loss-shaped bug: if the RPC is down
                   // mid-restore, every scheme "misses", we fall through, and the user

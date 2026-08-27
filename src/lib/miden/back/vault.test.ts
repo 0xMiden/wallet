@@ -2050,6 +2050,27 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
+  it('Vault.spawn (restore probes): a probe that REJECTS with poison is not read as a scheme miss', async () => {
+    // The per-iteration guard above only asks whether THIS realm's hold is still
+    // ours. It says nothing about a probe that rejected because the client itself
+    // was replaced under it — and swallowed as a miss, that runs the loop out of
+    // schemes and falls through to mint a fresh EMPTY wallet off a restore whose
+    // outcome nobody knows, hiding the user's real account. Same guard
+    // `createHDAccount` already carries.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+      // Name-tagged rather than a real instance, which is the shape the offscreen
+      // proxy reconstructs across the realm boundary.
+      throw Object.assign(new Error('probe abandoned'), { name: 'WasmClientPoisonedError' });
+    });
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    // Stopped at the FIRST scheme, and no empty wallet was minted.
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
   it('Vault.spawn (fresh create): eviction during the pre-create sync stops createMidenWallet', async () => {
     mockMidenClient.syncState.mockImplementationOnce(async () => {
       revokeWasmHold();

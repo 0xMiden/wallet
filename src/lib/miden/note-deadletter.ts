@@ -175,8 +175,8 @@ export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<bool
     // pathological run, and dropping the oldest record honours it by destroying
     // note bytes — the one thing this store exists to prevent. Refusing keeps the
     // new note on the import queue, where it is still carried and still retried;
-    // `hasDeadletteredNotes()` is already true, so the user-facing signal is up
-    // and a manual retry can drain the store and make room.
+    // `countDeadletteredNotes()` is already non-zero, so the user-facing signal
+    // is up and a manual retry can drain the store and make room.
     if (deduped.length >= MAX_DEADLETTERED) {
       logger.error(
         `[note-deadletter] store is full (${MAX_DEADLETTERED}); refusing to evict an older note's only copy — the import queue keeps carrying this one`
@@ -201,11 +201,6 @@ export async function addToNoteDeadletter(entry: DeadletteredNote): Promise<bool
 /** List all dead-lettered notes (newest last). */
 export async function listDeadletteredNotes(): Promise<DeadletteredNote[]> {
   return readAll();
-}
-
-/** True if any note is currently dead-lettered — drives a user-facing signal. */
-export async function hasDeadletteredNotes(): Promise<boolean> {
-  return (await readAll()).length > 0;
 }
 
 /**
@@ -238,8 +233,9 @@ export async function countDeadletteredNotes(): Promise<number> {
  * whose stored `failedAt` has moved on was dead-lettered again by a later pass
  * that still carries those bytes on the import queue, so removing it here would
  * take the note out of both stores. Those are left behind and reported as not
- * drained. A read or write failure drains nothing — the safe direction, since at
- * that instant the dead-letter copy may be the only one.
+ * drained. A read failure drains nothing, and a write failure drains only what
+ * the write was never needed for — the safe direction, since at that instant the
+ * dead-letter copy may be the only one.
  */
 export async function removeManyFromNoteDeadletter(entries: DeadletteredNote[]): Promise<DeadletteredNote[]> {
   if (entries.length === 0) return [];
@@ -251,11 +247,15 @@ export async function removeManyFromNoteDeadletter(entries: DeadletteredNote[]):
     }
     const byBytes = new Map(existing.map(record => [record.bytes, record]));
     const drained: DeadletteredNote[] = [];
+    // The subset that needed no write at all, kept apart so a failed write can
+    // still report them.
+    const alreadyGone: DeadletteredNote[] = [];
     const doomed = new Set<DeadletteredNote>();
     for (const entry of entries) {
       const stored = byBytes.get(entry.bytes);
       // Already absent: the same postcondition, reached earlier.
       if (stored === undefined) {
+        alreadyGone.push(entry);
         drained.push(entry);
         continue;
       }
@@ -270,8 +270,13 @@ export async function removeManyFromNoteDeadletter(entries: DeadletteredNote[]):
     }
     if (doomed.size === 0) return drained;
     if (!(await writeAll(existing.filter(record => !doomed.has(record))))) {
-      logger.error('[note-deadletter] the drain write failed; every note stays dead-lettered');
-      return [];
+      logger.error('[note-deadletter] the drain write failed; every STORED note stays dead-lettered');
+      // Only the records the write would have removed stay. Entries that were
+      // already absent are unaffected by a failed write and must still be
+      // reported as drained: the caller reads this length as "did anything move",
+      // and reporting zero there withheld the fuse grant and told the user their
+      // Retry did nothing, on notes it had already put back on the queue.
+      return alreadyGone;
     }
     return drained;
   });

@@ -111,6 +111,13 @@ beforeEach(() => {
   _g.__notesTest.currentHold = null;
 });
 
+// Fake timers are enabled per-test here, and an assertion that fails before a
+// test's own `useRealTimers()` would otherwise arm them for every test after it
+// in this file — a failure that reports as a timeout somewhere unrelated.
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 // A note whose import parks: the state an eviction actually interrupts.
 const parkedImport = () => {
   let release!: () => void;
@@ -1203,9 +1210,11 @@ describe('importAllNotes', () => {
       const stillDead = ((_g.__notesTest.store['miden-note-import-deadletter'] as Array<{ bytes: string }>) ?? []).map(
         n => n.bytes
       );
-      // The bytes survive SOMEWHERE. That is the whole invariant, and against
-      // the unfixed drain they survive in neither.
-      expect(queue.includes('doomed') || stillDead.includes('doomed')).toBe(true);
+      // The bytes survive, and they survive in the store the drain moved them to:
+      // the stale commit is REFUSED rather than merged, so this is one place, not
+      // either-of-two. Against the unfixed drain they survive in neither.
+      expect(queue).toContain('doomed');
+      expect(stillDead).not.toContain('doomed');
       jest.useRealTimers();
     });
 

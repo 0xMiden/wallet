@@ -296,7 +296,9 @@ describe('doSync', () => {
 
     await doSync();
 
-    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledWith('pk-1');
+    // The second argument is the sync's own `stillOurs` check, forwarded into the
+    // read so the reach-through past its internal await is guarded too.
+    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledWith('pk-1', expect.any(Function));
     expect(mockClient.getAccount).toHaveBeenCalledWith('pk-1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f2');

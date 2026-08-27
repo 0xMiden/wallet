@@ -1666,6 +1666,14 @@ const runGuardianPipeline = async (
           'Delegated guardian prove'
         );
       } catch (proveError) {
+        // The delegated prove was the longest parking await in this hold, and the
+        // fallback below is a WASM call on `executedTx` — an object borrowed from
+        // the client's RefCell. If the watchdog evicted us while the delegated
+        // prove was parked, this catch runs on an abandoned callback and the local
+        // re-prove is a second borrow of a client a successor now owns. The
+        // eviction outranks the prove failure as the reason to stop, so it is
+        // checked before the fallback rather than only after it. Still pre-submit.
+        assertStillHoldingLock(hold, 'before the local prove fallback');
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())

@@ -57,6 +57,13 @@ describe('DeadletteredNotesNotice (#788 follow-up)', () => {
     stored = [];
   });
 
+  // Same reason as the note-queue suite: one test drives fake timers, and a
+  // failure before its own restore would arm them for every later suite in this
+  // worker.
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('renders nothing while the dead-letter store is empty', () => {
     const { container } = render(<DeadletteredNotesNotice />);
     expect(container.firstChild).toBeNull();

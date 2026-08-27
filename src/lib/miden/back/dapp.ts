@@ -920,7 +920,9 @@ async function getPrivateNoteDetails(
     privateNotes = await withUnlocked(async () => {
       return await withWasmClientLock(async hold => {
         const query = noteFilterTypeToQuery(notefilterType, noteIds);
-        const allNotes = await midenClientProxy.getInputNoteDetails(query);
+        const allNotes = await midenClientProxy.getInputNoteDetails(query, () =>
+          assertWasmHoldCurrent(hold, 'inside the private-note read, before the record reach-through')
+        );
         // Between the two reads: an eviction during the note-details read hands
         // the mutex to a successor without stopping this callback, and the
         // consumability read below would then run inside a client somebody else
@@ -928,7 +930,11 @@ async function getPrivateNoteDetails(
         // transition left to guard.
         assertWasmHoldCurrent(hold, 'after the private-note read');
         const ownNoteIds = new Set(
-          (await midenClientProxy.getConsumableNotes(accountId)).flatMap(note => (note.noteId ? [note.noteId] : []))
+          (
+            await midenClientProxy.getConsumableNotes(accountId, () =>
+              assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+            )
+          ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
         return allNotes.filter(note => note.noteType === NoteType.Private && ownNoteIds.has(note.noteId));
       });
@@ -1075,7 +1081,9 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
         // The DTO is a strict superset of InputNoteDetails; map it 1:1.
-        const notes = await midenClientProxy.getConsumableNotes(accountId);
+        const notes = await midenClientProxy.getConsumableNotes(accountId, () =>
+          assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+        );
         return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
           // nullifiers fold in metadata, no nullifier either. They cannot
@@ -2453,8 +2461,10 @@ async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise
     }
   }
 
-  const [details] = await withWasmClientLock(async () =>
-    midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] })
+  const [details] = await withWasmClientLock(async hold =>
+    midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
+      assertWasmHoldCurrent(hold, 'inside the note-preview read, before the record reach-through')
+    )
   );
   if (!details) {
     throw new Error(`Note ${transaction.noteId} could not be resolved — refusing to preview it`);
@@ -2667,11 +2677,24 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
     return ['Simulated effects:', ...effects];
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);
-    return [
-      'This transaction could not be simulated, so its effects are unknown.',
-      `Reason, ${e?.message ?? String(e)}`
-    ];
+    return ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`];
   }
+}
+
+/**
+ * The one-line reason shown on a signing consent sheet when the dry run failed.
+ *
+ * An abandonment reaches here as wallet-internal text — "WASM client poisoned
+ * (watchdog): held the WASM client lock past its watchdog ceiling" — because the
+ * simulation flattens its error to a message string and this sheet interpolates
+ * it. That says nothing a signer can act on, and a consent line is the last place
+ * to spend on jargon; the real error is already on the console above.
+ */
+function consentReason(e: unknown): string {
+  if (isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+    return 'the simulation was interrupted before it finished';
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 // Background-safe helpers (duplicated from UI without UI deps)

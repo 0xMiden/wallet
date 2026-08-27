@@ -15,6 +15,16 @@ export interface DeadletteredNotesNoticeProps {
 }
 
 /**
+ * How long a drain may hold the button disabled. The intercom request has no
+ * deadline of its own and an MV3 worker teardown drops an in-flight one without
+ * rejecting it, so an unbounded guard turns one unlucky press into a Retry the
+ * user can never press again this session. Generous, because a drain of a full
+ * store is a read-modify-write per note and re-enabling under a live drain is
+ * the thing the guard exists to prevent.
+ */
+const RETRY_GUARD_MAX_MS = 60_000;
+
+/**
  * The drain surface for the note dead-letter store (#788 follow-up): notes the
  * wallet gave up importing automatically — whose bytes can be the only copy of
  * the funds they carry — surface here with a Retry, which is the manual drain
@@ -28,16 +38,6 @@ export interface DeadletteredNotesNoticeProps {
  * the queue's writes must happen in the realm that owns the import pass — the
  * SW on extension — and a popup-side write would race its read-modify-writes.
  */
-/**
- * How long a drain may hold the button disabled. The intercom request has no
- * deadline of its own and an MV3 worker teardown drops an in-flight one without
- * rejecting it, so an unbounded guard turns one unlucky press into a Retry the
- * user can never press again this session. Generous, because a drain of a full
- * store is a read-modify-write per note and re-enabling under a live drain is
- * the thing the guard exists to prevent.
- */
-const RETRY_GUARD_MAX_MS = 60_000;
-
 export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ className }) => {
   const { t } = useTranslation();
   // Only the COUNT crosses into the component, and it is counted inside the
@@ -51,13 +51,16 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
 
   const count = data ?? 0;
   const [retrying, setRetrying] = useState(false);
+  // Set in the effect BODY, not just cleared in the cleanup: StrictMode invokes
+  // setup, cleanup, setup, so an initializer-only `true` is false forever after
+  // the first simulated unmount and the Retry button never re-enables.
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   const onRetry = useCallback(() => {
     // Guarded against a second press, and not merely for tidiness: each drain

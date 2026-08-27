@@ -972,6 +972,13 @@ const DISPATCH: Record<string, DispatchFn> = {
           'Delegated guardian prove'
         );
       } catch (proveError) {
+        // Same rule as the inline pipeline: the delegated prove was this hold's
+        // longest parking await, and the fallback is a WASM call on `executedTx`,
+        // itself a borrow of the client's RefCell. An eviction while the delegated
+        // prove was parked leaves this catch running on an abandoned callback, so
+        // ownership is re-checked BEFORE the re-prove, not only after it. Still
+        // pre-submit — nothing has been broadcast.
+        assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         provenTx = await withWasmLockWatchdogPaused(

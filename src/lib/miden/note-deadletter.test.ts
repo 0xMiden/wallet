@@ -26,7 +26,6 @@ jest.mock('shared/logger', () => ({ logger: { error: jest.fn(), warning: jest.fn
 import {
   addToNoteDeadletter,
   clearNoteDeadletter,
-  hasDeadletteredNotes,
   listDeadletteredNotes,
   countDeadletteredNotes,
   removeManyFromNoteDeadletter,
@@ -54,7 +53,7 @@ describe('note-deadletter', () => {
     await addToNoteDeadletter(entry('bbb', { reason: 'malformed' }));
     const list = await listDeadletteredNotes();
     expect(list.map(n => n.bytes)).toEqual(['aaa', 'bbb']);
-    expect(await hasDeadletteredNotes()).toBe(true);
+    expect(await countDeadletteredNotes()).toBeGreaterThan(0);
   });
 
   it('dedupes by bytes (re-give-up refreshes, does not duplicate)', async () => {
@@ -77,7 +76,7 @@ describe('note-deadletter', () => {
     await expect(addToNoteDeadletter(entry('aaa'))).resolves.toBe(false);
     // And the readers do not read a string's length as a count of dead-lettered notes.
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
     // Refused, not reset: the value may be a truncated write over records whose bytes
     // are the only copy of the funds they carry, so it is left exactly as found.
     expect(_g.__dlTest.store['miden-note-import-deadletter']).toBe('{corrupt');
@@ -231,6 +230,27 @@ describe('note-deadletter', () => {
     expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['aaa']);
   });
 
+  it('still reports the already-absent records when the write fails', async () => {
+    // The write can only fail to remove what it was needed for. An entry that was
+    // never in the store is drained by definition, and the caller reads this
+    // length as "did anything move" — reporting zero there withheld the fuse
+    // grant and told the user the Retry did nothing, about notes it had already
+    // put back on the import queue.
+    const stayed = entry('stayed');
+    const gone = entry('gone');
+    await addToNoteDeadletter(stayed);
+    _g.__dlTest.beforeSet = () => {
+      throw new Error('quota exceeded');
+    };
+
+    expect((await removeManyFromNoteDeadletter([stayed, gone])).map(n => n.bytes)).toEqual(['gone']);
+
+    _g.__dlTest.beforeSet = undefined;
+    // …and the one the write WOULD have removed is untouched, which is the half
+    // the previous test pins.
+    expect((await listDeadletteredNotes()).map(n => n.bytes)).toEqual(['stayed']);
+  });
+
   it('drains nothing when the store is unreadable', async () => {
     const aaa = entry('aaa');
     await addToNoteDeadletter(aaa);
@@ -258,11 +278,11 @@ describe('note-deadletter', () => {
     await addToNoteDeadletter(entry('aaa'));
     await clearNoteDeadletter();
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
   });
 
   it('is a no-op (empty) when storage has never been written', async () => {
     expect(await listDeadletteredNotes()).toEqual([]);
-    expect(await hasDeadletteredNotes()).toBe(false);
+    expect(await countDeadletteredNotes()).toBe(0);
   });
 });

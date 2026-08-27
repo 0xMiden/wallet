@@ -238,8 +238,12 @@ export interface ClientLiveness {
  * offscreen dispatch guard those the same way it guards the reductions it does
  * itself, without this module having to know what a WASM lock hold is.
  *
- * Defaults to a no-op, so the SW-inline path (which does not thread a hold) and
- * every existing caller are unchanged.
+ * Defaults to a no-op ONLY for the callers that genuinely have no hold to check
+ * against — a test double, or a read taken outside a lock. It is deliberately
+ * NOT the shape of the shipping paths: `midenClientProxy` forwards the check on
+ * its inline branch, which is the mobile, desktop, Firefox and flag-off route,
+ * so leaving the parameter off there would have made this guard reachable only
+ * from the offscreen document.
  */
 export type AssertLive = () => void;
 

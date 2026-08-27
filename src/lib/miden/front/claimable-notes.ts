@@ -14,7 +14,7 @@ import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { onNotesRefresh } from './note-refresh';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
-import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
@@ -163,10 +163,16 @@ async function fetchNotesFromLocalClient(
     // this 5s poll then owned the mutex for 300s per lap, which is worse than the
     // hold it inherited it from: the sync loop's own fuse takes the sync OUT of the
     // queue, leaving this poll as the sole occupant of a wallet that looks idle.
-    rawNotes = await withWasmClientLock(async () => midenClientProxy.getConsumableNotes(publicAddress), {
-      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
-      label: 'claimable-notes'
-    });
+    rawNotes = await withWasmClientLock(
+      async hold =>
+        midenClientProxy.getConsumableNotes(publicAddress, () =>
+          assertWasmHoldCurrent(hold, 'inside the claimable-notes read, before the sync-height read')
+        ),
+      {
+        watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+        label: 'claimable-notes'
+      }
+    );
   } catch (e) {
     // This probe keeps its OWN fuse ledger entry. Bounding the hold above capped each
     // park at 120s but did nothing about the rate: on a parked node a 5s poll earns an
