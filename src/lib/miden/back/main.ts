@@ -29,7 +29,7 @@ import {
 } from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
-import { doSync } from 'lib/miden/back/sync-manager';
+import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
@@ -323,7 +323,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     default) owns the client that actually executes writes, syncs and talks to
       //     the node — resetMidenClient() cannot reach it. No-op when the flag is off,
       //     when chrome.offscreen is absent, or when no document is open.
+      //   - resetSyncBackoffForEndpointChange() drops the breaker window and the
+      //     watchdog-eviction fuse, both of which are findings about the OLD node. A
+      //     fused SW otherwise syncs once per 30 min against the new one, which reads
+      //     as "the repoint did nothing" and withholds the successful sync that is the
+      //     fuse's only exit condition (#777).
       await loadEndpointOverrides();
+      resetSyncBackoffForEndpointChange();
       await resetMidenClient();
       await reloadOffscreenEndpointOverrides();
       return { type: WalletMessageType.ReloadEndpointOverridesResponse };

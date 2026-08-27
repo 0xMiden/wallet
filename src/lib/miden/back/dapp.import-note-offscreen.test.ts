@@ -264,12 +264,16 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
     ['a watchdog eviction', () => new WasmClientPoisonedError('watchdog')],
     ['an offscreen deadline kill', () => new OperationAbortedError('op-7', 'deadline')]
   ])('queues the note for background retry after %s (#777)', async (_label, makeError) => {
-    // The queue exists for exactly this: "we do not know whether this landed". Both
-    // kill shapes say that, and neither matches `isLikelyNetworkError`, whose tokens
-    // are transport text — the poison message is closed wallet-authored text. So an
-    // eviction took the not-transient path and dropped the bytes from the one
-    // mechanism built to preserve them, which for a private note the dApp handed over
-    // can be the only surviving copy of the funds it carries.
+    // The queue exists for exactly this: "we do not know whether this landed". Both kill
+    // shapes say that, and before #777 an eviction took the not-transient path and dropped
+    // the bytes from the one mechanism built to preserve them — which for a private note
+    // the dApp handed over can be the only surviving copy of the funds it carries.
+    //
+    // Honest about what each leg proves: the POISON leg falsifies the gate (its message is
+    // closed wallet-authored text that `isLikelyNetworkError` does not match, so the clause
+    // is the only thing queueing it). The ABORT leg does not, because 'aborted' is in its
+    // message and the classifier tokenises on that — it is a redundancy check, kept so the
+    // shape stays covered if that token list is ever re-tuned.
     const { queueNoteImport } = require('lib/miden/activity');
     queueNoteImport.mockClear();
     queueNoteImport.mockResolvedValue(undefined);

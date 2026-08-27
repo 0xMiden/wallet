@@ -22,7 +22,13 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { syncGuardianAccounts } from './guardian-sync';
 import { requestNotesRefresh } from './note-refresh';
-import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction, syncFuseUntilMs } from './sync-fuse';
+import {
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction,
+  syncFuseUntilMs
+} from './sync-fuse';
 import { isTestSyncPaused } from './test-sync-pause';
 
 export { __resetSyncFuseStateForTests } from './sync-fuse';
@@ -222,7 +228,7 @@ export function useSyncTrigger() {
               // would reschedule onto its remainder and keep the wallet backed
               // off from a node that just answered.
               syncBackoffUntilMs = null;
-              noteSyncSuccess();
+              noteSyncSuccess('idle-sync');
               // Gated with the counters rather than run unconditionally after
               // the await: on the `!client || cancelled` early return no sync
               // happened, so dismissing the "cannot reach the node" banner there
@@ -246,7 +252,15 @@ export function useSyncTrigger() {
               .getState()
               .accounts.filter(acc => acc.type === WalletType.Guardian)
               .map(acc => acc.publicKey);
-            if (guardianAccountKeys.length > 0) {
+            // Skipped while the GUARDIAN's own fuse is lit. Guardian sync has no
+            // scheduler of its own — it is fired and forgotten from this tick — so
+            // without this gate a lit fuse bought nothing on the guardian path: the
+            // very next tick after an eviction started a fresh two-minute park on the
+            // same parked endpoint, which is the cadence the fuse exists to break.
+            // Keyed on the guardian probe, not this loop's, because the two facts are
+            // independent: a healthy chain sync must keep running at 3s while the
+            // guardian is throttled.
+            if (guardianAccountKeys.length > 0 && !isSyncFused('guardian-sync')) {
               // NOT awaited, deliberately. `MultisigService.runSync` retries in a
               // loop and each attempt is its own lock hold, so awaiting it put
               // the guardian endpoint in charge of this loop's cadence: while it
@@ -340,9 +354,9 @@ export function useSyncTrigger() {
             // nor withdraws it.
             if (!forced) {
               if (isSyncWatchdogEviction(error)) {
-                noteSyncWatchdogEviction('useSyncTrigger');
+                noteSyncWatchdogEviction('idle-sync');
               } else {
-                noteNonEvictionSyncFailure();
+                noteNonEvictionSyncFailure('idle-sync');
               }
             }
           } finally {
@@ -380,7 +394,7 @@ export function useSyncTrigger() {
           const idleMs = Math.max(
             SYNC_INTERVAL_MS,
             remainingMs(syncBackoffUntilMs, MAX_SYNC_BACKOFF_MS),
-            remainingMs(syncFuseUntilMs(), FUSED_SYNC_PROBE_INTERVAL_MS)
+            remainingMs(syncFuseUntilMs('idle-sync'), FUSED_SYNC_PROBE_INTERVAL_MS)
           );
           //
           // An UNSPENT forced grant means the guards skipped this tick with a user

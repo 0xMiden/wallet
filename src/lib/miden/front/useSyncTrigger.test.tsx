@@ -254,6 +254,36 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: stops firing the guardian leg once the GUARDIAN fuse is lit (#777)', async () => {
+    // The leg is fired and forgotten, so it has no scheduler of its own for a fuse to
+    // stretch: an eviction was followed by a fresh two-minute park on the very next 3s
+    // tick. The gate is what a lit guardian fuse actually buys.
+    //
+    // And it is keyed on 'guardian-sync', not on this loop's probe, because the two facts
+    // are independent — this is the finding a single shared counter could not express: the
+    // loop reports its healthy chain sync BEFORE firing the guardian, so with one counter
+    // the guardian's evictions were erased every lap and the threshold was unreachable.
+    const { noteSyncWatchdogEviction } = require('./sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
+    storeState.accounts = [{ publicKey: 'g1', type: WalletType.Guardian }];
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('guardian-sync');
+
+    const { unmount } = render(<HookHost />);
+
+    // The chain sync keeps its 3s cadence — the guardian's parked call is not its problem.
+    await waitFor(() => expect(mockSyncState).toHaveBeenCalled());
+    expect(mockSyncGuardianAccounts).not.toHaveBeenCalled();
+    unmount();
+
+    // Falsifier: with the guardian fuse out (and only this loop's fused, which must not
+    // alias onto it) the leg fires as before.
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
+    const second = render(<HookHost />);
+    await waitFor(() => expect(mockSyncGuardianAccounts).toHaveBeenCalled());
+    second.unmount();
+  });
+
   it('mobile/desktop: drives syncState directly and flips the store sync flag', async () => {
     const { unmount } = render(<HookHost />);
 

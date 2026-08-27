@@ -3,6 +3,7 @@ import { logger } from 'shared/logger';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError } from './connectivity-classify';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import { addToNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
 import {
@@ -436,7 +437,15 @@ export const importAllNotes = async () => {
             // `WasmClientPoisonedError` is an abandonment rather than a verdict.
             // Left on the poison cap it dead-lettered a perfectly good note as
             // `malformed` after three wedged laps.
-            const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e);
+            // `isOperationAbortedError` is named EXPLICITLY even though today's abort message
+            // ("Offscreen operation X aborted (deadline)") happens to satisfy
+            // `isLikelyNetworkError`'s 'abort' token. That coincidence is not a contract: the
+            // token list is transport-text heuristics that get re-tuned, and if 'abort' ever
+            // leaves it an abandonment would start charging the POISON budget, which
+            // dead-letters the note as malformed after two laps. A private note's bytes can be
+            // its only copy, so the classification of an abandonment must not rest on a
+            // substring of wallet-authored text.
+            const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e);
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
             const giveUp = transient
               ? elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS

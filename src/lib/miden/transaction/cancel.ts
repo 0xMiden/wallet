@@ -77,10 +77,17 @@ export const cancelTransaction = async (
   // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
   const rawError = formatRawTransactionError(error);
+  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
+  // withhold the may-have-submitted crossing, re-derived HERE from the row this function
+  // already read, so the message and the crossing can never disagree: hedging "left in an
+  // unknown state, check your activity" on a row whose Retry is provably safe is a
+  // falsehood that costs the user the retry.
+  const abandonedPreWrite =
+    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
   const displayError =
     error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
       ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
   let applied = false;
   let racedTerminal = false;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {

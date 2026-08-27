@@ -27,8 +27,8 @@ import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { Vault } from './vault';
 import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { initiateConsumeTransaction } from '../transaction/initiate';
@@ -103,6 +103,21 @@ let syncBackoffUntilMs: number | null = null;
 // backoff); reset by any successful sync.
 let breakerTripCount = 0;
 
+/**
+ * Discard every conclusion the breaker and the fuse reached against the OLD node, because
+ * both are claims about one node's behaviour and the endpoint just stopped being that node.
+ * Without this, repointing a fused wallet at a working RPC left it syncing once per
+ * `FUSED_SYNC_PROBE_INTERVAL_MS` — the repoint reads as "the fix did nothing" for half an
+ * hour, and the fuse's own exit condition (one successful sync) is exactly what the wallet
+ * has stopped giving itself the chance to observe.
+ */
+export function resetSyncBackoffForEndpointChange(): void {
+  consecutiveSyncFailures = 0;
+  consecutiveWatchdogEvictions = 0;
+  syncBackoffUntilMs = null;
+  breakerTripCount = 0;
+}
+
 // Lazy Vault initialization to prevent service worker cold-start race.
 // See actions.ts:getVault for the full explanation. In Jest, `init_vault`
 // is undefined; the typeof guard skips the factory call.
@@ -165,6 +180,13 @@ async function runSync(force: boolean): Promise<void> {
     // Hoisted: BOTH holds in this lap need to know, because on the inline path the
     // second one has to rebuild the client the first one's eviction discarded.
     const inlineWasm = runsWasmInThisRealm();
+    // Set when [Lock 1] was evicted this lap. On the inline path that eviction cleared
+    // the client slot, so the downstream read below would rebuild and send the new
+    // client's genesis fetch to the node [Lock 1] just gave up on — a second 120s of
+    // this realm's only WASM mutex and a second leaked client, for state that cannot
+    // have changed since the sync that failed to fetch it. Skipping the read is
+    // strictly better than bounding it.
+    let syncHoldEvicted = false;
     try {
       // The timeout is only sound when the WASM sync runs in ANOTHER realm. Its
       // rejection propagates out of the lock callback and so RELEASES the mutex
@@ -222,6 +244,7 @@ async function runSync(force: boolean): Promise<void> {
       // A forced probe neither adds evidence nor withdraws it: this measures what the
       // automatic cadence costs, and a user tap is neither part of that cadence nor
       // throttled by it.
+      if (isSyncWatchdogEviction(err)) syncHoldEvicted = true;
       if (!force) {
         if (isSyncWatchdogEviction(err)) {
           consecutiveWatchdogEvictions++;
@@ -294,7 +317,10 @@ async function runSync(force: boolean): Promise<void> {
       // Re-armed on every qualifying failure while the evidence stands, not only on
       // the eviction that lit it: "one probe per 30 min until one succeeds" is the
       // contract, and a probe that fails some other way has not succeeded.
-      if (consecutiveWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
+      // `!force` on the re-arm as well as on the count, matching the frontend loop: a
+      // failed Retry must not push the automatic probe another half hour out. Escalation
+      // measures how long the node has been failing, not how many times the user asked.
+      if (!force && consecutiveWatchdogEvictions >= MAX_CONSECUTIVE_WATCHDOG_EVICTIONS) {
         console.warn(
           `[SyncManager] sync fuse lit after ${consecutiveWatchdogEvictions} watchdog evictions — ` +
             `probing once per ${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min until one succeeds`
@@ -326,7 +352,7 @@ async function runSync(force: boolean): Promise<void> {
     const vault2 = await getVault();
     const accountPubKey = await vault2.getCurrentAccountPublicKey();
 
-    if (accountPubKey) {
+    if (accountPubKey && !(inlineWasm && syncHoldEvicted)) {
       // Loaded once per sync and threaded into classify + reconcile below —
       // localSwapOrders is an unindexed full scan of the transactions table.
       const swapOrderRows = await localSwapOrders(accountPubKey);
@@ -340,10 +366,19 @@ async function runSync(force: boolean): Promise<void> {
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
       const { parsedNotes, vaultAssets } = await withWasmClientLock(
-        async () => {
+        async hold => {
           const client = await getMidenClient();
           if (!client)
             return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
+          // The client build is an await, and on the inline path it can be the long one
+          // (a genesis fetch against a parked node). If this hold was evicted while it
+          // ran, the mutex is already released and a successor may be inside the client
+          // — so every proxy call below would be an UNMUTEXED inline WASM call, which is
+          // the double borrow the lock exists to prevent. Same guard, same reason, as the
+          // idle loop's sync and the guardian pipeline's stages.
+          if (getCurrentWasmLockHold() !== hold) {
+            throw new WasmClientPoisonedError('watchdog', new Error('sync note read abandoned: the lock hold is gone'));
+          }
 
           // Read consumable notes as DTOs (issue #260, slice 4). The reclaim gate
           // + per-note reduction ran inside the client's realm — OFFSCREEN when the

@@ -634,6 +634,34 @@ describe('a plain send with nothing left to prove either way is not retried blin
     expect((await read('abort-presync')).mayHaveSubmitted).toBeFalsy();
   });
 
+  it('says "nothing was submitted" on the message too, not just in the crossing record', async () => {
+    // The crossing and the message have to agree. Withholding the crossing (so Retry is
+    // permitted) while persisting the hedge ("left in an unknown state, check your
+    // activity before trying again") told the user not to take the retry the same
+    // decision had just unlocked — and the extension reaches this on a routine
+    // non-critical `deadline-no-kill`, so it is not a corner.
+    const { TRANSACTION_ENGINE_RECOVERED_ERROR, TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR } = require('./constants');
+    const { WasmClientPoisonedError } = require('lib/miden/sdk/wasm-client-poison');
+
+    for (const [id, error] of [
+      ['msg-poison-presync', new WasmClientPoisonedError('watchdog')],
+      ['msg-abort-presync', abort()]
+    ] as const) {
+      await Repo.transactions.add(inFlightSend(id, { stage: 'syncing', requestBytes: undefined }));
+      await cancelTransactionAfterPipelineStopped(await read(id), error);
+      expect((await read(id)).error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    }
+
+    // Falsifier: past the pre-write stages a submit IS possible, so the hedge is the
+    // honest copy and has to stay.
+    await Repo.transactions.add(inFlightSend('msg-poison-submitting', { stage: 'submitting' }));
+    await cancelTransactionAfterPipelineStopped(
+      await read('msg-poison-submitting'),
+      new WasmClientPoisonedError('watchdog')
+    );
+    expect((await read('msg-poison-submitting')).error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
   it('records the crossing for a picked-up row even at stage syncing', async () => {
     // What makes 'syncing' provably pre-write is not the name, it is that the
     // stage is only ever committed BEFORE pickup — `updateTransactionStatus`

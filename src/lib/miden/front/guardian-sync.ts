@@ -9,7 +9,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
 import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
-import { noteSyncWatchdogEviction } from './sync-fuse';
+import { noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
@@ -207,6 +207,9 @@ export async function syncGuardianAccounts(): Promise<void> {
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
+      // The one observation that clears this probe's fuse: a guardian sync that went
+      // through proves the realm's client is not parked on this path after all.
+      noteSyncSuccess('guardian-sync');
 
       // Sync succeeded → the account is authorized; clear any accumulated
       // self-heal state so a future divergence starts its persistence count
@@ -287,7 +290,15 @@ export async function syncGuardianAccounts(): Promise<void> {
       // this path's failures are swallowed per-account and never reach the catch block
       // that used to own the ledger. Guardian is the wallet's DEFAULT account type, so
       // that was the majority case of the freeze the fuse exists to bound.
-      if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction('Guardian Sync');
+      // Feed the realm's sync fuse. All three outcomes, not just the eviction: the
+      // ledger is keyed per probe precisely so guardian evidence is withdrawn by a
+      // guardian success and by nothing else, and a producer that only ever ADDS would
+      // fuse permanently on the first four evictions of its life.
+      if (isSyncWatchdogEviction(error)) {
+        noteSyncWatchdogEviction('guardian-sync');
+      } else {
+        noteNonEvictionSyncFailure('guardian-sync');
+      }
       console.error(`[Guardian Sync] Error syncing Guardian account ${account.publicKey}:`, error);
     }
   }

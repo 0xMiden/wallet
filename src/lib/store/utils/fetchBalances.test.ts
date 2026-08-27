@@ -1,6 +1,15 @@
 import '../../../../test/jest-mocks';
 
+import {
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction,
+  syncFuseUntilMs
+} from 'lib/miden/front/sync-fuse';
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
 
@@ -21,10 +30,17 @@ const mockTryWithWasmClientLock = jest.fn(
   })
 );
 
+// The OPTIONS are the point of the #777 change here, so they have to reach an assertion:
+// a mock that silently drops them lets the bound come off without a single test noticing.
+const lockOptionsSeen: unknown[] = [];
+
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
-  tryWithWasmClientLock: (operation: () => Promise<unknown>) => mockTryWithWasmClientLock(operation)
+  tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    return mockTryWithWasmClientLock(operation);
+  }
 }));
 
 jest.mock('lib/miden/assets', () => ({
@@ -67,6 +83,69 @@ describe('fetchBalances', () => {
 
   afterAll(() => {
     warnSpy.mockRestore();
+  });
+
+  it('bounds its hold at the sync ceiling and labels it, rather than taking the 5-minute backstop', async () => {
+    // The window this non-blocking read wins is the instant an eviction released the
+    // mutex — the client slot is empty, so the read rebuilds and the new client's genesis
+    // fetch goes to the node that just parked. On the default backstop a 5s balance poll
+    // then owned this realm's only WASM mutex for 300s. The label is what names it in the
+    // eviction log and keys its fuse.
+    mockGetAccount.mockResolvedValueOnce(null);
+    lockOptionsSeen.length = 0;
+
+    await fetchBalances('my-address', {});
+
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+  });
+
+  it('skips the hold entirely once its own fuse is lit, and resumes on a success (#777)', async () => {
+    // A lit fuse means this probe's call is parked: the node took the request and never
+    // answered, so the client the next lap builds parks on it too. Bounding capped one
+    // park at 120s; only this gate stops the wallet paying that park, plus a leaked
+    // client, on every refresh from here on.
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
+    lockOptionsSeen.length = 0;
+
+    expect(await fetchBalances('my-address', {})).toBeNull();
+    expect(lockOptionsSeen).toHaveLength(0);
+    expect(mockGetAccount).not.toHaveBeenCalled();
+
+    // Falsifier: the gate is the fuse and nothing else. Put it out and the very next
+    // refresh reads again — the fuse must never become a one-way door.
+    noteSyncSuccess('balances');
+    mockGetAccount.mockResolvedValueOnce(null);
+    expect(await fetchBalances('my-address', {})).not.toBeNull();
+    expect(mockGetAccount).toHaveBeenCalledTimes(1);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('reports its own evictions to the fuse, and a completed read puts it out', async () => {
+    __resetSyncFuseStateForTests();
+    const evict = () => Promise.reject(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      mockTryWithWasmClientLock.mockImplementationOnce(evict);
+      await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    }
+    expect(isSyncFused('balances')).toBe(true);
+
+    // A BUSY lap is evidence of nothing — no hold was taken — so it must neither light
+    // nor clear anything.
+    __resetSyncFuseStateForTests();
+    mockTryWithWasmClientLock.mockImplementationOnce(async () => ({ ran: false }));
+    await fetchBalances('my-address', {});
+    expect(syncFuseUntilMs('balances')).toBeNull();
+
+    // And an ORDINARY failure does not light it: the fuse's claim is specifically that a
+    // call is parked, which an offline node is not.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1; i++) {
+      mockTryWithWasmClientLock.mockImplementationOnce(() => Promise.reject(new Error('Failed to fetch')));
+      await expect(fetchBalances('my-address', {})).rejects.toThrow('Failed to fetch');
+    }
+    expect(isSyncFused('balances')).toBe(false);
+    __resetSyncFuseStateForTests();
   });
 
   it('returns null (skips the read) when the WASM client lock is busy', async () => {

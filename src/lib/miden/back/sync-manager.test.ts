@@ -73,12 +73,29 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // because there the timeout's rejection would release the mutex while the abandoned
 // `syncState` is still inside this realm's single-threaded client.
 const lockOptionsSeen: Array<unknown> = [];
+// The hold identity has to be modelled, not stubbed away: the note-read callback
+// re-checks `getCurrentWasmLockHold() === hold` after its client build, so a mock that
+// passes no hold would make every read look abandoned.
+let swLockHold: object | null = null;
+const evictSwLockHold = () => {
+  swLockHold = null;
+};
+// Overridable so a test can evict the hold from INSIDE the client build, which on the
+// inline path is the long await the read's liveness guard exists for.
+const mockGetMidenClient = jest.fn(async () => mockClient);
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => mockClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+  getMidenClient: () => mockGetMidenClient(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
     lockOptionsSeen.push(options);
-    return fn();
+    const hold = {};
+    swLockHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (swLockHold === hold) swLockHold = null;
+    }
   },
+  getCurrentWasmLockHold: () => swLockHold,
   runWhenClientIdle: () => {}
 }));
 
@@ -393,6 +410,60 @@ describe('doSync', () => {
     expect(lockOptionsSeen[1]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' });
   });
 
+  it('skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)', async () => {
+    // That eviction cleared the client slot, so this read would rebuild and send the new
+    // client's genesis fetch to the node the sync just gave up on: a second 120s of this
+    // realm's only WASM mutex and a second leaked client, for state that cannot have
+    // changed since the sync that failed to fetch it.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    lockOptionsSeen.length = 0;
+
+    await doSync();
+
+    // One hold taken, not two: the read never ran.
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' }]);
+    expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+
+    // Falsifier: an ORDINARY sync failure still reads. The client is intact there, so
+    // the cached state this read surfaces is worth having.
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    lockOptionsSeen.length = 0;
+    await doSync();
+    expect(lockOptionsSeen).toHaveLength(2);
+    jest.restoreAllMocks();
+  });
+
+  it('stops the note read before its WASM calls when the hold is evicted during the client build (#777)', async () => {
+    // On the inline path the client build IS the long await (a genesis fetch against a
+    // parked node). An abandoned callback resuming past it would make unmutexed inline
+    // WASM calls while a successor is inside the client — the double borrow the lock
+    // exists to prevent.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    // The read's own hold is the second one, so let the sync's build through and evict
+    // during the read's.
+    let builds = 0;
+    mockGetMidenClient.mockImplementation(async () => {
+      builds++;
+      if (builds === 2) evictSwLockHold();
+      return mockClient;
+    });
+
+    await doSync();
+
+    // The guard fired instead: no consumable-note read happened on the abandoned hold.
+    expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+    mockGetMidenClient.mockImplementation(async () => mockClient);
+    jest.restoreAllMocks();
+  });
+
   it('lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
@@ -424,6 +495,20 @@ describe('doSync', () => {
       fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
       await isolated();
       expect(mockClient.syncState).toHaveBeenCalledTimes(callsWhenFused);
+
+      // A non-eviction failure while LIT does not clear the evidence: it is no proof the
+      // parked sync recovered, and zeroing here meant one offline blip mid-fuse bought
+      // four fresh evictions to re-reach a conclusion nothing had contradicted. This is
+      // the leg that makes "only a success" true rather than decorative.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS;
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('Failed to fetch'));
+      await isolated();
+      const callsAfterBlip = mockClient.syncState.mock.calls.length;
+      expect(callsAfterBlip).toBe(1);
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsAfterBlip);
 
       // Serve out the fused wait, then succeed: that is the one observation that
       // clears the evidence.

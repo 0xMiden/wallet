@@ -2,6 +2,10 @@
 
 import { renderHook, waitFor } from '@testing-library/react';
 
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from 'lib/miden/front/sync-fuse';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+
 const _g = globalThis as any;
 _g.__cnTest = {
   isExtension: false,
@@ -38,8 +42,13 @@ jest.mock('lib/store', () => {
   };
 });
 
+// The SWR config is where the #777 gate lives (`isPaused`), so the mock has to keep it
+// rather than swallow it — a mock that only calls the fetcher makes the gate untestable.
+const swrConfigSeen: any[] = [];
+
 jest.mock('lib/swr', () => ({
   useRetryableSWR: jest.fn((_key: any, fetcher: any, config: any) => {
+    swrConfigSeen.push(config);
     if (!fetcher) return { data: undefined, mutate: jest.fn(), isLoading: false, isValidating: false };
     // Run the fetcher and expose its settlement promise so tests can await it.
     // On rejection, drive the onError callback like real SWR would.
@@ -60,9 +69,13 @@ jest.mock('lib/swr', () => ({
 
 const mockGetMidenClient = jest.fn();
 const mockRunWhenClientIdle = jest.fn();
+const lockOptionsSeen: any[] = [];
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: async (fn: () => Promise<any>) => fn(),
+  withWasmClientLock: async (fn: () => Promise<any>, options?: any) => {
+    lockOptionsSeen.push(options);
+    return fn();
+  },
   runWhenClientIdle: (fn: () => Promise<any>) => mockRunWhenClientIdle(fn)
 }));
 
@@ -438,6 +451,76 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     // The fetch rejects → onError fires (covered by the SWR mock).
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
+  });
+
+  it('bounds and labels BOTH of its WASM holds, not just the note read (#777)', async () => {
+    // Two holds per lap on the same 5s cadence: the DTO read and the swap-lineage
+    // classification that follows it. Flag-OFF both are inline WASM that rebuild the
+    // client when the slot is empty — which after any eviction it is — so leaving the
+    // second on the 5-minute backstop reopened the same 300s park the first no longer
+    // takes, one hold further down the same function.
+    lockOptionsSeen.length = 0;
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+
+    expect(lockOptionsSeen).toEqual([
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'claimable-notes' },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'claimable-notes-swap-lineage' }
+    ]);
+  });
+
+  it('pauses its poll while its own fuse is lit, keeping the last note list on screen', async () => {
+    // Bounding capped each park at 120s; only the fuse stops a 5s poll re-entering that
+    // park — and leaking the client it poisoned — every other lap, indefinitely, on a
+    // wallet the user is not even touching. `isPaused` rather than an early return so the
+    // notes already displayed stay displayed: returning [] would read as "they're gone".
+    __resetSyncFuseStateForTests();
+    swrConfigSeen.length = 0;
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    const isPaused = swrConfigSeen[0].isPaused;
+
+    expect(isPaused()).toBe(false);
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+    expect(isPaused()).toBe(true);
+
+    // Keyed per probe: a fuse lit on some OTHER probe must not silence this poll, which
+    // is the aliasing that made one shared counter useless.
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('guardian-sync');
+    expect(isPaused()).toBe(false);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('feeds its own evictions to the fuse and clears them on a completed read', async () => {
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => {
+        throw new WasmClientPoisonedError('watchdog');
+      });
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+    }
+    expect(isSyncFused('claimable-notes')).toBe(true);
+
+    // An ordinary failure is not proof of a parked call, so it must not light the fuse.
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1; i++) {
+      _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => {
+        throw new Error('rpc down');
+      });
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+    }
+    expect(isSyncFused('claimable-notes')).toBe(false);
+
+    // And a read that completes withdraws the evidence outright.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => []);
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(isSyncFused('claimable-notes')).toBe(false);
+    __resetSyncFuseStateForTests();
   });
 
   it('exposes debugInfo only on iOS', () => {

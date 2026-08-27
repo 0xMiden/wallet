@@ -15,6 +15,7 @@ _g.__mainTest = {
   broadcast: jest.fn(),
   storeWatch: jest.fn(),
   doSync: jest.fn(),
+  resetSyncBackoffForEndpointChange: jest.fn(),
   startTransactionProcessing: jest.fn(),
   resetMidenClient: jest.fn(),
   loadEndpointOverrides: jest.fn(),
@@ -42,7 +43,8 @@ jest.mock('lib/miden/back/store', () => ({
 }));
 
 jest.mock('./sync-manager', () => ({
-  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force)
+  doSync: (force?: boolean) => (globalThis as any).__mainTest.doSync(force),
+  resetSyncBackoffForEndpointChange: () => (globalThis as any).__mainTest.resetSyncBackoffForEndpointChange()
 }));
 
 jest.mock('./transaction-processor', () => ({
@@ -336,6 +338,15 @@ describe('processRequest', () => {
     expect(res.type).toBe(WalletMessageType.ReloadEndpointOverridesResponse);
     expect(mockLoadEndpointOverrides).toHaveBeenCalledTimes(1);
     expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
+    // And the breaker/fuse state, which is a set of findings about the node the wallet
+    // just stopped pointing at. A fused SW that keeps them syncs once per 30 min against
+    // the new endpoint and withholds the success that is the fuse's only exit (#777).
+    expect(_g.__mainTest.resetSyncBackoffForEndpointChange).toHaveBeenCalledTimes(1);
+    // Before the client is replaced, so the next probe cannot be turned away by a
+    // window the old node earned.
+    expect(_g.__mainTest.resetSyncBackoffForEndpointChange.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResetMidenClient.mock.invocationCallOrder[0]
+    );
   });
 
   // `resetMidenClient()` disposes only THIS realm's singleton. Flag-on

@@ -12,9 +12,10 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { onNotesRefresh } from './note-refresh';
+import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -167,6 +168,14 @@ async function fetchNotesFromLocalClient(
       label: 'claimable-notes'
     });
   } catch (e) {
+    // This probe keeps its OWN fuse ledger entry. Bounding the hold above capped each
+    // park at 120s but did nothing about the rate: on a parked node a 5s poll earns an
+    // eviction — and leaks the client it poisoned — roughly every other lap, forever.
+    // Keyed on 'claimable-notes' rather than shared, because a healthy chain sync says
+    // nothing about a note read whose call is parked, and a single counter let either
+    // fact erase the other.
+    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
+    else noteNonEvictionSyncFailure('claimable-notes');
     debugInfoRef.current = {
       ...debugInfoRef.current,
       error: `getConsumableNotes failed: ${e}`,
@@ -174,6 +183,7 @@ async function fetchNotesFromLocalClient(
     };
     throw e;
   }
+  noteSyncSuccess('claimable-notes');
 
   const uncompletedTxs = await getUncompletedTransactions(publicAddress);
   const notesBeingClaimed = new Set(
@@ -185,7 +195,14 @@ async function fetchNotesFromLocalClient(
   // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
   // (issue #260, slice 7a); the caller lock still serializes the flag-OFF inline
   // lineage reads (byte-identical), and flag-ON they hit the offscreen client.
-  const swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress));
+  // Bounded and labelled for the same reason as the read above, which it follows on the
+  // same 5s cadence: flag-OFF it is inline WASM, it rebuilds the client when the slot is
+  // empty, and left on the 5-minute backstop it reopened exactly the unbounded park the
+  // read no longer takes — one hold further down the same function.
+  const swapOrders = await withWasmClientLock(async () => classifySwapOrderNotes(rawNotes, publicAddress), {
+    watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+    label: 'claimable-notes-swap-lineage'
+  });
 
   // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
   // custom transaction — hidden from the claimable UI until the user
@@ -349,7 +366,12 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // Lets an E2E hook quiesce this (heavy, WASM-lock-bound) poll while it does
     // its own single-threaded-WASM read; otherwise the read is livelocked on
     // mobile by the 5s re-fire. No-op in production (tree-shaken).
-    isPaused: () => isTestSyncPaused(),
+    // Fused (#777) means this probe's own call is parked: the node took the request and
+    // never answered, so the client the next lap builds parks on it too. `isPaused` is
+    // the right gate rather than an early return — it withholds the HOLD while leaving
+    // the last good note list on screen, where returning [] would have read to the user
+    // as "your claimable notes are gone".
+    isPaused: () => isTestSyncPaused() || isSyncFused('claimable-notes'),
     onError: e => {
       console.error('Error fetching claimable notes:', e);
       debugInfoRef.current = {

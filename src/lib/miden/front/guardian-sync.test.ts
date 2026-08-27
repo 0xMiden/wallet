@@ -276,8 +276,8 @@ describe('syncGuardianAccounts', () => {
 
     expect(sync).toHaveBeenCalledTimes(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
     // The fuse is lit, and the deadline it published is the one the idle loop reads.
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('consecutive sync watchdog evictions'));
-    const until = syncFuseUntilMs();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("consecutive watchdog evictions of 'guardian-sync'"));
+    const until = syncFuseUntilMs('guardian-sync');
     expect(until).not.toBeNull();
     expect(until! - monotonicNowMs()).toBeGreaterThan(FUSED_SYNC_PROBE_INTERVAL_MS / 2);
 
@@ -291,7 +291,7 @@ describe('syncGuardianAccounts', () => {
     for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
       await syncGuardianAccounts();
     }
-    expect(syncFuseUntilMs()).toBeNull();
+    expect(syncFuseUntilMs('guardian-sync')).toBeNull();
 
     __resetSyncFuseStateForTests();
     warnSpy.mockRestore();
