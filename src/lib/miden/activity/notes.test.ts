@@ -1034,6 +1034,65 @@ describe('importAllNotes', () => {
     jest.useRealTimers();
   });
 
+  // #788 follow-up (F-235): a PROVABLY PERMANENT HTTP rejection — tonic's
+  // "mapped from HTTP status code 400/403" fallback when a gateway answers
+  // gRPC-web with a bare HTTP error — must not ride the 24h transient budget
+  // (~288 lock-held retries) before dead-lettering. It takes the bounded
+  // poison-style cap instead, and its dead-letter record says what happened:
+  // 'rejected', not 'transport' (the transport never struggled) and not
+  // 'malformed' (the bytes may be fine — the endpoint refused them).
+  it('dead-letters a permanent HTTP rejection after the bounded cap, labeled rejected (#788 follow-up)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['rejected-note'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
+      new Error('grpc-status header missing, mapped from HTTP status code 403')
+    );
+
+    for (const expectedAttempts of [1, 2]) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(2100);
+      await expect(p).resolves.toBeUndefined();
+      const q = _g.__notesTest.store['miden-notes-pending-import'];
+      expect(q).toHaveLength(1);
+      expect(q[0]).toMatchObject({ bytes: 'rejected-note', attempts: expectedAttempts });
+    }
+
+    const p3 = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await expect(p3).resolves.toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    const deadletter = _g.__notesTest.store['miden-note-import-deadletter'];
+    expect(deadletter).toHaveLength(1);
+    expect(deadletter[0]).toMatchObject({ bytes: 'rejected-note', reason: 'rejected', attempts: 3 });
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(3);
+    jest.useRealTimers();
+  });
+
+  // A retryable status keeps the transient verdict — 429 must NOT take the
+  // bounded rejection cap (the whole point of retry-after is that retrying works).
+  it('keeps a 429-shaped failure on the transient budget, not the rejection cap (#788 follow-up)', async () => {
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = ['limited-note'];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(
+      new Error('grpc-status header missing, mapped from HTTP status code 429')
+    );
+
+    for (let i = 0; i < 4; i++) {
+      const p = importAllNotes();
+      await jest.advanceTimersByTimeAsync(2100);
+      await expect(p).resolves.toBeUndefined();
+    }
+
+    // Still queued — carried on the wall-clock budget, not dead-lettered at 3.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'] as Array<{ bytes: string }>;
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'limited-note' });
+    expect(_g.__notesTest.store['miden-note-import-deadletter'] ?? []).toEqual([]);
+    jest.useRealTimers();
+  });
+
   // GAP 1 (resilience): a note whose TRANSIENT failures outlast the wall-clock
   // retry budget must land in the dead-letter store (recoverable + surfaceable),
   // never be silently dropped.

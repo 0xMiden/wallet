@@ -37,7 +37,7 @@ const DEADLETTER_KEY = 'miden-note-import-deadletter';
 // bounded growth of a live queue rather than a silent loss.
 const MAX_DEADLETTERED = 200;
 
-export type NoteDeadletterReason = 'transport' | 'malformed';
+export type NoteDeadletterReason = 'transport' | 'malformed' | 'rejected';
 
 export interface DeadletteredNote {
   /** Base64 note bytes — the same form the import queue holds. */

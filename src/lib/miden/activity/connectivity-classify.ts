@@ -37,6 +37,39 @@ export function isLikelyNetworkError(err: unknown): boolean {
 }
 
 /**
+ * Statuses that mean the request itself is rejected, not the transport
+ * struggling: retrying the same bytes at the same endpoint cannot change the
+ * answer. Deliberately the short, provable list — everything else (408, 425,
+ * 429, 5xx, or no extractable number at all) keeps whatever verdict
+ * `isLikelyNetworkError` gives it.
+ */
+const PERMANENT_HTTP_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404]);
+
+/**
+ * Is this error a PROVABLY PERMANENT HTTP rejection? (#788 follow-up, F-235)
+ *
+ * `isLikelyNetworkError`'s bare `'status code'` token accepts any status, so a
+ * permanent 400/403 classified as transient and burned the note-import queue's
+ * 24-hour budget — ~288 retries, each an RPC inside a WASM-lock hold — before
+ * dead-lettering, mislabeled as a transport failure. This predicate extracts
+ * the number from the shapes that actually carry one (tonic's
+ * "grpc-status header missing, mapped from HTTP status code N" fallback — the
+ * literal string is in the shipped wasm — and prover-style "status code: N")
+ * and answers true only for the statuses that cannot heal on retry.
+ *
+ * Used by the note-import budget selection and the queue-admission gates ONLY.
+ * The connectivity banner and the seed-restore fund-loss guard deliberately
+ * keep the broad predicate: over-inclusion is the safe direction for both, and
+ * narrowing them would change banner behaviour far outside the import path.
+ */
+export function isPermanentHttpRejection(err: unknown): boolean {
+  const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');
+  const match = /status code:?\s*(\d{3})\b/i.exec(message);
+  if (!match) return false;
+  return PERMANENT_HTTP_STATUSES.has(Number(match[1]));
+}
+
+/**
  * `navigator.onLine` is famously unreliable (returns true if a network
  * interface is up, regardless of whether anything is reachable on the other
  * end). It's still useful as a one-way signal: if it returns FALSE, the

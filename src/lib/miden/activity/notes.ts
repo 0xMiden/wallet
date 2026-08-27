@@ -2,7 +2,7 @@ import { logger } from 'shared/logger';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
-import { isLikelyNetworkError } from './connectivity-classify';
+import { isLikelyNetworkError, isPermanentHttpRejection } from './connectivity-classify';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from '../front/sync-fuse';
 import { addToNoteDeadletter } from '../note-deadletter';
@@ -472,7 +472,16 @@ export const importAllNotes = async () => {
             // dead-letters the note as malformed after two laps. A private note's bytes can be
             // its only copy, so the classification of an abandonment must not rest on a
             // substring of wallet-authored text.
-            const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+            // A provably permanent HTTP rejection (tonic's "mapped from HTTP status
+            // code 400/403" fallback) is carved OUT of the transient set (#788
+            // follow-up, F-235): retrying the same bytes cannot change a 403, so it
+            // takes the bounded poison-style cap instead of a day of lock-held
+            // retries. It cannot shadow a poison/abort eviction: those errors carry
+            // closed wallet-authored messages with no HTTP status in them.
+            const permanentRejection = isPermanentHttpRejection(e);
+            const transient =
+              !permanentRejection &&
+              (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e));
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
             // The transient give-up needs BOTH the wall-clock budget and a plausible number
             // of attempts to have been spent. The budget alone is a single wall-clock
@@ -494,7 +503,7 @@ export const importAllNotes = async () => {
               // took the bytes out of both stores at once.
               const stored = await addToNoteDeadletter({
                 bytes: note.bytes,
-                reason: transient ? 'transport' : 'malformed',
+                reason: transient ? 'transport' : permanentRejection ? 'rejected' : 'malformed',
                 failedAt: now,
                 attempts
               });
