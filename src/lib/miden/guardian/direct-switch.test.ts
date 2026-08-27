@@ -54,9 +54,16 @@ jest.mock('./account', () => ({
 
 jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
 
-// Zero backoff so the retry loop runs at test speed; the schedule itself is
-// covered by `serialize`'s own suite.
-jest.mock('./serialize', () => ({ guardianRegisterBackoffMs: () => 0 }));
+// Zero backoff so the retry loop runs at test speed — but through a spy, not a
+// constant. The schedule's own arithmetic is covered by `serialize`'s suite;
+// what belongs here is that the loop CONSULTS it, with the error it just caught
+// and the attempt it just spent. A loop that sleeps a fixed interval instead
+// retries a 429 under the cooldown the guardian just asked for and earns
+// another one — while the rotation it is finalizing has already committed.
+const mockRegisterBackoffMs = jest.fn((_error: unknown, _attempt: number) => 0);
+jest.mock('./serialize', () => ({
+  guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt)
+}));
 
 jest.mock('./signer', () => ({ WalletSigner: class {} }));
 
@@ -65,11 +72,27 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveNetworkName: () => 'devnet'
 }));
 
+// The advice map is the cryptographic payload of a direct switch — by the time
+// the request is submitted it is the ONLY place the hot and cold signatures
+// exist, and nothing downstream re-derives any of it. So `AdviceMap` stands in
+// faithfully rather than as a tally of inserts: it is KEYED by word like the
+// pinned `insert(key: Word, value: FeltArray): Felt[] | undefined`, so a second
+// insert under the same key overwrites the first (and hands back what it
+// displaced) instead of appending a second entry. A mock that only counted
+// inserts would show two entries for a map that reaches the chain holding one
+// signature against a threshold-2 procedure.
+//
+// `Poseidon2.hashElements` and `Word.fromHex` stay deterministic and injective
+// over the hex fixtures here, so the tests recompute the key they EXPECT from
+// this same identity instead of pinning an opaque digest — which is what keeps
+// the preimage ORDER visible to an assertion.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AdviceMap: class {
-    readonly entries: string[] = [];
-    insert(key: { hex: string }) {
-      this.entries.push(key.hex);
+    readonly entries = new Map<string, unknown[]>();
+    insert(key: { hex: string }, value: { felts: unknown[] }): unknown[] | undefined {
+      const previous = this.entries.get(key.hex);
+      this.entries.set(key.hex, value.felts);
+      return previous;
     }
   },
   FeltArray: class {
@@ -101,6 +124,31 @@ jest.mock('@openzeppelin/miden-multisig-client', () => {
 });
 
 const mockedMultisigClient = jest.requireMock('@openzeppelin/miden-multisig-client');
+const mockedSdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+
+// The multisig client's ECDSA auth-scheme prefix byte. `Signature.deserialize`
+// dispatches on it, so it decides which curve the bytes behind it are read as.
+const ECDSA_AUTH_SCHEME_ID = 1;
+
+/** The advice map handed to the REBUILD — the one that would reach the chain. */
+const submittedAdviceEntries = (): Map<string, number[]> =>
+  mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls[1][2].signatureAdviceMap.entries;
+
+/**
+ * The key the source is supposed to derive for one signer, recomputed through
+ * the mock's own hash identity: Poseidon2(signerCommitment ‖ txCommitment), in
+ * that order. Recomputed rather than hard-coded so the ORDER is what is being
+ * asserted — swap the two halves of the preimage and the transaction script
+ * looks up a word the map does not hold, so both signatures are present and
+ * neither is found.
+ */
+const expectedAdviceKey = (signerCommitmentHex: string, txCommitmentHex: string): string =>
+  mockedSdk.Poseidon2.hashElements(
+    new mockedSdk.FeltArray([
+      ...mockedSdk.Word.fromHex(signerCommitmentHex).toFelts(),
+      ...mockedSdk.Word.fromHex(txCommitmentHex).toFelts()
+    ])
+  ).hex;
 
 const walletAccount = (overrides: Partial<WalletAccount> = {}): WalletAccount =>
   ({
@@ -240,8 +288,15 @@ describe('isGuardianUnreachableError', () => {
 });
 
 describe('createDirectSwitchGuardianRequest', () => {
-  // Even-length hex: `hexToBytes` rejects an odd-length signature outright.
-  const signWord = jest.fn(async () => '0xabcd12');
+  // Hot and cold sign DIFFERENT bytes, keyed by the pubkey the vault is asked to
+  // sign with. One shared signature string would make the two advice values
+  // byte-identical, and folding the hot signature in where the cold one belongs
+  // — a map that satisfies neither signer nor the threshold — would then be
+  // invisible to every assertion below. Even-length hex, because `hexToBytes`
+  // rejects an odd-length signature outright.
+  const HOT_SIGNATURE = '0xa1b2c3';
+  const COLD_SIGNATURE = '0xd4e5f6';
+  const signWord = jest.fn(async (pubkey: string) => (pubkey === 'coldpk' ? COLD_SIGNATURE : HOT_SIGNATURE));
 
   it('builds a request carrying the summary chain anchor', async () => {
     const { request, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
@@ -259,6 +314,87 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(rebuild[2].salt).toEqual({ hex: '0xsalt', toFelts: expect.any(Function) });
     expect(signWord).toHaveBeenCalledWith('hotpk', '0xtxcommitment');
     expect(signWord).toHaveBeenCalledWith('coldpk', '0xtxcommitment');
+  });
+
+  // Everything that decides whether the rotation is AUTHORIZED lives in the
+  // advice map, and nothing downstream checks any of it: the transaction is
+  // proved and submitted with whatever words are in there. One entry per
+  // on-chain signer, each keyed by Poseidon2(signerCommitment ‖ txCommitment) —
+  // get either half of that preimage, or its order, wrong and the
+  // `update_guardian` script looks up a word the map does not hold, so the
+  // threshold-2 authorization fails on chain with both signatures sitting right
+  // there.
+  it('folds one advice entry per signer, keyed by Poseidon2(signerCommitment ‖ txCommitment)', async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    const hotKey = expectedAdviceKey('0xhotcommitment', '0xtxcommitment');
+    const coldKey = expectedAdviceKey('0xcoldcommitment', '0xtxcommitment');
+    expect(hotKey).not.toBe(coldKey);
+    expect([...submittedAdviceEntries().keys()]).toEqual([hotKey, coldKey]);
+    // Two entries because the two keys are DISTINCT, not because two inserts
+    // ran: the map is keyed by word, so a cold entry keyed by the hot
+    // commitment collapses onto it and a threshold-2 transaction is submitted
+    // holding one signature.
+    expect(submittedAdviceEntries().size).toBe(2);
+  });
+
+  // The values are the signatures themselves, each prefixed with the auth-scheme
+  // byte `Signature.deserialize` dispatches on — announce the wrong scheme and
+  // the bytes behind it are decoded against a different curve. And each has to
+  // sit under ITS OWN signer's key: a map carrying the hot signature twice
+  // satisfies neither signer, however well-formed it looks.
+  it("stores each signer's own ECDSA-prefixed signature under that signer's key", async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    const entries = submittedAdviceEntries();
+    expect(entries.get(expectedAdviceKey('0xhotcommitment', '0xtxcommitment'))).toEqual([
+      ECDSA_AUTH_SCHEME_ID,
+      0xa1,
+      0xb2,
+      0xc3
+    ]);
+    expect(entries.get(expectedAdviceKey('0xcoldcommitment', '0xtxcommitment'))).toEqual([
+      ECDSA_AUTH_SCHEME_ID,
+      0xd4,
+      0xe5,
+      0xf6
+    ]);
+  });
+
+  // `getPubkey()` with no argument omits the `?scheme=` query entirely, and the
+  // guardian answers with its DEFAULT scheme's key — which this flow then
+  // installs on-chain as the account's guardian. The rotation commits, the new
+  // operator registers happily, and the account only discovers it holds a key
+  // its guardian cannot co-sign with on the next transaction.
+  it('asks the new guardian for its ECDSA key specifically', async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    expect(mockGuardianGetPubkey).toHaveBeenCalledWith('ecdsa');
+  });
+
+  // Both builds have to agree, and both have to be the EFFECTIVE endpoint. The
+  // summary the two device keys sign comes from the first call and the request
+  // that is submitted from the second, so a scheme or endpoint that differs
+  // between them yields a request whose commitment nothing signed — and a
+  // build-baked endpoint winning over a developer override builds the whole
+  // rotation against the wrong network.
+  it('builds the summary and the rebuild alike against the effective RPC endpoint, as ECDSA', async () => {
+    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+
+    const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
+    expect(summaryBuild[2]).toEqual({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' });
+    expect(rebuild[2]).toEqual({
+      salt: { hex: '0xsalt', toFelts: expect.any(Function) },
+      signatureAdviceMap: expect.anything(),
+      signatureScheme: 'ecdsa',
+      midenRpcEndpoint: 'https://rpc.test'
+    });
+    expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
+      expect.anything(),
+      '0xacct-id',
+      expect.anything(),
+      'https://rpc.test'
+    );
   });
 
   it('releases the chain anchor through freeChainAnchor', async () => {
@@ -327,7 +463,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).toHaveBeenCalledWith(
       expect.anything(),
       NEW_GUARDIAN_COMMITMENT,
-      expect.anything()
+      expect.objectContaining({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' })
     );
   });
 
@@ -386,6 +522,24 @@ describe('finalizeDirectGuardianSwitch', () => {
     await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
 
     expect(mockGuardianConfigure).toHaveBeenCalledTimes(2);
+  });
+
+  // How long to wait is the guardian's to say when it says so: a 429 carries a
+  // Retry-After and `guardianRegisterBackoffMs` honours it, clamped. A loop that
+  // sleeps its own fixed interval retries under that cooldown and collects
+  // another 429 — and it does so after the on-chain rotation has already
+  // committed, where exhausting the retry budget leaves the account registered
+  // nowhere.
+  it('waits the error-aware backoff between registration attempts', async () => {
+    const rateLimited = Object.assign(new Error('Too Many Requests'), { status: 429 });
+    mockGuardianConfigure.mockRejectedValueOnce(rateLimited).mockResolvedValueOnce({ success: true });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
+
+    expect(mockRegisterBackoffMs).toHaveBeenCalledTimes(1);
+    expect(mockRegisterBackoffMs).toHaveBeenCalledWith(rateLimited, 1);
   });
 
   it('gives up after the retry budget and reports the last error as the cause', async () => {
@@ -454,6 +608,24 @@ describe('finalizeDirectGuardianSwitch', () => {
       finalizeDirectGuardianSwitch('0xmissing', 'https://g.test', guardianProvider as any)
     ).rejects.toThrow('not found in provider');
   });
+
+  // `account_already_exists` is the GOAL state, so retrying it into a failure
+  // reports `registerFailed` for an account that is registered — which then arms
+  // a self-heal against a state needing no repair. Reachable two ways: a
+  // `/configure` whose response was lost after the server applied it, and a
+  // second rotation to the guardian the account already has.
+  it('treats an already-registered account as a successful registration', async () => {
+    const already = Object.assign(new Error('account already exists'), { code: 'account_already_exists' });
+    mockGuardianConfigure.mockRejectedValue(already);
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).resolves.toBeUndefined();
+    // Returned on the FIRST answer — not retried through the budget.
+    expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
+  });
 });
 
 // The classifier above is only as good as the heuristic it delegates to, and that
@@ -486,10 +658,29 @@ describe('the mocked isLikelyNetworkError tracks the shipped package', () => {
     return tokens;
   };
 
+  // Quote style is whatever the transform emitted, so match either.
+  const readMockTokens = (): string[] => {
+    const source: string = mockedMultisigClient.isLikelyNetworkError.toString();
+    const tokens = [...source.matchAll(/includes\(['"]([^'"]+)['"]\)/g)].flatMap(match => (match[1] ? [match[1]] : []));
+    expect(tokens.length).toBeGreaterThan(5); // the parse found a real body, not nothing
+    return tokens;
+  };
+
   it('flags every transport token the package flags', () => {
     for (const token of readShippedTokens()) {
       expect(mockedMultisigClient.isLikelyNetworkError(new Error(`operation failed: ${token}`))).toBe(true);
     }
+  });
+
+  // ...and flags nothing else. Behaviour alone only pins the copy in one
+  // direction: a token the package REMOVES still passes the check above, and
+  // leaves this copy OVER-matching — classifying as a transport failure an error
+  // the shipped heuristic now calls semantic. That direction is the dangerous
+  // one here, because an "unreachable" verdict is what converts a coordinated
+  // guardian switch into a unilateral on-chain rotation. So hold the two token
+  // sets equal, not merely overlapping.
+  it('flags nothing the package does not', () => {
+    expect(new Set(readMockTokens())).toEqual(new Set(readShippedTokens()));
   });
 
   it('still leaves semantic guardian errors unflagged', () => {

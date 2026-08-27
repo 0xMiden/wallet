@@ -102,12 +102,16 @@ it('renders the configured guardian summary and live details', () => {
   expect(mockGuardianOptionForEndpoint).toHaveBeenCalledWith('https://guardian.one');
   expect(screen.getByTestId('guardian-operator-logo')).toBeInTheDocument();
   expect(screen.getByText('Guardian One')).toBeInTheDocument();
-  expect(screen.getByText('online')).toBeInTheDocument();
+  // No sync has landed yet this session (the default mock), so there is no
+  // positive evidence of liveness — the pill must not claim "online" on
+  // endpoint presence alone. The "Last sync" row shares the same text, so the
+  // pill is identified by its `role="status"` rather than by the label alone.
+  expect(screen.getByRole('status')).toHaveTextContent('guardianCheckingLabel');
+  expect(screen.queryByText('online')).not.toBeInTheDocument();
   expect(screen.getByText('guardianInfoDescription')).toBeInTheDocument();
   expect(screen.getByText('Provider One')).toBeInTheDocument();
   expect(screen.getByText('guardian.one')).toBeInTheDocument();
   expect(screen.getByText('US-EAST')).toBeInTheDocument();
-  expect(screen.getByText('never')).toBeInTheDocument();
 });
 
 it('shows the offline pill while the sync loop reports a guardian outage', () => {
@@ -119,17 +123,41 @@ it('shows the offline pill while the sync loop reports a guardian outage', () =>
   expect(screen.queryByText('online')).not.toBeInTheDocument();
 });
 
+it('shows "Online" only once a guardian sync has actually landed this session', () => {
+  // Endpoint presence + no outage is NOT evidence of liveness — a guardian that
+  // is dead from the moment the popup opens sits under the 6-consecutive-failure
+  // outage threshold (~18s) the whole time. `getGuardianLastSyncAt` returning a
+  // stamp is the one signal that is actually evidence a sync completed.
+  mockIsGuardianSyncOutage.mockReturnValue(false);
+  mockGetGuardianLastSyncAt.mockReturnValue(undefined);
+  render(<GuardianSettings />);
+
+  // The "Last sync" row shows the same "Checking" text while unsynced, so the
+  // pill is identified by its `role="status"` rather than by the label alone.
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('guardianCheckingLabel');
+  expect(screen.queryByText('online')).not.toBeInTheDocument();
+  expect(screen.queryByText('guardianOfflineLabel')).not.toBeInTheDocument();
+
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
+  act(() => notifySyncListeners());
+
+  expect(pill).toHaveTextContent('online');
+  expect(screen.queryByText('guardianCheckingLabel')).not.toBeInTheDocument();
+});
+
 it('reads "Last sync" from the guardian, not the wallet-wide sync stamp', () => {
   // An outage with a wallet that is otherwise syncing happily — the exact state
   // that produced "Offline" beside a seconds-old "Last sync". The guardian has
-  // never answered this session, so the honest value is "never".
+  // never answered this session, so the honest value matches the pill's
+  // "checking" state rather than the false, permanent-sounding "Never".
   mockIsGuardianSyncOutage.mockReturnValue(true);
   mockGetGuardianLastSyncAt.mockReturnValue(undefined);
   render(<GuardianSettings />);
 
   expect(mockGetGuardianLastSyncAt).toHaveBeenCalledWith('acc-1');
   expect(screen.getByText('guardianOfflineLabel')).toBeInTheDocument();
-  expect(screen.getByText('never')).toBeInTheDocument();
+  expect(screen.getByText('guardianCheckingLabel')).toBeInTheDocument();
 });
 
 it('renders the guardian last-sync stamp as a relative time once one lands', () => {
@@ -147,6 +175,9 @@ it('renders the guardian last-sync stamp as a relative time once one lands', () 
 });
 
 it('updates the pill in place when the outage arms under a mounted page', () => {
+  // A guardian sync has already landed this session — the one state that
+  // legitimately reads "Online" rather than "Checking".
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
   expect(screen.getByText('online')).toBeInTheDocument();
 
@@ -160,6 +191,7 @@ it('updates the pill in place when the outage arms under a mounted page', () => 
 });
 
 it('announces the status pill as a polite live region', () => {
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
 
   // Without this the flip above is silent to assistive tech: the pill is the
@@ -206,6 +238,7 @@ it('navigates to guardian rotation, buzzing once', () => {
 });
 
 it('keeps the status pill readable in both themes', () => {
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
 
   // green-700 is the darkest shade that existed and reaches only 4.34:1 on the
@@ -215,6 +248,17 @@ it('keeps the status pill readable in both themes', () => {
   // `text-green-800` compiling to nothing, with the ink silently inherited.
   const pill = screen.getByText('online').closest('div');
   expect(pill).toHaveClass('text-green-800', 'dark:text-green-300');
+});
+
+it('renders the checking pill with the auto-flipping neutral tokens, needing no dark: pairing', () => {
+  // The default mock state: no outage, no sync landed yet this session. The
+  // "Last sync" row shares the same text, so the pill is identified by its
+  // `role="status"` rather than by the label alone.
+  render(<GuardianSettings />);
+
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('guardianCheckingLabel');
+  expect(pill).toHaveClass('bg-gray-50', 'text-heading-gray');
 });
 
 it('keeps the OFFLINE pill readable in both themes', () => {

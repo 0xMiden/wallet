@@ -68,9 +68,20 @@ const GuardianSettings: FC = () => {
   const provider = option?.operatedBy ?? (currentEndpoint ? t('customGuardian') : t('loading'));
   const region = option?.location ?? t('unknown');
   const endpoint = guardianEndpointHost(currentEndpoint) || t('loading');
-  const lastSync = guardianLastSyncAt
-    ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
-    : t('never');
+  // `guardianLastSyncAt` is session-local and starts empty on every popup
+  // reopen, so its absence means "not checked yet this session" — not "online"
+  // and not "never synced, historically". `guardianStatus` is the one place
+  // that turns those two signals into a status, so the pill and the "Last
+  // sync" row below always read as one consistent story rather than two.
+  const guardianStatus: 'offline' | 'checking' | 'online' = guardianOutage
+    ? 'offline'
+    : guardianLastSyncAt === undefined
+      ? 'checking'
+      : 'online';
+  const lastSync =
+    guardianLastSyncAt !== undefined
+      ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
+      : t('guardianCheckingLabel');
 
   // No haptic here: this is handed to `Button`, whose onClick wrapper already
   // fires a hapticLight on every click, so the tap buzzed twice. Same double-fire
@@ -100,25 +111,47 @@ const GuardianSettings: FC = () => {
             green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
             text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
         {/* `role="status"` + polite live region: this pill CHANGES under a user
-            who is already on the page (the outage arms from the 3s sync tick),
-            and a bare div announces nothing when it does. Polite, not assertive
-            — it must not interrupt whatever is being read. */}
+            who is already on the page (the outage arms from the 3s sync tick,
+            and "checking" resolves to "online" the moment the first sync
+            lands), and a bare div announces nothing when it does. Polite, not
+            assertive — it must not interrupt whatever is being read. */}
+        {/* "Checking" uses the auto-flipping neutral tokens (`bg-gray-50` /
+            `text-heading-gray`) already used elsewhere on this page, so it
+            needs no `dark:` pairing of its own — unlike the red/green states,
+            which use the fixed palette and therefore do. */}
         {currentEndpoint && (
           <div
             role="status"
             aria-live="polite"
             className={clsx(
               'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
-              guardianOutage
+              guardianStatus === 'offline'
                 ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
                   // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
                   // there, short of AA at this size.
                   'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
-                : 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
+                : guardianStatus === 'online'
+                  ? 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
+                  : 'bg-gray-50 text-heading-gray'
             )}
           >
-            <span className={clsx('h-2 w-2 rounded-full', guardianOutage ? 'bg-red-500' : 'bg-green-500')} />
-            <span>{guardianOutage ? t('guardianOfflineLabel') : t('online')}</span>
+            <span
+              className={clsx(
+                'h-2 w-2 rounded-full',
+                guardianStatus === 'offline'
+                  ? 'bg-red-500'
+                  : guardianStatus === 'online'
+                    ? 'bg-green-500'
+                    : 'bg-gray-400'
+              )}
+            />
+            <span>
+              {guardianStatus === 'offline'
+                ? t('guardianOfflineLabel')
+                : guardianStatus === 'online'
+                  ? t('online')
+                  : t('guardianCheckingLabel')}
+            </span>
           </div>
         )}
       </div>

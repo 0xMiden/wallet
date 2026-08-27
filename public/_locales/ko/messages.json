@@ -2044,6 +2044,10 @@
     "message": "오프라인",
     "englishSource": "Offline"
   },
+  "guardianCheckingLabel": {
+    "message": "확인 중",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
@@ -2432,14 +2436,14 @@
     "message": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device could not save the new Guardian address. Open Guardian settings and select the new Guardian to finish."
+    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian has not finished yet — the wallet keeps retrying in the background."
+    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 어떠한 역할도 수행하지 않습니다.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 귀하의 계정 거래에 공동 서명할 수 없습니다.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "사용자의 지갑 주소, 자금 및 내역은 변함이 없습니다. 로테이션 과정에서 이동된 항목은 없습니다.",

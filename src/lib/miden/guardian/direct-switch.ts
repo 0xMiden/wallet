@@ -20,7 +20,7 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
+import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -185,12 +185,18 @@ const ecdsaSignatureAdviceEntry = (
  *
  * Only the NEW guardian is contacted (its `getPubkey` is unauthenticated), to
  * fetch the pubkey commitment the on-chain rotation installs.
+ *
+ * That commitment is also RETURNED, because it is the only local way to ask the
+ * chain afterwards whether this rotation actually landed: the caller compares it
+ * against the account's on-chain guardian commitment when the commit wait ends
+ * without a verdict. Re-fetching it from the endpoint at that point would be a
+ * second chance to get a different answer from a host that is already suspect.
  */
 export const createDirectSwitchGuardianRequest = async (
   walletAccount: WalletAccount,
   newGuardianEndpoint: string,
   signWord: SignWordFunction
-): Promise<{ request: TransactionRequest; chainAnchorB64: string }> => {
+): Promise<{ request: TransactionRequest; chainAnchorB64: string; newGuardianPubkey: string }> => {
   const { hotPublicKey, coldPublicKey } = walletAccount;
   if (!hotPublicKey || !coldPublicKey) {
     throw new Error(
@@ -299,7 +305,64 @@ export const createDirectSwitchGuardianRequest = async (
     });
     return rebuilt;
   });
-  return { request, chainAnchorB64: built.chainAnchorB64 };
+  return { request, chainAnchorB64: built.chainAnchorB64, newGuardianPubkey };
+};
+
+/**
+ * Does this error mean the operator already has a record of the account?
+ *
+ * Duck-typed on the guardian's stable machine-readable code, like every other
+ * guardian error check here (see `isGuardianUnreachableError`), so it survives
+ * the duplicate-package error-class instances this repo can end up with.
+ */
+const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'account_already_exists';
+
+const normalizedCommitment = (hex: string): string => stripHexPrefix(hex).toLowerCase();
+
+/**
+ * Ask the CHAIN whether a submitted direct rotation actually took effect.
+ *
+ * `true` = the account's on-chain guardian commitment is the new operator's, so
+ * the rotation landed. `false` = it names something else, so it definitively did
+ * NOT. `undefined` = no answer available (the sync or the account read failed, or
+ * the account carries no guardian commitment at all) — which is not evidence in
+ * either direction and must not be treated as one.
+ *
+ * This exists because the commit wait can end with no verdict, and the wallet
+ * then has to decide whether to persist the new endpoint. Guessing is not
+ * survivable in one of the two directions: persisting the endpoint for a rotation
+ * that never landed points the vault at an operator with NO on-chain authority
+ * over the account, and nothing detects it afterwards — the drift reconciler
+ * compares the on-chain commitment against its own cached baseline, and in
+ * exactly this case those two agree (both still name the old operator), so it
+ * returns `in-sync` without ever looking at the stored endpoint. Post-commit
+ * registration also succeeds against the new operator, so every subsequent sync
+ * is healthy and the account looks fine right up until a transaction needs a
+ * co-signature the chain will not accept.
+ *
+ * Reading the commitment costs one sync and one local account read, and it
+ * replaces that guess with a fact in the case that matters.
+ */
+export const didDirectSwitchLand = async (
+  accountId: string,
+  newGuardianPubkey: string
+): Promise<boolean | undefined> => {
+  try {
+    const onChain = await withWasmClientLock(async () => {
+      await midenClientProxy.syncState();
+      const account = await midenClientProxy.getAccount(accountId);
+      return account ? getGuardianCommitmentFromAccount(account) : undefined;
+    });
+    if (!onChain) return undefined;
+    return normalizedCommitment(onChain) === normalizedCommitment(newGuardianPubkey);
+  } catch (error) {
+    // A failure here is not a verdict — say so, rather than letting a broken read
+    // masquerade as "did not land" and fail a rotation that may well have
+    // committed.
+    console.warn('Could not read the on-chain guardian commitment to confirm the direct switch:', error);
+    return undefined;
+  }
 };
 
 /**
@@ -373,6 +436,24 @@ export const finalizeDirectGuardianSwitch = async (
       }
       return;
     } catch (error) {
+      // The operator already holds this account. That is the goal state, so it
+      // must not be retried into a failure: the reachable causes are a `/configure`
+      // whose response was lost after the server applied it, and a second rotation
+      // to the guardian the account already has. Both leave a correctly registered
+      // account, and reporting `registerFailed` for either one arms a self-heal
+      // against a state that needs no healing.
+      //
+      // It is NOT proof that the state the operator holds is the state this
+      // rotation intended — the server refused to overwrite, so an older blob
+      // would survive. That distinction belongs to whatever compares held state,
+      // not to a retry loop; treating this as a hard failure here would not detect
+      // it either, and would break the idempotent case as well.
+      if (isGuardianAccountAlreadyRegistered(error)) {
+        console.warn(
+          `New guardian ${newGuardianEndpoint} already holds account ${accountIdHex}; registration is a no-op.`
+        );
+        return;
+      }
       lastError = error;
       console.warn(`Direct guardian registration failed (attempt ${attempt}/${MAX_DIRECT_REGISTER_RETRIES})`, error);
       if (attempt < MAX_DIRECT_REGISTER_RETRIES) {

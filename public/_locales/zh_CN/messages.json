@@ -2044,6 +2044,10 @@
     "message": "离线",
     "englishSource": "Offline"
   },
+  "guardianCheckingLabel": {
+    "message": "检查中",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "什么是Guardian？",
     "englishSource": "What is a Guardian?"
@@ -2432,14 +2436,14 @@
     "message": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device could not save the new Guardian address. Open Guardian settings and select the new Guardian to finish."
+    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian has not finished yet — the wallet keeps retrying in the background."
+    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
-    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将不再承担任何职能。",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将无法再对您账户的交易进行联署。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "您的钱包地址、资金及交易记录均保持不变。轮换过程中没有任何资产被转移。",

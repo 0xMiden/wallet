@@ -13,6 +13,9 @@ import {
   getGuardianLastSyncAt,
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
   isGuardianSyncOutage,
+  MISSING_REGISTRATION_BACKOFF_MS,
+  MISSING_REGISTRATION_MAX_ATTEMPTS,
+  MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
   syncGuardianAccounts,
@@ -88,9 +91,21 @@ jest.mock('lib/miden/guardian', () => ({
 // reads signer slot 0 (hot) off the on-chain account; `commitmentFromPublicKeyHex`
 // turns the locally-stored hot PUBLIC KEY into the commitment that slot holds.
 // `sameCommitment` is pure, so it runs for real.
+// `getGuardianCommitmentFromAccount` reads a DIFFERENT slot — the guardian
+// operator's key — which is how the missing-registration heal decides whether
+// this device's account state describes the rotation it is about to register.
 const mockGetSignerDetails = jest.fn();
+const mockGetGuardianCommitmentFromAccount = jest.fn();
 jest.mock('lib/miden/guardian/account', () => ({
-  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args)
+  getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
+  getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args)
+}));
+
+// One unauthenticated GET /pubkey: does the operator we are about to register on
+// actually hold the guardian key the local account state names?
+const mockCheckEndpointCommitment = jest.fn();
+jest.mock('lib/miden/guardian/operator-map', () => ({
+  checkEndpointCommitment: (...args: unknown[]) => mockCheckEndpointCommitment(...args)
 }));
 const mockCommitmentFromPublicKeyHex = jest.fn();
 jest.mock('lib/secure-hot-key/commitment', () => ({
@@ -313,6 +328,27 @@ describe('syncGuardianAccounts', () => {
 
     expect(storeState.checkGuardianDrift).toHaveBeenCalledWith('pk1');
     expect(storeState.checkGuardianDrift).not.toHaveBeenCalledWith('pk2');
+  });
+
+  // The ~3s tick fires this without awaiting it, and a guardian request has no
+  // client-side deadline, so overlapping runs would each count the SAME shared
+  // rejection toward the outage threshold and would each read the 429 cooldown
+  // before any of them wrote it.
+  it('coalesces an overlapping tick onto the in-flight run', async () => {
+    storeState.accounts = [{ publicKey: 'coalesce-pk', type: WalletType.Guardian, hotPublicKey: 'hot' }] as never;
+    const sync = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    const first = syncGuardianAccounts();
+    const second = syncGuardianAccounts();
+    expect(second).toBe(first);
+    await Promise.all([first, second]);
+
+    expect(sync).toHaveBeenCalledTimes(1);
+
+    // And the coalescing window closes with the run: the next tick syncs again.
+    await syncGuardianAccounts();
+    expect(sync).toHaveBeenCalledTimes(2);
   });
 
   it('survives a rejected checkGuardianDrift call (best-effort)', async () => {
@@ -756,11 +792,17 @@ describe('syncGuardianAccounts — drift reconciliation runs regardless of the g
 // needs before it can re-register.
 describe('syncGuardianAccounts — missing-registration self-heal', () => {
   const unknownAccountError = { code: 'account_not_found', message: 'no such account' };
+  const endpoint = 'https://new.guardian.test';
   const account = {
     publicKey: 'unregistered-pk',
     type: WalletType.Guardian,
     hotPublicKey: 'hot',
-    guardianEndpoint: 'https://new.guardian.test'
+    guardianEndpoint: endpoint
+  };
+
+  /** Drive enough ticks for the unknown-account verdict to count as persistent. */
+  const runUntilPersistent = async () => {
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD; i++) await syncGuardianAccounts();
   };
 
   beforeEach(() => {
@@ -769,51 +811,184 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     storeState.accounts = [account] as never;
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
+    // Default happy state: the local account is post-rotation (it names the
+    // operator's own guardian key) and this device is still its hot signer.
+    mockGetAccount.mockResolvedValue({ __sdkAccount: true });
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('newguardiankey');
+    mockCheckEndpointCommitment.mockResolvedValue('match');
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
   });
 
-  it('pushes a load-free registration to the operator that reports no record of the account', async () => {
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
+  // All four codes reach this branch: the operator uses them interchangeably for
+  // "I cannot produce state for that account", and only `account_not_found` used
+  // to be exercised — so the other three could have been dropped unnoticed.
+  it.each(['account_not_found', 'state_not_found', 'account_data_unavailable', 'data_unavailable'])(
+    'pushes a load-free registration once the %s verdict has persisted',
+    async code => {
+      mockGetOrCreateMultisigService.mockResolvedValue({
+        sync: jest.fn().mockRejectedValue({ code, message: 'no state for that account' })
+      });
+
+      // `data_unavailable` is a server-side condition that can be transient, and
+      // the repair rewrites the operator's authoritative copy of a private
+      // account — so a single verdict must not be enough.
+      for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+      await syncGuardianAccounts();
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      // The cached service was built against an operator that had no state; drop it
+      // so the next tick builds one against the now-registered account.
+      expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('unregistered-pk');
+    }
+  );
+
+  it('requires the verdicts to be consecutive — a 401 proves the operator knows the account', async () => {
+    const sync = jest.fn().mockRejectedValue(unknownAccountError);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
 
     await syncGuardianAccounts();
+    await syncGuardianAccounts();
+    sync.mockRejectedValue({ __authRejection: true, message: 'unauthorized' });
+    await syncGuardianAccounts();
 
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+    sync.mockRejectedValue(unknownAccountError);
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {
+    // Rotated out to another device. `/configure` is account-wide, so pushing a
+    // registration here would revoke the device that now owns the account.
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+
+    await runUntilPersistent();
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // The state this device would POST becomes the operator's authoritative copy of
+  // a PRIVATE account — nothing on chain carries it, and the drift reconciler
+  // compares only the guardian KEY commitment, so a stale push is undetectable
+  // afterwards. Register only when the operator confirms it holds the guardian
+  // key the local state names.
+  it.each(['mismatch', 'unreachable'])(
+    'does not register when the operator answers %s for the guardian key the local state names',
+    async verdict => {
+      mockCheckEndpointCommitment.mockResolvedValue(verdict);
+
+      await runUntilPersistent();
+      await syncGuardianAccounts();
+
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(endpoint, 'newguardiankey');
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+      // A refusal stamps the same backoff clock as a push, so the probe behind it
+      // does not run again on the next ~3s tick.
+      expect(mockCheckEndpointCommitment).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not register when the local account names no guardian key at all', async () => {
+    mockGetGuardianCommitmentFromAccount.mockReturnValue(undefined);
+
+    await runUntilPersistent();
+
+    expect(mockCheckEndpointCommitment).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the local account is missing from the client', async () => {
+    mockGetAccount.mockResolvedValue(null);
+
+    await runUntilPersistent();
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // A failed push must not disarm the recovery: the successful sync that used to
+  // be the only way to re-arm it is exactly what an unregistered account cannot
+  // produce, so a lost race left the row `registerFailed` forever.
+  it('retries a failed registration on a widening backoff, then stops at the cap', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
+    const t0 = 1_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(t0);
+
+    await expect(runUntilPersistent()).resolves.toBeUndefined();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockReturnValue(t0 + MISSING_REGISTRATION_BACKOFF_MS - 1);
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    const t1 = t0 + MISSING_REGISTRATION_BACKOFF_MS;
+    nowSpy.mockReturnValue(t1);
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+
+    // The gap doubles, so the second wait is twice the first.
+    const t2 = t1 + 2 * MISSING_REGISTRATION_BACKOFF_MS;
+    nowSpy.mockReturnValue(t2 - 1);
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockReturnValue(t2);
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+
+    // Capped: an operator that keeps refusing a registration it also says it
+    // needs will not be resolved by further `/configure` calls.
+    nowSpy.mockReturnValue(t2 + 100 * MISSING_REGISTRATION_BACKOFF_MS);
+    await syncGuardianAccounts();
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+
+    nowSpy.mockRestore();
+  });
+
+  // The budget is keyed by what the push would WRITE, so a second rotation in the
+  // same session is not silently skipped by the first one's spent attempts.
+  it('re-arms for a rotation to a different endpoint in the same session', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Same instant, so only the new key — not the backoff — can allow this push.
+    storeState.accounts = [{ ...account, guardianEndpoint: 'https://second.guardian.test' }] as never;
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('secondguardiankey');
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenNthCalledWith(
+      2,
       'unregistered-pk',
-      'https://new.guardian.test',
+      'https://second.guardian.test',
       zustandProvider
     );
-    // The cached service was built against an operator that had no state; drop it
-    // so the next tick builds one against the now-registered account.
-    expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('unregistered-pk');
+    nowSpy.mockRestore();
   });
 
-  // `/configure` is account-wide and revokes whatever request-auth the account
-  // previously had. Retrying it on a 3s tick against an operator whose verdict is
-  // not changing would hammer a write with real authority.
-  it('does not retry the registration in the same session', async () => {
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
+  it('re-arms when the same endpoint installs a new guardian key', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
 
-    await syncGuardianAccounts();
-    await syncGuardianAccounts();
-    await syncGuardianAccounts();
-
+    await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
-  });
 
-  it('keeps the loop alive when the registration itself fails, and still does not retry', async () => {
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
-    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new Error('configure rejected'));
-
-    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('rotatedoperatorkey');
     await syncGuardianAccounts();
 
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
   });
 
   // An operator that answers is not an outage, whatever it answers — arming the
   // banner here would tell the user to rotate away from an operator that is up.
   it('never arms the unreachable-guardian banner', async () => {
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
-
     for (let i = 0; i < GUARDIAN_SYNC_OUTAGE_THRESHOLD + 2; i++) await syncGuardianAccounts();
 
     expect(isGuardianSyncOutage('unregistered-pk')).toBe(false);
@@ -821,25 +996,28 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
   it('does nothing when the account has no stored endpoint to register against', async () => {
     storeState.accounts = [{ ...account, guardianEndpoint: undefined }] as never;
-    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn().mockRejectedValue(unknownAccountError) });
 
-    await syncGuardianAccounts();
+    await runUntilPersistent();
 
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
 
-  it('a successful sync re-arms the one-shot, so a genuine later recurrence is repaired', async () => {
+  it('a successful sync re-arms the budget, so a genuine later recurrence is repaired', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
     const sync = jest.fn().mockRejectedValue(unknownAccountError);
     mockGetOrCreateMultisigService.mockResolvedValue({ sync });
 
-    await syncGuardianAccounts();
+    await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
     sync.mockResolvedValue(undefined);
     await syncGuardianAccounts();
 
+    // Same instant and the same triple: only the successful sync's reset can let
+    // this second push through.
     sync.mockRejectedValue(unknownAccountError);
-    await syncGuardianAccounts();
+    await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
   });
 });

@@ -1,6 +1,7 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
-import { getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
 import { finalizeDirectGuardianSwitch, isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
@@ -68,14 +69,55 @@ const hardeningChecked = new Set<string>();
 const consecutiveAuthFailures = new Map<string, number>();
 const selfHealState = new Map<string, SelfHealAttemptState>();
 
-// Accounts this session has already tried to re-register on an operator that
-// reported never having seen them. Bounded to one attempt per session on
-// purpose: `/configure` is account-wide and revokes whatever request-auth the
-// account previously had, so retrying it on a 3s tick against an operator that
-// keeps saying "unknown account" would hammer a write with real authority on the
-// strength of a verdict that is not changing. Cleared on a successful sync, so a
-// genuine later recurrence gets a fresh attempt.
-const missingRegistrationHealed = new Set<string>();
+// Missing-registration self-heal state, mirroring the pair above because the
+// write it guards is strictly more dangerous than a cold re-register:
+// `finalizeDirectGuardianSwitch` hands the operator THIS DEVICE's serialized
+// account as the authoritative `initialState`, so a bad push does not merely
+// rewrite an allowlist — it replaces the operator's copy of a PRIVATE account's
+// state, which no drift check can detect afterwards (the reconciler compares the
+// guardian KEY commitment, not the state behind it).
+//
+// `consecutiveUnknownAccount` counts unknown-account verdicts in a row per
+// account (reset by any other outcome, exactly like `consecutiveAuthFailures`).
+// `missingRegistrationState` holds attempt count + last attempt time keyed by
+// what the push would actually WRITE — account, endpoint, and the on-chain
+// guardian key the local state names — so a second rotation in the same session,
+// to a different operator or back again, arrives with its own budget instead of
+// inheriting an exhausted one from the first.
+const consecutiveUnknownAccount = new Map<string, number>();
+const missingRegistrationState = new Map<string, SelfHealAttemptState>();
+
+/**
+ * Consecutive unknown-account verdicts required before the first registration
+ * push.
+ *
+ * `isGuardianAccountUnknown` deliberately also matches `data_unavailable`,
+ * which the operator uses for a state blob it could not produce — a server-side
+ * condition that can be transient. Acting on the first occurrence therefore let
+ * one bad response trigger an authority-bearing write over the operator's own
+ * copy of the account. Three ticks is ~9s of the same verdict, which no blip
+ * survives, and the rotation this repairs has already been broken for longer
+ * than that.
+ */
+export const MISSING_REGISTRATION_PERSISTENCE_THRESHOLD = 3;
+
+/** Registration pushes per (account, endpoint, guardian key) triple before giving up. */
+export const MISSING_REGISTRATION_MAX_ATTEMPTS = 3;
+
+/**
+ * First gap between registration pushes for one triple; doubles per attempt.
+ *
+ * Bounded retry rather than one attempt per session: the first push can lose to
+ * an operator that is briefly refusing writes, and a one-shot spent on that loss
+ * left the row `registerFailed` with no later tick willing to try again — the
+ * account cannot recover on its own, because the successful sync that re-arms
+ * the one-shot is exactly what an unregistered account cannot produce. Three
+ * pushes at 60s then 120s spend ~3 minutes; past that the operator is refusing a
+ * registration it also says it needs, which another `/configure` will not
+ * resolve. The same clock throttles a REFUSED check (see the guards below), so
+ * the probes behind them cannot run on the ~3s tick either.
+ */
+export const MISSING_REGISTRATION_BACKOFF_MS = 60_000;
 
 /**
  * `Date.now()` before which an account's sync is paused because the guardian
@@ -202,15 +244,17 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
 /**
  * Test-only: reset every piece of this module's per-session sync state — the
  * outage flag and its counter, the in-flight coalescing promise, the
- * one-attempt-per-session registration heal, and the last-sync stamps. Notifies
- * subscribers unconditionally, so a `useSyncExternalStore` reader that outlives
- * the reset cannot keep a snapshot the module no longer agrees with.
+ * missing-registration heal's persistence count and attempt budget, and the
+ * last-sync stamps. Notifies subscribers unconditionally, so a
+ * `useSyncExternalStore` reader that outlives the reset cannot keep a snapshot
+ * the module no longer agrees with.
  */
 export function __resetGuardianSyncOutageForTest(): void {
   consecutiveServerFailures.clear();
   outageAccounts.clear();
   syncInFlight = undefined;
-  missingRegistrationHealed.clear();
+  consecutiveUnknownAccount.clear();
+  missingRegistrationState.clear();
   lastGuardianSyncAt.clear();
   notifyOutageListeners();
 }
@@ -237,6 +281,29 @@ function isGuardianAccountUnknown(err: unknown): boolean {
 }
 
 /**
+ * Is this triple due for a registration push right now?
+ *
+ * Exponential rather than the 401 path's flat cooldown: an unknown-account
+ * verdict only changes when something outside the wallet does, so every repeat
+ * has to buy more silence than the last. A state whose `attempts` is still 0 is
+ * a REFUSED check that stamped the clock (see the guards in
+ * `attemptMissingRegistrationSelfHeal`), and gets the same first gap.
+ */
+function isMissingRegistrationPushDue(now: number, state: SelfHealAttemptState | undefined): boolean {
+  if (!state) return true;
+  if (state.attempts >= MISSING_REGISTRATION_MAX_ATTEMPTS) return false;
+  return now - state.lastAttemptAt >= MISSING_REGISTRATION_BACKOFF_MS * 2 ** Math.max(state.attempts - 1, 0);
+}
+
+/** Re-arm every triple this account has spent budget on (public keys carry no `|`). */
+function clearMissingRegistrationState(accountPublicKey: string): void {
+  const prefix = `${accountPublicKey}|`;
+  for (const key of missingRegistrationState.keys()) {
+    if (key.startsWith(prefix)) missingRegistrationState.delete(key);
+  }
+}
+
+/**
  * Push a registration to an operator that reports no record of the account.
  *
  * This is the recovery half of `registerFailed` (see `ISwitchGuardianExtraInputs`).
@@ -250,13 +317,99 @@ function isGuardianAccountUnknown(err: unknown): boolean {
  *
  * `finalizeDirectGuardianSwitch` is the one registration path with no such
  * precondition: it reads the signer allowlist from the LOCAL account and POSTs
- * `/configure` directly.
+ * `/configure` directly. That is also what makes this the most dangerous write
+ * in this module — the POST carries this device's serialized account as the
+ * operator's authoritative `initialState` — so it is gated the same way the cold
+ * re-register is, plus one guard that path does not need.
+ *
+ * The caller supplies persistence (the verdict has repeated); this function
+ * supplies the bounded/backed-off budget and the three refusals below.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
-  if (missingRegistrationHealed.has(account.publicKey)) return;
   const endpoint = account.guardianEndpoint;
   if (!endpoint) return;
-  missingRegistrationHealed.add(account.publicKey);
+
+  // Read once and decide everything from that one snapshot: the budget key, both
+  // guards, and (via `finalizeDirectGuardianSwitch`, which re-syncs and re-reads
+  // for the bytes it actually pushes) the write itself.
+  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
+  if (!sdkAccount) return;
+
+  const onChainGuardian = getGuardianCommitmentFromAccount(sdkAccount);
+  const healKey = `${account.publicKey}|${endpoint}|${onChainGuardian ?? 'no-guardian-key'}`;
+  const now = Date.now();
+  const prior = missingRegistrationState.get(healKey);
+  if (!isMissingRegistrationPushDue(now, prior)) return;
+
+  // Stamp the clock BEFORE the guards, without consuming an attempt. A refusal
+  // is not free — the endpoint probe below is an HTTP round trip — and a refusal
+  // that left the clock untouched would re-run these checks on every ~3s tick
+  // for as long as the condition behind it holds. The attempt count is spent
+  // only on a real push, so three transient refusals cannot burn the budget.
+  const attempts = prior?.attempts ?? 0;
+  missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
+
+  // STOP if this device is no longer the account's on-chain hot signer — same
+  // arbiter, same reasoning as the cold re-register self-heal: `/configure` is
+  // account-wide, so a device that was rotated out would revoke the device that
+  // now owns the account.
+  //
+  // Weaker here than there, unavoidably: that path adopts the guardian's own
+  // copy of the state before reading the signer set, and this operator has no
+  // copy to adopt. So this reads whatever slot 0 says in THIS device's account,
+  // which cannot show a hot-key rotation performed elsewhere. The residual risk
+  // is bounded by the guardian-key guard below — a copy predating the guardian
+  // rotation is refused outright — leaving only the narrow window where a copy
+  // is current for the guardian rotation yet stale for a later hot-key rotation.
+  const onChainHot = await getSignerDetailsFromAccount(sdkAccount, false).catch(() => undefined);
+  if (account.hotPublicKey && onChainHot) {
+    const localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined);
+    if (localHot && !sameCommitment(localHot, onChainHot.commitment)) {
+      console.warn(
+        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: this device's hot key is no longer ` +
+          `the account's on-chain signer (it was rotated to another device).`
+      );
+      return;
+    }
+  }
+
+  // STOP unless the local state DESCRIBES a rotation to this operator.
+  //
+  // The extra guard the 401 path does not need. That path re-registers the
+  // on-chain signer set and can adopt the guardian's own copy of the state
+  // first; here the operator has no copy to adopt, so the only state in
+  // existence is this device's — and if this device's copy predates the
+  // rotation, pushing it would install a state naming the OLD guardian as the
+  // new operator's authoritative one. Guardian accounts are private storage
+  // mode, so nothing on chain would ever reveal that, and the drift reconciler
+  // compares only the guardian KEY commitment.
+  //
+  // The guardian key the local state names is exactly the value the operator
+  // serves from its unauthenticated `/pubkey`, which is how drift reconciliation
+  // pairs an endpoint with a commitment. A stale snapshot names a different key
+  // and is refused; silence is refused too, because this write needs positive
+  // evidence and the operator answering our sync at all means `/pubkey` should
+  // answer as well.
+  if (!onChainGuardian) {
+    console.warn(
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the local account names no guardian key, ` +
+        `so there is nothing to check the operator against.`
+    );
+    return;
+  }
+  const endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
+  if (endpointHoldsGuardianKey !== 'match') {
+    console.warn(
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the operator did not confirm the ` +
+        `guardian key this device's account state names (${endpointHoldsGuardianKey}), so that state may predate ` +
+        `a rotation another device performed.`
+    );
+    return;
+  }
+
+  // Counted before the await: an attempt that throws — or that is torn down
+  // mid-flight — has still spent one, because `/configure` may have landed.
+  missingRegistrationState.set(healKey, { attempts: attempts + 1, lastAttemptAt: now });
 
   try {
     await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider);
@@ -266,7 +419,8 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     );
   } catch (e) {
     console.warn(
-      `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} (not retried this session):`,
+      `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} ` +
+        `(attempt ${attempts + 1}/${MISSING_REGISTRATION_MAX_ATTEMPTS}):`,
       e
     );
   }
@@ -446,7 +600,8 @@ async function runGuardianAccountsSync(): Promise<void> {
       // fresh, and stand down the guardian-unreachable prompt.
       consecutiveAuthFailures.delete(account.publicKey);
       selfHealState.delete(account.publicKey);
-      missingRegistrationHealed.delete(account.publicKey);
+      consecutiveUnknownAccount.delete(account.publicKey);
+      clearMissingRegistrationState(account.publicKey);
       recordSuccessfulGuardianSync(account.publicKey);
 
       // Self-heal the update_guardian threshold-2 hardening: if a migrated
@@ -481,9 +636,12 @@ async function runGuardianAccountsSync(): Promise<void> {
       // to repair a genuinely-stale allowlist, and only a bounded number of
       // times.
       if (isGuardianAuthRejection(error)) {
-        // A 401 is the server answering — the guardian is up.
+        // A 401 is the server answering — the guardian is up. It also proves the
+        // operator HAS this account (it knows the account and rejects the
+        // signer), so any unknown-account streak is broken.
         clearGuardianServerFailures(account.publicKey);
         clearGuardianServiceFor(account.publicKey);
+        consecutiveUnknownAccount.delete(account.publicKey);
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
         const now = Date.now();
@@ -497,6 +655,7 @@ async function runGuardianAccountsSync(): Promise<void> {
         // every 3s. A 429 is not an auth problem, so the failure count resets —
         // and it proves the server is up, so the outage flag clears too.
         consecutiveAuthFailures.delete(account.publicKey);
+        consecutiveUnknownAccount.delete(account.publicKey);
         clearGuardianServerFailures(account.publicKey);
         const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
         const cooldown = Math.min(
@@ -523,12 +682,23 @@ async function runGuardianAccountsSync(): Promise<void> {
         //
         // A server answering is not an outage, so the failure count resets rather
         // than arming the banner.
+        //
+        // The push waits for the verdict to PERSIST. `data_unavailable` is one of
+        // the codes this branch matches and the operator uses it for a state blob
+        // it could not produce, which can be transient — and the repair rewrites
+        // that operator's authoritative copy of a private account. One bad
+        // response must not be able to trigger it.
         consecutiveAuthFailures.delete(account.publicKey);
         clearGuardianServerFailures(account.publicKey);
-        await attemptMissingRegistrationSelfHeal(account);
+        const unknownVerdicts = (consecutiveUnknownAccount.get(account.publicKey) ?? 0) + 1;
+        consecutiveUnknownAccount.set(account.publicKey, unknownVerdicts);
+        if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD) {
+          await attemptMissingRegistrationSelfHeal(account);
+        }
       } else {
         // Non-auth error — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);
+        consecutiveUnknownAccount.delete(account.publicKey);
         if (isGuardianUnreachableError(error)) {
           // Server down (connection refused / timeout / 5xx): count it toward
           // the outage threshold that surfaces the switch-guardian prompt.

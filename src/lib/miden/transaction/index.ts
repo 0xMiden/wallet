@@ -14,7 +14,11 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
-import { createDirectSwitchGuardianRequest, isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import {
+  createDirectSwitchGuardianRequest,
+  didDirectSwitchLand,
+  isGuardianUnreachableError
+} from 'lib/miden/guardian/direct-switch';
 import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
@@ -1720,9 +1724,25 @@ const describeError = (error: unknown): string => {
  * pipeline + commit-wait + completion as the proposal path. Completion gets an
  * undefined MultisigService and registers on the NEW guardian directly.
  *
- * No `abandonCandidate` on failure: either no proposal ever reached the old
- * guardian, or it did and the guardian is unreachable anyway — a leftover
- * pending delta on an abandoned operator has no on-chain authority.
+ * No `abandonCandidate` on entry, and — unlike the cold-co-sign arm — that is a
+ * limitation rather than a judgement that there is nothing to retract.
+ *
+ * Two of the three ways to get here genuinely leave nothing behind: no proposal
+ * ever reached the old guardian, or one did and that guardian is down anyway, in
+ * which case a pending delta on it has no on-chain authority. The third case
+ * exists only because the outgoing-guardian round trip is now DEADLINE-bounded:
+ * `withOutgoingGuardianDeadline` rejects its caller at 30s but does not cancel
+ * the request, so a merely SLOW-but-healthy operator can accept the proposal POST
+ * after we have already given up on it. That leaves a real pending delta on a
+ * live operator.
+ *
+ * It cannot be retracted from here: `abandonCandidate` needs the candidate nonce,
+ * and the nonce was in the response the deadline fired on. The residual is a
+ * later COORDINATED switch back to that same operator failing with a 409 that
+ * `switch-guardian` cannot requeue through (it is excluded from
+ * REQUEUEABLE_ON_PENDING_CONFLICT). Narrow — it needs the user to rotate back to
+ * the operator that timed out — and strictly better than the alternative, which
+ * is letting a slow operator block the recovery path this function IS.
  */
 const generateDirectSwitchGuardianTransaction = async (
   transaction: SwitchGuardianTransaction,
@@ -1759,7 +1779,11 @@ const generateDirectSwitchGuardianTransaction = async (
 
   // Hot + cold both sign at build time — surface that as the signing stage.
   await setTransactionStage(transaction.id, 'signing-proposal');
-  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+  const {
+    request: tr,
+    chainAnchorB64,
+    newGuardianPubkey
+  } = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord
@@ -1794,33 +1818,52 @@ const generateDirectSwitchGuardianTransaction = async (
   // Same commit-wait as the proposal path: the new guardian must be seeded
   // with the POST-switch state, so registration only runs after inclusion.
   //
-  // An INDETERMINATE wait failure must not skip the completion, though. The
-  // transaction is already submitted and applied locally, and completion is what
-  // persists the new endpoint — without it the vault keeps naming the operator
-  // this path exists because it cannot reach, and the row is terminal
-  // (`switch-guardian` is excluded from requeue and from Retry), so there is no
-  // second attempt to fall back on. Proceeding is the better trade in both
-  // directions: if the switch did land, completion is simply correct; if it did
-  // not, `resolveGuardianDrift` repairs the pointer from the other side, because
-  // the on-chain commitment still names the old operator and
-  // `identifyGuardianOperator` can match it.
+  // A DISCARD is the clean case: the node has ruled that the rotation provably
+  // did not happen, so persisting the new endpoint and reporting "Guardian
+  // switched" would be a lie the user acts on, and it would hand the account to
+  // an operator with no on-chain authority over it. Fail the row and leave the
+  // vault naming the guardian that still holds the account.
   //
-  // A DISCARD is the one failure where that reasoning inverts. There the node
-  // has ruled: the rotation provably did not happen, so persisting the new
-  // endpoint and reporting "Guardian switched" would be a lie the user acts on,
-  // and it would hand the account to an operator with no on-chain authority over
-  // it. Fail the row and leave the vault naming the guardian that still holds
-  // the account.
+  // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
+  // Skipping completion strands the vault on the operator this path exists
+  // because it cannot reach, and the row is terminal (`switch-guardian` is
+  // excluded from requeue and from Retry) so nothing retries. Completing anyway
+  // risks pointing the vault at an operator the chain never installed — a state
+  // with no symptom and no self-repair (see `didDirectSwitchLand`).
+  //
+  // So do not choose between them on a guess: ASK THE CHAIN. The rotation's
+  // whole effect is one on-chain commitment, and reading it costs a sync. Only
+  // when the chain cannot be read at all does this fall back to completing on no
+  // evidence — the lesser of the two harms, since that at least leaves a
+  // reachable operator and a row whose audit fields say what happened.
   const id = result.executedTransaction().id().toHex();
   await setTransactionStage(transaction.id, 'confirming');
+  let commitConfirmed = true;
   try {
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
     if (isTransactionDiscardedError(waitError)) throw waitError;
+    commitConfirmed = false;
     console.warn(
-      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; finalizing ` +
-        'anyway so the new endpoint is persisted and the account is not stranded on the unreachable operator:',
+      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
+        'checking the on-chain guardian commitment to find out whether it landed:',
       waitError
+    );
+  }
+
+  if (!commitConfirmed) {
+    const landed = await didDirectSwitchLand(transaction.accountId, newGuardianPubkey);
+    if (landed === false) {
+      throw new Error(
+        `Direct guardian switch ${id} did not land: the account's on-chain guardian is still not ${newGuardianPubkey}. ` +
+          'Leaving the stored guardian endpoint untouched.'
+      );
+    }
+    console.warn(
+      landed === true
+        ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
+        : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
+            'is not stranded on the unreachable operator.'
     );
   }
 

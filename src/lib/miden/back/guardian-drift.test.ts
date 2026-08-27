@@ -153,9 +153,10 @@ it('flags needs-user-input when no built-in operator matches', async () => {
   expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
-it('affirms in-sync when the STORED endpoint matches on-chain — a deliberate custom-URL switch must not flag needs-user-input', async () => {
+it('affirms in-sync when the STORED endpoint matches on-chain and no built-in claims that commitment — a deliberate custom-URL switch must not flag needs-user-input', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -166,12 +167,61 @@ it('affirms in-sync when the STORED endpoint matches on-chain — a deliberate c
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(checkEndpointCommitment).toHaveBeenCalledWith('https://custom.guardian', 'customC');
-  // Endpoint is already correct — only status + baseline are written, commitment
-  // LAST (mirroring the other branches). The stored endpoint is asked FIRST, so
-  // the built-in operator fan-out is never reached on this common path.
+  // No built-in serves this commitment, so the stored endpoint's self-report is
+  // the only evidence there is: a genuine custom operator, same trust level as a
+  // URL the user typed into the banner. Endpoint is already correct — only status
+  // + baseline are written, commitment LAST (mirroring the other branches).
+  expect(identifyGuardianOperator).toHaveBeenCalledWith('customC');
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
   expect(order).toEqual(['status:in-sync', 'commitment']);
-  expect(identifyGuardianOperator).not.toHaveBeenCalled();
+});
+
+// `GET /pubkey` is unauthenticated, so a stored endpoint can simply ASSERT the
+// account's on-chain commitment. Believing it advanced the baseline, and from
+// then on the cheap first branch answered `in-sync` before any probe ran — a
+// stale or hostile URL permanently vetoed reconciliation, with a green "Online"
+// pill and no `needs-user-input` prompt the user could act on.
+it('prefers a built-in operator over a stored endpoint that self-certifies with the same commitment', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://real.guardian' });
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://hostile.guardian'
+  });
+  const order = trackWriteOrder(vault);
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+
+  expect(identifyGuardianOperator).toHaveBeenCalledWith('newC');
+  expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://real.guardian');
+  expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'newC');
+  expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
+});
+
+// The built-in's endpoint is a literal in wallet config; the stored one may have
+// been typed by a user. Comparing them verbatim would read a trailing slash or a
+// difference in host case as a different operator, rewrite the account's endpoint
+// to an equivalent URL and report `changed` for a tick that changed nothing.
+it('treats a stored endpoint differing from the built-in only in trailing slash and case as the same endpoint', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue({
+    id: 'gateway',
+    endpoint: 'https://Guardian.Example.com'
+  });
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://guardian.example.com/'
+  });
+  const order = trackWriteOrder(vault);
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+  expect(order).toEqual(['status:in-sync', 'commitment']);
 });
 
 it('still flags needs-user-input when the stored endpoint does NOT match on-chain (genuine out-of-band switch)', async () => {
@@ -330,6 +380,25 @@ describe('operator-probe cooldown', () => {
     // the previous drift's cooldown.
     await resolveGuardianDrift(driftedVault() as never, 'pk');
     expect(checkEndpointCommitment).toHaveBeenCalledTimes(2);
+  });
+
+  // Corroborating a stored-endpoint `'match'` is a second fan-out over every
+  // built-in, on a path that used to return after a single probe — so it has to
+  // sit behind the same gate, or an account whose baseline never advances turns
+  // the ~3s tick into a fan-out per tick.
+  it('gates the corroboration fan-out on a stored-endpoint match behind the cooldown', async () => {
+    await resolveGuardianDrift(driftedVault() as never, 'pk');
+    expect(checkEndpointCommitment).toHaveBeenCalledTimes(1);
+    expect(identifyGuardianOperator).toHaveBeenCalledTimes(1);
+
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    expect(await resolveGuardianDrift(driftedVault() as never, 'pk')).toEqual({
+      status: 'needs-user-input',
+      changed: false
+    });
+
+    expect(checkEndpointCommitment).toHaveBeenCalledTimes(1);
+    expect(identifyGuardianOperator).toHaveBeenCalledTimes(1);
   });
 
   it('cools down per account, so one stuck account does not silence another', async () => {

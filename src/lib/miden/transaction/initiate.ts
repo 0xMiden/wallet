@@ -494,6 +494,22 @@ export const initiateBridgedReceiveTransaction = async (args: {
  * Queue a switch-guardian transaction for a Guardian account. The per-account
  * `guardianEndpoint` is NOT updated here — it's persisted only after the
  * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ *
+ * Deduped against a rotation that is already in flight for this account, and the
+ * existing row's id is returned instead of a second row being queued. Unlike the
+ * value-moving types, a duplicate here is not merely wasteful: rotations are
+ * serialized per account (`withGuardianAccountLock`), so the second row starts
+ * only AFTER the first has committed and persisted the new endpoint, and it then
+ * performs a whole second on-chain `update_guardian` to the guardian the account
+ * already has. Its post-commit registration also finds the account already
+ * present on that operator, so the row lands `Completed` carrying a
+ * `registerFailed` flag that describes nothing wrong. Returning the live id
+ * instead sends the caller to the rotation that is actually running — the UI
+ * navigates to `/generating-transaction/:txId` with whatever comes back.
+ *
+ * Completed and Failed rows are deliberately NOT deduped against: a finished
+ * rotation must never block the next one, and a failed rotation is the case the
+ * user most needs to be able to re-run (`switch-guardian` has no Retry).
  */
 export const initiateSwitchGuardianTransaction = async (
   accountId: string,
@@ -507,14 +523,36 @@ export const initiateSwitchGuardianTransaction = async (
     throw new Error('Switch guardian is only supported for Guardian accounts');
   }
   const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
-  const dbTransaction = new SwitchGuardianTransaction(
-    accountId,
-    newGuardianEndpoint,
-    delegateTransaction,
-    previousGuardianEndpoint
-  );
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+
+  // Check-and-add inside one rw transaction, like the consume dedup above, so
+  // two taps landing together cannot both pass the check.
+  //
+  // `filter` rather than an index lookup: `type` is not an indexed key path (see
+  // the v1.5 schema in repo.ts), and `accountId` is indexed but only matches an
+  // exact string, whereas the same account can be spelled more than one way —
+  // which is why `compareAccountIds` exists. A scan of the transaction table is
+  // what `getAllUncompletedTransactions` already does per queue lap.
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const inFlightRows = await Repo.transactions
+      .filter(
+        row =>
+          row.type === 'switch-guardian' &&
+          !row.restoredFromBackup &&
+          (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction)
+      )
+      .toArray();
+    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, accountId));
+    if (inFlight) return inFlight.id;
+
+    const dbTransaction = new SwitchGuardianTransaction(
+      accountId,
+      newGuardianEndpoint,
+      delegateTransaction,
+      previousGuardianEndpoint
+    );
+    await Repo.transactions.add(dbTransaction);
+    return dbTransaction.id;
+  });
 };
 
 /**

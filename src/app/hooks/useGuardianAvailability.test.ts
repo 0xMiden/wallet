@@ -49,18 +49,49 @@ describe('useGuardianAvailability', () => {
     });
   });
 
-  it('drops a late verdict after unmount instead of setting state', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  // Unmount has to STOP the hook, and what is observable about that is also what
+  // costs something: the 30s interval and the two foreground listeners outlive
+  // the component unless the effect's cleanup tears them down, so a picker
+  // opened and closed a few times would leave one dead instance per visit
+  // fanning out a round at every operator, forever.
+  //
+  // The in-round `if (cancelled) return` guard is deliberately NOT what this
+  // asserts, because it cannot be: React 18 discards a setState on an unmounted
+  // component silently (the warning it used to print is gone), so a verdict
+  // landing after unmount looks identical with the guard and without it.
+  it('stops probing after unmount', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://late.example.com';
+      const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+      await act(async () => resolvers.get(endpoint)!(true));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      unmount();
+      await act(async () => {
+        jest.advanceTimersByTime(GUARDIAN_AVAILABILITY_REPROBE_MS * 3);
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+
+      expect(mockPing).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The other half of teardown: a verdict for a ping that was already out when
+  // the screen closed still has to settle harmlessly — the round's promise chain
+  // must not throw or reject into an unhandled rejection.
+  it('absorbs a verdict that arrives after unmount', async () => {
     const resolvers = deferredPings();
-    const endpoint = 'https://late.example.com';
+    const endpoint = 'https://gone.example.com';
     const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
 
     unmount();
-    // Resolving after unmount must be inert — no React "setState on unmounted
-    // component" warning, no throw.
+
     await expect(act(async () => resolvers.get(endpoint)!(true))).resolves.toBeUndefined();
-    expect(errorSpy).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
   });
 
   // Regression: the effect used to key on array IDENTITY, so a caller passing
@@ -189,5 +220,61 @@ describe('useGuardianAvailability', () => {
 
     await act(async () => resolvers.get('https://new.example.com')!(true));
     expect(result.current).toEqual({ 'https://new.example.com': 'online' });
+  });
+
+  // The case above changes the set only AFTER the first round settled, which is
+  // the easy half. Changing it MID-round is where both guards used to fail, and
+  // it is the real sequence: the picker swaps its option list while four pings
+  // are out, so every probe in flight belongs to a set nobody is looking at.
+  it('probes a set that replaces another one mid-round, and drops the superseded verdict', async () => {
+    const resolvers = deferredPings();
+    const { result, rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
+      initialProps: { endpoints: ['https://old.example.com'] }
+    });
+    expect(mockPing).toHaveBeenCalledTimes(1);
+
+    // Swap the set while the first ping is still unsettled.
+    rerender({ endpoints: ['https://new.example.com'] });
+
+    // The new set must be probed straight away. The unsettled previous round used
+    // to hold the in-flight slot, so this round never started and the picker sat
+    // with no verdict for its current options until the 30s interval.
+    expect(mockPing).toHaveBeenCalledTimes(2);
+    expect(mockPing).toHaveBeenLastCalledWith('https://new.example.com');
+
+    // The retired endpoint now answers. Its verdict belongs to a set that is no
+    // longer on screen and must not be written: the single cancel flag was reset
+    // by the very rerender that superseded this round, so this landed anyway.
+    await act(async () => resolvers.get('https://old.example.com')!(true));
+    expect(result.current).toEqual({});
+
+    // And the live round still works after the stale one resolved through it.
+    await act(async () => resolvers.get('https://new.example.com')!(false));
+    expect(result.current).toEqual({ 'https://new.example.com': 'offline' });
+  });
+
+  // A superseded round handing the in-flight slot back would clear it out from
+  // under the round that replaced it, re-opening the duplicate fan-out that slot
+  // exists to prevent.
+  it('keeps the in-flight slot held by the live round when a superseded round settles', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const { rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
+        initialProps: { endpoints: ['https://old.example.com'] }
+      });
+      rerender({ endpoints: ['https://new.example.com'] });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      // The stale round settles; the live round is still out.
+      await act(async () => resolvers.get('https://old.example.com')!(true));
+
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

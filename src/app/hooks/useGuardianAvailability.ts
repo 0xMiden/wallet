@@ -54,12 +54,23 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
   // return can land on top of an in-flight interval round, and a duplicated
   // fan-out against a struggling operator is the last thing that helps.
   const roundInFlight = useRef(false);
-  const cancelledRef = useRef(false);
+
+  // Which endpoint-set GENERATION a verdict belongs to. Bumped whenever the set
+  // changes and on unmount, so a ping still out from the previous set resolves
+  // into a generation nobody is listening to.
+  //
+  // A single boolean cancel flag cannot express this. Reset at the top of the
+  // effect, it was back to `false` before the superseded round settled, so the
+  // stale verdict landed anyway; left set, it would have cancelled the live
+  // round too. Only an identity comparison distinguishes "this verdict is for
+  // the set on screen" from "this verdict is for a set we have moved off".
+  const generationRef = useRef(0);
 
   const probe = useCallback(() => {
     if (roundInFlight.current) return;
     const targets = endpointsKey === '' ? [] : endpointsKey.split('\n');
     if (targets.length === 0) return;
+    const generation = generationRef.current;
     roundInFlight.current = true;
 
     // The rejection arm is not dead code insurance for a documented
@@ -71,23 +82,24 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
     const settled = targets.map(endpoint =>
       pingGuardianEndpoint(endpoint).then(
         online => {
-          if (cancelledRef.current) return;
+          if (generationRef.current !== generation) return;
           setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
         },
         () => {
-          if (cancelledRef.current) return;
+          if (generationRef.current !== generation) return;
           setAvailability(prev => ({ ...prev, [endpoint]: 'offline' }));
         }
       )
     );
 
+    // A superseded round must not hand the in-flight slot back, or it would
+    // clear it out from under the round that replaced it.
     void Promise.all(settled).finally(() => {
-      roundInFlight.current = false;
+      if (generationRef.current === generation) roundInFlight.current = false;
     });
   }, [endpointsKey]);
 
   useEffect(() => {
-    cancelledRef.current = false;
     // Only an endpoint-set CHANGE clears prior verdicts; they describe endpoints
     // that may no longer be on screen.
     setAvailability({});
@@ -105,8 +117,18 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
     document.addEventListener('visibilitychange', onForeground);
     window.addEventListener('focus', onForeground);
 
+    // Retiring a round is one concept, so it lives in one place. React runs this
+    // cleanup BEFORE re-running the effect for a changed endpoint set, so the
+    // same two lines cover both ways a round stops mattering — superseded and
+    // unmounted — and a bump in the effect body as well would be unreachable.
     return () => {
-      cancelledRef.current = true;
+      // Verdicts still in flight belong to a set nobody is looking at now.
+      generationRef.current += 1;
+      // And the slot has to be released, or the set that replaces this one cannot
+      // start probing: a set change mid-round used to leave the NEW endpoints with
+      // no verdict at all until the next interval tick — up to 30s of a picker
+      // showing nothing for the very options it had just switched to.
+      roundInFlight.current = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onForeground);
       window.removeEventListener('focus', onForeground);

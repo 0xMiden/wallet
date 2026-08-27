@@ -62,7 +62,11 @@ jest.mock('lib/miden/repo', () => ({
       }),
       first: jest.fn(async () => txStore.find(r => r.id === query.id))
     })),
-    filter: jest.fn(() => ({ toArray: jest.fn(async () => []) }))
+    // Applies the predicate against `txStore` for real. A stub returning `[]`
+    // would silently pass any dedup/queue-scan check that reads through here.
+    filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
+      toArray: jest.fn(async () => txStore.filter(predicate))
+    }))
   }
 }));
 
@@ -99,10 +103,15 @@ jest.mock('lib/miden/guardian', () => ({
 // these tests exercise); only the request builder + finalizer are stubbed.
 const mockCreateDirectSwitchRequest = jest.fn();
 const mockFinalizeDirectSwitch = jest.fn();
+// Defaults to `undefined` — "the chain could not be read" — which is the branch
+// that preserves the pre-existing finalize-anyway behaviour, so every test that
+// does not care about the commit verdict is unaffected by it.
+const mockDidDirectSwitchLand = jest.fn(async (): Promise<boolean | undefined> => undefined);
 jest.mock('lib/miden/guardian/direct-switch', () => ({
   ...jest.requireActual('lib/miden/guardian/direct-switch'),
   createDirectSwitchGuardianRequest: (...a: unknown[]) => mockCreateDirectSwitchRequest(...a),
-  finalizeDirectGuardianSwitch: (...a: unknown[]) => mockFinalizeDirectSwitch(...a)
+  finalizeDirectGuardianSwitch: (...a: unknown[]) => mockFinalizeDirectSwitch(...a),
+  didDirectSwitchLand: (...a: unknown[]) => mockDidDirectSwitchLand(...(a as []))
 }));
 
 const mockWithWasmClientLock = jest.fn(async (fn: () => Promise<unknown>) => fn());
@@ -292,6 +301,57 @@ describe('initiateSwitchGuardianTransaction', () => {
       'Switch guardian is only supported for Guardian accounts'
     );
     expect(txStore).toHaveLength(0);
+  });
+
+  // A second row is not merely redundant. Rotations are serialized per account,
+  // so it runs only AFTER the first committed and persisted the new endpoint, and
+  // then performs a whole second on-chain `update_guardian` to the guardian the
+  // account already has — whose registration then reports a `registerFailed` that
+  // describes nothing wrong.
+  it.each([
+    ['Queued', ITransactionStatus.Queued],
+    ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction]
+  ])('returns the in-flight row instead of queueing a second one (%s)', async (_label, status) => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    const row = txStore.find(r => r.id === first)!;
+    row.status = status;
+
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://other.guardian', false, provider);
+
+    expect(second).toBe(first);
+    expect(txStore).toHaveLength(1);
+  });
+
+  it('still queues when the only other rotation for the account is terminal', async () => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    // A finished rotation must never block the next one, and a FAILED rotation is
+    // the case the user most needs to re-run: `switch-guardian` has no Retry.
+    txStore.find(r => r.id === first)!.status = ITransactionStatus.Failed;
+
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://other.guardian', false, provider);
+
+    expect(second).not.toBe(first);
+    expect(txStore).toHaveLength(2);
+  });
+
+  it('does not dedupe against a rotation in flight for a DIFFERENT account', async () => {
+    const provider = makeGuardianProvider(true);
+    // Seeded directly: the shared provider fixture only knows `acc-1`, and the
+    // point here is the accountId comparison, not the provider lookup.
+    txStore.push({
+      id: 'other-account-rotation',
+      type: 'switch-guardian',
+      accountId: 'acc-2',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    const mine = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+
+    expect(mine).not.toBe('other-account-rotation');
+    expect(txStore).toHaveLength(2);
   });
 });
 
@@ -3946,13 +4006,14 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Completed);
   });
 
-  // The direct switch is reached only when the OLD guardian is already
-  // unreachable, and `switch-guardian` is excluded from requeue and from Retry —
-  // so a commit-wait failure that skipped completion would leave the vault naming
-  // an operator it cannot talk to, with nothing left to retry. `service.sync()`
-  // against that endpoint then throws before `checkGuardianDrift` runs, so the
-  // reconciler that would otherwise repair the pointer never executes.
-  it('Guardian switch-guardian: a failed commit wait still persists the new endpoint (direct path)', async () => {
+  // A commit wait that fails without a verdict is resolved by ASKING THE CHAIN
+  // (`didDirectSwitchLand`). This case is the last resort: the chain could not be
+  // read either, so there is no evidence in either direction. Completing is the
+  // lesser harm, because the direct switch is only reached when the OLD guardian
+  // is already unreachable and `switch-guardian` is excluded from requeue and
+  // from Retry — skipping completion would leave the vault naming an operator it
+  // cannot talk to, with nothing left to retry.
+  it('Guardian switch-guardian: an unverifiable commit wait still persists the new endpoint (direct path)', async () => {
     const txId = 'switch-guardian-direct-waitfail';
     const result = makeResult();
     txStore.push({
@@ -4000,10 +4061,133 @@ describe('generateTransaction — Guardian routing', () => {
       provider as never
     );
 
+    expect(mockDidDirectSwitchLand).toHaveBeenCalled();
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+
+  // The state this guards is the worst one the direct path can reach and the one
+  // with NO self-repair: the vault naming an operator the chain never installed.
+  // Drift cannot find it (its baseline and the on-chain commitment agree — both
+  // still name the old operator, so it returns in-sync without ever looking at
+  // the stored endpoint) and post-commit registration SUCCEEDS against the new
+  // operator, so every later sync is healthy right up until a transaction needs a
+  // co-signature the chain will not accept.
+  it('Guardian switch-guardian: a commit wait the chain contradicts fails the row and leaves the endpoint alone', async () => {
+    const txId = 'switch-guardian-direct-didnt-land';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y',
+      newGuardianPubkey: `0x${'ab'.repeat(32)}`
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    // The chain says the rotation is NOT there.
+    mockDidDirectSwitchLand.mockResolvedValue(false);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new Error('Deadline expired before operation could complete');
+      }),
+      client: makeClientApi(result)
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('guardian-acc', `0x${'ab'.repeat(32)}`);
+    // Neither half of completion may run: the vault must keep naming the guardian
+    // that still holds the account.
+    expect(setGuardianEndpoint).not.toHaveBeenCalled();
+    expect(mockFinalizeDirectSwitch).not.toHaveBeenCalled();
+    expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('Guardian switch-guardian: a commit wait the chain confirms finalizes normally', async () => {
+    const txId = 'switch-guardian-direct-did-land';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y',
+      newGuardianPubkey: `0x${'cd'.repeat(32)}`
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+    // The wait timed out, but the rotation IS on chain.
+    mockDidDirectSwitchLand.mockResolvedValue(true);
+
+    const setGuardianEndpoint = jest.fn(async () => {});
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new Error('Deadline expired before operation could complete');
+      }),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
+    expect(txStore.find(r => r.id === txId)!.status).toBe(ITransactionStatus.Completed);
   });
 
   it('Guardian switch-guardian: a SEMANTIC old-guardian error (401) does NOT trigger the direct fallback', async () => {

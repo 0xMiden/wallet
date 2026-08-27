@@ -32,11 +32,24 @@ jest.mock('@openzeppelin/guardian-client', () => ({
         'https://guardian.openzeppelin.com': '0xAAA',
         'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
         'https://miden-guardian.lambdaclass.com': '0xCCC',
-        'https://guardian-testnet.kodax.com': '0xDDD'
+        'https://guardian-testnet.kodax.com': '0xDDD',
+        // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
+        // network answers with a DIFFERENT key rather than with nothing.
+        'https://guardian-stg.openzeppelin.com': '0xEEE'
       };
       return { commitment: byUrl[this.url] };
     }
   }
+}));
+
+// The network these probes run against when the caller names none. Held in a
+// variable rather than pinned to the build default so a test can move the
+// effective network away from the build-baked one — the whole point of the
+// no-argument path below.
+let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 
 jest.mock('lib/miden/guardian/native-http', () => ({
@@ -80,6 +93,40 @@ describe('buildOperatorKeyMap', () => {
     expect(map.get('bbb')?.id).toBe('gateway');
     expect(map.get('ccc')?.id).toBe('lambda-class');
     expect(map.get('ddd')?.id).toBe('kodax');
+  });
+});
+
+// `network` is optional on both entry points and is forwarded UNDEFAULTED, so
+// the resolution lands on `getGuardianOptionsForNetwork` — the EFFECTIVE
+// network. A default parameter here (the build-baked `DEFAULT_NETWORK`) meant
+// that with a developer endpoint override active the wallet probed a different
+// network's operator set and reported every one of them as not holding the
+// account's guardian key. Every other call in this file names its network, so
+// only a no-argument call can see the difference.
+describe('the no-argument default', () => {
+  afterEach(() => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  });
+
+  it('builds the map from the effective network operator set', async () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.DEVNET;
+
+    const map = await buildOperatorKeyMap();
+
+    // Devnet runs exactly one built-in operator, and it is not one of the four
+    // the build-baked network would have probed.
+    expect(map.get('eee')?.endpoint).toBe('https://guardian-stg.openzeppelin.com');
+    expect(map.get('aaa')).toBeUndefined();
+    expect(map.size).toBe(1);
+  });
+
+  it('identifies an operator against the effective network operator set', async () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.DEVNET;
+
+    expect((await identifyGuardianOperator('0xEEE'))?.id).toBe('open-zeppelin');
+    // The testnet operator's key is not reachable from devnet — a commitment
+    // that only the build default's set holds must not resolve.
+    expect(await identifyGuardianOperator('aaa')).toBeUndefined();
   });
 });
 

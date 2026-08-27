@@ -663,6 +663,40 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     }
   });
 
+  it('does not promise indefinite background retrying for a pending post-commit registration', () => {
+    // The self-heal for a stuck `/configure` registration is a BOUNDED retry
+    // with backoff, not an unbounded background loop — "the wallet keeps
+    // retrying in the background" overstated that indefinitely. The copy must
+    // both bound the claim and tell the user what to do if the bounded retry
+    // doesn't land.
+    const body = message('guardianSwitchRegistrationPendingBody');
+    expect(body).not.toMatch(/keeps retrying/i);
+    expect(body).toMatch(/limited number of times|a few times|automatically/i);
+    expect(body).toMatch(/contact support/i);
+  });
+
+  it('does not steer the user into rotating again to repair an unsaved Guardian endpoint', () => {
+    // "Open Guardian settings and select the new Guardian to finish" starts a
+    // SECOND on-chain `update_guardian` write — Rotate Guardian is the only
+    // Settings affordance and it always initiates a new switch. The verified
+    // pointer-repair path is automatic drift detection + the home "needs your
+    // input" prompt (`GuardianNeedsUrlBanner`), not a Settings selection.
+    const body = message('guardianSwitchEndpointNotSavedBody');
+    expect(body).not.toMatch(/select the new Guardian/i);
+    expect(body).not.toMatch(/open Guardian settings/i);
+    expect(body).toMatch(/won'?t start another switch/i);
+  });
+
+  it('does not claim the old Guardian has no role at all after a direct switch', () => {
+    // The direct-switch path never contacts the outgoing operator, so the
+    // wallet has no way to know whether it retains state from before the
+    // switch — only that its on-chain CO-SIGNING authority is gone. "No longer
+    // has any role" overstated a state the wallet cannot observe.
+    const info1 = message('guardianSwitchSuccessInfo1');
+    expect(info1).not.toMatch(/no longer has any role/i);
+    expect(info1).toMatch(/can no longer co-sign/i);
+  });
+
   it('ships the whole receipt surface in every locale', () => {
     for (const locale of LOCALES) {
       const localeMessages = readMessages(locale);

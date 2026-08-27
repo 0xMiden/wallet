@@ -106,9 +106,15 @@ export const buildUpdateGuardianTransactionRequest = jest.fn(async () => ({
 // so reaching its file path directly does not work either.
 //
 // The copy is pinned instead — `direct-switch.test.ts` derives the token list
-// from the shipped `connectivity.js` and asserts this function matches it, so a
+// from the shipped `connectivity.js` and holds the two sets EQUAL, so a
 // package-side change fails a test rather than silently leaving every
-// classification test asserting semantics that no longer exist.
+// classification test asserting semantics that no longer exist. Equality, not
+// containment, because the two directions fail differently and the second is
+// the dangerous one: a token the package ADDS and this copy lacks makes the
+// mock under-match, while a token the package REMOVES leaves it over-matching —
+// still calling an error a transport failure after the shipped heuristic has
+// decided it is a semantic guardian rejection, which is the verdict that turns
+// a coordinated guardian switch into a unilateral on-chain rotation.
 export const isLikelyNetworkError = (err: unknown): boolean => {
   const message = (err as { message?: string } | null | undefined)?.message ?? String(err ?? '');
   const lower = message.toLowerCase();
