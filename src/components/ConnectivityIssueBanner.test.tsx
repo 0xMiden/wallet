@@ -43,10 +43,13 @@ jest.mock('lib/miden/front/useSyncTrigger', () => ({
 // reject paths. `useWalletStore` feeds the current-account pubkey the
 // guardian-outage lookup keys on.
 const mockRequest = jest.fn();
+// Mutable so a test can switch accounts mid-session — the guardian outage flag
+// is per-account, so which account is current decides which banner shows and
+// which dismiss applies.
+const currentAccount = { publicKey: 'acct-1' };
 jest.mock('lib/store', () => ({
   getIntercom: () => ({ request: mockRequest }),
-  useWalletStore: (selector: (s: { currentAccount: { publicKey: string } }) => unknown) =>
-    selector({ currentAccount: { publicKey: 'acct-1' } })
+  useWalletStore: (selector: (s: { currentAccount: { publicKey: string } }) => unknown) => selector({ currentAccount })
 }));
 
 // Guardian-outage flag: a mutable holder so tests can arm/clear it and fire
@@ -124,6 +127,7 @@ describe('ConnectivityIssueBanner', () => {
     jest.clearAllMocks();
     guardianOutage.accounts.clear();
     guardianOutage.listeners.clear();
+    currentAccount.publicKey = 'acct-1';
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
     setState({});
@@ -239,6 +243,46 @@ describe('ConnectivityIssueBanner', () => {
 
     fireEvent.click(screen.getByLabelText('close'));
     expect(mockDismiss).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The dismiss is keyed by ACCOUNT, not a bare boolean. Two guardian accounts
+  // on two dead operators keep `guardianOutage` true across the switch, so a
+  // boolean's reset effect would never fire and the first dismiss would silently
+  // suppress the second account's banner.
+  it('does not carry a guardian dismiss across an account switch to another flagged account', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('keeps the guardian dismiss when switching back to the account it was made on', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
     expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
   });
 

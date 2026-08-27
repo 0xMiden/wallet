@@ -125,10 +125,15 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
     currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
   );
-  const [guardianDismissed, setGuardianDismissed] = useState(false);
+  // The dismissed ACCOUNT, not a bare boolean: the flag is per-account, so with
+  // two guardian accounts on two dead operators a boolean would let a dismiss on
+  // the first silently suppress the second's banner — `guardianOutage` stays
+  // `true` across that switch, so the reset effect never fires.
+  const [dismissedAccountPk, setDismissedAccountPk] = useState<string | undefined>(undefined);
   useEffect(() => {
-    if (!guardianOutage) setGuardianDismissed(false);
+    if (!guardianOutage) setDismissedAccountPk(undefined);
   }, [guardianOutage]);
+  const guardianDismissed = dismissedAccountPk !== undefined && dismissedAccountPk === currentAccountPk;
 
   const active = useMemo(
     () => pickActiveCategory(state, guardianOutage && !guardianDismissed),
@@ -157,11 +162,11 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
     if (!view) return;
     hapticLight();
     if (view.category === 'guardian') {
-      setGuardianDismissed(true);
+      setDismissedAccountPk(currentAccountPk);
       return;
     }
     dismiss(view.category);
-  }, [dismiss, view]);
+  }, [currentAccountPk, dismiss, view]);
 
   if (!view) return null;
 

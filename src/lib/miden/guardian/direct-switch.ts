@@ -25,9 +25,12 @@ import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
+import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
+import { freeChainAnchor } from '../sdk/chain-anchor';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Direct on-chain guardian rotation — the fallback for when the OUTGOING
@@ -65,6 +68,19 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  * keeps the normal proposal flow's error handling.
  */
 export const isGuardianUnreachableError = (err: unknown): boolean => {
+  // A local realm KILL is not evidence about the guardian, and it must never
+  // reach the fallback: both errors mean "the operation was torn down from
+  // outside with its outcome unknown", so treating one as an outage would swap
+  // a coordinated proposal against a HEALTHY guardian for a fresh on-chain
+  // write. Checked first because `isLikelyNetworkError` is a message-substring
+  // heuristic that matches the bare token `abort` — which every
+  // `OperationAbortedError` carries ("Offscreen operation … aborted (…)"),
+  // including the purely local `deadline` / `transport` / `doc-closed` kills.
+  // The two are classified together on purpose: `WasmClientPoisonedError` keeps
+  // foreign text off its message precisely so text heuristics can't reach it,
+  // so it does NOT match today, and this pins that asymmetry shut rather than
+  // leaving it to the wording of a message.
+  if (isOperationAbortedError(err) || isWasmClientPoisonedError(err)) return false;
   if (isLikelyNetworkError(err)) return true;
   // Any 5xx also counts as the guardian being effectively down: a gateway/proxy
   // 502-504 means it could not be reached, and a 500 from the guardian itself
@@ -186,16 +202,37 @@ export const createDirectSwitchGuardianRequest = async (
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
     const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request, getEffectiveRpcUrl());
-    const chainAnchorB64 = chainAnchorToBase64(anchor);
-    anchor.free();
-    return {
-      hotCommitment,
-      coldCommitment,
-      saltHex: salt.toHex(),
-      txCommitmentHex: summary.toCommitment().toHex(),
-      chainAnchorB64
-    };
+    // `freeChainAnchor` in a `finally`, like every other anchor site (#784): the
+    // anchor carries a partial blockchain, so it must not leak if the
+    // serialization below throws, and wasm-bindgen's `free()` has no
+    // null-pointer guard — on a disposed module it throws, and a bare `free()`
+    // in this position would surface that instead of the successful build.
+    try {
+      return {
+        hotCommitment,
+        coldCommitment,
+        saltHex: salt.toHex(),
+        txCommitmentHex: summary.toCommitment().toHex(),
+        chainAnchorB64: chainAnchorToBase64(anchor)
+      };
+    } finally {
+      freeChainAnchor(anchor);
+    }
   });
+
+  // Hot and cold must be DISTINCT on-chain signers. `getSignerDetailsFromAccount`
+  // resolves cold as `commitments[1] ?? commitments[0]`, so an account carrying a
+  // single signer commitment yields the hot one twice — the two advice entries
+  // would then collide on one Poseidon2 key (it is derived from the signer
+  // commitment), the map would hold ONE signature, and the threshold-2
+  // `update_guardian` would fail on-chain as unauthorized. Say so here instead,
+  // where the reason is still available.
+  if (built.hotCommitment === built.coldCommitment) {
+    throw new Error(
+      `Guardian account ${walletAccount.publicKey} resolves the same on-chain signer commitment for hot and cold; ` +
+        'a direct guardian switch needs two distinct signers to meet the update_guardian threshold'
+    );
+  }
 
   // Sign OUTSIDE the lock — vault signing doesn't touch the WASM client, and
   // holding the global mutex across it would stall syncs for no reason.
