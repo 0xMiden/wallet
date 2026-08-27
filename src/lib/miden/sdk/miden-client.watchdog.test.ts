@@ -1116,6 +1116,80 @@ describe('poisoned client recovery', () => {
     return { mod, free, create, markPoisoned, poison };
   };
 
+  it('reclaims the poisoned client once the abandoned operation finally settles', async () => {
+    // Poison-in-place is what keeps a possibly-submitting flow alive through its own
+    // eviction, but it must not be a permanent leak: #777 evicts on a two-minute
+    // ceiling for as long as a node stays parked, so leaking a client per eviction is
+    // unbounded in the realm's lifetime (and off mobile each one is a method worker
+    // with its own WASM instance).
+    const { mod, free, markPoisoned, create } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let finishAbandoned!: () => void;
+    const wedged = mod.withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          finishAbandoned = resolve;
+        })
+    );
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+
+    // At eviction time, still nothing freed — the abandoned call is in flight.
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
+
+    // A successor takes the lock and gets its own client, exactly as before.
+    const successor = await mod.getMidenClient();
+    expect(create).toHaveBeenCalledTimes(2);
+
+    // Then the parked call finally answers. The abandoned flow is done touching its
+    // client, so THAT instance is reclaimed — and the successor's is untouched.
+    finishAbandoned();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(await mod.getMidenClient()).toBe(successor);
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('does NOT reclaim when a sibling is suspended mid-yield on the same instance', async () => {
+    // The deferred free waits on the EVICTED flow's promise, which says nothing about
+    // a holder suspended inside a yield: that sibling resolved the same instance before
+    // the poison and is still writing with it, so freeing on the evicted flow's settle
+    // would be a use-after-free — worse than the leak it reclaims.
+    const { mod, free, markPoisoned } = await loadIsolated();
+    await mod.getMidenClient();
+
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>(resolve => {
+      releaseYield = resolve;
+    });
+    const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
+    await jest.advanceTimersByTimeAsync(0);
+
+    let finishWedged!: () => void;
+    const wedged = mod.withWasmClientLock(
+      () =>
+        new Promise<void>(resolve => {
+          finishWedged = resolve;
+        })
+    );
+    const wedgedRejects = expectRejection(wedged, { name: 'WasmClientPoisonedError' });
+    await jest.advanceTimersByTimeAsync(300_000);
+    await wedgedRejects;
+    expect(markPoisoned).toHaveBeenCalledTimes(1);
+
+    // The evicted flow finishes, but the suspended sibling has not — nothing is freed.
+    finishWedged();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(free).not.toHaveBeenCalled();
+
+    releaseYield();
+    await yielded;
+    expect(free).not.toHaveBeenCalled();
+  });
+
   it('after watchdog recovery the next acquirer gets a freshly constructed client, not the evicted one', async () => {
     const { mod, free, markPoisoned, create } = await loadIsolated();
     const clientBefore = await mod.getMidenClient();

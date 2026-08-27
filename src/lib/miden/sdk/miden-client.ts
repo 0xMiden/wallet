@@ -133,6 +133,17 @@ const wasmClientMutex = new AsyncMutex();
 interface LockHolder {
   /** Set by recovery: the holder was evicted and the mutex already re-released. */
   killed: boolean;
+  /**
+   * This hold's operation, attached by the lock wrapper right after it starts.
+   *
+   * An eviction cannot free the client, because the abandoned operation is still
+   * holding it (see `replaceClientSingletons`) — but it does not have to leak it
+   * forever either. When this promise settles, that operation has stopped touching
+   * the client, so the poisoned instance can finally be reclaimed. Without it,
+   * every eviction leaked a whole WASM client, and the #777 path evicts on a
+   * two-minute ceiling for as long as a node stays parked.
+   */
+  running: Promise<unknown> | null;
   /** Depth of `withWasmLockWatchdogPaused` brackets currently open. */
   pauseCount: number;
   watchdogTimer: ReturnType<typeof setTimeout> | null;
@@ -398,15 +409,45 @@ function notifyWasmClientPoisoned(): void {
  * which the watchdog is the ONLY bound. That is the one flow most likely to be
  * mid-submit when the ceiling expires.
  *
- * Only a trap with NO holder at all can safely terminate: the module is already
- * aborted and nobody is using the instance. Marking instead leaks a `useWorker`
- * client's method worker until the realm goes away, which `poisonAllInstances`
- * documents accepting — a leaked worker against a possibly-paid transaction is
- * not a close trade.
+ * Only a trap with NO holder at all can safely terminate immediately: the module
+ * is already aborted and nobody is using the instance.
+ *
+ * Marking is not the same as leaking, though it was at first. `reclaim.after` is
+ * the abandoned operation's own promise, and when it settles that operation has
+ * stopped touching the client — so the poisoned instance is freed THEN. Without
+ * it every eviction leaked a whole WASM client (a method worker and its instance
+ * off mobile), and the #777 path evicts on a two-minute ceiling for as long as a
+ * node stays parked, so the leak was unbounded in the realm's lifetime.
+ *
+ * `reclaim.otherRetainers` is what keeps that from becoming a use-after-free.
+ * Poisoning detaches the instance so no NEW caller can be handed it, but holders
+ * already suspended inside a yield are using that same instance and are not the
+ * operation being waited on — freeing on the evicted flow's settle would pull the
+ * module out from under a sibling that is still writing. So the deferred free
+ * happens only when the evicted flow is the sole retainer; with a suspended
+ * sibling, or from a caller with no promise to offer at all (a trap taken while
+ * holders are mid-yield — there may be several, none of them the current holder),
+ * the instance stays marked, which is the old accepted cost in the cases that
+ * still have to pay it.
  */
-function replaceClientSingletons(evictedHolderKeepsReference: boolean): void {
+interface PoisonReclaim {
+  /** The abandoned operation. Its settle is the signal the client is idle. */
+  after: Promise<unknown> | null;
+  /** Parties OTHER than `after` still holding the instance (suspended mid-yield). */
+  otherRetainers: number;
+}
+
+function replaceClientSingletons(evictedHolderKeepsReference: boolean, reclaim?: PoisonReclaim): void {
   if (evictedHolderKeepsReference || yieldedHolderCount > 0) {
-    midenClientSingleton.poisonAllInstances();
+    const poisoned = midenClientSingleton.poisonAllInstances();
+    if (reclaim?.after && reclaim.otherRetainers === 0 && poisoned.length > 0) {
+      void reclaim.after
+        .catch(() => undefined)
+        .then(() => {
+          console.warn('[miden-client] abandoned operation settled — reclaiming its poisoned client');
+          midenClientSingleton.freeDetachedInstances(poisoned);
+        });
+    }
   } else {
     midenClientSingleton.disposeAllInstances();
   }
@@ -590,6 +631,7 @@ function beginHold(requestedCeilingMs?: number): LockHolder {
   });
   const holder: LockHolder = {
     killed: false,
+    running: null,
     pauseCount: 0,
     watchdogTimer: null,
     unpausedElapsedMs: 0,
@@ -673,7 +715,8 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
     // `runningMs` alone cannot say which bound was in force (#777).
     normalCeilingMs: holder.normalCeilingMs,
     yieldedHolders: yieldedHolderCount,
-    // Always in-place for an eviction — the evicted flow keeps its reference.
+    // Always in-place for an eviction — the evicted flow keeps its reference, and
+    // the instance is reclaimed once that flow's own promise settles.
     mode: 'poison-in-place',
     error
   });
@@ -686,8 +729,11 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // holder being evicted is abandoned, not cancelled, and it resolved its client
   // inside the hold — so it is past the mutex, still holding that reference, and
   // by construction still inside a WASM call. Freeing under it fails a
-  // transaction that may already have submitted.
-  replaceClientSingletons(true);
+  // transaction that may already have submitted — so the instance is freed later
+  // instead, when that flow's own promise settles.
+  // The evicted holder is the current mutex owner, so it is not itself yielded:
+  // anything counted in `yieldedHolderCount` is a sibling still using the instance.
+  replaceClientSingletons(true, { after: holder.running, otherRetainers: yieldedHolderCount });
   wasmClientMutex.release();
 }
 
@@ -771,6 +817,7 @@ export async function withWasmClientLock<T>(
   const holder = beginHold(options?.watchdogMs);
   try {
     const running = operation(holder);
+    holder.running = running;
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse
     // later rejects with a trap-shaped error past the recovery cooldown, an
     // unhandled rejection would re-enter `onRealmRejection` and evict the
@@ -830,6 +877,7 @@ export async function tryWithWasmClientLock<T>(
   const holder = beginHold();
   try {
     const running = operation(holder);
+    holder.running = running;
     // See withWasmClientLock: an abandoned corpse's late rejection must not
     // surface as an unhandled rejection and evict the successor.
     running.catch(() => {});
@@ -985,8 +1033,10 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
         error
       });
       // Marking, not freeing: this holder is suspended mid-yield and keeps using
-      // the reference it already has.
-      replaceClientSingletons(true);
+      // the reference it already has. It is freed once this flow's own operation
+      // settles — but only if no OTHER holder is suspended on the same instance,
+      // hence the -1 for this one (the count settles just below, not here).
+      replaceClientSingletons(true, { after: holder.running, otherRetainers: yieldedHolderCount - 1 });
       settleYieldCount();
       holder.abort(error);
     },
@@ -1249,16 +1299,32 @@ class MidenClientSingleton {
    * worker lives until the realm goes away — the accepted cost of not failing a
    * flow that may already have submitted.
    */
-  poisonAllInstances(): void {
+  poisonAllInstances(): MidenClientInterface[] {
     bumpWasmClientGeneration();
     this.generation++;
     this.generationWithOptions++;
-    this.instance?.markPoisoned();
-    this.instanceWithOptions?.markPoisoned();
+    const poisoned = [this.instance, this.instanceWithOptions].filter(
+      (client): client is MidenClientInterface => client !== null
+    );
+    for (const client of poisoned) client.markPoisoned();
     this.instance = null;
     this.initializingPromise = null;
     this.instanceWithOptions = null;
     this.initializingPromiseWithOptions = null;
+    return poisoned;
+  }
+
+  /**
+   * Terminate instances that were poisoned earlier and are no longer installed.
+   *
+   * The deferred half of `poisonAllInstances`: marking keeps a flow that may
+   * already have submitted alive, and this is what stops that being a permanent
+   * leak once the flow has finished. Deliberately takes explicit instances rather
+   * than reading the slots — by the time this runs, a successor client is installed
+   * and must not be touched.
+   */
+  freeDetachedInstances(instances: MidenClientInterface[]): void {
+    for (const instance of instances) this.freeGuarded(instance);
   }
 }
 

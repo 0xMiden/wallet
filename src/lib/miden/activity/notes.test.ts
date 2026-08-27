@@ -20,7 +20,12 @@ _g.__notesTest = {
   // the watchdog fires two minutes in, by which point earlier notes have imported.
   evictNextHold: false as boolean | Promise<void>,
   // The abandoned callback, so a test can let it finish and observe what it writes.
-  abandonedHold: null as Promise<unknown> | null
+  abandonedHold: null as Promise<unknown> | null,
+  // Who owns the mutex right now, mirroring `getCurrentWasmLockHold`. An eviction
+  // takes ownership AWAY from the callback it abandons, which is what makes the
+  // pass's own liveness guard observable: without modelling it, a mock hold looks
+  // valid forever and the abandoned callback appears free to keep calling WASM.
+  currentHold: null as object | null
 };
 
 jest.mock('lib/platform/storage-adapter', () => ({
@@ -43,19 +48,30 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__notesTest.midenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+  getCurrentWasmLockHold: () => (globalThis as any).__notesTest.currentHold,
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
     const t = (globalThis as any).__notesTest;
     t.lockOptions.push(options);
+    const hold = {};
+    t.currentHold = hold;
     if (t.evictNextHold) {
       const gate: Promise<void> | null = t.evictNextHold === true ? null : t.evictNextHold;
       t.evictNextHold = false;
-      const running = fn();
+      const running = fn(hold);
       running.catch(() => {});
       t.abandonedHold = running;
       if (gate) await gate;
+      // The eviction hands the mutex to whoever comes next, so the abandoned
+      // callback no longer owns it — exactly what production does before it
+      // rejects the holder.
+      t.currentHold = null;
       throw Object.assign(new Error('WASM client evicted'), { name: 'WasmClientPoisonedError', reason: 'watchdog' });
     }
-    return fn();
+    try {
+      return await fn(hold);
+    } finally {
+      if (t.currentHold === hold) t.currentHold = null;
+    }
   }
 }));
 
@@ -69,7 +85,7 @@ jest.mock('shared/logger', () => ({
   logger: { error: jest.fn(), warning: jest.fn(), info: jest.fn() }
 }));
 
-import { importAllNotes, queueNoteImport } from './notes';
+import { BACKOFF_MAX_MS, importAllNotes, queueNoteImport } from './notes';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 beforeEach(() => {
@@ -84,6 +100,7 @@ beforeEach(() => {
   _g.__notesTest.lockOptions = [];
   _g.__notesTest.evictNextHold = false;
   _g.__notesTest.abandonedHold = null;
+  _g.__notesTest.currentHold = null;
 });
 
 // A note whose import parks: the state an eviction actually interrupts.
@@ -134,6 +151,19 @@ describe('queueNoteImport', () => {
     await queueNoteImport('second');
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual(['first', 'second']);
   });
+
+  it('does not queue the same note twice', async () => {
+    // The delivery sweep and the dApp import path can offer the same note, and a
+    // second copy buys nothing (the import is an upsert) while doubling the WASM
+    // calls, the backoff bookkeeping and the eventual dead-letter records.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['aGVsbG8=', { bytes: 'd29ybGQ=', attempts: 2 }];
+    await queueNoteImport('aGVsbG8=');
+    await queueNoteImport('d29ybGQ=');
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      'aGVsbG8=',
+      { bytes: 'd29ybGQ=', attempts: 2 }
+    ]);
+  });
 });
 
 describe('importAllNotes', () => {
@@ -180,13 +210,19 @@ describe('importAllNotes', () => {
     // Backoff is what gives the jam an exit: the charged note stops being eligible,
     // so the next pass does not park on it again.
     expect(queue[0].nextEligibleAt).toBeGreaterThan(Date.now());
-    // The note the loop never reached is carried with nothing spent on it.
-    expect(queue[1]).toMatchObject({ bytes: 'd29ybGQ=', attempts: 0 });
-    expect(queue[1].nextEligibleAt).toBeUndefined();
-    expect(queue[1].firstFailureAt).toBeUndefined();
+    // The note the loop never reached is carried with nothing spent on it — and in the
+    // LEGACY bare-string form, because it has no retry metadata to record. Rewriting an
+    // untouched note as an object is what a downgraded build reads as base64.
+    expect(queue[1]).toBe('d29ybGQ=');
 
+    // And the abandoned callback STOPS there rather than importing the note it had
+    // not reached yet. It resumes when the parked import settles, by which point the
+    // mutex belongs to somebody else — so a second `importNoteBytes` from here would
+    // run with no lock held, concurrently with that holder, which is the double-borrow
+    // the mutex exists to prevent. It refuses to continue instead.
     release();
-    await _g.__notesTest.abandonedHold;
+    await expect(_g.__notesTest.abandonedHold).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a superseded queue write from an abandoned pass, so notes queued since survive (#777)', async () => {
@@ -421,9 +457,41 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
       { bytes: 'aGVsbG8=', attempts: 10, firstFailureAt: longAgo, nextEligibleAt: expect.any(Number) }
     ]);
+    // Pinned near the curve's CEILING, not merely "some future number": the store
+    // being full or unwritable changes on a timescale of minutes, and a stamp of
+    // `now + 3s` would satisfy a bare "in the future" assertion while still re-running
+    // the round trip on the very next lap.
     const carried = _g.__notesTest.store['miden-notes-pending-import'][0];
-    expect(carried.nextEligibleAt).toBeGreaterThan(Date.now());
+    expect(carried.nextEligibleAt).toBeGreaterThanOrEqual(Date.now() + BACKOFF_MAX_MS - 5_000);
     jest.useRealTimers();
+  });
+
+  it('backoff-stamps a note whose dead-letter write did not land on the EVICTION path too (#777)', async () => {
+    // The eviction-banking half of the same hot loop. Its give-up is a separate code
+    // path from the per-note one above, and an unstamped carry there is eligible on
+    // every later pass with `giveUp` permanently true — so the note re-enters the same
+    // parked hold each lap and pays another two-minute WASM-lock eviction, forever,
+    // which is the whole app's WASM access on mobile.
+    const longAgo = Date.now() - 25 * 60 * 60 * 1000;
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9, firstFailureAt: longAgo }];
+    _g.__notesTest.beforeSet = async (items: Record<string, unknown>) => {
+      if ('miden-note-import-deadletter' in items) throw new Error('QuotaExceededError');
+    };
+    const release = parkedImport();
+    _g.__notesTest.evictNextHold = true;
+
+    await expect(importAllNotes()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', attempts: 10 });
+    expect(queue[0].nextEligibleAt).toBeGreaterThanOrEqual(Date.now() + BACKOFF_MAX_MS - 5_000);
+
+    // One note, so the abandoned callback has no next iteration to be stopped at: it
+    // finishes and its commit is refused by the pass guard instead.
+    release();
+    await _g.__notesTest.abandonedHold;
   });
 
   it('does not re-import a note the pass already imported when the hold is then evicted (#777)', async () => {
@@ -461,6 +529,102 @@ describe('importAllNotes', () => {
 
     release();
     await _g.__notesTest.abandonedHold;
+  });
+
+  it('treats an already-consumed note as landed when banking an eviction (#777)', async () => {
+    // The other half of the same rule. A note the client refuses because it has
+    // already been CONSUMED is done — its funds are claimed — so the banking path
+    // must drop it exactly like a successful import. Re-queued, it comes back every
+    // lap as something to classify, and every classification that is not "done"
+    // spends an attempt against the poison cap.
+    _g.__notesTest.store['miden-notes-pending-import'] = ['YQ==', 'Yg=='];
+    let release!: () => void;
+    const parked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes
+      .mockImplementationOnce(async () => {
+        throw new Error('note has already been consumed');
+      })
+      .mockImplementationOnce(async () => parked);
+    let evict!: () => void;
+    _g.__notesTest.evictNextHold = new Promise<void>(resolve => {
+      evict = resolve;
+    });
+
+    const pass = importAllNotes();
+    for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+    evict();
+    await expect(pass).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'Yg==', attempts: 1 });
+
+    release();
+    await _g.__notesTest.abandonedHold;
+  });
+
+  it('does not spend the poison cap on a note whose failures were transient (#777)', async () => {
+    // The cap exists to tolerate MISCLASSIFICATION: a couple of prompt retries before
+    // a note is declared unimportable. Keyed off the shared `attempts` counter it was
+    // already exhausted by a transient outage (or by watchdog evictions, which are
+    // transient by the repo-wide poison rule), so the FIRST error the classifier did
+    // not recognise dead-lettered a live note as `malformed` with no grace at all —
+    // and `malformed` is the verdict that stops the transport budget's retries.
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 9 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('NoteFile deserialization failed'));
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([
+      { bytes: 'aGVsbG8=', attempts: 10, poisonAttempts: 1, firstFailureAt: expect.any(Number) }
+    ]);
+    jest.useRealTimers();
+  });
+
+  it('still dead-letters a note that fails as poison three times (#777)', async () => {
+    // The other side of that split: the cap must still fire on its own counter, or a
+    // genuinely unparseable note re-throws every lap and jams the queue behind it.
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 2, poisonAttempts: 2 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('NoteFile deserialization failed'));
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toEqual([
+      { bytes: 'aGVsbG8=', reason: 'malformed', failedAt: expect.any(Number), attempts: 3 }
+    ]);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    jest.useRealTimers();
+  });
+
+  it('does not strand a note whose counters came back corrupt (#777)', async () => {
+    // Storage hands these back unvalidated. A string `attempts` turns every `+ 1` into
+    // string concatenation, and a NaN `nextEligibleAt` fails BOTH eligibility
+    // comparisons — never due, never past the clamp — so the note sat in the queue
+    // forever: never imported, never dead-lettered, no signal that anything was wrong.
+    jest.useFakeTimers();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: '3', nextEligibleAt: Number.NaN, firstFailureAt: null }
+    ];
+
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+
+    expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    jest.useRealTimers();
   });
 
   it('does not strand a note whose backoff stamp came from a jumped clock (#777)', async () => {

@@ -925,6 +925,9 @@ const DISPATCH: Record<string, DispatchFn> = {
   // clean at the yield boundary). A void result: the SW-side caller only awaits it,
   // so nothing serializes back.
   waitForTransactionCommit: async (client, transactionId: string) => {
+    // Mutable: the client this loop polls can be REPLACED under it (see the
+    // `isDisposed` branch below), and every later lap must use the replacement.
+    let polling = client;
     // Capture THIS op's reassert BEFORE the first yield (follow-up #2). While a
     // sleep yields the mutex, an interloper op runs and clears/overwrites the module
     // global `currentOpId`; re-asserting after each yield restores the invariant that
@@ -963,9 +966,20 @@ const DISPATCH: Record<string, DispatchFn> = {
       // happened is that this confirmation was ABANDONED — the submit may well have
       // landed. `isWasmClientPoisonedError` is what every kill classifier reads to
       // tell those apart.
-      if (client.isDisposed || getCurrentWasmLockHold() !== context.hold) {
-        console.warn('[offscreen] abandoning a confirmation poll whose client or lock hold is gone');
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
         throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      // A poisoned client while the hold is still OURS is a different situation, and
+      // it is recoverable: an interloper op that took the mutex during one of our
+      // sleeps was evicted, so the singleton was replaced under us while the realm
+      // stayed healthy. Bailing here abandoned a structural guardian op — whose
+      // rotation may already be on chain — over somebody else's eviction. Rebuild and
+      // keep polling: the applied record lives in this realm's store either way, and
+      // the poison hook has already dropped the slot so this returns a fresh client.
+      if (polling.isDisposed) {
+        console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
+        polling = await getOrCreateClient();
       }
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
@@ -973,7 +987,7 @@ const DISPATCH: Record<string, DispatchFn> = {
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
-        await client.client.syncChain();
+        await polling.client.syncChain();
       } catch (e) {
         // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
         // silent. A sync that fails EVERY lap makes the poll run blind: it lists
@@ -982,7 +996,14 @@ const DISPATCH: Record<string, DispatchFn> = {
         // anywhere saying the chain was never read.
         console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
-      const txs = await client.client.transactions.list({ ids: [transactionId] });
+      // Re-checked after the sync: an eviction landing during that await (whose own
+      // failure is swallowed just above) would otherwise let this second WASM call
+      // run unmutexed, which is the whole hazard the loop-top guard exists for.
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone');
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      const txs = await polling.client.transactions.list({ ids: [transactionId] });
       const status = txs?.[0]?.transactionStatus?.();
       if (status?.isCommitted()) return null;
       if (status?.isDiscarded()) {

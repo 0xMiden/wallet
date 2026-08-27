@@ -681,14 +681,10 @@ describe('useSyncTrigger', () => {
       await jest.advanceTimersByTimeAsync(3_000);
     });
     expect(mockSyncState).toHaveBeenCalledTimes(5);
-
-    // And it is still spent as a FORCED probe, not an automatic one: it succeeded,
-    // so the fuse lifts and the base cadence resumes rather than the probe being
-    // counted against the breaker.
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(3_000);
-    });
-    expect(mockSyncState).toHaveBeenCalledTimes(6);
+    // Nothing is asserted about the breaker/fuse accounting of that probe here: it
+    // succeeded, and a successful AUTOMATIC probe resets the breaker to the same 3s
+    // cadence, so a follow-up tick cannot tell the two apart. The forced-probe
+    // ledgers have their own tests ("never escalates it", "cannot blow the fuse").
 
     unmount();
   });

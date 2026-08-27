@@ -1355,13 +1355,16 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     }
   });
 
-  it('a LIVE commit-wait whose client is poisoned under it fails rather than reporting a commit (#775)', async () => {
-    // The other half of the same guard, and the half that is observable. A trap in
-    // ANOTHER flow marks the shared client, so this can fire while this dispatch is
-    // still live and awaited. The committed path returns `null`, so bailing with
-    // `null` would answer "committed" for a transaction that is not — and a guardian
-    // leaf reads that as licence to run its structural completion (rotating the local
-    // hot-key pointer against an on-chain change that never landed).
+  it('a LIVE commit-wait whose client is replaced under it rebuilds and keeps polling (#775)', async () => {
+    // The other half of the same guard, and the half that is observable — but NOT the
+    // same situation. The hold is still ours, so nobody else is in the client; what
+    // happened is that an interloper op which took the mutex during one of our sleeps
+    // was evicted, replacing the singleton. Abandoning here threw away a structural
+    // guardian confirmation — whose rotation may already be on chain — over somebody
+    // else's eviction. Answering `null` would be worse still: that is the committed
+    // path, and a guardian leaf reads it as licence to run its structural completion
+    // (rotating the local hot-key pointer against a change that never landed). So the
+    // poll does neither: it rebuilds and keeps looking.
     await loadModule();
     jest.useFakeTimers();
     try {
@@ -1369,10 +1372,13 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       const firstPoll = new Promise<void>(resolve => {
         releasePoll = resolve;
       });
-      G.__off.clientTransactionsList = jest.fn(async () => {
-        await firstPoll;
-        return [G.__off.pendingStatus];
-      });
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockImplementationOnce(async () => {
+          await firstPoll;
+          return [G.__off.pendingStatus];
+        })
+        .mockImplementation(async () => [G.__off.committedStatus]);
 
       const r1 = jest.fn();
       capturedListener!(
@@ -1388,13 +1394,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       releasePoll();
       await jest.advanceTimersByTimeAsync(10_000);
 
+      // Re-resolved rather than abandoned, and the answer comes from a poll that
+      // actually saw the commit. (Re-resolution goes through the realm's own memo,
+      // which the poison hook nulls in production; this harness flips only the
+      // disposed flag, so what is observable here is that the loop CONTINUED.)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rebuilding and continuing'));
+      expect(r1).toHaveBeenCalledTimes(1);
+      expect(r1.mock.calls[0][0].ok).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('a LIVE commit-wait whose replacement client is ALSO poisoned still never reports a commit (#775)', async () => {
+    // The rebuild is not a licence to answer "committed" without seeing one. If the
+    // realm keeps poisoning every client it builds, the poll must run out of time and
+    // say so — the one answer it must never invent is the successful one.
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      G.__off.clientTransactionsList = jest.fn(async () => [G.__off.pendingStatus]);
+      G.__off.clientIsDisposed = true;
+
+      const r1 = jest.fn();
+      capturedListener!(
+        callReq({ op_id: 'op1-live-forever', method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        r1
+      );
+      await jest.advanceTimersByTimeAsync(70_000);
+
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(false);
-      // Carried as a POISON error, not a plain one: the SW rebuilds it by name, and a
-      // plain error would have this row written Failed like an ordinary failure when
-      // the submit may well have landed.
-      expect(r1.mock.calls[0][0].errorName).toBe('WasmClientPoisonedError');
-      expect(r1.mock.calls[0][0].errorReason).toBe('watchdog');
+      expect(String(r1.mock.calls[0][0].error)).toContain('timed out');
     } finally {
       jest.useRealTimers();
     }
