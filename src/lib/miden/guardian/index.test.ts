@@ -52,12 +52,27 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // hold on the 5-minute backstop and one on the sync ceiling are otherwise
 // indistinguishable, and the guardian sync is the wallet's DEFAULT account type's
 // idle sync (#777).
+let currentWasmHold: object | null = null;
+// Set by the one test that needs the watchdog to land mid-build.
+let evictDuringClientBuild = false;
 const wasmLockOptionsSeen: unknown[] = [];
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => mockMidenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>, options?: unknown) => {
+  getMidenClient: async () => {
+    if (evictDuringClientBuild) currentWasmHold = null;
+    return mockMidenClient;
+  },
+  // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
+  // pass-through mock with no hold makes that guard both unreachable and a TypeError.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
     wasmLockOptionsSeen.push(options);
-    return fn();
+    const hold = {};
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
   }
 }));
 
@@ -660,6 +675,25 @@ describe('MultisigService', () => {
       expect(svc.multisig).toBe(loaded);
       // Endpoint is supplied by the caller (per-account), not read from storage.
       expect(svc.guardianEndpoint).toBe('https://acct.guardian');
+    });
+
+    it('stops before load() when the hold was evicted during the client build (#777)', async () => {
+      // Reachable from the unattended guardian sync loop, whose failure mode is exactly a
+      // client that parks on a node that never answers. Past the eviction the mutex is
+      // somebody else's, and `load()` is a WASM call on the client it now owns.
+      const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
+      multisigClientConfig.load.mockClear();
+      evictDuringClientBuild = true;
+
+      await expect(
+        MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian')
+      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(multisigClientConfig.load).not.toHaveBeenCalled();
+
+      // Falsifier: with the hold intact the same init loads as before.
+      evictDuringClientBuild = false;
+      await MultisigService.init(account, 'pub', 'commit', async () => 'sig', 'https://acct.guardian');
+      expect(multisigClientConfig.load).toHaveBeenCalledTimes(1);
     });
 
     it('re-throws when MultisigClient.load rejects', async () => {

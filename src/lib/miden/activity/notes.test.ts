@@ -840,7 +840,35 @@ describe('importAllNotes', () => {
     jest.useRealTimers();
   });
 
-  it('stops running the pass once its own fuse is lit, and resumes after a completed pass (#777)', async () => {
+  it('does not dead-letter a note a forward CLOCK JUMP only made look old (#777)', async () => {
+    // The transient give-up is a wall-clock subtraction, so a device whose RTC was days
+    // slow and then corrected reads "failing for over a day" on a note's FIRST failure.
+    // Attempts cannot be jumped, so requiring them too makes the jump insufficient alone.
+    const jumped = Date.now();
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000 }
+    ];
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('Failed to fetch'));
+
+    await importAllNotes();
+
+    // Carried, not dead-lettered: one attempt spent is not a day of retrying.
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', attempts: 2 });
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+
+    // Falsifier: the SAME expired budget with a plausible attempt count does dead-letter,
+    // so the assertion above is about the attempt floor and not about the budget check.
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 20, firstFailureAt: jumped - 2 * 24 * 60 * 60 * 1000 }
+    ];
+    await importAllNotes();
+    expect(_g.__notesTest.store['miden-notes-pending-import']).toEqual([]);
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toHaveLength(1);
+  });
+
+  it('stops running the pass once its own fuse is lit (#777)', async () => {
     // The pass is bounded but was UNFUSED: driven by the transaction loop against a node
     // that never answers, it parked the realm's only WASM mutex for two minutes and leaked
     // the poisoned client on every lap, and the sync loop's fuse could not see it because
@@ -863,6 +891,32 @@ describe('importAllNotes', () => {
     noteSyncSuccess('note-import');
     await importAllNotes();
     expect(_g.__notesTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('withdraws its fuse evidence only for a pass that actually imported something (#777)', async () => {
+    // The report has to be conditional or the fuse is unreachable by arithmetic. From the
+    // second failure onward a carried note's backoff (10s+) exceeds the transaction loop's
+    // 5s cadence, so a pass in which the only queued note is not yet eligible ALWAYS lands
+    // between two evictions. Booking that no-op pass as a success zeroed the count every
+    // time, so it oscillated 1 → 2 → 0 and four consecutive evictions could never be
+    // observed — the fuse's own success report defeating the fuse.
+    const { noteSyncWatchdogEviction, syncFuseUntilMs } = require('../front/sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+
+    // Evidence one short of the threshold, and a queue holding one note that is not yet
+    // eligible — the skip-only pass.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-import');
+    _g.__notesTest.store['miden-notes-pending-import'] = [
+      { bytes: 'aGVsbG8=', attempts: 1, nextEligibleAt: Date.now() + 60_000 }
+    ];
+
+    await importAllNotes();
+    expect(_g.__notesTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+
+    // The next eviction is therefore still the threshold-th CONSECUTIVE one. Without the
+    // condition the no-op pass above has zeroed the count and this cannot light the fuse.
+    noteSyncWatchdogEviction('note-import');
+    expect(syncFuseUntilMs('note-import')).not.toBeNull();
   });
 
   it('lights its own fuse after repeated evictions of the import hold (#777)', async () => {

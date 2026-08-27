@@ -34,6 +34,14 @@ const IMPORT_NOTES_KEY = 'miden-notes-pending-import';
 //     note must drain fast so it can't re-throw forever and jam the tx loop)
 //     WITHOUT the old silent drop.
 const TRANSIENT_RETRY_BUDGET_MS = 24 * 60 * 60 * 1000; // 24h wall-clock
+/**
+ * The fewest attempts a note must have actually spent before the 24h transient budget can
+ * dead-letter it. The budget is wall-clock, and a forward clock correction can satisfy it
+ * on the first failure; an attempt count cannot be jumped. Chosen to be comfortably below
+ * what a real day of five-minute-capped backoff produces.
+ */
+const TRANSIENT_MIN_ATTEMPTS_BEFORE_GIVE_UP = 5;
+
 const POISON_MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 5_000;
 // Exported so the tests can pin a give-up carry AT the ceiling rather than merely
@@ -324,6 +332,9 @@ export const importAllNotes = async () => {
   // callback, which control-flow analysis does not see, so a plain variable narrows
   // to `null` for the whole failure path.
   const inFlight: { note: QueuedNoteImport | null } = { note: null };
+  // How many imports this pass actually STARTED, readable after the hold returns.
+  // The fuse's success report keys off it: see the report site below.
+  const started = { count: 0 };
   // Notes this pass imported successfully, so the failure path can leave them out.
   // Banking the whole snapshot minus the in-flight note re-queued them, and a
   // re-import of a note the client already holds is only recognised as done once it
@@ -426,6 +437,7 @@ export const importAllNotes = async () => {
             continue;
           }
           attempted++;
+          started.count++;
           try {
             const byteArray = new Uint8Array(Buffer.from(note.bytes, 'base64'));
             inFlight.note = note;
@@ -462,8 +474,17 @@ export const importAllNotes = async () => {
             // substring of wallet-authored text.
             const transient = isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e);
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
+            // The transient give-up needs BOTH the wall-clock budget and a plausible number
+            // of attempts to have been spent. The budget alone is a single wall-clock
+            // subtraction, so one forward RTC correction — a device whose clock was days
+            // slow, an NTP jump after a long sleep — reads as "this note has been failing
+            // for a day" on its very first failure and dead-letters bytes that may be the
+            // only copy of the funds. Attempts cannot be forged by a clock, so requiring
+            // them makes a jump insufficient on its own; a genuine day-long outage passes
+            // both easily, since the backoff caps at five minutes.
             const giveUp = transient
-              ? elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS
+              ? elapsedSince(firstFailureAt, now) >= TRANSIENT_RETRY_BUDGET_MS &&
+                attempts >= TRANSIENT_MIN_ATTEMPTS_BEFORE_GIVE_UP
               : poisonAttempts >= POISON_MAX_ATTEMPTS;
 
             if (giveUp) {
@@ -598,8 +619,20 @@ export const importAllNotes = async () => {
     throw e;
   }
 
-  // The pass completed — the only observation that withdraws its evidence.
-  noteSyncSuccess('note-import');
+  // The pass completed — but only a pass that actually TOUCHED the client withdraws its
+  // evidence, and this is the one report on this path that has to check.
+  //
+  // A pass in which every queued note is merely backed off takes the hold, imports
+  // nothing and returns normally. Booking that as a success made the fuse unreachable by
+  // arithmetic: from the second failure onward a note's backoff (10s, then 20/40/80s)
+  // exceeds the transaction loop's own 5s cadence, so a skip-only pass ALWAYS lands
+  // between two evictions, and the eviction count oscillated 1 → 2 → 0 forever. Four
+  // consecutive evictions could never be observed, and the wallet kept paying a two-minute
+  // park and a leaked client every few minutes — the exact outcome the fuse was added to
+  // bound, defeated by the fuse's own success report. The claimable-notes poll states the
+  // same rule from the other direction, and the balance read states it for a lap that
+  // takes no hold at all.
+  if (started.count > 0) noteSyncSuccess('note-import');
 
   // Outside the import hold, and bounded (#777).
   //

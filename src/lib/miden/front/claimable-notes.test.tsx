@@ -75,11 +75,22 @@ jest.mock('lib/swr', () => ({
 const mockGetMidenClient = jest.fn();
 const mockRunWhenClientIdle = jest.fn();
 const lockOptionsSeen: any[] = [];
+// Models hold OWNERSHIP, not just pass-through. A mock that hands the callback no hold
+// and no `getCurrentWasmLockHold` makes every post-await liveness guard in the code under
+// test unreachable — including the per-order one inside `classifySwapOrderNotes`, which
+// then reads as covered while it is not exercised at all.
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: async (fn: () => Promise<any>, options?: any) => {
+  getCurrentWasmLockHold: () => (globalThis as any).__cnTest.currentHold ?? null,
+  withWasmClientLock: async (fn: (hold: object) => Promise<any>, options?: any) => {
     lockOptionsSeen.push(options);
-    return fn();
+    const hold = { id: `cn-hold-${lockOptionsSeen.length}` };
+    (globalThis as any).__cnTest.currentHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if ((globalThis as any).__cnTest.currentHold === hold) (globalThis as any).__cnTest.currentHold = null;
+    }
   },
   runWhenClientIdle: (fn: () => Promise<any>) => mockRunWhenClientIdle(fn)
 }));

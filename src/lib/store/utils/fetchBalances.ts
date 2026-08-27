@@ -184,6 +184,14 @@ export async function fetchBalances(
       // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
       // production.
       if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+        // Guarded on its own, not merely behind it: the capture dynamically imports the
+        // multisig client and then makes its OWN WASM calls on this borrowed account, so
+        // an eviction during the account read above must stop it here. Reachable only
+        // under the flag — but the resilience suite is exactly the one that drives
+        // evictions at a real client, which is where a double borrow would surface.
+        if (getCurrentWasmLockHold() !== hold) {
+          throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the E2E capture'));
+        }
         await captureGuardianAuthStructureForTest(address, acc);
       }
 

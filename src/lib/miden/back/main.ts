@@ -31,6 +31,7 @@ import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/sp
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
+import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -328,8 +329,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     fused SW otherwise syncs once per 30 min against the new one, which reads
       //     as "the repoint did nothing" and withholds the successful sync that is the
       //     fuse's only exit condition (#777).
+      //   - clearSyncFuseForEndpointChange() drops the shared per-probe ledger, which
+      //     this realm now writes to as well: the note-import pass runs in the service
+      //     worker on the extension, so a fuse lit there would otherwise outlive the node
+      //     it was earned against with nothing in this realm able to clear it.
       await loadEndpointOverrides();
       resetSyncBackoffForEndpointChange();
+      clearSyncFuseForEndpointChange();
       await resetMidenClient();
       await reloadOffscreenEndpointOverrides();
       return { type: WalletMessageType.ReloadEndpointOverridesResponse };

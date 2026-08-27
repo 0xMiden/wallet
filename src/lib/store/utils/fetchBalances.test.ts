@@ -165,6 +165,22 @@ describe('fetchBalances', () => {
     }
     expect(isSyncFused('balances')).toBe(true);
 
+    // A completed read is the one thing that puts it out — asserted through a real
+    // successful `fetchBalances` rather than by calling `noteSyncSuccess` from the test,
+    // which would only re-test the ledger. Proven by the eviction that follows: it is the
+    // FIRST of a new run, so it cannot re-light a fuse whose count was truly zeroed.
+    // Served out first: while the window stands the gate skips the read, so the probe that
+    // clears the fuse is the one the fused cadence eventually lets through.
+    const realNow = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
+    mockGetAccount.mockResolvedValueOnce(null);
+    await fetchBalances('my-address', {});
+    nowSpy.mockRestore();
+    expect(isSyncFused('balances')).toBe(false);
+    mockTryWithWasmClientLock.mockImplementationOnce(evict);
+    await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(isSyncFused('balances')).toBe(false);
+
     // A BUSY lap is evidence of nothing — no hold was taken — so it must neither light
     // nor clear anything.
     __resetSyncFuseStateForTests();

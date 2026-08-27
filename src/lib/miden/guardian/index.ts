@@ -25,8 +25,8 @@ import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -107,8 +107,20 @@ export class MultisigService {
       // that is never terminated). Reusing the singleton also lets the multisig
       // lib's rawClientCache WeakMap (keyed by this client instance) hit across
       // every init, so at most ONE shared raw worker is created total.
-      const { multisig, client } = await withWasmClientLock(async () => {
+      const { multisig, client } = await withWasmClientLock(async hold => {
         const webClient = (await getMidenClient()).client;
+        // The build above is an await, and on the #777 path it is the long one: this
+        // initializer is reachable from the unattended guardian sync loop, whose whole
+        // problem is a client that parks on a node that never answers. If the hold was
+        // evicted while it ran, the mutex is already somebody else's and `load()` below —
+        // a WASM call on that borrowed client — is the double borrow the lock exists to
+        // prevent. Strictly pre-write, so failing here costs a retry and nothing else.
+        if (getCurrentWasmLockHold() !== hold) {
+          throw new WasmClientPoisonedError(
+            'watchdog',
+            new Error('guardian service init abandoned after the client build')
+          );
+        }
         registerGuardianOrigin(guardianEndpoint);
         const multisigClient = new MultisigClient(webClient, {
           guardianEndpoint,

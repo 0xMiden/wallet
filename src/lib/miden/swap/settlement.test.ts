@@ -1,6 +1,7 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { WasmLockHold } from 'lib/miden/sdk/miden-client';
 import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -126,7 +127,11 @@ describe('swap order note settlement', () => {
       remainingRequested: '0'
     });
 
-    const result = await classifySwapOrderNotes(notes as any, 'account-1');
+    // A hold is required by the signature; this direct unit test of the classifier is not
+    // inside one, so it passes a sentinel the ownership check will accept.
+    const classifyHold = { id: 'direct-classify-call' } as unknown as WasmLockHold;
+    currentHold = classifyHold;
+    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold);
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));

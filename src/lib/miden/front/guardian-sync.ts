@@ -1,6 +1,8 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import type { WalletAccount } from 'lib/shared/types';
@@ -86,6 +88,9 @@ const selfHealState = new Map<string, SelfHealAttemptState>();
  * ~40 requests/minute from this poll alone against a 60/minute cap, so once
  * transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
  */
+// Monotonic deadlines, not wall-clock: the cap is 120s, but a wall-clock deadline survives
+// a backward clock correction for the whole size of that correction, so a stale 429 could
+// park an account for hours. Same clock the breaker and the fuse use.
 const rateLimitedUntil = new Map<string, number>();
 
 /** Cooldown when the guardian rate-limits without naming one. */
@@ -220,7 +225,7 @@ export async function syncGuardianAccounts(): Promise<void> {
     // budget the transaction path can use instead.
     const pausedUntil = rateLimitedUntil.get(account.publicKey);
     if (pausedUntil !== undefined) {
-      if (Date.now() < pausedUntil) continue;
+      if (monotonicNowMs() < pausedUntil) continue;
       rateLimitedUntil.delete(account.publicKey);
     }
 
@@ -234,11 +239,24 @@ export async function syncGuardianAccounts(): Promise<void> {
     // Resolved before the gate because the key carries the endpoint: for any account
     // created since that field existed this is a plain property read, and a legacy record
     // pays one storage read per lap.
-    const fuseKey = guardianSyncFuseKey(account.publicKey, await resolveGuardianEndpoint(account));
+    //
+    // Its failure is absorbed rather than propagated. For a legacy record this resolves
+    // through storage, and an await that can reject sits in the ONE place in this loop
+    // that is outside the per-account `try` — so a storage error (an invalidated extension
+    // context, a quota fault) threw out of the whole function and skipped every account
+    // after this one, on this lap and on every lap while the fault lasted. The loop's
+    // contract is that one bad account cannot block the cycle; falling back to the default
+    // endpoint keys this lap's evidence slightly coarsely, which is strictly better than
+    // silently not syncing the rest of the wallet.
+    const guardianEndpoint = await resolveGuardianEndpoint(account).catch(err => {
+      console.warn(`[Guardian Sync] could not resolve the guardian endpoint for ${account.publicKey}`, err);
+      return getEffectiveDefaultGuardianEndpoint();
+    });
+    const fuseKey = guardianSyncFuseKey(account.publicKey, guardianEndpoint);
     if (isSyncFused(fuseKey)) continue;
 
     try {
-      const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
+      const service = await getOrCreateMultisigService(account.publicKey, zustandProvider, true);
       await service.sync();
       // The one observation that clears this probe's fuse: a guardian sync that went
       // through proves the realm's client is not parked on this path after all.
@@ -306,7 +324,7 @@ export async function syncGuardianAccounts(): Promise<void> {
           Math.max(askedMs, SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS),
           SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
         );
-        rateLimitedUntil.set(account.publicKey, Date.now() + cooldown);
+        rateLimitedUntil.set(account.publicKey, monotonicNowMs() + cooldown);
         console.warn(
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
         );

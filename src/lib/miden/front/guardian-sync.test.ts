@@ -20,7 +20,7 @@ import {
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
-import { guardianSyncFuseKey, __resetSyncFuseStateForTests, syncFuseUntilMs } from './sync-fuse';
+import { guardianSyncFuseKey, __resetSyncFuseStateForTests, isSyncFused, syncFuseUntilMs } from './sync-fuse';
 
 const storeState: {
   accounts: Array<{
@@ -194,8 +194,10 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts();
 
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(2);
-    expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(1, 'guardian-1', zustandProvider);
-    expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(2, 'guardian-2', zustandProvider);
+    // The third argument bounds the account read at the sync ceiling for this caller and
+    // this caller only — it is the one on a cadence (#777).
+    expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(1, 'guardian-1', zustandProvider, true);
+    expect(mockGetOrCreateMultisigService).toHaveBeenNthCalledWith(2, 'guardian-2', zustandProvider, true);
     expect(sync).toHaveBeenCalledTimes(2);
   });
 
@@ -352,6 +354,46 @@ describe('syncGuardianAccounts', () => {
     jest.restoreAllMocks();
   });
 
+  it('re-arms a LIT fuse on a 429, so the rate-limit cooldown cannot outrun it (#777)', async () => {
+    // The other half of the 429 report. Once lit, the contract is one probe per 30 min
+    // until one SUCCEEDS, and a 429 is not a success — but its own cooldown is 30–120s, so
+    // without the re-arm a guardian answering every probe with a 429 pulls a fused account
+    // straight back onto the ordinary cadence.
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [{ publicKey: 'g429', type: WalletType.Guardian, hotPublicKey: 'hot1' }];
+    const key = guardianSyncFuseKey('g429', 'https://guardian.test');
+    const sync = jest.fn(async () => {
+      throw new WasmClientPoisonedError('watchdog');
+    });
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) await syncGuardianAccounts();
+    const armedAt = syncFuseUntilMs(key);
+    expect(armedAt).not.toBeNull();
+
+    // A distinct account id, because the 429 leaves a wall-clock rate-limit cooldown in
+    // this module's per-account map that would skip a later test reusing the same key.
+    // Serve out the fused window so the next lap gets through the gate, then answer 429.
+    const monotonicSpy = jest
+      .spyOn(performance, 'now')
+      .mockReturnValue(performance.now() + FUSED_SYNC_PROBE_INTERVAL_MS + 1_000);
+    const rateLimited: Error & { status?: number } = new Error('429 Too Many Requests');
+    rateLimited.status = 429;
+    sync.mockImplementation(async () => {
+      throw rateLimited;
+    });
+    await syncGuardianAccounts();
+
+    // Still fused, and pushed out from now rather than left to expire.
+    expect(isSyncFused(key)).toBe(true);
+    expect(syncFuseUntilMs(key)!).toBeGreaterThan(armedAt!);
+    monotonicSpy.mockRestore();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
   it('does not carry a lit fuse across a guardian ENDPOINT change for the same account (#777)', async () => {
     // Every conclusion in the ledger is about one node. Repointing an account at a
     // different guardian makes the old conclusion meaningless, so the endpoint is part of
@@ -471,7 +513,7 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts();
 
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
-    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider, true);
     expect(sync).toHaveBeenCalledTimes(1);
   });
 
@@ -492,7 +534,7 @@ describe('syncGuardianAccounts', () => {
 
     // Only the active account is synced; the legacy one is skipped, no throw.
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
-    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider);
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-active', zustandProvider, true);
   });
 
   it('checks guardian drift for each guardian account with a hot key', async () => {
@@ -679,8 +721,10 @@ describe('syncGuardianAccounts — 429 back-off', () => {
       { publicKey: 'acct-429', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
-    const now = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now');
+    // The cooldown is a monotonic deadline (a backward wall-clock correction must not
+    // extend it), so the clock this drives is performance.now.
+    const now = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValue(now);
     await syncGuardianAccounts();
     expect(sync).toHaveBeenCalledTimes(1);
@@ -707,8 +751,10 @@ describe('syncGuardianAccounts — 429 back-off', () => {
       { publicKey: 'acct-429-nofloor', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
-    const now = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now');
+    // The cooldown is a monotonic deadline (a backward wall-clock correction must not
+    // extend it), so the clock this drives is performance.now.
+    const now = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now');
     nowSpy.mockReturnValue(now);
     await syncGuardianAccounts();
 
@@ -731,8 +777,10 @@ describe('syncGuardianAccounts — 429 back-off', () => {
       { publicKey: 'acct-429-noheal', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
     ] as never;
 
-    const now = Date.now();
-    const nowSpy = jest.spyOn(Date, 'now');
+    // The cooldown is a monotonic deadline (a backward wall-clock correction must not
+    // extend it), so the clock this drives is performance.now.
+    const now = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now');
     for (let i = 0; i <= SELF_HEAL_AUTH_FAILURE_THRESHOLD + 2; i++) {
       nowSpy.mockReturnValue(now + i * 60_000);
       await syncGuardianAccounts();

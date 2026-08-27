@@ -72,8 +72,14 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
 export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
-  preloadedOrders?: SwapOrder[],
-  hold?: WasmLockHold
+  preloadedOrders: SwapOrder[] | undefined,
+  /**
+   * The caller's lock hold. REQUIRED rather than optional: every call site runs inside a
+   * hold, and an optional guard is one a future caller disables by forgetting it — the
+   * loop below is the longest unguarded stretch of WASM work in the wallet, so that is
+   * not a mistake the type should permit.
+   */
+  hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
@@ -92,7 +98,7 @@ export async function classifySwapOrderNotes(
     // without stopping this loop, and the next iteration's lineage read would then borrow
     // a client somebody else is inside. Guarding at the callers' boundaries could only
     // ever catch an eviction that landed before the loop started or after it finished.
-    if (hold && getCurrentWasmLockHold() !== hold) {
+    if (getCurrentWasmLockHold() !== hold) {
       throw new WasmClientPoisonedError('watchdog', new Error('swap lineage classification abandoned mid-loop'));
     }
     const orderId = orderIdString(order.extraInputs.orderId);
