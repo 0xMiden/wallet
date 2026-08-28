@@ -81,7 +81,16 @@ jest.mock('lib/miden/activity', () => ({
   initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiateReplaceHotKeyTransaction(...args),
   requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
 }));
-jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  zustandProvider: { tag: 'zustand-provider' },
+  // The presentation hook (drift-banner gate) subscribes to the sync module's
+  // realm-local state; a quiet realm is the baseline for every prompt test.
+  subscribeGuardianSyncOutage: () => () => {},
+  isGuardianSyncOutage: () => false,
+  isGuardianUnrepairable: () => false,
+  getGuardianLastSyncAt: () => undefined,
+  isGuardianLastSyncFresh: () => false
+}));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 // FundWalletDrawer — passthrough stub exposing the funding lifecycle props so

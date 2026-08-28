@@ -2448,6 +2448,18 @@
     "message": "Guardian의 로테이션을 성공적으로 완료하셨습니다!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian 전환됨",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian 변경을 제출했습니다",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "제출됨",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "현재 변경 사항",
     "englishSource": "What changes now"

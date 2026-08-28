@@ -2448,6 +2448,15 @@
     "message": "You've successfully rotated your Guardian!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "What changes now",
     "englishSource": "What changes now"
