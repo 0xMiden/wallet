@@ -165,6 +165,8 @@ export interface NetworkFaultControls {
    * single request, so without this the strongest-looking assertion in the suite
    * is also the one most able to go green for the wrong reason. Reset by
    * `armNetwork`/`clear`.
+   * Only counts route-seam targets; fetch-layer targets (node/prover/transport)
+   * are counted in their own realms (see fetch-faults.ts).
    */
   networkFaultHits(): number;
   /** Disarm everything — all subsequent requests pass through untouched. */

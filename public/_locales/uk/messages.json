@@ -892,6 +892,10 @@
     "message": "Guardian затверджено",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Підписано на цьому пристрої",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Створено доказ",
     "englishSource": "Proof generated"
@@ -972,6 +976,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "Ваш представник у Раді (guardian) підписує цю пропозицію.",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "Локальне підписання",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Підписання ключами вашого гаманця",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "Відправлення транзакції",
@@ -2040,6 +2052,22 @@
     "message": "Місцезнаходження:",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "Офлайн",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Не підключено",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "Потребує уваги",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "Перевірка",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "Що таке «Guardian»?",
     "englishSource": "What is a Guardian?"
@@ -2424,9 +2452,45 @@
     "message": "Що змінилося зараз",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Зміну Guardian надіслано",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Ще не підтверджено.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла в мережі. Гаманець не може підтвердити це за вас — і налаштування Guardian, і запис цієї транзакції в Активності в будь-якому разі покажуть нового Guardian. Якщо пізніша транзакція буде відхилена через відсутність співпідпису, виконайте зміну ще раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Цей пристрій також не зміг зберегти адресу нового Guardian, тому досі показує попередню. Гаманець попросить ввести її знову — цей запит не починає нову зміну.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Після підтвердження зміни новим транзакціям знадобиться доступність нового Guardian, щоб вони могли завершитися.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Щойно зміну буде підтверджено ончейн, новий Guardian співпідписуватиме кожну транзакцію, а попередній Guardian більше не зможе підписувати за ваш обліковий запис.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Налаштування не завершено.",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "Зміну підтверджено в мережі, але цей пристрій не зміг зберегти адресу нового Guardian. Гаманець автоматично перевіряє це й за потреби попросить ввести її знову — це не почне нову зміну. Якщо запит не з’явиться, зверніться до служби підтримки.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "Зміну підтверджено в мережі. Реєстрацію вашого облікового запису в нового Guardian ще не завершено — гаманець автоматично повторює спробу обмежену кількість разів. Якщо її все ще не завершено, зверніться до служби підтримки.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "Відтепер ваш новий Guardian підписує кожну транзакцію разом з вами — ваш старий Guardian більше не відіграє жодної ролі.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "Відтепер ваш новий Guardian підписує кожну транзакцію разом з вами — ваш старий Guardian більше не може підписувати транзакції для вашого рахунку.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Адреса вашого гаманця, кошти та історія залишаються незмінними. Під час ротації нічого не переміщувалося.",
@@ -2508,9 +2572,29 @@
     "message": "Ваш сервер guardian був замінений, і нам не вдалося ідентифікувати нового оператора. Введіть його URL-адресу, щоб відновити з’єднання.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlUnreachable": {
+    "message": "Не вдалося зв'язатися з цим оператором. Перевірте URL-адресу та з'єднання, а потім спробуйте ще раз.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Цей обліковий запис ще не має ончейн-Guardian, з яким можна звірити адресу.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
   "guardianUrlMismatch": {
     "message": "Цей оператор не збігається з ланцюговим ідентифікатором вашого облікового запису (guardian).",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian недоступний",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "Ваш «guardian» не відповідає, тому транзакції не можуть бути підписані спільно.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Змінити Guardian",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "Відкрити ключ пристрою",
@@ -2711,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Не закривайте це вікно, доки транзакція не буде сформована",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Вашу транзакцію надіслано, але цей пристрій не зміг підтвердити її в мережі.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакція була успішно оброблена та підтверджена в мережі.",

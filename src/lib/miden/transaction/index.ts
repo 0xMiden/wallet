@@ -15,6 +15,12 @@ import {
 } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
+  createDirectSwitchGuardianRequest,
+  didDirectSwitchLand,
+  isGuardianAccountUnusable,
+  isGuardianUnreachableError
+} from 'lib/miden/guardian/direct-switch';
+import {
   guardianRetryAfterSec,
   isGuardianPendingConflict,
   isGuardianRateLimited,
@@ -103,7 +109,12 @@ import {
 } from '../sdk/miden-client';
 import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
-import { extractSdkErrorCode, isApplyAfterSubmitError } from '../sdk/sdk-error-code';
+import {
+  errorMessageParts,
+  extractSdkErrorCode,
+  isApplyAfterSubmitError,
+  isTransactionDiscardedError
+} from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export * from './cancel';
@@ -757,8 +768,54 @@ async function reconcileStructuralApplyFailure(
     await completeReplaceHotKeyTransaction(tx as ReplaceHotKeyTransaction, undefined, guardianProvider);
     return;
   }
-  const service = await getOrCreateMultisigService(tx.accountId, guardianProvider);
-  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
+  // A switch that ran the DIRECT fallback (old guardian unreachable) can't
+  // rebuild a MultisigService here — `getOrCreateMultisigService` loads from
+  // the OLD guardian. Completion handles the undefined-service case by
+  // registering on the new guardian directly.
+  //
+  // When the row already recorded that it took the direct path, don't even ask.
+  // The build can only fail, and it is not free to let it: the operator shape
+  // that produced the unreachable verdict is typically one that accepts the
+  // connection and goes silent, so this call would hold the WASM lock to the
+  // 5-minute watchdog and come back as `WasmClientPoisonedError` — which is
+  // deliberately NOT an unreachable verdict, so it would rethrow, the caller
+  // would log "reconcile failed; cancelling", and a rotation that IS on chain
+  // would end Failed with the vault still naming the dead operator. Bounded by
+  // the same deadline as the switch arms for a row without the marker (an older
+  // row, or a reconcile on the coordinated path).
+  let service: MultisigService | undefined;
+  const tookDirectPath =
+    tx.type === 'switch-guardian' && (tx as SwitchGuardianTransaction).extraInputs?.switchedDirectly === true;
+  if (!tookDirectPath) {
+    try {
+      service = await withOutgoingGuardianDeadline(
+        () => getOrCreateMultisigService(tx.accountId, guardianProvider),
+        'loading the outgoing guardian service for the switch reconcile'
+      );
+    } catch (error) {
+      // "Cannot co-sign for this account" belongs here as much as "is down", and
+      // this site is the sharpest of the three: the rotation has ALREADY been
+      // submitted, so a rethrow puts the caller on the "reconcile failed;
+      // cancelling" path and a switch that is on chain ends Failed with the vault
+      // still naming the old operator. `account_released` is the answer this very
+      // state produces — the operator saw the switch land and stood down — and it
+      // arrives as a 409, so before this it was rethrown by the one branch whose
+      // job is to finalize a rotation the outgoing operator can no longer help
+      // with. Completion handles the undefined service by registering on the new
+      // guardian directly, which is exactly what a released operator leaves us
+      // needing.
+      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
+    }
+  }
+  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached from
+  // `isApplyAfterSubmitError`, i.e. the submit SUCCEEDED and the local apply then
+  // failed — which establishes that the node accepted the transaction, and
+  // nothing more. No commit wait ran here and `didDirectSwitchLand` was never
+  // called, so this path has strictly LESS evidence of a commit than the direct
+  // path's `landed === undefined` case that the flag was introduced for.
+  // Defaulting it to false let this exit render the full-confidence receipt.
+  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider, true);
 }
 
 /**
@@ -1711,6 +1768,272 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
 /**
+ * Wall-clock ceiling on one round-trip to the OUTGOING guardian during a
+ * switch-guardian, after which the wallet stops waiting and treats the operator
+ * as unreachable.
+ *
+ * Generous — this is a backstop against an operator that has stopped answering,
+ * not a latency target. It has to sit above an honestly slow guardian on a cold
+ * start, because expiring early costs the user a coordinated switch they could
+ * have had.
+ */
+const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
+
+/**
+ * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
+ * guardian answering, with a message the unreachability classifier recognizes.
+ *
+ * Applied to the switch-guardian arms as a VERDICT — they are the only ones with
+ * somewhere better to go, since every other guardian operation needs the operator,
+ * so failing it sooner buys nothing — and to the post-failure `abandonCandidate`
+ * of EVERY type as a CLEANUP BOUND. The two uses read differently and must not be
+ * confused: a timeout on the former is what commits the caller to the direct path,
+ * whereas a timeout on the latter is swallowed by its own catch (abandonment is
+ * idempotent and best-effort, so a send is never failed by it). The cleanup is
+ * bounded regardless of type because it runs inside the FIFO loop's Web Lock,
+ * where an unbounded wait stops every account's transactions and disables the
+ * stuck-row reaper that would otherwise clean up after it.
+ *
+ * WHY a deadline is needed at all, when the WASM lock already has a watchdog.
+ * The guardian transport carries no client-side deadline (`GuardianHttpClient`
+ * calls bare `fetch` with no `AbortSignal`), and the service load happens INSIDE
+ * `withWasmClientLock`. So an operator that accepts the connection and then goes
+ * silent — the wedged-operator outage this whole path exists to escape — never
+ * produced a classifiable error at all: the hold ran out the 5-minute watchdog,
+ * the eviction arrived as `WasmClientPoisonedError`, and that is deliberately
+ * NOT unreachable (it is a local kill), so the fallback never fired and the row
+ * failed terminally with no requeue and no Retry. The single outage shape most
+ * likely to need the direct switch was the one shape that could not reach it.
+ *
+ * The deadline does not cancel the request or release the lock — nothing can, the
+ * fetch has no abort — so the abandoned hold still waits out the watchdog. What
+ * it changes is that the CALLER gets an unreachable verdict at 30s and commits to
+ * the direct path; that path's own `withWasmClientLock` then queues behind the
+ * wedged holder and is admitted when the watchdog evicts it onto a fresh client.
+ * Slow, but it completes, where before it could not.
+ */
+const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
+      OUTGOING_GUARDIAN_DEADLINE_MS
+    );
+    // `run()` is invoked here rather than taking a ready promise, so a SYNCHRONOUS
+    // throw from it has to be caught: uncaught, it would propagate out of the
+    // executor and leave the timer armed, keeping an MV3 service worker awake for
+    // 30s past a failure that already settled.
+    try {
+      run().then(
+        value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        error => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    } catch (syncError) {
+      clearTimeout(timer);
+      reject(syncError);
+    }
+  });
+
+/**
+ * One-line description of a classified guardian failure, for the audit field on
+ * the row. Length-capped because this is persisted: a wasm trap's message can run
+ * to kilobytes, and a row is not the place to keep one. The HTTP status is
+ * included when present — it is what the unreachability verdict turned on, so a
+ * later reader can judge whether that verdict was right.
+ */
+const describeError = (error: unknown): string => {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
+      ? `HTTP ${error.status}: `
+      : '';
+  const message = errorMessageParts(error)[0] ?? String(error);
+  return `${status}${message}`.slice(0, 300);
+};
+
+/**
+ * DIRECT on-chain guardian switch — the fallback when the OUTGOING guardian is
+ * unreachable. The proposal flow needs the old guardian as a coordination
+ * mailbox (service load, proposal push, signature accumulation), but the
+ * on-chain `update_guardian` is threshold-2 over the account's OWN keys, so an
+ * unreachable old guardian must not be able to strand the account: build the
+ * request locally, sign with hot + cold, and drive it through the SAME leaf
+ * pipeline + commit-wait + completion as the proposal path. Completion gets an
+ * undefined MultisigService and registers on the NEW guardian directly.
+ *
+ * No `abandonCandidate` on entry, and — unlike the two arms that call it after a
+ * pushed proposal (cold co-sign and final co-sign) — that is a limitation rather
+ * than a judgement that there is nothing to retract.
+ *
+ * Most ways to get here genuinely leave nothing behind: no proposal ever reached
+ * the old guardian, or one did and that guardian is down anyway, in which case a
+ * pending delta on it has no on-chain authority. The remaining case
+ * exists only because the outgoing-guardian round trips are now DEADLINE-bounded:
+ * `withOutgoingGuardianDeadline` rejects its caller at 30s but does not cancel
+ * the request, so a merely SLOW-but-healthy operator can accept the proposal POST
+ * after we have already given up on it. That leaves a real pending delta on a
+ * live operator.
+ *
+ * It cannot be retracted from here: `abandonCandidate` needs the candidate nonce,
+ * and the nonce was in the response the deadline fired on. The residual is a
+ * later COORDINATED switch back to that same operator failing with a 409 that
+ * `switch-guardian` cannot requeue through (it is excluded from
+ * REQUEUEABLE_ON_PENDING_CONFLICT). Narrow — it needs the user to rotate back to
+ * the operator that timed out — and strictly better than the alternative, which
+ * is letting a slow operator block the recovery path this function IS.
+ */
+const generateDirectSwitchGuardianTransaction = async (
+  transaction: SwitchGuardianTransaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  guardianProvider: GuardianAccountProvider,
+  reason: string
+): Promise<void> => {
+  const walletAccount = (await guardianProvider.getAccounts()).find(a =>
+    sameWalletAccountId(a.publicKey, transaction.accountId)
+  );
+  if (!walletAccount) {
+    throw new Error(`Guardian account ${transaction.accountId} not found in provider`);
+  }
+
+  // Mark the row BEFORE anything can fail, in both dexie and the in-memory copy
+  // completion reads. The two paths leave different states behind on a partial
+  // failure, and the direct one acts on a VERDICT (the outgoing operator is
+  // unreachable) that can be wrong — so a row that cannot say which path it took,
+  // or why, is not diagnosable after the fact.
+  //
+  // `switchedDirectly` began as pure audit but is now LOAD-BEARING:
+  // `reconcileStructuralApplyFailure` reads it to skip rebuilding a
+  // MultisigService from the outgoing guardian, which on this path is the
+  // operator the row exists because it could not reach. The in-memory assignment
+  // above is what that read consumes, so it stays correct even when the dexie
+  // write below fails. `directSwitchReason` remains diagnostic only.
+  transaction.extraInputs = {
+    ...transaction.extraInputs,
+    switchedDirectly: true,
+    directSwitchReason: reason
+  };
+  await Repo.transactions
+    .where({ id: transaction.id })
+    .modify(row => {
+      row.extraInputs = transaction.extraInputs;
+    })
+    .catch(markError => {
+      // Non-fatal: never let it cost the rotation. Both consumers survive losing
+      // it — `reconcileStructuralApplyFailure` reads the in-memory copy above, and
+      // the in-progress screen falls back to the `signing-locally` stage stamped
+      // just below (`isDirectGuardianSwitch`), which is a separate write. It is
+      // NOT audit-only, so do not weaken either of those.
+      console.warn('[Guardian] could not record the direct-switch marker on the row (non-fatal):', markError);
+    });
+
+  // Hot + cold both sign at build time, locally. NOT `signing-proposal`, whose
+  // copy tells the user their guardian is signing — on this path no operator is
+  // contacted at all, and the reason this path is running is that the outgoing
+  // one could not be reached.
+  await setTransactionStage(transaction.id, 'signing-locally');
+  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+    walletAccount,
+    transaction.extraInputs.newGuardianEndpoint,
+    guardianProvider.signWord
+  );
+
+  // Same leaf routing as the proposal path — offscreen flag-on, inline
+  // flag-off — with the summary's ChainAnchor riding along so the execution is
+  // pinned to the reference block the hot/cold signatures authorized
+  // (protocol 0.16).
+  await setTransactionStage(transaction.id, 'sending');
+  let result: TransactionResult;
+  if (shouldRouteGuardianLeafOffscreen(transaction.type)) {
+    result = await dispatchGuardianPipeline(
+      transaction.accountId,
+      tr.serialize(),
+      transaction.delegateTransaction,
+      signCallback,
+      stageStampFor(transaction.id),
+      chainAnchorB64
+    );
+  } else {
+    result = await runGuardianPipeline(
+      transaction.accountId,
+      tr,
+      transaction.delegateTransaction,
+      signCallback,
+      stageStampFor(transaction.id),
+      chainAnchorB64
+    );
+  }
+
+  // Same commit-wait as the proposal path: the new guardian must be seeded
+  // with the POST-switch state, so registration only runs after inclusion.
+  //
+  // A DISCARD is the clean case: the node has ruled that the rotation provably
+  // did not happen, so persisting the new endpoint and reporting "Guardian
+  // switched" would be a lie the user acts on, and it would hand the account to
+  // an operator with no on-chain authority over it. Fail the row and leave the
+  // vault naming the guardian that still holds the account.
+  //
+  // An INDETERMINATE failure is the hard one, because BOTH answers are unsafe.
+  // Skipping completion strands the vault on the operator this path exists
+  // because it cannot reach, and the row is terminal (`switch-guardian` is
+  // excluded from requeue and from Retry) so nothing retries. Completing anyway
+  // risks pointing the vault at an operator the chain never installed — a state
+  // with no symptom and no self-repair (see `didDirectSwitchLand`).
+  //
+  // So do not choose between them on a guess: ASK THE NODE whether it committed
+  // or discarded this transaction. Only when the node has no verdict — still
+  // pending, or no record at all — does this fall back to completing on no
+  // evidence, which is the lesser of the two harms: it at least leaves a
+  // reachable operator and a row whose audit fields say what happened. Note this
+  // asks about the TRANSACTION, not the account: `apply()` has already written
+  // the rotation into the local store, so an account read here would only ever
+  // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
+  const id = result.executedTransaction().id().toHex();
+  await setTransactionStage(transaction.id, 'confirming');
+  let commitConfirmed = true;
+  try {
+    await midenClientProxy.waitForTransactionCommit(id);
+  } catch (waitError) {
+    if (isTransactionDiscardedError(waitError)) throw waitError;
+    commitConfirmed = false;
+    console.warn(
+      `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
+        'asking the node whether the TRANSACTION committed or was discarded:',
+      waitError
+    );
+  }
+
+  // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
+  // very often resolved by the node read below. This is the residue — submitted,
+  // and no evidence either way. It rides to the receipt so the success screen
+  // stops asserting a confirmation nothing established.
+  let commitUnconfirmed = false;
+  if (!commitConfirmed) {
+    const landed = await didDirectSwitchLand(id);
+    if (landed === false) {
+      throw new Error(
+        `Direct guardian switch ${id} did not land: the node discarded it. ` +
+          'Leaving the stored guardian endpoint untouched.'
+      );
+    }
+    commitUnconfirmed = landed === undefined;
+    console.warn(
+      landed === true
+        ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
+        : `Direct guardian switch ${id} could not be confirmed on chain either; finalizing anyway so the account ` +
+            'is not stranded on the unreachable operator.'
+    );
+  }
+
+  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
+  await setTransactionStage(transaction.id, 'complete');
+};
+
+/**
  * Generate a transaction for a Guardian account using the MultisigService.
  * Routes the transaction through MultisigService proposal methods.
  */
@@ -1826,11 +2149,77 @@ const generateGuardianTransaction = async (
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
-      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      const { proposal } = await withGuardianConflictRetry(() =>
-        service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint)
-      );
-      proposalResult = proposal;
+      // WHICH guardian an unreachability verdict here implicates depends on
+      // where in the block it failed, and this row's audit trail is the only
+      // record of it. The service load touches the OUTGOING operator alone. The
+      // proposal push does not: `createSwitchGuardianProposal` fetches the NEW
+      // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
+      // endpoint fails there — and reporting that as "outgoing guardian
+      // unreachable" blames the wrong operator on the one path whose entire job
+      // is saying which one is down. The two are not separable from out here
+      // (one rejection, either origin), so the message widens rather than
+      // guesses; the direct path then re-fails on the new endpoint and names it.
+      let unreachableSubject = 'outgoing guardian';
+      try {
+        service = await withOutgoingGuardianDeadline(
+          () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
+          'loading the outgoing guardian service'
+        );
+        unreachableSubject = 'outgoing or new guardian';
+        const { proposal } = await withGuardianConflictRetry(() =>
+          withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
+            'pushing the switch-guardian proposal'
+          )
+        );
+        proposalResult = proposal;
+      } catch (error) {
+        // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
+        // fall back to the direct on-chain switch — the whole point of
+        // switch-guardian as a recovery path is escaping a dead guardian.
+        // Reachable-guardian errors (401/409/…) keep the normal handling.
+        //
+        // "It answered, and it cannot co-sign for this account" is the second
+        // condition that has to route here, and leaving it out closed the escape
+        // route on the users who needed it most. Two answers carry it. A rotation
+        // whose registration never landed (`registerFailed`, then three exhausted
+        // self-heal attempts → `unrepairable`) leaves the chain naming an operator
+        // that holds NOTHING for this account, and it answers `account_not_found`.
+        // A rotation that landed on chain while the wallet's record of it did not
+        // (`endpointPersistFailed`, or a failed `apply()`) leaves the vault naming
+        // an operator the chain no longer does, and that one answers
+        // `account_released` — a 409, so not a 5xx either. In both states Settings
+        // shows "Needs attention" and offers exactly one action, Rotate Guardian,
+        // and that action died at the FIRST step because loading the outgoing
+        // service calls the guardian's `getState`. The row then failed terminally
+        // with the user's only offered recovery unable to run. Neither operator
+        // can co-sign a proposal for the account, so for the purpose of rotating
+        // AWAY both are exactly as unusable as one that is down, and the direct
+        // path needs nothing from either: it signs locally with hot + cold and
+        // submits on chain.
+        const directSwitchTrigger = isGuardianUnreachableError(error)
+          ? `${unreachableSubject} unreachable`
+          : isGuardianAccountUnusable(error)
+            ? // Attributed by PHASE, not hardcoded. Only the service load is
+              // account-scoped to the outgoing operator alone; once it has
+              // succeeded the new endpoint is in play too, and a user-typed URL
+              // answering its non-account-scoped `/pubkey` with
+              // `404 {"code":"data_unavailable"}` reaches this same branch. This
+              // reason string is the row's only record of which operator a
+              // verdict was about, so it widens rather than guessing — the same
+              // rule the block above states for unreachability.
+              `${unreachableSubject} cannot co-sign for this account`
+            : undefined;
+        if (directSwitchTrigger === undefined) throw error;
+        console.warn(`[Guardian] ${directSwitchTrigger} — switching directly on-chain:`, error);
+        await generateDirectSwitchGuardianTransaction(
+          sgTx,
+          signCallback,
+          guardianProvider,
+          `${directSwitchTrigger} before the proposal was pushed: ${describeError(error)}`
+        );
+        return;
+      }
       break;
     }
     case 'replace-hot-key': {
@@ -2072,20 +2461,139 @@ const generateGuardianTransaction = async (
     if (!sdkAccount) {
       throw new Error(`Guardian account ${transaction.accountId} not found in local client`);
     }
-    const coldService = await MultisigService.buildColdMultisigService(
-      sdkAccount,
-      walletAccount,
-      guardianProvider.signWord
-    );
-    // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
-    // otherwise a prior delta mid-canonicalization fails the whole switch even
-    // though the hot proposal already landed.
-    await withGuardianConflictRetry(() => coldService.signProposal(proposalResult.id));
+    try {
+      // Bounded for the same reason as the two arms above: this loads state from
+      // the OUTGOING guardian, and a silent operator here would otherwise wedge
+      // the lock rather than reach the fallback below.
+      const coldService = await withOutgoingGuardianDeadline(
+        () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
+        'loading the cold co-signing service from the outgoing guardian'
+      );
+      // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
+      // otherwise a prior delta mid-canonicalization fails the whole switch even
+      // though the hot proposal already landed.
+      await withGuardianConflictRetry(() =>
+        withOutgoingGuardianDeadline(
+          () => coldService.signProposal(proposalResult.id),
+          'cold co-signing the switch-guardian proposal'
+        )
+      );
+    } catch (error) {
+      // Connectivity to the outgoing guardian dropped between proposal push and
+      // cold co-sign, or the operator stopped being able to co-sign for this
+      // account in that window: fall back to the direct on-chain switch.
+      //
+      // F-166 deliberately left the account-unusable verdicts off THIS catch, on
+      // the reasoning that a pushed proposal proves the operator knows the
+      // account. It does — at push time. What it does not prove is that the
+      // operator still holds it at co-sign time, and there is no exit from the
+      // gap: `switch-guardian` is in neither requeue set and has no user Retry, so
+      // the row fails terminally, and a fresh rotation attempt reaches an operator
+      // whose `getState` still answers, takes the coordinated path again, and dies
+      // at the same step. That is a loop, not an escape. Nothing about the
+      // verdict's timing changes what it means for the direct path, which asks the
+      // outgoing operator for nothing; the pushed delta is retracted best-effort
+      // just below, exactly as it is for an unreachable operator.
+      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      console.warn('[Guardian] outgoing guardian unusable at cold co-sign — switching directly on-chain:', error);
+      // Try to retract the pushed delta first, best-effort and swallowed — the
+      // same idiom the submission failure path below uses. It will usually fail
+      // (it needs the operator we just failed to reach), but "the call may fail"
+      // is not a reason to skip it: the guardian may have been down only for the
+      // co-sign window, and a delta left pending outlives this switch. Because
+      // `switch-guardian` is in neither `REQUEUEABLE_ON_PENDING_CONFLICT` nor the
+      // Retry set, a later coordinated switch that meets that stale delta gets a
+      // 409 it cannot requeue through and is cancelled — so the leftover is not
+      // harmless whenever the operator comes back.
+      //
+      // Safe to retract here, unlike the poison case further down: no chain
+      // submission has happened on this path yet (the proposal is only a delta on
+      // the guardian, and the direct switch submits its own transaction), so
+      // there is no co-signature the chain may be about to consume.
+      //
+      // Deadline-bounded like the calls above it, and for a sharper reason: one
+      // of the two verdicts that reach here is that this operator is unreachable,
+      // and the shape that most often produces that verdict is one that accepts
+      // the connection and never replies. An unbounded best-effort call against it
+      // does not merely delay the fallback, it replaces it — the row sits at
+      // `signing-proposal` forever, and `switch-guardian` has no requeue and no
+      // Retry. A cleanup step must not be able to cost more than the thing it
+      // cleans up.
+      try {
+        await withOutgoingGuardianDeadline(
+          () => service.abandonCandidate(proposalResult.nonce),
+          'abandoning the pending delta on the outgoing guardian'
+        );
+      } catch (abandonError) {
+        console.warn('[Guardian] could not abandon the pending delta before the direct switch (non-fatal)', {
+          nonce: proposalResult.nonce,
+          error: abandonError
+        });
+      }
+      await generateDirectSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        signCallback,
+        guardianProvider,
+        `outgoing guardian ${
+          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
+        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+      );
+      return;
+    }
   }
 
   let result: TransactionResult;
+  // Did the outgoing guardian's co-signature come back? This is the exact
+  // boundary between "no chain write has been attempted" and "one may be in
+  // flight", and the direct-switch escape below is gated on it.
+  //
+  // It has to be a flag rather than a reading of the error, because the try
+  // spans both sides of that boundary: the co-sign is guardian HTTP, but
+  // everything after it is the leaf, which executes, proves, and SUBMITS. A
+  // submit-time transport failure ("failed to fetch", a timeout) is
+  // indistinguishable by message from the outgoing operator going silent —
+  // `isGuardianUnreachableError` falls through to a substring match on the
+  // message — so classifying the error alone would let a rotation that is
+  // already in the mempool trigger a SECOND, unilateral `update_guardian`.
+  let guardianCoSignReturned = false;
   try {
-    const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    // The LAST outgoing-guardian round trip, and until now the only unbounded
+    // one — the three calls above it are deadline-bounded precisely because a
+    // silent operator wedges the row at `signing-proposal`, and this call reaches
+    // the same operator over the same connection. A rotation that survived the
+    // bounded calls could still hang here forever, which is the one outcome
+    // `switch-guardian` cannot absorb: it has no requeue and no Retry, so a hung
+    // row is a guardian the user can never rotate away from.
+    //
+    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same hang
+    // is a stall, not a trap — sends requeue and retry — and imposing a 30s
+    // ceiling there would fail transactions on a merely slow-but-healthy operator
+    // that would otherwise have completed. The asymmetry is the point: the
+    // deadline buys an escape hatch for the type that has none, and buys the
+    // other types nothing but a new way to fail.
+    //
+    // KNOWN IMPRECISION: this call is not purely a guardian round trip.
+    // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the
+    // request under `withWasmClientLock`, so a contended local lock — an AutoSync
+    // tick, someone else's local prove — can burn the 30s even though the
+    // operator answered promptly, and the escape then attributes local
+    // contention to the guardian. Accepted rather than papered over: the
+    // consequence is that a rotation the user explicitly asked for completes
+    // unilaterally instead of coordinated, which is the same end state by a
+    // worse-attributed route, and it costs a leftover pending delta on a healthy
+    // operator (best-effort abandoned below). Splitting the two halves would mean
+    // widening the MultisigService API at the very end of a long review, and the
+    // failure it would prevent is cosmetic next to the wedge the deadline closes.
+    const tr =
+      transaction.type === 'switch-guardian'
+        ? await withOutgoingGuardianDeadline(
+            () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes),
+            'co-signing the switch-guardian request with the outgoing guardian'
+          )
+        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    // Past the guardian round trip. Everything below can reach the chain, so the
+    // direct-switch escape in the catch is closed from here on.
+    guardianCoSignReturned = true;
 
     // #784: the proposal carries the ChainAnchor of the reference block its
     // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
@@ -2147,6 +2655,12 @@ const generateGuardianTransaction = async (
       if (transaction.requestBytes !== undefined) {
         await markMayHaveSubmitted(transaction.id);
       }
+      // The proposal's ChainAnchor rides along (protocol 0.16): the signed
+      // summary binds the reference block it was built at, so the leaf's
+      // executeRequest must be pinned there — the executing realm's sync height
+      // has usually advanced past it during the guardian HTTP roundtrips, and an
+      // unanchored execute derives a different summary the collected signatures
+      // no longer authorize ("transaction is unauthorized").
       result = await dispatchGuardianPipeline(
         transaction.accountId,
         tr.serialize(),
@@ -2188,7 +2702,18 @@ const generateGuardianTransaction = async (
       throw error;
     }
     try {
-      await service.abandonCandidate(proposalResult.nonce);
+      // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
+      // This call reaches the same operator, over the same transport, that the
+      // failure above may have been its silence — so unbounded it does not delay
+      // the failure, it replaces it with a hang, and moves the wedge fifteen
+      // lines rather than closing it. Worse than the row itself: this runs inside
+      // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
+      // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
+      // the same loop) down with it, so the row is not even reaped.
+      await withOutgoingGuardianDeadline(
+        () => service.abandonCandidate(proposalResult.nonce),
+        'abandoning the guardian candidate after a failed submission'
+      );
     } catch (abandonError) {
       // Cleanup must never mask the transaction failure. The abandonment call
       // is idempotent, so a later recovery path can safely retry it.
@@ -2196,6 +2721,42 @@ const generateGuardianTransaction = async (
         nonce: proposalResult.nonce,
         error: abandonError
       });
+    }
+    // The FOURTH and last outgoing-guardian failure point, behaving like the
+    // other three. A `switch-guardian` that reaches here because the operator is
+    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // rethrowing ends it Failed and leaves the user pointed at the very guardian
+    // they were trying to escape — the exact dead end this feature exists to
+    // remove.
+    //
+    // `guardianCoSignReturned` is what makes it safe, and it is NOT redundant
+    // with the error classifier. Unlike the other three sites, this catch also
+    // covers the leaf — execute, prove, submit, apply — so a node-side transport
+    // failure at submit arrives here worded exactly like a silent guardian and
+    // classifies as unreachable. Diverting on the classifier alone would build
+    // and submit a second `update_guardian` while the first was in the mempool:
+    // at best a wasted on-chain write, at worst a row that ends Failed while the
+    // rotation landed, leaving the vault naming the old operator with no
+    // completion to fix it. Only a failure BEFORE the co-signature came back is
+    // provably pre-submit. Post-co-sign failures rethrow, which is what keeps
+    // the outer catch's `isApplyAfterSubmitError` reconcile path reachable.
+    //
+    // The poison case above is deliberately excluded and still rethrows — an
+    // evicted pipeline is abandoned rather than stopped, and may yet submit.
+    if (
+      transaction.type === 'switch-guardian' &&
+      !guardianCoSignReturned &&
+      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
+    ) {
+      await generateDirectSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        signCallback,
+        guardianProvider,
+        `outgoing guardian ${
+          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
+        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+      );
+      return;
     }
     throw error;
   }

@@ -53,6 +53,11 @@ const colors = {
   red: {
     50: '#FEF2F2',
     100: '#FEE2E2',
+    // Added for red text on a dark red-500/15 fill (the offline status pill):
+    // the lightest existing shade above 100 is 500 (#EF4444), which is only
+    // ~4.6:1 on a near-black surface — short of AA for normal-size text.
+    // 300 is ~10:1 there. Additive — nothing used `red-300`.
+    300: '#FCA5A5',
     500: '#EF4444',
     600: '#DC2626',
     700: '#B91C1C'

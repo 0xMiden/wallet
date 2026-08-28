@@ -19,6 +19,18 @@ export interface TransactionStepDef {
    */
   startStage: ITransactionStage;
   /**
+   * Stage that opens this step on a path that never reaches `startStage`.
+   *
+   * Resolved AFTER `startStage`, so `startStage` must be the EARLIER of the two
+   * whenever a row can carry both — otherwise the step times from the later stamp
+   * and silently drops the span in front of it. The offline rotation's first step
+   * is the case that makes this concrete: it always stamps `creating-proposal`
+   * (the attempt against the dead operator is what sends it down that path) and
+   * then `signing-locally`, so `creating-proposal` is the `startStage` there too,
+   * and only the LABEL differs from the coordinated set.
+   */
+  fallbackStartStage?: ITransactionStage;
+  /**
    * Stages during which this is the in-progress step; drives the row's
    * checkmark/active/pending state (`getActiveStepIndex`).
    */
@@ -39,7 +51,13 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepGuardianApproved',
     defaultLabel: 'Guardian approved',
     startStage: 'creating-proposal',
-    activeStages: ['syncing', 'creating-proposal', 'signing-proposal']
+    // Unreachable today and kept deliberately: a row carrying `signing-locally`
+    // in its stage OR its stamps makes `isDirectGuardianSwitch` true, so
+    // `stepsForFlow` hands it the DIRECT set below and never this one. These two
+    // entries only keep the coordinated set from mistiming such a row if a future
+    // caller reaches it another way — they are not evidence that it can.
+    fallbackStartStage: 'signing-locally',
+    activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
   },
   {
     id: 'generating-proof',
@@ -60,8 +78,43 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepSyncingGuardian',
     defaultLabel: 'Syncing with Guardian',
     startStage: 'guardian-syncing',
+    // NO switch-guardian row stamps `guardian-syncing` — the type is excluded
+    // from the block that stamps it, on the coordinated path as well as the
+    // direct one — so this fallback is what times the step for every rotation,
+    // not just the offline kind. Their shared post-commit boundary is the
+    // registration on the INCOMING guardian, stamped `registering-guardian`.
+    // Resolved only when `guardian-syncing` is absent, so an ordinary guardian
+    // send is unaffected.
+    fallbackStartStage: 'registering-guardian',
     activeStages: ['confirming', 'registering-guardian', 'delivering', 'guardian-syncing']
   }
+] as const satisfies readonly TransactionStepDef[];
+
+/**
+ * The guardian steps as an offline direct switch actually performs them.
+ *
+ * Only the first step differs, and it has to: on this path no operator approves
+ * anything. The outgoing guardian is unreachable — that is why the direct switch
+ * is running at all — and the account's hot and cold keys sign locally instead.
+ * Telling the user "Guardian approved" there is not a cosmetic mismatch; it
+ * describes an approval that provably did not happen, on the one screen whose
+ * job is to say what the wallet is doing with their keys.
+ */
+export const DIRECT_SWITCH_TRANSACTION_STEPS = [
+  {
+    id: 'signed-locally',
+    labelKey: 'transactionStepSignedLocally',
+    defaultLabel: 'Signed on this device',
+    // Same boundaries as the coordinated first step, deliberately: this row
+    // reaches `signing-locally` only by first attempting a proposal and waiting
+    // out the unreachable operator, and that wait is the bulk of what the user
+    // sat through. Opening the step at `signing-locally` would report the local
+    // signature alone — a couple of seconds standing in for half a minute.
+    startStage: 'creating-proposal',
+    fallbackStartStage: 'signing-locally',
+    activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
+  },
+  ...GUARDIAN_TRANSACTION_STEPS.slice(1)
 ] as const satisfies readonly TransactionStepDef[];
 
 /**
@@ -94,6 +147,14 @@ export const STANDARD_TRANSACTION_STEPS = [
 /** Backwards-compatible alias: the full (Guardian) step tuple. */
 export const TRANSACTION_STEPS = GUARDIAN_TRANSACTION_STEPS;
 
-/** The step set to render for a given account flow. */
-export const stepsForFlow = (isGuardian: boolean): readonly TransactionStepDef[] =>
-  isGuardian ? GUARDIAN_TRANSACTION_STEPS : STANDARD_TRANSACTION_STEPS;
+/**
+ * The step set to render for a given account flow.
+ *
+ * `signedLocally` is the row's `switchedDirectly` marker, which the direct path
+ * stamps before it signs — so the relabelled first step is on screen while that
+ * step is the active one, not only in hindsight.
+ */
+export const stepsForFlow = (isGuardian: boolean, signedLocally = false): readonly TransactionStepDef[] => {
+  if (!isGuardian) return STANDARD_TRANSACTION_STEPS;
+  return signedLocally ? DIRECT_SWITCH_TRANSACTION_STEPS : GUARDIAN_TRANSACTION_STEPS;
+};

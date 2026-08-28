@@ -628,6 +628,67 @@ it('refuses a second switch when one is already queued for the account', async (
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
 
+// The pre-check above reads the queue BEFORE `unlock`, so a row created during
+// that window slips past it and the refusal comes back from `initiate` instead.
+// It must read as the same condition: the initiator's own message is
+// developer-facing English, and putting it on screen — which is what the generic
+// arm of this catch does — ships untranslated copy that `yarn lint:i18n` cannot
+// see, since it is a runtime string rather than a literal in a component.
+it('localizes the in-progress refusal that comes back from the initiator', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  const inProgress = new Error('A guardian rotation to https://other.guardian is already in progress');
+  inProgress.name = 'GuardianRotationInProgressError';
+  mockInitiateSwitch.mockRejectedValueOnce(inProgress);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  // The raw sentence must not reach the user.
+  expect(screen.queryByText(/already in progress for this account/)).toBeNull();
+});
+
+// The case the name check exists FOR, and the one an `instanceof Error` gate in
+// front of it silently excludes: the rejection crosses a boundary the intercom
+// adapters may serialize, which drops the prototype and leaves a plain object
+// carrying `name`. Gated on `instanceof`, this fell through to `String(err)` and
+// rendered "[object Object]" into the alert.
+it('localizes the in-progress refusal even after serialization drops the prototype', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  mockInitiateSwitch.mockRejectedValueOnce({
+    name: 'GuardianRotationInProgressError',
+    message: 'A guardian rotation to https://other.guardian is already in progress'
+  });
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  expect(screen.queryByText(/object Object/)).toBeNull();
+});
+
+// And an unrelated serialized rejection still shows its own message rather than
+// "[object Object]" — the message read is shape-based for the same reason the
+// name check is.
+it('shows a serialized error message rather than stringifying the object', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  mockInitiateSwitch.mockRejectedValueOnce({ name: 'Error', message: 'the node refused the request' });
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('the node refused the request'));
+});
+
 it('allows a retry after a hang, which created no row', async () => {
   // The queue check reads the DB rather than holding a latch precisely so this
   // works: a hung `unlock` never reached `initiate`, so nothing is queued and the

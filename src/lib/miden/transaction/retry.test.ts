@@ -6,7 +6,12 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { UnverifiableSendRetryError, isRequeueableTransaction, requeueFailedTransaction } from './retry';
+import {
+  UnverifiableSendRetryError,
+  isCancellableTransaction,
+  isRequeueableTransaction,
+  requeueFailedTransaction
+} from './retry';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 const mockTransactionsWhere = jest.fn();
@@ -313,6 +318,33 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
   });
 });
 
+describe('isCancellableTransaction', () => {
+  it('offers Cancel on any pending value transfer', () => {
+    for (const status of [ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(true);
+    }
+  });
+
+  it('never offers Cancel on a terminal row', () => {
+    for (const status of [ITransactionStatus.Completed, ITransactionStatus.Failed]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(false);
+    }
+    expect(isCancellableTransaction({ status: undefined, type: 'send' })).toBe(false);
+  });
+
+  // A structural op is cancellable only up to pickup. Past that its tail runs
+  // beyond the on-chain write — the direct guardian switch can spend minutes in
+  // post-commit registration retries — so failing the row stops nothing, cannot
+  // be retried, and only replaces a rotation that DID land with a row claiming
+  // it failed.
+  it('withdraws Cancel from a structural op once it has been picked up', () => {
+    for (const type of ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const) {
+      expect(isCancellableTransaction({ status: ITransactionStatus.Queued, type })).toBe(true);
+      expect(isCancellableTransaction({ status: ITransactionStatus.GeneratingTransaction, type })).toBe(false);
+    }
+  });
+});
+
 describe('isRequeueableTransaction', () => {
   it('accepts failed rows of re-queueable types only', () => {
     for (const type of ['send', 'consume', 'swap', 'bridged-send', 'execute'] as const) {
@@ -487,7 +519,11 @@ describe('requeueFailedTransaction', () => {
 describe('requeueFailedTransaction — cached requestBytes', () => {
   const bytes = () => new Uint8Array([1, 2, 3]);
 
-  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
+  // `signing-locally` belongs in this set for the same reason the rest do: the
+  // offline rotation signs hot+cold BEFORE it executes anything, so a row that
+  // failed there provably never submitted. Left out, it would fall to the
+  // conservative "may have submitted" side and keep stale bytes.
+  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally', 'executing', 'proving'] as const)(
     "drops a send's bytes when it failed pre-submit at %s",
     async stage => {
       const row = failedRow({ type: 'send', stage, requestBytes: bytes() });

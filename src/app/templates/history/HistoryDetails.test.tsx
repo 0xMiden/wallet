@@ -54,6 +54,9 @@ jest.mock('lib/miden/activity', () => ({
   requeueFailedTransaction: (...args: unknown[]) => mockRequeueFailedTransaction(...args),
   requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSWTransactionProcessing(...args),
   isRequeueableTransaction: (...args: unknown[]) => mockIsRequeueableTransaction(...args),
+  // The REAL predicate: which rows may be cancelled is exactly what these
+  // tests assert, so a reimplementation here would assert the mock instead.
+  isCancellableTransaction: jest.requireActual('lib/miden/transaction/retry').isCancellableTransaction,
   isUnverifiableSendRetryError: (...args: unknown[]) => mockIsUnverifiableSendRetryError(...args),
   retryEarnWithdrawReceive: (...args: unknown[]) => mockRetryEarnWithdrawReceive(...args),
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',

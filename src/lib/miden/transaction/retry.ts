@@ -124,6 +124,39 @@ export const isRequeueableTransaction = (tx: {
   return true;
 };
 
+/**
+ * Structural account operations — the ones that rewrite the account's own
+ * authorization rather than move value. None of them is requeueable (see
+ * `REQUEUEABLE_TYPES`): the user re-initiates them from Settings.
+ */
+const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'];
+
+/**
+ * Whether the UI should still offer Cancel on an in-flight row.
+ *
+ * Cancel has never aborted anything — it marks the row Failed and the pipeline
+ * runs on (see `cancelWhilePipelineMayStillRun`). For a value transfer that is
+ * an honest deal: the retry machinery is built around the resulting ambiguity,
+ * and the user gets an exit for a row that would otherwise hang.
+ *
+ * A structural op that has been PICKED UP offers neither half of that deal. Its
+ * tail is long — the direct guardian switch waits for the commit and then
+ * retries registration up to eight times with backoff, minutes in the worst case
+ * — and everything in it happens after the `update_guardian` write is already on
+ * chain. Cancelling there does not stop the rotation, it cannot be retried, and
+ * the completion's terminal write is refused because the row went terminal
+ * first: the account's guardian has moved, the endpoint has been persisted, and
+ * the only thing the user is left with is a row that says the whole thing
+ * failed. That is strictly worse than no button.
+ *
+ * Queued is different and stays cancellable: nothing has been picked up, so
+ * failing the row genuinely does prevent the rotation.
+ */
+export const isCancellableTransaction = (tx: { status?: ITransactionStatus; type: ITransactionType }): boolean => {
+  if (tx.status !== ITransactionStatus.Queued && tx.status !== ITransactionStatus.GeneratingTransaction) return false;
+  return !(STRUCTURAL_TYPES.includes(tx.type) && tx.status === ITransactionStatus.GeneratingTransaction);
+};
+
 /** Output-producing types whose Retry must first node-verify it didn't already
  *  land (double-send guard). Consume is excluded — it has its own input-note
  *  landed check (verifyConsumeLanded) on the kill/reaper path. */
@@ -215,6 +248,10 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
   'syncing',
   'creating-proposal',
   'signing-proposal',
+  // The direct switch's local hot+cold signing, which happens while the request
+  // is still being BUILT — strictly earlier than `signing-proposal`, so it
+  // belongs here for the same reason.
+  'signing-locally',
   'executing',
   'proving'
 ]);

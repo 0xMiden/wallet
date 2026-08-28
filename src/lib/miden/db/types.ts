@@ -63,6 +63,57 @@ export interface IBridgedReceiveExtraInputs {
 export interface ISwitchGuardianExtraInputs {
   previousGuardianEndpoint?: string;
   newGuardianEndpoint: string;
+  // `registerFailed`: the on-chain `update_guardian` committed but registering
+  // the account on the NEW operator did not land, so that operator has no record
+  // of the account. Recovery is owned by guardian-sync's missing-registration
+  // self-heal (`attemptMissingRegistrationSelfHeal`) — deliberately NOT the 401
+  // cold-re-register self-heal, which needs a guardian state load and therefore
+  // cannot run against an operator that has never seen the account.
+  //
+  // That self-heal talks to whatever endpoint the vault names, so it reaches the
+  // NEW operator only if the endpoint write ATTEMPTED before it actually landed.
+  // Completion attempts it first but does not guarantee it: both can fail, and
+  // this flag and `endpointPersistFailed` can both be set on one row. When they
+  // are, the vault still names the old operator, the missing-registration
+  // self-heal is pointed at the wrong host, and drift reconciliation — the repair
+  // `endpointPersistFailed` already names — is what recovers the account.
+  registerFailed?: boolean;
+  // `endpointPersistFailed`: the rotation committed on chain but the vault still
+  // names the previous operator (e.g. the wallet auto-locked mid-rotation, so the
+  // encrypted write was refused). Guardian drift reconciliation is the repair
+  // path; recorded so a support log can tell this apart from a clean switch.
+  endpointPersistFailed?: boolean;
+  // `switchedDirectly` / `directSwitchReason`: this row rotated the guardian by a
+  // UNILATERAL on-chain `update_guardian` instead of a proposal co-signed by the
+  // outgoing operator, and the classified error that made the wallet choose that.
+  // Written before the leaf executes, so the marker survives a row that then
+  // fails — which is what lets `reconcileStructuralApplyFailure` read it: on a
+  // post-submit apply failure it skips rebuilding a service from the operator
+  // this row already found unreachable, rather than spending the WASM lock
+  // waiting on it. Absent (an older row, or a coordinated switch) the reconcile
+  // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
+  // never correctness. The two paths also differ in what state can be left
+  // behind (see `registerFailed` above), and without `directSwitchReason` a
+  // support log cannot tell whether the unreachability verdict was right.
+  switchedDirectly?: boolean;
+  directSwitchReason?: string;
+  // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
+  // established that it committed. The commit wait failed without a verdict and
+  // the follow-up node read came back neither committed nor discarded, so
+  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway —
+  // deliberately, since the alternative strands the account on an operator the
+  // direct path has already judged unreachable — but "we went ahead on no
+  // evidence" is not the same fact as "it committed", and every other surface
+  // used to render them identically.
+  //
+  // It matters more here than the optimism usually would: if the rotation did
+  // NOT land, the OLD operator is still the on-chain guardian while the vault
+  // now names the new one, and nothing detects that afterwards — drift compares
+  // the on-chain guardian against its cached baseline, and both still name the
+  // old operator, so it reports `in-sync` without ever reading the stored
+  // endpoint. The receipt is the last place the user can be told, which is why
+  // this is persisted rather than merely logged.
+  commitUnconfirmed?: boolean;
 }
 
 /**
@@ -243,6 +294,11 @@ export interface IConsumeSwapSettleExtraInputs {
  *   - sending              : legacy broad SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
+ *   - signing-locally      : direct switch-guardian only, while the wallet's own
+ *                            hot+cold keys sign — no operator is contacted, which
+ *                            is why this cannot reuse `signing-proposal`: that
+ *                            stage's copy says the guardian is signing, and the
+ *                            direct path exists precisely because it is not
  *   - executing            : Guardian only, while executing the signed request
  *   - proving              : Guardian only, while proving the executed transaction
  *   - submitting           : Guardian only, while submitting the proven transaction
@@ -265,6 +321,7 @@ export const TRANSACTION_STAGES = [
   'sending',
   'creating-proposal',
   'signing-proposal',
+  'signing-locally',
   'executing',
   'proving',
   'submitting',

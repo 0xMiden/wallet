@@ -892,6 +892,10 @@
     "message": "Guardian approuvé",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Signé sur cet appareil",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Preuve générée",
     "englishSource": "Proof generated"
@@ -972,6 +976,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "Votre « guardian » correspond à la signature de la proposition.",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "Signature locale",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Signature avec les clés de votre portefeuille",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "Envoi de la transaction",
@@ -2040,6 +2052,22 @@
     "message": "Lieu :",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "Hors ligne",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Non connecté",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "Nécessite votre attention",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "En vérification",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "Qu’est-ce qu’un «Guardian» ?",
     "englishSource": "What is a Guardian?"
@@ -2424,9 +2452,45 @@
     "message": "Quels sont les changements actuels ?",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Changement de Guardian envoyé",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Pas encore confirmé.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Le changement a été soumis, mais cet appareil n'a pas pu confirmer qu'il a abouti sur la chaîne. Le portefeuille ne peut pas le confirmer à votre place : vos paramètres Guardian et l'entrée de cette transaction dans Activité indiqueront le nouveau Guardian dans les deux cas. Si une transaction ultérieure est refusée faute de cosignature, relancez le changement.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Cet appareil n'a pas non plus pu enregistrer l'adresse du nouveau Guardian, il affiche donc toujours la précédente. Le portefeuille vous demandera de la saisir à nouveau : cette invite ne lance pas un autre changement.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Une fois le changement confirmé, les nouvelles transactions devront pouvoir joindre votre nouveau Guardian pour aboutir.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Une fois le changement confirmé on-chain, votre nouveau Guardian cosigne chaque transaction et votre ancien Guardian ne peut plus cosigner pour votre compte.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Configuration incomplète.",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "Le changement est confirmé on-chain, mais cet appareil n’a pas pu enregistrer l’adresse du nouveau Guardian. Le portefeuille le vérifie automatiquement et vous invitera à la saisir à nouveau si nécessaire — cela ne lancera pas un autre changement. Si aucune invite n’apparaît, contactez l’assistance.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "Le changement est confirmé on-chain. L’enregistrement de votre compte auprès du nouveau Guardian n’est pas encore terminé — le portefeuille réessaie automatiquement un nombre limité de fois. S’il n’est toujours pas terminé, contactez l’assistance.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "Votre nouveau Guardian cosigne désormais chaque transaction — votre ancien Guardian n’a plus aucun rôle à jouer.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "Votre nouveau Guardian cosigne désormais chaque transaction — votre ancien Guardian ne peut plus cosigner de transactions pour votre compte.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "L’adresse de votre portefeuille, vos fonds et votre historique restent inchangés. Rien n’a été déplacé lors de la rotation.",
@@ -2508,9 +2572,29 @@
     "message": "Votre guardian a été modifié et nous n’avons pas pu identifier le nouvel opérateur. Saisissez son URL pour vous reconnecter.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlUnreachable": {
+    "message": "Impossible de joindre cet opérateur. Vérifiez l'URL et votre connexion, puis réessayez.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Ce compte n'a pas encore de Guardian on-chain permettant la vérification.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
   "guardianUrlMismatch": {
     "message": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian inaccessible",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "Votre « guardian » ne répond pas ; les transactions ne peuvent donc pas être cosignées.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Changer de Guardian",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "Afficher la clé de l'appareil",
@@ -2711,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Ne fermez pas cette fenêtre tant que la transaction n'a pas été générée.",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Votre transaction a été soumise, mais cet appareil n'a pas pu la confirmer sur le réseau.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Votre transaction a été traitée avec succès et confirmée sur le réseau.",

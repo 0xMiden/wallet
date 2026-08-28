@@ -1,4 +1,9 @@
-import { extractSdkErrorCode, isApplyAfterSubmitError } from './sdk-error-code';
+import {
+  extractSdkErrorCode,
+  isApplyAfterSubmitError,
+  isGuardianCanonicalizationError,
+  isTransactionDiscardedError
+} from './sdk-error-code';
 
 /**
  * The verbatim `Display` text miden-client produces for
@@ -143,5 +148,87 @@ describe('isApplyAfterSubmitError', () => {
     );
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('realm-error', trapWithSdkText))).toBe(false);
     expect(isApplyAfterSubmitError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isTransactionDiscardedError', () => {
+  // Verbatim from both producers of this verdict: the SDK's
+  // `TransactionsResource.waitFor` (`throw new Error(\`Transaction rejected: ${hex}\`)`
+  // in its `isDiscarded()` branch) and the offscreen realm's in-realm poll loop,
+  // which reproduces the same text so one matcher covers all three platforms.
+  const DISCARDED_MESSAGE = 'Transaction rejected: 0x1234abcd';
+
+  it('matches the discard text both realms produce', () => {
+    expect(isTransactionDiscardedError(new Error(DISCARDED_MESSAGE))).toBe(true);
+  });
+
+  it('matches through the offscreen bus wrapper and a cause chain', () => {
+    expect(
+      isTransactionDiscardedError(new Error(`Offscreen call 'waitForTransactionCommit' failed: ${DISCARDED_MESSAGE}`))
+    ).toBe(true);
+    expect(isTransactionDiscardedError(new Error('commit wait failed', { cause: new Error(DISCARDED_MESSAGE) }))).toBe(
+      true
+    );
+  });
+
+  it('does NOT match an indeterminate timeout', () => {
+    // The whole point of the distinction: a timeout leaves the transaction
+    // possibly on chain, so the caller optimistically finalizes. Matching here
+    // would turn every slow commit into a hard failure.
+    expect(isTransactionDiscardedError(new Error('Timed out waiting for transaction 0xabc to commit'))).toBe(false);
+    expect(isTransactionDiscardedError(new Error('network request failed'))).toBe(false);
+    expect(isTransactionDiscardedError(undefined)).toBe(false);
+    expect(isTransactionDiscardedError(null)).toBe(false);
+    expect(isTransactionDiscardedError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a node verdict (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // An eviction is abandonment, not a chain verdict — and its `cause` carries
+    // the raw realm error verbatim. Reading it as "discarded" would fail a row
+    // whose transaction may well have submitted.
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('realm-error', new Error(DISCARDED_MESSAGE)))).toBe(
+      false
+    );
+    expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isGuardianCanonicalizationError', () => {
+  // Verbatim shape of the SDK's refusal to import a guardian view that is not
+  // ahead of the local one.
+  const CANONICALIZATION_MESSAGE =
+    'Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 4 for account 0xabc';
+
+  it('matches the refusal, including through a wrapper and a cause chain', () => {
+    expect(isGuardianCanonicalizationError(new Error(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(new Error('incoming nonce 0 is not greater than local nonce 1'))).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error(`Offscreen call 'syncState' failed: ${CANONICALIZATION_MESSAGE}`))
+    ).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error('sync failed', { cause: new Error(CANONICALIZATION_MESSAGE) }))
+    ).toBe(true);
+  });
+
+  it('does not match an unrelated failure', () => {
+    expect(isGuardianCanonicalizationError(new Error('network request failed'))).toBe(false);
+    expect(isGuardianCanonicalizationError(undefined)).toBe(false);
+    expect(isGuardianCanonicalizationError(null)).toBe(false);
+    expect(isGuardianCanonicalizationError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a canonicalization race (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // The stakes here are the highest of the three chain-walking classifiers in
+    // this module: the transaction loop answers a `true` from this one by marking
+    // the row Completed with a success message, for any type. An eviction is an
+    // ABANDONED pipeline that may never have submitted, and its `cause` carries
+    // the raw realm error — which, on the guardian path, can be exactly this
+    // refusal.
+    expect(
+      isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
+    ).toBe(false);
+    expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
 });

@@ -4,9 +4,11 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -491,9 +493,32 @@ export const initiateBridgedReceiveTransaction = async (args: {
 };
 
 /**
+ * Do two rotation requests name the same operator? Trailing-slash tolerant via
+ * the same `sanitizeGuardianUrl` the wallet already uses for guardian-URL
+ * identity, so `https://g.example.com` and `https://g.example.com/` are one
+ * target rather than two.
+ */
+const sameGuardianEndpointTarget = (a: string, b: string): boolean => sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b);
+
+/**
  * Queue a switch-guardian transaction for a Guardian account. The per-account
  * `guardianEndpoint` is NOT updated here — it's persisted only after the
  * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
+ *
+ * Deduped against a rotation that is already in flight for this account. Unlike
+ * the value-moving types, a duplicate here is not merely wasteful: rotations are
+ * serialized per account (`withGuardianAccountLock`), so the second row starts
+ * only AFTER the first has committed and persisted the new endpoint, and it then
+ * performs a whole second on-chain `update_guardian` to the guardian the account
+ * already has. Returning the live id instead sends the caller to the rotation
+ * that is actually running — the UI navigates to `/generating-transaction/:txId`
+ * with whatever comes back — but only when the in-flight row targets the SAME
+ * operator; a request for a different one is refused rather than silently
+ * redirected (see the check below).
+ *
+ * Completed and Failed rows are deliberately NOT deduped against: a finished
+ * rotation must never block the next one, and a failed rotation is the case the
+ * user most needs to be able to re-run (`switch-guardian` has no Retry).
  */
 export const initiateSwitchGuardianTransaction = async (
   accountId: string,
@@ -507,14 +532,54 @@ export const initiateSwitchGuardianTransaction = async (
     throw new Error('Switch guardian is only supported for Guardian accounts');
   }
   const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
-  const dbTransaction = new SwitchGuardianTransaction(
-    accountId,
-    newGuardianEndpoint,
-    delegateTransaction,
-    previousGuardianEndpoint
-  );
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+
+  // Check-and-add inside one rw transaction, like the consume dedup above, so
+  // two taps landing together cannot both pass the check.
+  //
+  // `filter` rather than an index lookup: `type` is not an indexed key path (see
+  // the v1.5 schema in repo.ts), and `accountId` is indexed but only matches an
+  // exact string, whereas the same account can be spelled more than one way —
+  // which is why `compareAccountIds` exists. A scan of the transaction table is
+  // what `getAllUncompletedTransactions` already does per queue lap.
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const inFlightRows = await Repo.transactions
+      .filter(
+        row =>
+          row.type === 'switch-guardian' &&
+          !row.restoredFromBackup &&
+          (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction)
+      )
+      .toArray();
+    const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, accountId));
+    if (inFlight) {
+      // Returning the live id is right only for a genuine duplicate — the same
+      // rotation, asked for twice. When the in-flight row targets a DIFFERENT
+      // operator, handing back its id would navigate the user to a rotation to
+      // an endpoint they did not choose and report it as theirs, and nothing
+      // downstream would ever correct it (`TransactionSummaryBadge` renders
+      // nothing for `switch-guardian`). Refuse instead, naming the rotation that
+      // holds the account, so the caller can say what is actually running.
+      //
+      // An in-flight row with NO recorded endpoint is refused too. `type` says
+      // it is always present, so an empty one means a corrupt or truncated row —
+      // and "I cannot tell what that rotation targets" is not grounds for
+      // claiming it is this one.
+      const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
+      if (!inFlightEndpoint || !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
+        throw new GuardianRotationInProgressError(inFlightEndpoint);
+      }
+      return inFlight.id;
+    }
+
+    const dbTransaction = new SwitchGuardianTransaction(
+      accountId,
+      newGuardianEndpoint,
+      delegateTransaction,
+      previousGuardianEndpoint
+    );
+    await Repo.transactions.add(dbTransaction);
+    return dbTransaction.id;
+  });
 };
 
 /**

@@ -72,6 +72,9 @@ jest.mock('lib/miden/activity', () => ({
   suppressingLinkedTxIds: (...args: unknown[]) => mockSuppressingLinkedTxIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
+  // The REAL predicate: which rows may be cancelled is exactly what these
+  // tests assert, so a reimplementation here would assert the mock instead.
+  isCancellableTransaction: jest.requireActual('lib/miden/transaction/retry').isCancellableTransaction,
   // Real (pure) implementations so the cancelled-row mapping is exercised
   // against the production sentinel string.
   USER_CANCELLED_TRANSACTION_REASON: 'Transaction was cancelled by user',

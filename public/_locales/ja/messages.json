@@ -892,6 +892,10 @@
     "message": "Guardian 承認済み",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "このデバイスで署名済み",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "証明が生成されました",
     "englishSource": "Proof generated"
@@ -972,6 +976,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "guardianが提案に署名しています。",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "ローカルで署名",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "ウォレットキーで署名",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "取引の送信",
@@ -2040,6 +2052,22 @@
     "message": "場所：",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "オフライン",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "未接続",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "対応が必要です",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "確認中",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "Guardianとは何ですか？",
     "englishSource": "What is a Guardian?"
@@ -2424,9 +2452,45 @@
     "message": "現在の変更点",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Guardian の変更を送信しました",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "まだ確認できていません。",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "変更は送信されましたが、このデバイスではオンチェーンで成立したことを確認できませんでした。ウォレット側では確認できません。Guardian の設定もこのトランザクションのアクティビティ項目も、いずれの場合も新しい Guardian を表示します。以降のトランザクションが共同署名できずに拒否された場合は、変更をやり直してください。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "このデバイスは新しい Guardian のアドレスも保存できなかったため、引き続き以前のアドレスが表示されます。ウォレットが再入力を求めますが、その入力によって別の変更が開始されることはありません。",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "変更が確認されると、新しいトランザクションは完了する前に新しい Guardian に接続できる必要があります。",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "変更がオンチェーンで確認されると、新しい Guardian がすべてのトランザクションに共同署名し、以前の Guardian はあなたのアカウントに対して共同署名できなくなります。",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "設定が完了していません。",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "切り替えはオンチェーンで確認されましたが、このデバイスでは新しいGuardianのアドレスを保存できませんでした。ウォレットが自動的に確認し、必要に応じて再入力を求めます。これによって別の切り替えが開始されることはありません。表示されない場合は、サポートにお問い合わせください。",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "切り替えはオンチェーンで確認されました。新しいGuardianへのアカウント登録はまだ完了していません。ウォレットは自動的に限られた回数だけ再試行します。それでも完了しない場合は、サポートにお問い合わせください。",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "新しいGuardianは今後、すべての取引に共同署名を行います。以前のGuardianはもはや何の役割も果たしません。",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "新しいGuardianは今後、すべての取引に共同署名を行います。以前のGuardianは、もはやお客様のアカウントの取引に共同署名できません。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "ウォレットアドレス、資金、取引履歴に変更はありません。ローテーション中に移動されたものは一切ありません。",
@@ -2508,9 +2572,29 @@
     "message": "guardianが切り替わりましたが、新しい運営者を特定できませんでした。再接続するには、そのURLを入力してください。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlUnreachable": {
+    "message": "その事業者に接続できませんでした。URL と接続状況を確認してから、もう一度お試しください。",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
   "guardianUrlMismatch": {
     "message": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian アクセス不可",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "guardianが応答していないため、取引の共同署名を行うことができません。",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Guardian を切り替える",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "デバイスの鍵を表示する",
@@ -2711,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "トランザクションが生成されるまで、このウィンドウを閉じないでください",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "トランザクションは送信されましたが、このデバイスではネットワーク上で確認できませんでした。",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "お取引は正常に処理され、ネットワーク上で確認されました。",

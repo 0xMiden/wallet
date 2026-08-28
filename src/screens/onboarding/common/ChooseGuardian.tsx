@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianAvailability } from 'app/hooks/useGuardianAvailability';
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
@@ -60,6 +61,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // endpoint on it.
   const options = useMemo(() => getGuardianOptionsForNetwork(), []);
 
+  // Liveness ping per provider so an operator that's down right now is marked
+  // offline on its card. Advisory only: an offline card stays selectable — the
+  // outage may be transient, and account creation against it fails loudly with
+  // its own error anyway.
+  const endpoints = useMemo(() => options.map(o => o.endpoint), [options]);
+  const availability = useGuardianAvailability(endpoints);
+
   // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
   // switch — never nudge them onto another operator by default. In the create
@@ -89,10 +97,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   };
 
   const handleContinue = () => {
-    if (selectedId === NO_GUARDIAN_ID) {
-      onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
-      return;
-    }
+    // Custom mode first, because it is the mode the SCREEN is in — the cards and
+    // the no-guardian sentinel are all just a stale `selectedId` underneath it
+    // (`handleSelect` clears `isCustom`, but nothing clears `selectedId`). Read
+    // in the other order, a user who picked "No guardian" and then opened the
+    // custom field got their typed URL silently discarded and a guardian-less
+    // account instead. No caller passes both affordances today, which is what
+    // makes this a latent trap rather than a live bug: one prop combination away.
     if (isCustom) {
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
@@ -101,6 +112,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       }
       setCustomError(null);
       onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
+      return;
+    }
+    if (selectedId === NO_GUARDIAN_ID) {
+      onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
       return;
     }
     const selected = options.find(o => o.id === selectedId) ?? options[0];
@@ -134,9 +149,16 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
         <div className="grid grid-cols-[repeat(2,minmax(0,177px))] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
-            const isSelected = selectedId === option.id;
+            // `isCustom` overrides the card selection, matching what Continue
+            // will actually submit. `selectedId` is never empty (it seeds from
+            // `defaultId`), so without this a provider card kept the 4px selected
+            // border AND reported `aria-pressed="true"` while the custom URL was
+            // the live choice — telling a screen-reader user, in a
+            // machine-readable attribute, that the wrong operator was selected.
+            const isSelected = !isCustom && selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
+            const isOffline = availability[option.endpoint] === 'offline';
             // GUARDIAN_LOGOS is keyed by provider id with no compile-time tie to
             // GUARDIAN_OPTIONS, so the old `GUARDIAN_LOGOS[option.id]!` + destructure
             // threw "Cannot destructure property 'Logo' of undefined" for any option
@@ -147,11 +169,28 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // added. Fall back to the generic avatar, mirroring GuardianSettings.tsx's
             // existing safe lookup.
             const logoEntry = GUARDIAN_LOGOS[option.id];
+            // Everything inside this button is either a wordmark SVG with no
+            // title or the ONE strip slot. So the control's accessible name was
+            // whatever the strip happened to say, and during an outage every
+            // down operator became a button named just "Offline" —
+            // indistinguishable from the others, on the screen whose entire job
+            // is choosing between them. The operator name and location live in a
+            // SIBLING node, which a button's name does not reach. Name it
+            // explicitly.
+            const cardStatuses = [
+              isCurrent ? t('currentLabel') : isDefault ? t('default') : undefined,
+              isOffline ? t('guardianOfflineLabel') : undefined
+            ].filter((status): status is string => status !== undefined);
+            // eslint-disable-next-line i18next/no-literal-string -- punctuation between already-localized tokens, not copy.
+            const cardLabel = [option.name, ...cardStatuses].join(', ');
             return (
               <div key={option.id} className="flex flex-col">
                 <button
                   type="button"
                   onClick={() => handleSelect(option.id)}
+                  aria-label={cardLabel}
+                  // Selection is otherwise conveyed by border colour alone.
+                  aria-pressed={isSelected}
                   data-guardian-endpoint={option.endpoint}
                   className={cn(
                     'relative flex h-30.5 w-full flex-col overflow-hidden rounded-[20px] transition-all duration-150',
@@ -159,17 +198,32 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
                 >
-                  {(isCurrent || isDefault) && (
+                  {/* One strip slot, and up to two things to say in it. An offline
+                      verdict takes the strip's COLOUR — it is the actionable fact —
+                      but it must not take the slot outright: the card most likely to
+                      be offline is the one the user is currently on, and that is
+                      exactly when they need to see which operator they are leaving.
+                      Dropping "Current" there hid it on the only screen that answers
+                      the question. */}
+                  {cardStatuses.length > 0 && (
                     <div
+                      data-testid={isOffline ? 'guardian-offline-banner' : undefined}
                       className={cn(
                         'flex h-8 w-full shrink-0 items-center justify-center',
-                        isCurrent ? 'bg-grey-200 text-heading-gray dark:bg-grey-700' : 'bg-primary-500 text-pure-white'
+                        isOffline
+                          ? 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+                          : isCurrent
+                            ? 'bg-grey-200 text-heading-gray dark:bg-grey-700'
+                            : 'bg-primary-500 text-pure-white'
                       )}
                     >
-                      <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
+                      <span className="text-sm font-semibold">
+                        {/* eslint-disable-next-line i18next/no-literal-string -- separator between already-localized tokens, not copy. */}
+                        {cardStatuses.join(' · ')}
+                      </span>
                     </div>
                   )}
-                  <div className="flex flex-1 items-center justify-center">
+                  <div className={cn('flex flex-1 items-center justify-center', isOffline && 'opacity-50')}>
                     {logoEntry ? (
                       <logoEntry.Logo className={clsx(guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)} />
                     ) : (
@@ -196,9 +250,18 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             type="button"
             onClick={() => handleSelect(NO_GUARDIAN_ID)}
             data-testid="choose-no-guardian"
+            // Selection is otherwise conveyed by border colour alone. The
+            // title and subtitle already live inside this button, so they are
+            // the accessible name — no aria-label, unlike the provider cards
+            // whose operator name sits in a sibling node. `!isCustom` for the
+            // same reason as the provider cards: this must agree with what
+            // Continue submits.
+            aria-pressed={!isCustom && selectedId === NO_GUARDIAN_ID}
             className={cn(
               'mt-4 flex flex-col items-start rounded-[20px] border-2 p-4 text-left transition-all duration-150 shrink-0',
-              selectedId === NO_GUARDIAN_ID ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
+              !isCustom && selectedId === NO_GUARDIAN_ID
+                ? 'border-primary-500 border-4'
+                : 'border-[#E3E3E3] dark:border-grey-800'
             )}
           >
             <span className="text-base font-semibold text-heading-gray">{t('noGuardianOptionTitle')}</span>
@@ -217,6 +280,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                 setIsCustom(prev => !prev);
                 setCustomError(null);
               }}
+              // A disclosure control, on a screen whose sibling controls report
+              // their own pressed state.
+              aria-expanded={isCustom}
+              aria-controls="custom-guardian-endpoint"
               className="self-start text-xs font-bold text-primary-500"
             >
               {t('useCustomGuardianUrl')}

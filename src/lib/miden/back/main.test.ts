@@ -653,8 +653,8 @@ describe('processRequest', () => {
     expect(res.guardianSyncStatus).toBe('needs-user-input');
   });
 
-  it('ApplyUserGuardianEndpointRequest forwards to Actions and returns whether it applied', async () => {
-    Actions.applyUserGuardianEndpoint.mockResolvedValueOnce(true);
+  it('ApplyUserGuardianEndpointRequest forwards to Actions and returns the outcome', async () => {
+    Actions.applyUserGuardianEndpoint.mockResolvedValueOnce('applied');
     const res = await dispatch({
       type: WalletMessageType.ApplyUserGuardianEndpointRequest,
       accountPublicKey: 'pk',
@@ -662,7 +662,7 @@ describe('processRequest', () => {
     });
     expect(Actions.applyUserGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
     expect(res.type).toBe(WalletMessageType.ApplyUserGuardianEndpointResponse);
-    expect(res.applied).toBe(true);
+    expect(res.outcome).toBe('applied');
   });
 
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {

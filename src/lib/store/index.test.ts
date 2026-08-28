@@ -548,21 +548,21 @@ describe('useWalletStore', () => {
       await expect(checkGuardianDrift('pk')).rejects.toThrow('Invalid response');
     });
 
-    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns whether it applied', async () => {
+    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns the outcome', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ApplyUserGuardianEndpointResponse,
-        applied: true
+        outcome: 'applied'
       });
 
       const { applyUserGuardianEndpoint } = useWalletStore.getState();
-      const applied = await applyUserGuardianEndpoint('pub-key', 'https://mine');
+      const outcome = await applyUserGuardianEndpoint('pub-key', 'https://mine');
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ApplyUserGuardianEndpointRequest,
         accountPublicKey: 'pub-key',
         guardianEndpoint: 'https://mine'
       });
-      expect(applied).toBe(true);
+      expect(outcome).toBe('applied');
     });
 
     it('applyUserGuardianEndpoint throws on a type-mismatched response', async () => {

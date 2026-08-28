@@ -33,7 +33,8 @@ jest.mock('lib/settings/constants', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.example'
+  getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.example',
+  getEffectiveNetworkName: () => 'testnet'
 }));
 
 const mockFetchFromStorage = fetchFromStorage as jest.MockedFunction<typeof fetchFromStorage>;
@@ -113,8 +114,12 @@ it('prefers the per-account guardianEndpoint over the legacy global key', async 
   expect(result.current.endpoint).toBe('https://switched.guardian');
 });
 
-it('matches guardian options across network endpoints', () => {
-  expect(guardianOptionForEndpoint('https://dev.guardian.example')?.name).toBe('Guardian One');
+it('matches guardian options only on the EFFECTIVE network endpoint', () => {
+  expect(guardianOptionForEndpoint('https://test.guardian.example')?.name).toBe('Guardian One');
+  // The same provider's endpoint on ANOTHER network is, on this network, just a
+  // custom URL — the any-network match is what branded a custom localhost
+  // guardian as "OpenZeppelin" (its LOCALNET endpoint) on devnet builds.
+  expect(guardianOptionForEndpoint('https://dev.guardian.example')).toBeUndefined();
   expect(guardianOptionForEndpoint('https://custom.guardian')).toBeUndefined();
 });
 

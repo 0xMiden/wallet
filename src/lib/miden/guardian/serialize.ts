@@ -50,15 +50,35 @@ export function clearGuardianAccountLocks(): void {
 
 /**
  * A guardian `409` that is transient and worth waiting on — i.e. a pending
- * delta/proposal that clears once canonicalization completes. Excludes
- * non-transient 409s such as `GUARDIAN_ACCOUNT_PAUSED`, which must fail fast.
+ * delta/proposal that clears once canonicalization completes.
+ *
+ * An ALLOWLIST when the guardian gave us a machine-readable code, because 409 is
+ * not one condition. The vocabulary carries at least three non-transient members
+ * (`account_paused`, `account_released`, `candidate_landed`), and this used to
+ * treat every 409 as transient unless its body text happened to contain
+ * "paused". `account_released` is the sharp one: it is documented terminal on
+ * that server, it is the answer produced by a rotation that landed on chain
+ * while the wallet's record of it did not, and it now routes to the direct
+ * on-chain switch — so waiting out 12 attempts here would spend minutes retrying
+ * a verdict that cannot change before the escape hatch it should have reached
+ * immediately. Text matching on an attacker-influenced body is also the same
+ * heuristic `isGuardianUnreachableError` documents as unsafe.
+ *
+ * With no recognized code — an older or mocked error carrying only `status` and
+ * a body — the previous text heuristic still applies, widened to cover the
+ * spelling of the released case.
  */
 export function isGuardianPendingConflict(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   if ((err as { status?: unknown }).status !== 409) return false;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === 'string' && code.length > 0) {
+    return code === 'conflict_pending_delta' || code === 'conflict_pending_proposal';
+  }
   const detail = String((err as { body?: unknown }).body ?? (err as { message?: unknown }).message ?? '');
-  // A paused account is not transient — retrying just delays the inevitable.
-  return !/paused/i.test(detail);
+  // A paused or released account is not transient — retrying just delays the
+  // inevitable.
+  return !/paused|released/i.test(detail);
 }
 
 /**

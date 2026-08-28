@@ -79,6 +79,7 @@ export interface GuardianFaultTestApi {
    * across both seams (context.route and the in-realm fetch wrapper). Arming is
    * best effort, so a spec that asserts an ABSENCE under a fault should assert a
    * non-zero count first — otherwise a fault that never landed reads as a pass.
+   * The false-green guard for `armNetworkFault`, mirroring `guardianFaultHits`.
    */
   networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
