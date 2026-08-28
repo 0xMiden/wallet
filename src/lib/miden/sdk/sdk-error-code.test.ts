@@ -1,4 +1,9 @@
-import { extractSdkErrorCode, isApplyAfterSubmitError, isTransactionDiscardedError } from './sdk-error-code';
+import {
+  extractSdkErrorCode,
+  isApplyAfterSubmitError,
+  isGuardianCanonicalizationError,
+  isTransactionDiscardedError
+} from './sdk-error-code';
 
 /**
  * The verbatim `Display` text miden-client produces for
@@ -186,5 +191,44 @@ describe('isTransactionDiscardedError', () => {
       false
     );
     expect(isTransactionDiscardedError(new WasmClientPoisonedError('watchdog'))).toBe(false);
+  });
+});
+
+describe('isGuardianCanonicalizationError', () => {
+  // Verbatim shape of the SDK's refusal to import a guardian view that is not
+  // ahead of the local one.
+  const CANONICALIZATION_MESSAGE =
+    'Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 4 for account 0xabc';
+
+  it('matches the refusal, including through a wrapper and a cause chain', () => {
+    expect(isGuardianCanonicalizationError(new Error(CANONICALIZATION_MESSAGE))).toBe(true);
+    expect(isGuardianCanonicalizationError(new Error('incoming nonce 0 is not greater than local nonce 1'))).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error(`Offscreen call 'syncState' failed: ${CANONICALIZATION_MESSAGE}`))
+    ).toBe(true);
+    expect(
+      isGuardianCanonicalizationError(new Error('sync failed', { cause: new Error(CANONICALIZATION_MESSAGE) }))
+    ).toBe(true);
+  });
+
+  it('does not match an unrelated failure', () => {
+    expect(isGuardianCanonicalizationError(new Error('network request failed'))).toBe(false);
+    expect(isGuardianCanonicalizationError(undefined)).toBe(false);
+    expect(isGuardianCanonicalizationError(null)).toBe(false);
+    expect(isGuardianCanonicalizationError({})).toBe(false);
+  });
+
+  it('never reads a lock-recovery poison error as a canonicalization race (#775)', () => {
+    const { WasmClientPoisonedError } = require('./wasm-client-poison');
+    // The stakes here are the highest of the three chain-walking classifiers in
+    // this module: the transaction loop answers a `true` from this one by marking
+    // the row Completed with a success message, for any type. An eviction is an
+    // ABANDONED pipeline that may never have submitted, and its `cause` carries
+    // the raw realm error — which, on the guardian path, can be exactly this
+    // refusal.
+    expect(
+      isGuardianCanonicalizationError(new WasmClientPoisonedError('realm-error', new Error(CANONICALIZATION_MESSAGE)))
+    ).toBe(false);
+    expect(isGuardianCanonicalizationError(new WasmClientPoisonedError('watchdog'))).toBe(false);
   });
 });

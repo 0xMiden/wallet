@@ -22,7 +22,7 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { GUARDIAN_ROTATION_IN_PROGRESS } from 'lib/miden/guardian/rotation-in-progress';
+import { isGuardianRotationInProgress } from 'lib/miden/guardian/rotation-in-progress';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled, isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -199,17 +199,26 @@ const RotateGuardianReview: FC = () => {
         // the error's own message is developer-facing English and must not reach
         // the user.
         //
-        // Matched on `name`, not `instanceof`: the class is the contract but the
+        // Matched on SHAPE, not `instanceof`: the class is the contract but the
         // identity check is not survivable. This error is thrown across a module
         // boundary that the intercom adapters may serialize, which drops the
         // prototype and leaves a plain object carrying `name` — and an
         // `instanceof` against a mocked or duplicated module binding throws
         // "Right-hand side of 'instanceof' is not an object" from inside the very
-        // catch that exists to render an error.
-        const rotationInProgress = err instanceof Error && err.name === GUARDIAN_ROTATION_IN_PROGRESS;
-        setError(
-          rotationInProgress ? t('guardianSwitchAlreadyInProgress') : err instanceof Error ? err.message : String(err)
-        );
+        // catch that exists to render an error. Note that gating the name check
+        // on `err instanceof Error` reintroduces exactly the failure the name
+        // check exists to avoid, which is why the predicate lives beside the
+        // constant rather than being spelled out here.
+        const rotationInProgress = isGuardianRotationInProgress(err);
+        // The message read is shape-based for the same reason: a serialized error
+        // still carries `message`, and an `instanceof Error` gate in front of it
+        // sends one to `String(err)`, which renders "[object Object]" into a
+        // `role="alert"` block.
+        const message =
+          typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string'
+            ? err.message
+            : String(err);
+        setError(rotationInProgress ? t('guardianSwitchAlreadyInProgress') : message);
       } finally {
         submissionRef.current = false;
         setSubmitting(false);

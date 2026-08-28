@@ -343,6 +343,42 @@ export const createDirectSwitchGuardianRequest = async (
     );
   }
 
+  // And the KEY this device is about to sign hot with has to be the key the
+  // on-chain slot it will be filed under actually names.
+  //
+  // The advice entry pairs `built.hotCommitment` — read from the account, i.e.
+  // the chain's view — with a signature produced by `hotPublicKey`, read from
+  // this device's wallet record. Those are two different sources, and they
+  // diverge for real: if another device rotated the hot key, this record is
+  // stale. Nothing downstream notices. The entry is filed under the chain's
+  // commitment, on-chain ECDSA recovery yields a different public key, and the
+  // threshold-2 `update_guardian` refuses as unauthorized — after the build, the
+  // proving and the two vault prompts, with `switch-guardian` in no requeue set
+  // and no user Retry, so the only diagnostic the user ever gets is an opaque
+  // authorization failure on the recovery path they reached because their
+  // guardian was already down.
+  //
+  // `finalizeDirectGuardianSwitch` already makes exactly this comparison, with
+  // the same helper in the same realm, for the mirror-image reason. Deriving is
+  // free and precedes every signature, so the divergence is worth naming here
+  // rather than discovering on chain. Only a DERIVED disagreement refuses, as
+  // there: a helper that cannot parse this device's own key says nothing about
+  // whether the pairing is right, and this is the last exit from a dead
+  // operator.
+  const deviceHotCommitment = await commitmentFromPublicKeyHex(hotPublicKey).catch(deriveError => {
+    console.warn(
+      `Could not derive a commitment from this device's hot key; continuing on the account's own signer read:`,
+      deriveError
+    );
+    return undefined;
+  });
+  if (deviceHotCommitment !== undefined && !sameCommitment(deviceHotCommitment, built.hotCommitment)) {
+    throw new Error(
+      `Guardian account ${walletAccount.publicKey} names a different hot signer on chain than this device holds; ` +
+        'another device has rotated the hot key, so this device cannot sign a direct guardian switch'
+    );
+  }
+
   // Sign OUTSIDE the lock — vault signing doesn't touch the WASM client, and
   // holding the global mutex across it would stall syncs for no reason.
   // `signWord` keys storage lookup by the unprefixed pubkey and signs the

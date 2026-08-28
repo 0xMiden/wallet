@@ -97,10 +97,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   };
 
   const handleContinue = () => {
-    if (selectedId === NO_GUARDIAN_ID) {
-      onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
-      return;
-    }
+    // Custom mode first, because it is the mode the SCREEN is in — the cards and
+    // the no-guardian sentinel are all just a stale `selectedId` underneath it
+    // (`handleSelect` clears `isCustom`, but nothing clears `selectedId`). Read
+    // in the other order, a user who picked "No guardian" and then opened the
+    // custom field got their typed URL silently discarded and a guardian-less
+    // account instead. No caller passes both affordances today, which is what
+    // makes this a latent trap rather than a live bug: one prop combination away.
     if (isCustom) {
       const sanitized = sanitizeGuardianUrl(customUrl);
       if (!isValidGuardianUrl(sanitized)) {
@@ -109,6 +112,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       }
       setCustomError(null);
       onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
+      return;
+    }
+    if (selectedId === NO_GUARDIAN_ID) {
+      onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
       return;
     }
     const selected = options.find(o => o.id === selectedId) ?? options[0];
@@ -142,7 +149,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
         <div className="grid grid-cols-[repeat(2,minmax(0,177px))] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
-            const isSelected = selectedId === option.id;
+            // `isCustom` overrides the card selection, matching what Continue
+            // will actually submit. `selectedId` is never empty (it seeds from
+            // `defaultId`), so without this a provider card kept the 4px selected
+            // border AND reported `aria-pressed="true"` while the custom URL was
+            // the live choice — telling a screen-reader user, in a
+            // machine-readable attribute, that the wrong operator was selected.
+            const isSelected = !isCustom && selectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
             const isOffline = availability[option.endpoint] === 'offline';
@@ -240,11 +253,15 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // Selection is otherwise conveyed by border colour alone. The
             // title and subtitle already live inside this button, so they are
             // the accessible name — no aria-label, unlike the provider cards
-            // whose operator name sits in a sibling node.
-            aria-pressed={selectedId === NO_GUARDIAN_ID}
+            // whose operator name sits in a sibling node. `!isCustom` for the
+            // same reason as the provider cards: this must agree with what
+            // Continue submits.
+            aria-pressed={!isCustom && selectedId === NO_GUARDIAN_ID}
             className={cn(
               'mt-4 flex flex-col items-start rounded-[20px] border-2 p-4 text-left transition-all duration-150 shrink-0',
-              selectedId === NO_GUARDIAN_ID ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
+              !isCustom && selectedId === NO_GUARDIAN_ID
+                ? 'border-primary-500 border-4'
+                : 'border-[#E3E3E3] dark:border-grey-800'
             )}
           >
             <span className="text-base font-semibold text-heading-gray">{t('noGuardianOptionTitle')}</span>
@@ -263,6 +280,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                 setIsCustom(prev => !prev);
                 setCustomError(null);
               }}
+              // A disclosure control, on a screen whose sibling controls report
+              // their own pressed state.
+              aria-expanded={isCustom}
+              aria-controls="custom-guardian-endpoint"
               className="self-start text-xs font-bold text-primary-500"
             >
               {t('useCustomGuardianUrl')}

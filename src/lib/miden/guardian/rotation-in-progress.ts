@@ -22,6 +22,23 @@
 export const GUARDIAN_ROTATION_IN_PROGRESS = 'GuardianRotationInProgressError';
 
 /**
+ * Is this thrown value the rotation-in-progress rejection?
+ *
+ * Shape, not prototype, and deliberately not `err instanceof Error` either: the
+ * whole point of matching on the name is that this error crosses boundaries the
+ * intercom adapters may serialize, and what survives that is a plain object
+ * carrying `name` — which an `instanceof Error` gate rejects just as surely as
+ * an `instanceof GuardianRotationInProgressError` would. A caller writing the
+ * gate itself re-imposes the check the constant exists to avoid, and then falls
+ * through to `String(err)` on the one input this mechanism was built for.
+ *
+ * Lives beside the constant so there is one definition to be right rather than
+ * one per caller.
+ */
+export const isGuardianRotationInProgress = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'name' in err && err.name === GUARDIAN_ROTATION_IN_PROGRESS;
+
+/**
  * A guardian rotation to a DIFFERENT operator is already in flight for this
  * account, so this request cannot be answered with the running rotation's id.
  *

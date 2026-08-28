@@ -161,16 +161,28 @@ it('shows "Online" only once a guardian sync has actually landed this session', 
 
 it('reads "Last sync" from the guardian, not the wallet-wide sync stamp', () => {
   // An outage with a wallet that is otherwise syncing happily — the exact state
-  // that produced "Offline" beside a seconds-old "Last sync". The guardian has
-  // never answered this session, so the honest value matches the pill's
-  // "checking" state rather than the false, permanent-sounding "Never".
+  // that produced "Offline" beside a seconds-old "Last sync".
   mockIsGuardianSyncOutage.mockReturnValue(true);
   mockGetGuardianLastSyncAt.mockReturnValue(undefined);
   render(<GuardianSettings />);
 
   expect(mockGetGuardianLastSyncAt).toHaveBeenCalledWith('acc-1');
   expect(screen.getByText('guardianOfflineLabel')).toBeInTheDocument();
-  expect(screen.getByText('guardianCheckingLabel')).toBeInTheDocument();
+});
+
+// The pill and the row are two readings of one fact, so no state may produce two
+// answers. An outage arms without ever stamping a sync, which used to leave the
+// row saying "Checking" under an Offline pill for the whole outage.
+it('does not say it is still checking under a pill that has already said Offline', () => {
+  mockIsGuardianSyncOutage.mockReturnValue(true);
+  mockGetGuardianLastSyncAt.mockReturnValue(undefined);
+  render(<GuardianSettings />);
+
+  expect(screen.getByText('guardianOfflineLabel')).toBeInTheDocument();
+  expect(screen.queryByText('guardianCheckingLabel')).not.toBeInTheDocument();
+  // Not "Never" either: the stamp is session-local, so its absence during an
+  // outage is no evidence about whether this account has ever synced.
+  expect(screen.getByText('unknown')).toBeInTheDocument();
 });
 
 it('renders the guardian last-sync stamp as a relative time once one lands', () => {
@@ -299,8 +311,10 @@ it('names the state where the guardian answers, the account cannot use it, and r
     const pill = screen.getByRole('status');
     expect(pill).toHaveTextContent('guardianNeedsAttentionLabel');
     expect(pill).not.toHaveTextContent('guardianCheckingLabel');
-    // And the row below agrees: nothing is checking.
-    expect(screen.getByText('never')).toBeInTheDocument();
+    // And the row below agrees: nothing is checking. "Unknown" rather than
+    // "Never" — the operator answered, so the absence of a stamp this session is
+    // not evidence the account has never synced.
+    expect(screen.getByText('unknown')).toBeInTheDocument();
   } finally {
     mockIsGuardianUnrepairable.mockReturnValue(false);
   }

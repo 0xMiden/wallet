@@ -433,6 +433,53 @@ describe('ChooseGuardianScreen', () => {
     });
   });
 
+  // `selectedId` seeds from `defaultId` and is never empty, so opening the custom
+  // field left a provider card still claiming to be the pressed one — a
+  // machine-readable assertion that the wrong operator was selected, on the
+  // screen whose entire job is choosing between them.
+  it('stops reporting a provider card as pressed once custom mode is the live choice', () => {
+    const { container } = render(<ChooseGuardianScreen allowCustomEndpoint />);
+
+    const [ozBtn] = optionButtons(container);
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(ozBtn?.className).not.toContain('border-primary-500');
+
+    // Closing the field hands the selection back to the card it came from.
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('exposes the custom-URL toggle as the disclosure control it is', () => {
+    render(<ChooseGuardianScreen allowCustomEndpoint />);
+
+    const toggle = screen.getByText('useCustomGuardianUrl');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  // Latent today (no caller passes both affordances) and one prop combination
+  // from being live: `handleSelect` clears `isCustom` but nothing clears
+  // `selectedId`, so the no-guardian sentinel outlived the mode that superseded
+  // it and Continue built a guardian-LESS account while a typed custom URL sat
+  // on screen.
+  it('submits the custom URL, not a stale no-guardian selection, when both are offered', () => {
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint showNoGuardianOption onSubmit={onSubmit} />);
+
+    fireEvent.click(screen.getByTestId('choose-no-guardian'));
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
+    fireEvent.click(screen.getByTestId('continue-button'));
+
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' });
+    expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('edits the custom URL without a pre-existing error (customError falsy branch)', () => {
     render(<ChooseGuardianScreen allowCustomEndpoint />);
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));

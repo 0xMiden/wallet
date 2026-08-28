@@ -98,12 +98,25 @@ const GuardianSettings: FC = () => {
   const lastSync =
     guardianLastSyncAt !== undefined
       ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
-      : // "Checking" only while something IS checking. An account with no hot key
-        // has genuinely never synced from this device and is not about to — and
-        // neither has one whose repair budget is spent.
-        hasHotKey && !guardianUnrepairable
+      : // Derived from the SAME status as the pill, so the two cannot disagree.
+        // A second, looser condition is what let them: an outage arms without
+        // ever stamping a sync, so `hasHotKey && !unrepairable` stayed true
+        // underneath an Offline pill and this row answered "Checking" for the
+        // whole outage — contradicting the pill directly above it, in the one
+        // state where the user most needs to believe it.
+        //
+        // Three different silences, three different answers. "Checking" only
+        // while something IS checking. "Never" only where it is literally true —
+        // an account with no hot key has never synced from this device. A fault
+        // state gets "Unknown": the stamp is session-local, so its absence under
+        // an operator that is down says nothing about whether this account ever
+        // synced, and "Never" would assert something false about the account's
+        // whole history on the screen the user came to for the truth.
+        guardianStatus === 'checking'
         ? t('guardianCheckingLabel')
-        : t('never');
+        : guardianStatus === 'not-connected'
+          ? t('never')
+          : t('unknown');
 
   // No haptic here: this is handed to `Button`, whose onClick wrapper already
   // fires a hapticLight on every click, so the tap buzzed twice. Same double-fire

@@ -57,31 +57,6 @@ const MAX_CAUSE_DEPTH = 5;
  * classifier can use `.some()` over these just as safely, so nothing needs the
  * joined form.
  */
-/**
- * Detect the eventually-consistent guardian canonicalization refusal:
- *
- *   "Refusing to overwrite local state: incoming nonce 0 is not greater
- *    than local nonce 1 for account 0x..."
- *
- * The SDK raises this when asked to import a guardian's view of an account that
- * is NOT ahead of the local one — a nonce no greater than local, or a commitment
- * that does not match the chain. It says something specific: the guardian is
- * behind or holding a diverged blob. It does NOT say the read failed.
- *
- * Two callers depend on that distinction. The transaction loop treats it as
- * success (the on-chain tx landed; only the local sync refused, and the next
- * tick reconciles). The guardian self-heal treats it as permission to proceed:
- * a device that had been rotated out would be looking at a guardian holding the
- * NEWER state, so a guardian that is behind is the stale registration the
- * re-register repairs. Both need the same test, so it lives in this leaf rather
- * than in either of them.
- */
-export function isGuardianCanonicalizationError(error: unknown): boolean {
-  return errorMessageParts(error).some(
-    part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
-  );
-}
-
 export function errorMessageParts(err: unknown): string[] {
   const parts: string[] = [];
   let current: unknown = err;
@@ -115,6 +90,42 @@ export function errorMessageParts(err: unknown): string[] {
     current = cause;
   }
   return parts;
+}
+
+/**
+ * Detect the eventually-consistent guardian canonicalization refusal:
+ *
+ *   "Refusing to overwrite local state: incoming nonce 0 is not greater
+ *    than local nonce 1 for account 0x..."
+ *
+ * The SDK raises this when asked to import a guardian's view of an account that
+ * is NOT ahead of the local one — a nonce no greater than local, or a commitment
+ * that does not match the chain. It says something specific: the guardian is
+ * behind or holding a diverged blob. It does NOT say the read failed.
+ *
+ * Two callers depend on that distinction. The transaction loop treats it as
+ * success (the on-chain tx landed; only the local sync refused, and the next
+ * tick reconciles). The guardian self-heal treats it as permission to proceed:
+ * a device that had been rotated out would be looking at a guardian holding the
+ * NEWER state, so a guardian that is behind is the stale registration the
+ * re-register repairs. Both need the same test, so it lives in this leaf rather
+ * than in either of them.
+ */
+export function isGuardianCanonicalizationError(error: unknown): boolean {
+  // Same ordering rationale as the two classifiers below, and the stakes are the
+  // higher of the three: an eviction's `message` is a closed wallet set but its
+  // `cause` carries the raw realm error verbatim, and this walks the chain. The
+  // transaction loop's verdict on this classifier is "mark the row Completed
+  // with a success message" for ANY type, send and swap included — so a trap
+  // whose cause happened to be an SDK canonicalization refusal (the guardian
+  // sync that raises that refusal runs fire-and-forget on a 3s tick, and an
+  // uncaught realm rejection is precisely what the recovery listener evicts on)
+  // would report an ABANDONED pipeline as landed money. Poison is never a
+  // statement about the guardian's view of the account.
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(
+    part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
+  );
 }
 
 /**

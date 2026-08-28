@@ -82,7 +82,20 @@ jest.mock('./serialize', () => ({
   guardianRegisterBackoffMs: (error: unknown, attempt: number) => mockRegisterBackoffMs(error, attempt)
 }));
 
-jest.mock('./signer', () => ({ WalletSigner: class {} }));
+// Records its constructor arguments rather than being an inert `class {}`. What
+// this signer is built WITH is the whole content of the fail-closed hot-signer
+// fix: the commitment the membership guard checked has to be the commitment the
+// request authenticates as, and an inert stub makes that assertion impossible —
+// the value could be swapped back to the account read's slot 0 with the suite
+// still green.
+const walletSignerArgs: unknown[][] = [];
+jest.mock('./signer', () => ({
+  WalletSigner: class {
+    constructor(...args: unknown[]) {
+      walletSignerArgs.push(args);
+    }
+  }
+}));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.test',
@@ -184,6 +197,7 @@ const sdkAccount = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  walletSignerArgs.length = 0;
   mockWithWasmClientLock.mockImplementation(<T>(fn: () => Promise<T>) => fn());
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
@@ -502,7 +516,52 @@ describe('createDirectSwitchGuardianRequest', () => {
 
   it('proceeds when the declared commitment and the returned key agree', async () => {
     mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: '0xoperatorkey' });
-    mockCommitmentFromPublicKeyHex.mockResolvedValue(NEW_GUARDIAN_COMMITMENT);
+    // Keyed, not blanket: the same helper also derives THIS DEVICE's hot
+    // commitment for the on-chain-slot check below, and a blanket resolve would
+    // make the operator's answer stand in for the device's key too.
+    mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+      publicKeyHex === '0xoperatorkey' ? NEW_GUARDIAN_COMMITMENT : 'hotcommitment'
+    );
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).resolves.toBeDefined();
+  });
+
+  // The advice entry files this device's signature under the commitment the
+  // ACCOUNT names in slot 0. If another device rotated the hot key, the wallet
+  // record this device signs from is stale and the two are different keys — so
+  // on-chain recovery yields a key the slot does not name and `update_guardian`
+  // refuses as unauthorized, after the build, the proving and two vault prompts,
+  // with no requeue and no Retry. `finalizeDirectGuardianSwitch` already refuses
+  // the same device up front; this is the same comparison one step earlier,
+  // where it still costs nothing.
+  it('refuses when the account names a different hot signer on chain than this device holds', async () => {
+    mockCommitmentFromPublicKeyHex.mockImplementation(async () => 'a-different-devices-hot-commitment');
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('another device has rotated the hot key');
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  // Prefix and case are presentation, not identity: storage hands back
+  // `0x`-prefixed hex and `getSignerDetailsFromAccount` hands back bare, so a
+  // strict string compare here would refuse every healthy account.
+  it('accepts a device hot commitment that differs from the account read only in prefix and case', async () => {
+    mockCommitmentFromPublicKeyHex.mockImplementation(async () => '0xHOTCOMMITMENT');
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).resolves.toBeDefined();
+  });
+
+  // Same asymmetry as the operator-key check: a helper that cannot parse this
+  // device's own key has said nothing about whether the pairing is right, and
+  // this path is the last exit from a dead guardian.
+  it('proceeds when this device hot commitment cannot be derived at all', async () => {
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
@@ -664,6 +723,32 @@ describe('finalizeDirectGuardianSwitch', () => {
       auth: { MidenEcdsa: { cosigner_commitments: ['0xhotcommitment', '0xcoldcommitment'] } },
       initialState: { data: expect.any(String), accountId: '0xacct-id' }
     });
+  });
+
+  // The commitment the membership guard CHECKED has to be the commitment the
+  // request authenticates as. Verifying one value and signing with another
+  // leaves the guard true and the `/configure` still unauthorized — a fault the
+  // guard's own existence would then hide. The pair is derived, so nothing but
+  // the wiring can make them disagree, which is exactly why it needs asserting:
+  // the fix is one argument, and without this the value could be swapped back to
+  // the account read's slot 0 with the suite still green.
+  it('authenticates as the same hot commitment the membership guard checked', async () => {
+    mockGuardianConfigure.mockResolvedValue({ success: true });
+    // The account read's slot 0 and the device's derived commitment differ in
+    // presentation only — a strict compare would refuse, and a mutation reading
+    // slot 0 instead of the checked value is visible in the argument below.
+    mockCommitmentFromPublicKeyHex.mockImplementation(async () => 'HOTCOMMITMENT');
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
+      numSigners: 2,
+      signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any);
+
+    expect(walletSignerArgs).toHaveLength(1);
+    expect(walletSignerArgs[0]?.[0]).toBe('0xhotpk');
+    expect(walletSignerArgs[0]?.[1]).toBe('0xHOTCOMMITMENT');
   });
 
   // An empty derive means a truncated storage read, not an account with no
