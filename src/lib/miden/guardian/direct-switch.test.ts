@@ -58,6 +58,16 @@ jest.mock('./account', () => ({
 
 jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
 
+// `checkEndpointCommitment` reaches the network through `@openzeppelin/guardian-client`'s
+// own HTTP client — a different class from the `miden-multisig-client` one mocked
+// above — so it is stubbed at this boundary rather than through a fetch mock.
+// Defaults to `'match'`: the post-commit registration path is the subject of most
+// of these tests, and the guard is exercised explicitly by the ones below.
+const mockCheckEndpointCommitment = jest.fn(async (_endpoint: string, _commitment: string) => 'match');
+jest.mock('./operator-map', () => ({
+  checkEndpointCommitment: (...args: [string, string]) => mockCheckEndpointCommitment(...args)
+}));
+
 // Only the key→commitment derivation is stubbed (it needs a real 33-byte secp256k1
 // key, which these fixtures are not); `sameCommitment` stays REAL so the
 // prefix/case normalization the allowlist check relies on is exercised rather
@@ -213,6 +223,13 @@ beforeEach(() => {
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
   }));
   mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT });
+  // The post-rotation account names the NEW operator's key, which is the state
+  // `finalizeDirectGuardianSwitch` is entitled to push to it. Driven through the
+  // real `getGuardianCommitmentFromAccount` and the real `checkEndpointCommitment`
+  // (which reaches the `GuardianHttpClient` mock above), so the guard is exercised
+  // rather than stubbed out.
+  mockedMultisigClient.AccountInspector.getGuardianPublicKeyCommitment.mockReturnValue(NEW_GUARDIAN_COMMITMENT);
+  mockCheckEndpointCommitment.mockImplementation(async () => 'match');
   mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
     // `0x`-prefixed on purpose: storage hands back prefixed hex while
     // getSignerDetailsFromAccount hands back bare, and the hot-membership check
@@ -793,6 +810,60 @@ describe('finalizeDirectGuardianSwitch', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toThrow('omits this device');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  // The caller (`attemptMissingRegistrationSelfHeal`) makes this same check, but on
+  // a SNAPSHOT: it reads the guardian key, probes the endpoint, and only then calls
+  // this function, which re-syncs and re-serializes. Between those there is a probe
+  // plus up to eight 30s `/configure` deadlines, and rotations are serialized per
+  // account while the sync loop is not — so a rotation A→B can commit inside the
+  // window and the bytes serialized HERE are post-rotation. Pushing them would hand
+  // A, the operator the user just rotated away from, private account state newer
+  // than anything it held. So the authoritative check has to be against the read
+  // whose bytes go over the wire.
+  it('refuses to register state whose guardian key the endpoint does not confirm', async () => {
+    mockCheckEndpointCommitment.mockImplementation(async () => 'mismatch');
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+    // Checked against the guardian key of the account this function itself read,
+    // and against the endpoint it is about to write to.
+    // Unprefixed: `getGuardianCommitmentFromAccount` strips it, and
+    // `checkEndpointCommitment` normalizes both sides before comparing.
+    expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(
+      'https://new.guardian.test',
+      NEW_GUARDIAN_COMMITMENT.slice(2)
+    );
+  });
+
+  // Silence is refused too: this write needs positive evidence, and an operator
+  // that cannot serve its own public key is not evidence of anything.
+  it('refuses to register when the endpoint will not answer for its own key', async () => {
+    mockCheckEndpointCommitment.mockImplementation(async () => 'unreachable');
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toThrow('did not confirm the guardian key');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('refuses to register state that names no guardian key at all', async () => {
+    mockedMultisigClient.AccountInspector.getGuardianPublicKeyCommitment.mockReturnValue(undefined);
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toThrow('names no guardian key');
+    expect(mockCheckEndpointCommitment).not.toHaveBeenCalled();
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

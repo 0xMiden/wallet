@@ -610,11 +610,18 @@ export class MultisigService {
 
       registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      const { commitment } = await withTimeout(
+      const pubkeyResponse = await withTimeout(
         nextGuardian.getPubkey('ecdsa'),
         POST_COMMIT_GUARDIAN_TIMEOUT_MS,
         `New guardian ${newGuardianEndpoint} pubkey fetch`
       );
+      // The last `/pubkey` consumer that took the field on trust. The guardian
+      // client returns it off an unchecked `response.json()` cast, so its type is
+      // whatever the endpoint served, and this assigned it straight into the
+      // multisig config. Throwing is safe here even though the rotation has
+      // committed: the caller books `registerFailed` and the self-heal retries,
+      // which is strictly better than a config holding a non-commitment.
+      const commitment = assertGuardianKeyCommitment(pubkeyResponse?.commitment, newGuardianEndpoint);
 
       this.multisig.setGuardianClient(nextGuardian);
       this.multisig.guardianPublicKey = commitment;

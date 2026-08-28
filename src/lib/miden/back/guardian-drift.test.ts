@@ -4,6 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import {
   SILENT_DRIFT_RUN_STORAGE_KEY,
@@ -67,6 +68,9 @@ beforeEach(async () => {
   // and the silent-drift run is PERSISTED (it has to survive a realm restart), so
   // clearing it is async and has to be awaited or it leaks into the next case.
   await __resetGuardianDriftProbeCooldownForTest();
+  // The legacy global guardian pointer lives in real storage in this suite, so a
+  // case that seeds it would otherwise hand it to every case that follows.
+  await putToStorage(GUARDIAN_URL_STORAGE_KEY, '');
   (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: jest.fn(async () => ({})) });
 });
 
@@ -264,9 +268,16 @@ it('does not advance the baseline when the built-in corroboration could not run'
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
 });
 
-// The withheld baseline must not cost the user an accusation either: the account
-// keeps whatever status it had, so nothing new appears on screen.
-it('preserves a flagged status when a stored-endpoint match cannot be corroborated', async () => {
+// The withheld baseline must not cost the user an accusation either — but
+// "preserve whatever status it had" was the wrong reading of that, and this test
+// used to assert it. A BLOCKING status is not neutral: `assertGuardianInSync`
+// refuses every transaction while it stands, so preserving it made the account's
+// ability to transact depend on the availability of operators it does not use, and
+// one unreachable built-in held the freeze open forever. The full reasoning, and
+// why unblocking on the endpoint's own word grants nothing the wallet does not
+// already grant on that same word, is in `resolveGuardianDrift` and in
+// 'exoneration must not depend on operators the account does not use' below.
+it('lifts a blocking status when a stored-endpoint match cannot be corroborated', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
   (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
@@ -277,9 +288,12 @@ it('preserves a flagged status when a stored-endpoint match cannot be corroborat
     guardianSyncStatus: 'needs-user-input'
   });
 
-  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: false });
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
-  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'in-sync');
+  // The baseline is still withheld, so this is not a latch: the next window
+  // re-probes and can re-accuse.
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
 // Not advancing the baseline is only tolerable because the next probe window
@@ -919,5 +933,107 @@ describe('applyUserGuardianEndpoint', () => {
 
     expect(getGuardianCommitmentFromAccount).not.toHaveBeenCalled();
     expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+  });
+});
+
+describe('exoneration must not depend on operators the account does not use', () => {
+  // Requiring a COMPLETE built-in round to ACCUSE is right. Requiring one to
+  // EXONERATE froze the account: `assertGuardianInSync` refuses every send /
+  // consume / swap while the status is `needs-user-input`, so one unreachable
+  // built-in — any of them, not this account's — held the block open window after
+  // window while the account's own operator answered `'match'` on every one and
+  // the sync loop succeeded against it. The user saw a non-dismissable "enter your
+  // guardian URL" banner asserting something false; an attacker who can drop
+  // traffic to a single built-in could hold it there indefinitely.
+  it('clears a blocking status on the endpoint own word when corroboration cannot run', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+    const vault = makeVault({
+      publicKey: 'pk',
+      guardianEndpoint: 'https://custom.example',
+      guardianOperatorCommitment: 'oldC',
+      guardianSyncStatus: 'needs-user-input'
+    });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+
+    expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'in-sync');
+    // But the BASELINE stays unwritten, which is what the corroboration rule
+    // actually protects: advancing it on an unaided self-report latches the
+    // assertion permanently, because the next tick short-circuits on it before any
+    // probe runs. Leaving it unset means every later window re-probes and can
+    // re-accuse the moment this endpoint stops matching.
+    expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+  });
+
+  it('does not re-write the status once it is already in-sync', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+    const vault = makeVault({
+      publicKey: 'pk',
+      guardianEndpoint: 'https://custom.example',
+      guardianOperatorCommitment: 'oldC',
+      guardianSyncStatus: 'in-sync'
+    });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('the endpoint the account is actually bound to', () => {
+  // `resolveGuardianEndpoint` — what the sync loop builds its service from — falls
+  // back to the legacy global key, retained by design as the ONLY pointer a
+  // pre-per-account-endpoint account on a custom operator has (the unlock backfill
+  // deliberately leaves that account's field empty rather than stamping a guess).
+  // Reading the raw field here classified that account `'absent'`, which accuses on
+  // the FIRST complete round with no duration rule — so an account whose own
+  // operator was answering, and whose sync was succeeding on the same tick, got a
+  // permanent `needs-user-input` and had every transaction blocked. F-150 fixed
+  // this same field-versus-identity confusion in the sync loop.
+  it('probes the legacy global pointer rather than accusing an account whose field is empty', async () => {
+    await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://legacy-custom.example');
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    // A complete round: the built-ins all answered and none serves this key, which
+    // is exactly what a genuine custom operator looks like.
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+
+    expect(checkEndpointCommitment).toHaveBeenCalledWith('https://legacy-custom.example', 'newC');
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalledWith('pk', 'needs-user-input');
+    expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
+  });
+
+  // The per-account field still wins when it is set — the fallback is a fallback.
+  it('prefers the per-account endpoint over the legacy pointer', async () => {
+    await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://legacy-custom.example');
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+    const vault = makeVault({
+      publicKey: 'pk',
+      guardianEndpoint: 'https://per-account.example',
+      guardianOperatorCommitment: 'oldC'
+    });
+
+    await resolveGuardianDrift(vault as never, 'pk');
+
+    expect(checkEndpointCommitment).toHaveBeenCalledWith('https://per-account.example', 'newC');
+  });
+
+  // With no pointer anywhere, `'absent'` still means what it says, and the
+  // accuse-on-one-complete-round rule is unchanged.
+  it('still accuses an account with no pointer at all', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
+    expect(checkEndpointCommitment).not.toHaveBeenCalled();
   });
 });

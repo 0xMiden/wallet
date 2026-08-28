@@ -28,6 +28,10 @@ export class AccountInspector {
   signerCommitments: string[] = ['0xhot', '0xcold'];
   constructor(..._args: unknown[]) {}
   static fromAccount = jest.fn(() => new AccountInspector());
+  // Undefined by default — `getGuardianCommitmentFromAccount` treats a throwing
+  // or empty read as "the account names no guardian key", which is the safe
+  // reading for a suite that has not set one up.
+  static getGuardianPublicKeyCommitment = jest.fn((): string | undefined => undefined);
 }
 
 export class GuardianHttpClient {

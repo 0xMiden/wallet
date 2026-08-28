@@ -730,13 +730,13 @@ describe('MultisigService', () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await service.finalizeGuardianSwitch('https://new');
 
       expect(mockSyncState).toHaveBeenCalled();
       expect(multisig.setGuardianClient).toHaveBeenCalled();
-      expect(multisig.guardianPublicKey).toBe('new-commit');
+      expect(multisig.guardianPublicKey).toBe(NEW_GUARDIAN_COMMITMENT);
       expect(service.guardianEndpoint).toBe('https://new');
       expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
     });
@@ -760,7 +760,7 @@ describe('MultisigService', () => {
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {
         await service.finalizeGuardianSwitch('https://new');
@@ -804,7 +804,7 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ registerOnGuardian: jest.fn(() => new Promise(() => {})) });
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       jest.useFakeTimers();
       try {
@@ -830,7 +830,7 @@ describe('MultisigService', () => {
       const multisig = makeMultisig({ registerOnGuardian: jest.fn(async () => Promise.reject(alreadyThere)) });
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       await expect(service.finalizeGuardianSwitch('https://new')).resolves.toBeUndefined();
       // Not retried into the budget — one look is enough.
@@ -845,7 +845,7 @@ describe('MultisigService', () => {
       });
       const service = new MultisigService(multisig as never, {} as never, 'https://old');
       mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
-      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' });
 
       try {
         await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow(

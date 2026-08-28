@@ -158,14 +158,23 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
  * Read the on-chain guardian operator key commitment — a SEPARATE storage slot
  * from the multisig signer keys read by `getSignerDetailsFromAccount`.
  * Returns unprefixed hex, or undefined if absent / the empty (all-zero) word.
+ *
+ * The type check is not redundant with the `catch`. The declared return type is
+ * the library's promise, not a guarantee; a slot read that yields no string
+ * returns rather than throwing, and `stripHexPrefix` would then call `.startsWith`
+ * on it and throw a bare TypeError PAST the catch — out of a function whose whole
+ * contract is `string | undefined`. Callers act on that undefined (refusing a
+ * registration, skipping a drift verdict), so it has to be produced rather than
+ * escaped.
  */
 export function getGuardianCommitmentFromAccount(account: Account): string | undefined {
-  let raw: string;
+  let raw: unknown;
   try {
     raw = AccountInspector.getGuardianPublicKeyCommitment(account);
   } catch {
     return undefined;
   }
+  if (typeof raw !== 'string') return undefined;
   const unprefixed = stripHexPrefix(raw);
   return isEmptyWordHex(unprefixed) ? undefined : unprefixed;
 }

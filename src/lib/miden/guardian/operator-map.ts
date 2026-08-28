@@ -47,6 +47,19 @@ const ENDPOINT_CHECK_TIMEOUT_MS = 5_000;
  * for the custom / self-hosted endpoint — which is exactly the endpoint the
  * drift reconciler and the manual-URL apply below hand to this function, so
  * without it those two paths report every custom operator unreachable on mobile.
+ *
+ * A non-string commitment is "did not answer", not a value. The guardian client
+ * returns `data.commitment` off an unchecked `response.json()` cast, so the type
+ * is whatever the endpoint chose to serve; `normalizeHex` calls `.startsWith` on
+ * it, and the fold that does so in `probeBuiltInOperators` runs OUTSIDE the
+ * per-operator catch. One endpoint answering `{"commitment": 1234}` therefore
+ * threw a `TypeError` out of the whole fan-out and took drift reconciliation down
+ * for every account on the device, including accounts pointed at other, healthy
+ * operators — the opposite of the isolation this module is built to provide.
+ * Rejecting it HERE rather than guarding the fold is what gives all four callers
+ * the same guarantee and keeps the `answered < asked` bookkeeping honest: an
+ * endpoint serving a nonsense type is exactly as informative as one that is down,
+ * so it must not complete a round that `'none'` requires to be complete.
  */
 async function fetchOperatorCommitment(
   endpoint: string,
@@ -58,7 +71,13 @@ async function fetchOperatorCommitment(
     new GuardianHttpClient(endpoint).getPubkey('ecdsa').then(
       value => {
         clearTimeout(timer);
-        resolve(value?.commitment);
+        const commitment: unknown = value?.commitment;
+        if (commitment !== undefined && typeof commitment !== 'string') {
+          console.warn(`[Guardian] ${endpoint} served a non-string key commitment; treating it as unanswered.`);
+          resolve(undefined);
+          return;
+        }
+        resolve(commitment);
       },
       error => {
         clearTimeout(timer);

@@ -21,9 +21,10 @@ import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/c
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
+import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
 import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
+import { checkEndpointCommitment } from './operator-map';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -546,25 +547,29 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners } = await asPreflight(() =>
-    withWasmClientLock(async () => {
-      await midenClientProxy.syncState();
-      const account = await midenClientProxy.getAccount(walletAccount.publicKey);
-      if (!account) {
-        throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
-      }
-      const detected = AccountInspector.fromAccount(account);
-      return {
-        accountIdHex: account.id().toString(),
-        stateBase64: u8ToB64(account.serialize()),
-        detectedSigners: detected.signerCommitments.length,
-        // Storage's own count, so the completeness check below compares the read
-        // against what the account SAYS it holds rather than against a constant.
-        declaredSigners: detected.numSigners,
-        signerCommitments: detected.signerCommitments
-      };
-    })
-  );
+  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
+    await asPreflight(() =>
+      withWasmClientLock(async () => {
+        await midenClientProxy.syncState();
+        const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+        if (!account) {
+          throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
+        }
+        const detected = AccountInspector.fromAccount(account);
+        return {
+          accountIdHex: account.id().toString(),
+          stateBase64: u8ToB64(account.serialize()),
+          detectedSigners: detected.signerCommitments.length,
+          // Storage's own count, so the completeness check below compares the read
+          // against what the account SAYS it holds rather than against a constant.
+          declaredSigners: detected.numSigners,
+          signerCommitments: detected.signerCommitments,
+          // Read from the SAME account as the bytes below, because the check it
+          // feeds is about those bytes.
+          guardianCommitment: getGuardianCommitmentFromAccount(account)
+        };
+      })
+    );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
   // SHORTER than the count storage declares is a truncated read — and this
@@ -611,6 +616,43 @@ export const finalizeDirectGuardianSwitch = async (
   if (!signerCommitments.some(commitment => sameCommitment(commitment, deviceHotCommitment))) {
     throw new GuardianRegistrationPreflightError(
       "Refusing to register on the new guardian with an allowlist that omits this device's hot signer commitment"
+    );
+  }
+
+  // And the state about to be pushed has to DESCRIBE a rotation to this operator.
+  //
+  // `attemptMissingRegistrationSelfHeal` makes this same check, and it is kept
+  // there because it fails fast — before the WASM lock and before an attempt is
+  // spent. But the caller checks a SNAPSHOT: it reads the guardian key, probes the
+  // endpoint, and only then calls this function, which re-syncs and re-serializes
+  // the account. Between the two there is a 5s probe plus up to eight 30s
+  // `/configure` deadlines with backoff, and rotations are serialized per account
+  // while the sync loop is not — so a user-initiated rotation A→B can commit
+  // inside that window. The caller's guard passed against pre-rotation state; the
+  // bytes serialized above are POST-rotation, and they would be POSTed to A, the
+  // operator the user just rotated away from (plausibly because it was failing).
+  // Guardian accounts are private storage mode, so that state exists nowhere on
+  // chain: the disclosure is bounded only by A already holding an older copy.
+  //
+  // So the authoritative check belongs on this side of the boundary, against the
+  // read whose bytes go over the wire — the same "check the value you are about to
+  // use" rule the allowlist and hot-signer guards above follow. A preflight class,
+  // so a refusal here refunds the caller's attempt rather than spending it: no
+  // `/configure` has been sent.
+  if (!guardianCommitment) {
+    throw new GuardianRegistrationPreflightError(
+      'Refusing to register on the new guardian: the local account state names no guardian key, so there is ' +
+        'nothing to check the operator against'
+    );
+  }
+  const endpointHoldsGuardianKey = await asPreflight(() =>
+    checkEndpointCommitment(newGuardianEndpoint, guardianCommitment)
+  );
+  if (endpointHoldsGuardianKey !== 'match') {
+    throw new GuardianRegistrationPreflightError(
+      `Refusing to register on ${newGuardianEndpoint}: it did not confirm the guardian key this account's state ` +
+        `names (${endpointHoldsGuardianKey}), so that state may have moved to a different operator since the caller ` +
+        `checked`
     );
   }
 

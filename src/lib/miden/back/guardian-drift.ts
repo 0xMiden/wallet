@@ -4,6 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
+import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianSyncStatus } from 'lib/shared/types';
 
@@ -294,7 +295,25 @@ export async function resolveGuardianDrift(
   // stored endpoint retires the run and the cooldown together: the run is about
   // the old endpoint's silence, and the cooldown would leave the NEW endpoint
   // unprobed (and the account on a stale status) for up to a full period.
-  const storedEndpoint = account.guardianEndpoint ?? '';
+  // The pointer this account is actually BOUND to, which is not the same value as
+  // the raw `guardianEndpoint` field. `resolveGuardianEndpoint` — what the sync
+  // loop builds its service from — falls back to the legacy global key, retained
+  // by design as the only pointer a pre-per-account-endpoint account on a
+  // custom/self-hosted operator has (the unlock backfill deliberately leaves that
+  // account's field empty rather than stamping a guess). Reading the raw field
+  // here classified exactly that account `'absent'`, which accuses on the FIRST
+  // complete round with no duration rule — so an account whose own operator was
+  // answering, and whose `service.sync()` was succeeding on the same tick, got a
+  // permanent `needs-user-input` and had every send blocked by
+  // `assertGuardianInSync`. F-150 fixed this same field/identity confusion one
+  // module over; the reconciler kept it.
+  //
+  // The DEFAULT arm of the resolver is deliberately not adopted: an endpoint the
+  // wallet merely guessed is not a pointer this account chose, and a denial from
+  // it says only "the default operator is not your guardian" — which is exactly
+  // what `'absent'` already means, and it must keep `'absent'`'s requirement of a
+  // complete built-in round before accusing.
+  const storedEndpoint = account.guardianEndpoint || (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || '';
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts
@@ -356,8 +375,7 @@ export async function resolveGuardianDrift(
   //                failing, when a complete round might have named a built-in
   //                and repaired it silently.
   let storedEndpointEvidence: 'denied' | 'silent' | 'absent' = 'absent';
-  if (account.guardianEndpoint) {
-    const storedEndpoint = account.guardianEndpoint;
+  if (storedEndpoint) {
     const stored = await checkEndpointCommitment(storedEndpoint, onChain);
     if (stored === 'match') {
       // A `'match'` is the stored endpoint's own word for it, and nothing more.
@@ -398,6 +416,33 @@ export async function resolveGuardianDrift(
         // answering branches but not others would let a match mid-outage leave
         // a partial run to be inherited later.
         await writeSilentDriftRun(accountPublicKey, undefined);
+        // "Change nothing" is right about the BASELINE and wrong about a status
+        // that BLOCKS. `assertGuardianInSync` refuses every send / consume / swap
+        // while the status is `'resolving'` or `'needs-user-input'`, so leaving it
+        // in place makes this account's ability to transact depend on the
+        // availability of operators it does not use: one unreachable built-in —
+        // any of them, not this account's — holds the freeze open, window after
+        // window, while its own operator answers `'match'` on every one and the
+        // sync loop succeeds against it. The user gets a non-dismissable "enter
+        // your guardian URL" banner asserting something false, and an attacker who
+        // can drop traffic to a single built-in can hold it there.
+        //
+        // Requiring corroboration to ACCUSE is right and is unchanged. Requiring
+        // it to EXONERATE is what freezes the account. Unblocking on the
+        // endpoint's own word grants nothing the wallet does not already grant on
+        // that same word: `applyUserGuardianEndpoint` — the exit this very banner
+        // offers — accepts one unauthenticated `/pubkey` echo for a URL the user
+        // types, and the corroborated branch below accepts it too.
+        //
+        // The BASELINE still is not written, which is the whole point: without it
+        // the top-of-function short-circuit does not engage, so every later window
+        // re-probes and can re-accuse the moment this endpoint stops matching. The
+        // permanent latch the corroboration rule exists to prevent needs the
+        // baseline, not the status.
+        if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
+          await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+          return { status: 'in-sync', changed: true };
+        }
         return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
       }
       // A built-in serves the on-chain commitment and it is not the endpoint on

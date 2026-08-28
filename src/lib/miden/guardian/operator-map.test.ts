@@ -24,7 +24,10 @@ import {
   verifyEndpointMatchesCommitment
 } from './operator-map';
 
-const MOCK_DEFAULT_PUBKEYS: Record<string, string> = {
+// `unknown`, not `string`: the guardian client returns this field off an
+// unchecked `response.json()` cast, so a real endpoint can serve any JSON type and
+// a fixture pinned to `string` cannot express the case that took the fan-out down.
+const MOCK_DEFAULT_PUBKEYS: Record<string, unknown> = {
   'https://guardian.openzeppelin.com': '0xAAA',
   'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
   'https://miden-guardian.lambdaclass.com': '0xCCC',
@@ -40,7 +43,7 @@ const MOCK_DEFAULT_PUBKEYS: Record<string, string> = {
 // What each endpoint's unauthenticated `GET /pubkey` answers. Mutable per case,
 // so a test can have two built-ins claim ONE commitment — a collision the map has
 // to decline rather than award to whichever answered first.
-let mockPubkeyByEndpoint: Record<string, string> = { ...MOCK_DEFAULT_PUBKEYS };
+let mockPubkeyByEndpoint: Record<string, unknown> = { ...MOCK_DEFAULT_PUBKEYS };
 
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
@@ -242,6 +245,48 @@ describe('identifyGuardianOperator', () => {
 // state — and drift reconciliation lets a member of this set overwrite the
 // endpoint stored on an account, so a URL typed into dev settings must not appear
 // here.
+describe('one operator serving a nonsense commitment type', () => {
+  // `normalizeHex` calls `.startsWith` on whatever came back, and the fold that
+  // does so runs OUTSIDE the per-operator catch — so a single built-in answering
+  // `{"commitment": 1234}` threw a TypeError out of the whole fan-out. Every
+  // caller then lost its round: drift reconciliation died for EVERY account on the
+  // device, including accounts pointed at other, healthy operators, which is the
+  // opposite of the isolation this module exists to provide. Worse, one of those
+  // call sites throws after writing `'resolving'`, stranding the account in a
+  // status that blocks every transaction and shows no banner.
+  it('does not take the whole round down with it', async () => {
+    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = 1234;
+
+    const lookup = await identifyGuardianOperator('0xBBB', MIDEN_NETWORK_NAME.TESTNET);
+
+    expect(lookup).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ endpoint: 'https://miden-guardian.dev.eu-north-3.gateway.fm' })
+    });
+  });
+
+  // And it counts as "did not answer", not as "answered with something unusable":
+  // an endpoint serving a nonsense type is exactly as informative as one that is
+  // down, so it must not complete the round that a `'none'` verdict requires. A
+  // `'none'` is what authorizes an accusation, and buying one by making a single
+  // operator misbehave is precisely what the completeness rule prevents.
+  it('leaves the round incomplete, so no built-in can be ruled out', async () => {
+    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = { nested: 'object' };
+
+    const lookup = await identifyGuardianOperator('0xNOBODYSERVESTHIS', MIDEN_NETWORK_NAME.TESTNET);
+
+    expect(lookup.outcome).toBe('unavailable');
+  });
+
+  // The same field reaches `checkEndpointCommitment`, which the drift reconciler
+  // and the manual-URL apply both gate on. It must fail closed, not throw.
+  it('reads as unreachable through checkEndpointCommitment', async () => {
+    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = true;
+
+    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', '0xAAA')).resolves.toBe('unreachable');
+  });
+});
+
 describe('the built-in set excludes the developer URL override', () => {
   afterEach(() => {
     mockGuardianUrlOverride = '';
