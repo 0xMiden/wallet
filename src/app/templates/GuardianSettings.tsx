@@ -57,6 +57,10 @@ const GuardianSettings: FC = () => {
   // never arms an outage: reading that silence as "checking" left the pill
   // spinning forever on an account nothing was ever going to check.
   const hasHotKey = useWalletStore(s => Boolean(s.currentAccount?.hotPublicKey));
+  // Reconciler verdict on whether the operator named on this screen is still the
+  // account's on-chain guardian. Selected as the field rather than the account so
+  // an unrelated account update does not re-render the status.
+  const guardianSyncStatus = useWalletStore(s => s.currentAccount?.guardianSyncStatus);
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
     currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
   );
@@ -86,17 +90,45 @@ const GuardianSettings: FC = () => {
   // and not "never synced, historically". `guardianStatus` is the one place
   // that turns those two signals into a status, so the pill and the "Last
   // sync" row below always read as one consistent story rather than two.
-  const guardianStatus: 'not-connected' | 'offline' | 'unrepairable' | 'checking' | 'online' = !hasHotKey
+  // Drift outranks every liveness signal, because it invalidates the SUBJECT the
+  // rest of this screen describes. `needs-user-input` means the account's
+  // on-chain guardian is not the operator named here and the wallet could not
+  // work out which one it is — so the name, the provider, the region and the host
+  // on this screen are all about the previous operator. Left out of this
+  // derivation, a still-live previous operator kept answering our syncs and the
+  // screen reported it Online with a seconds-old "Last sync": true about that
+  // endpoint, false about this account's guardian, and the only state on this
+  // screen where the user cannot act on what they are being shown. The recovery
+  // prompt for it lives on Home, so Settings said nothing at all.
+  //
+  // `resolving` is deliberately NOT a fault here: it is the marker the reconciler
+  // writes at the START of a round that normally ends `in-sync`, so treating it
+  // as one would flash "Needs attention" through every ordinary reconciliation.
+  const guardianDrifted = guardianSyncStatus === 'needs-user-input';
+  const guardianStatus: 'not-connected' | 'drifted' | 'offline' | 'unrepairable' | 'checking' | 'online' = !hasHotKey
     ? 'not-connected'
-    : guardianOutage
-      ? 'offline'
-      : guardianUnrepairable
-        ? 'unrepairable'
-        : guardianLastSyncAt === undefined
-          ? 'checking'
-          : 'online';
+    : guardianDrifted
+      ? 'drifted'
+      : guardianOutage
+        ? 'offline'
+        : guardianUnrepairable
+          ? 'unrepairable'
+          : guardianLastSyncAt === undefined
+            ? 'checking'
+            : 'online';
+  // Three states, one visual treatment: unreachable, answering-but-unusable, and
+  // pointing at an operator that is no longer the guardian differ in cause, not
+  // in whether the account can rely on its guardian.
+  const isGuardianFault =
+    guardianStatus === 'offline' || guardianStatus === 'unrepairable' || guardianStatus === 'drifted';
   const lastSync =
-    guardianLastSyncAt !== undefined
+    // A stamp is suppressed under drift, and only under drift. Beside an Offline
+    // pill "5 min ago" is a true historical fact about the operator this screen
+    // names — it synced, then went down. Under drift that operator is not the
+    // account's guardian, so rendering its stamp here would put a fresh
+    // timestamp next to a fault pill and attribute one operator's success to
+    // another: the same contradiction, one subsystem further along.
+    guardianLastSyncAt !== undefined && !guardianDrifted
       ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
       : // Derived from the SAME status as the pill, so the two cannot disagree.
         // A second, looser condition is what let them: an outage arms without
@@ -160,7 +192,7 @@ const GuardianSettings: FC = () => {
             aria-live="polite"
             className={clsx(
               'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
-              guardianStatus === 'offline' || guardianStatus === 'unrepairable'
+              isGuardianFault
                 ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
                   // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
                   // there, short of AA at this size. Both fault states take it:
@@ -178,17 +210,18 @@ const GuardianSettings: FC = () => {
             <span
               className={clsx(
                 'h-2 w-2 rounded-full',
-                guardianStatus === 'offline' || guardianStatus === 'unrepairable'
-                  ? 'bg-red-500'
-                  : guardianStatus === 'online'
-                    ? 'bg-green-500'
-                    : 'bg-gray-400'
+                isGuardianFault ? 'bg-red-500' : guardianStatus === 'online' ? 'bg-green-500' : 'bg-gray-400'
               )}
             />
             <span>
               {guardianStatus === 'offline'
                 ? t('guardianOfflineLabel')
-                : guardianStatus === 'unrepairable'
+                : // Drift shares the unrepairable copy: both are "the operator is
+                  // answering and this account still cannot rely on it, and you
+                  // need to act". The causes differ, but no copy in the design
+                  // distinguishes them, and inventing a string here would cost a
+                  // 14-locale re-translation cycle (see the ledger's F-136).
+                  guardianStatus === 'unrepairable' || guardianStatus === 'drifted'
                   ? t('guardianNeedsAttentionLabel')
                   : guardianStatus === 'online'
                     ? t('online')

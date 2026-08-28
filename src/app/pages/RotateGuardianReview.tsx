@@ -214,10 +214,16 @@ const RotateGuardianReview: FC = () => {
         // still carries `message`, and an `instanceof Error` gate in front of it
         // sends one to `String(err)`, which renders "[object Object]" into a
         // `role="alert"` block.
+        // And a value with no usable message at all falls back to localized copy
+        // rather than `String(err)`, which renders "[object Object]" for the
+        // message-LESS serialized rejection (`{ code: 'x' }`) that the shape read
+        // above cannot rescue. Reuses an existing key, so no locale churn.
         const message =
           typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string'
             ? err.message
-            : String(err);
+            : typeof err === 'string'
+              ? err
+              : t('smthWentWrong');
         setError(rotationInProgress ? t('guardianSwitchAlreadyInProgress') : message);
       } finally {
         submissionRef.current = false;

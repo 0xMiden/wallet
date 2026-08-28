@@ -28,16 +28,23 @@ const WALLET_SYNCED_AT = 1_700_000_000_000;
 // so the pill has a fourth state for them. Default to an activated account —
 // the not-connected case sets `mockHotPublicKey` to undefined.
 let mockHotPublicKey: string | undefined = 'hot-1';
+// The reconciler's verdict on whether the operator this screen NAMES is still the
+// account's on-chain guardian. Default `in-sync`; the drift tests flip it.
+let mockGuardianSyncStatus: string | undefined = 'in-sync';
 jest.mock('lib/store', () => ({
   useWalletStore: (
     selector: (state: {
       lastSyncedAt: number | null;
-      currentAccount: { publicKey: string; hotPublicKey?: string };
+      currentAccount: { publicKey: string; hotPublicKey?: string; guardianSyncStatus?: string };
     }) => unknown
   ) =>
     selector({
       lastSyncedAt: WALLET_SYNCED_AT,
-      currentAccount: { publicKey: 'acc-1', hotPublicKey: mockHotPublicKey }
+      currentAccount: {
+        publicKey: 'acc-1',
+        hotPublicKey: mockHotPublicKey,
+        guardianSyncStatus: mockGuardianSyncStatus
+      }
     })
 }));
 
@@ -100,6 +107,7 @@ beforeEach(() => {
   // would otherwise leak into every test after it.
   mockIsGuardianSyncOutage.mockReturnValue(false);
   mockGetGuardianLastSyncAt.mockReturnValue(undefined);
+  mockGuardianSyncStatus = 'in-sync';
   mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: 'https://guardian.one', refresh: jest.fn() });
   mockGuardianOptionForEndpoint.mockReturnValue({
     id: 'open-zeppelin',
@@ -318,6 +326,52 @@ it('names the state where the guardian answers, the account cannot use it, and r
   } finally {
     mockIsGuardianUnrepairable.mockReturnValue(false);
   }
+});
+
+// Drift means the operator this screen names is NOT the account's on-chain
+// guardian — so every other fact on the page (name, provider, region, host) is
+// about the previous one. The dangerous combination is drift plus a healthy old
+// operator: it keeps answering our syncs, so the outage flag stays down and the
+// stamp keeps refreshing, and the pill said "Online" with a seconds-old "Last
+// sync" on the one screen the user visits to find out who guards their account.
+describe('drift', () => {
+  it('does not report Online off the previous operator’s sync when the guardian has drifted', () => {
+    mockGuardianSyncStatus = 'needs-user-input';
+    mockGetGuardianLastSyncAt.mockReturnValue(Date.now() - 2_000);
+
+    render(<GuardianSettings />);
+
+    const pill = screen.getByRole('status');
+    expect(pill).toHaveTextContent('guardianNeedsAttentionLabel');
+    expect(pill).not.toHaveTextContent('online');
+    // And the stamp goes with it: a fresh timestamp here would attribute the old
+    // operator's success to the account's actual guardian.
+    expect(screen.getByText('unknown')).toBeInTheDocument();
+  });
+
+  it('outranks a liveness signal in either direction', () => {
+    mockGuardianSyncStatus = 'needs-user-input';
+    mockIsGuardianSyncOutage.mockReturnValue(true);
+
+    render(<GuardianSettings />);
+
+    // Both statements are true, but "we do not know who your guardian is" is the
+    // one the user has to act on, and the Offline CTA points at a rotation away
+    // from an operator that may not be theirs any more.
+    expect(screen.getByRole('status')).toHaveTextContent('guardianNeedsAttentionLabel');
+  });
+
+  // `resolving` is written at the START of an ordinary reconciliation round that
+  // normally ends `in-sync`. Treating it as a fault would flash "Needs attention"
+  // through every routine check.
+  it('does not treat an in-progress reconciliation as a fault', () => {
+    mockGuardianSyncStatus = 'resolving';
+    mockGetGuardianLastSyncAt.mockReturnValue(Date.now() - 2_000);
+
+    render(<GuardianSettings />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('online');
+  });
 });
 
 // Unreachable outranks answering-but-unusable: it is the more immediate fault and

@@ -3,6 +3,7 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
+import { withTimeout } from 'lib/miden/guardian/discover';
 import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
@@ -355,6 +356,17 @@ const POST_ROTATION_REREGISTER_ATTEMPTS = 3;
 /** Linear backoff base between those attempts. */
 const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
 
+/**
+ * Ceiling on the post-commit endpoint write, which is a local vault write behind
+ * (on the frontend) an intercom request that cannot time out on its own.
+ *
+ * Generous, because exceeding it books an audit flag rather than retrying: this
+ * only has to be longer than any healthy round trip to a busy service worker,
+ * and the cost of being wrong in the short direction is a false "may not have
+ * persisted" on a write that did land.
+ */
+export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -611,7 +623,25 @@ export const completeSwitchGuardianTransaction = async (
     // providers implement setGuardianEndpoint; the optional-call guard keeps a
     // frontend provider without it from throwing.
     try {
-      await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
+      // BOUNDED, because a hang here is worse than a rejection. On the frontend
+      // this provider method is an intercom request, and `request()` in
+      // lib/intercom/client.ts has no timeout while its `onDisconnect` reconnects
+      // the port WITHOUT settling anything in flight — so an MV3 worker recycle
+      // at this moment strands the promise. Every other step in this sequence
+      // records its outcome and moves on precisely so the row always reaches a
+      // terminal status; an unbounded await defeats that from the inside, leaving
+      // a committed rotation parked at GeneratingTransaction forever, with the
+      // audit flags never written because the status write is never reached.
+      //
+      // A timeout is NOT evidence the write did not land, so it books the same
+      // flag as a rejection: "may not have landed, reconcile it". If it did land,
+      // the flag is a harmless false positive — drift reconciliation reads the
+      // stored endpoint, finds it correct, and affirms in-sync.
+      await withTimeout(
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint)),
+        ENDPOINT_PERSIST_TIMEOUT_MS,
+        'persisting the new guardian endpoint'
+      );
     } catch (persistError) {
       endpointPersistFailed = true;
       console.error(

@@ -11,7 +11,7 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
-import { MultisigService } from './index';
+import { isGuardianAuthRejection, MultisigService } from './index';
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -182,6 +182,40 @@ const makeMultisig = (overrides: Partial<Record<string, unknown>> = {}) => ({
   registerOnGuardian: jest.fn(async () => {}),
   guardianPublicKey: 'old-pubkey',
   ...overrides
+});
+
+// The gate that decides whether the sync loop may cold-re-register — i.e.
+// whether this device may POST `/configure`, an account-wide write. Every test
+// that drives that path lives in guardian-sync.test.ts, which stubs this module,
+// so the real classifier had no test of its own: it could have been inverted or
+// deleted with the suite staying green. `isGuardianUnreachableError` already has
+// a table like this one; this closes the matching gap for the 401.
+describe('isGuardianAuthRejection', () => {
+  it.each([
+    ['an HTTP 401', { status: 401 }],
+    ['the authentication_failed code', { code: 'authentication_failed' }],
+    ['the signer_not_authorized code', { code: 'signer_not_authorized' }],
+    ['a 401 carrying an unrelated code', { status: 401, code: 'something_else' }]
+  ])('recognizes %s', (_label, err) => {
+    expect(isGuardianAuthRejection(err)).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['a string', 'unauthorized'],
+    ['a plain Error', new Error('unauthorized')],
+    // The neighbours it must not swallow: each one routes somewhere else in the
+    // sync loop, and misreading any of them as a 401 would spend the cold
+    // re-register budget on a condition it cannot repair.
+    ['a 429', { status: 429 }],
+    ['a 500', { status: 500 }],
+    ['an unknown-account verdict', { code: 'account_not_found' }],
+    ['a data_unavailable verdict', { code: 'data_unavailable' }],
+    ['a stringly-typed status', { status: '401' }]
+  ])('does not recognize %s', (_label, err) => {
+    expect(isGuardianAuthRejection(err)).toBe(false);
+  });
 });
 
 describe('MultisigService', () => {

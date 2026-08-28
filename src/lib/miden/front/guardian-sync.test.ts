@@ -82,12 +82,23 @@ const mockReRegister = jest.fn();
 // The self-heal pulls the guardian's own state before deciding whether to push.
 const mockAdoptGuardianState = jest.fn();
 const mockBuildColdMultisigService = jest.fn();
-jest.mock('lib/miden/guardian', () => ({
-  isGuardianAuthRejection: (err: unknown) => (err as { __authRejection?: boolean } | null)?.__authRejection === true,
-  MultisigService: {
-    buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args)
-  }
-}));
+jest.mock('lib/miden/guardian', () => {
+  // The `__authRejection` tag is a convenience for the tests below, but the REAL
+  // classifier is kept in the chain: it is the gate that decides whether this
+  // device may POST `/configure`, and stubbing it outright meant no test in this
+  // suite exercised it — it could have been inverted and everything stayed
+  // green. Delegating means a real `{ status: 401 }` drives the path too, which
+  // one test below relies on. (A direct table for the classifier itself lives in
+  // lib/miden/guardian/index.test.ts.)
+  const actual: { isGuardianAuthRejection: (err: unknown) => boolean } = jest.requireActual('lib/miden/guardian');
+  return {
+    isGuardianAuthRejection: (err: unknown) =>
+      (err as { __authRejection?: boolean } | null)?.__authRejection === true || actual.isGuardianAuthRejection(err),
+    MultisigService: {
+      buildColdMultisigService: (...args: unknown[]) => mockBuildColdMultisigService(...args)
+    }
+  };
+});
 
 // The "am I still this account's signer?" guard. `getSignerDetailsFromAccount`
 // reads signer slot 0 (hot) off the on-chain account; `commitmentFromPublicKeyHex`
@@ -453,6 +464,111 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     await syncGuardianAccounts();
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  // Every other test in this describe tags its rejection with `__authRejection`.
+  // This one throws the shape a real guardian sends, so the wiring from an actual
+  // 401 through the real classifier to the `/configure` decision is pinned — the
+  // tag cannot be the only reason this path is ever reached.
+  it('reaches the self-heal from the shape a real guardian 401 has, not just the test tag', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      // The shape a real GuardianHttpError has: an Error carrying `status`, which
+      // is what the production classifier duck-types on.
+      sync: jest.fn(async () => {
+        throw Object.assign(new Error('unauthorized'), { status: 401 });
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-real-401', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    // And it was classified as a 401 rather than as an outage: the server
+    // answered, so the unreachable banner must stay down.
+    expect(isGuardianSyncOutage('acct-real-401')).toBe(false);
+  });
+
+  // The 401 twin of the missing-registration cooldown test. A cold `/configure`
+  // carries its own retry deadlines and can outlast SELF_HEAL_COOLDOWN_MS, so the
+  // stamp has to come from when the attempt SETTLED. Under a frozen clock the
+  // start-stamp and the settle-stamp are indistinguishable, which is why this
+  // advances time from INSIDE the re-register.
+  it('measures the self-heal cooldown from when the re-register finished', async () => {
+    let now = 5_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-slow-heal', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    // Each re-register takes four times the cooldown it is supposed to buy.
+    mockReRegister.mockImplementation(async () => {
+      now += 4 * SELF_HEAL_COOLDOWN_MS;
+    });
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+    // The next tick lands right after that long attempt. Measured from the start
+    // it would be overdue; measured from the finish it is not due yet.
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+
+    now += SELF_HEAL_COOLDOWN_MS;
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
+  });
+
+  // F-137 called the spent budget "the sharp one": with it kept across a
+  // rotation, the NEW operator's first 401 re-marks the account unrepairable on a
+  // verdict the OLD operator earned, and `decideColdReRegisterSelfHeal` refuses
+  // forever because the attempt cap is already reached.
+  it('gives the new operator its own re-register budget after a rotation', async () => {
+    let now = 7_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    const account = {
+      publicKey: 'acct-rotate-budget',
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      coldPublicKey: 'cold',
+      guardianEndpoint: 'https://old.guardian.test'
+    };
+    storeState.accounts = [account] as never;
+
+    // Spend the whole budget against the old operator.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+    while (mockReRegister.mock.calls.length < SELF_HEAL_MAX_ATTEMPTS) {
+      now += SELF_HEAL_COOLDOWN_MS;
+      await syncGuardianAccounts();
+    }
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    now += SELF_HEAL_COOLDOWN_MS;
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('acct-rotate-budget')).toBe(true);
+
+    // Rotate. The verdict that condemned the account was the old operator's.
+    storeState.accounts = [{ ...account, guardianEndpoint: 'https://new.guardian.test' }] as never;
+    await syncGuardianAccounts();
+    expect(isGuardianUnrepairable('acct-rotate-budget')).toBe(false);
+
+    // And the new operator gets the full budget, starting from its own streak.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS + 1);
+
+    nowSpy.mockRestore();
   });
 
   it('does not re-register once this device is no longer the on-chain hot signer', async () => {

@@ -18,6 +18,7 @@ import { WalletType } from 'screens/onboarding/types';
 import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
+  ENDPOINT_PERSIST_TIMEOUT_MS,
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
@@ -445,6 +446,53 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Guardian switched');
     expect(row.extraInputs).toMatchObject({ newGuardianEndpoint: 'https://new.guardian', registerFailed: true });
+  });
+
+  // A HANG is worse than a rejection here, and until this was bounded nothing
+  // covered it. On the frontend this provider method is an intercom request, and
+  // `request()` has no timeout while its `onDisconnect` reconnects the port
+  // WITHOUT settling anything in flight — so an MV3 worker recycle at this exact
+  // moment strands the await. Every other step in the post-commit sequence
+  // records its outcome and moves on so the row always reaches a terminal status;
+  // an unbounded await defeats that from the inside, parking a rotation that is
+  // already a fact on chain at GeneratingTransaction forever, with the audit
+  // flags never written because the status write is never reached.
+  it('completes the committed switch even if the endpoint write never settles', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    // Never settles, in either direction.
+    const setGuardianEndpoint = jest.fn(() => new Promise<void>(() => {}));
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      // Nothing but the timeout can move this forward.
+      await jest.advanceTimersByTimeAsync(ENDPOINT_PERSIST_TIMEOUT_MS + 1);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    // A timeout is not evidence the write did not land, so it books the same flag
+    // a rejection does: "may not have persisted, reconcile it". Drift
+    // reconciliation is the repair path either way, and if the write did land the
+    // flag is a harmless false positive.
+    expect(row.extraInputs).toMatchObject({ endpointPersistFailed: true });
+    // And the steps AFTER it still ran — the timeout must not swallow the rest of
+    // the post-commit sequence.
+    expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
+    expect(row.extraInputs).toMatchObject({ registerFailed: false });
   });
 
   it('records registerFailed=false on a clean switch', async () => {

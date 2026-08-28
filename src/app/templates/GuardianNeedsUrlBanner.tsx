@@ -55,7 +55,19 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         setError(t('guardianUrlMismatch'));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Shape-based, then localized — same reasoning as RotateGuardianReview's
+      // catch. `applyUserGuardianEndpoint` crosses the intercom boundary, which
+      // may serialize the rejection and drop its prototype: an `instanceof Error`
+      // gate sends a perfectly good `message` to `String(e)`, and a rejection
+      // with no message at all renders "[object Object]" into the one line the
+      // user has to work out why their recovery attempt failed.
+      setError(
+        typeof e === 'object' && e !== null && 'message' in e && typeof e.message === 'string'
+          ? e.message
+          : typeof e === 'string'
+            ? e
+            : t('smthWentWrong')
+      );
     } finally {
       setSubmitting(false);
     }
@@ -84,7 +96,15 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         }}
         onChange={event => setUrlInput(event.target.value)}
       />
-      {error && <p className="text-red-500 text-xs wrap-break-word">{error}</p>}
+      {/* `role="alert"` because this line is the only feedback the recovery path
+          has, and it appears AFTER a submit rather than being present at render:
+          without a live region a screen-reader user gets silence and a button
+          that just re-enabled itself. Matches the rotate-review error block. */}
+      {error && (
+        <p role="alert" className="text-red-500 text-xs wrap-break-word">
+          {error}
+        </p>
+      )}
       <Button
         title={submitting ? t('loading') : t('continue')}
         onClick={onSubmit}

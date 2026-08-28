@@ -98,6 +98,39 @@ describe('GuardianNeedsUrlBanner', () => {
     await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
   });
 
+  // `applyUserGuardianEndpoint` crosses the intercom boundary, which may
+  // serialize the rejection: an Error arrives as a plain object carrying
+  // `message` (no prototype), and some rejections carry no message at all.
+  it('surfaces the message from a serialized rejection that lost its prototype', async () => {
+    mockApply.mockRejectedValueOnce({ message: 'endpoint refused' });
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('endpoint refused')).toBeInTheDocument());
+  });
+
+  it('falls back to localized copy rather than rendering [object Object]', async () => {
+    mockApply.mockRejectedValueOnce({ code: 'transport_failed' });
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('smthWentWrong')).toBeInTheDocument());
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
+  // This line is the only feedback the recovery path has, and it appears after a
+  // submit rather than at render — without a live region it is silence.
+  it('announces the error to assistive technology', async () => {
+    mockApply.mockRejectedValueOnce(new Error('network down'));
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('network down'));
+  });
+
   it('disables the submit button while a request is in flight, blocking re-clicks', async () => {
     let resolveApply: (value: boolean) => void = () => {};
     mockApply.mockReturnValueOnce(
