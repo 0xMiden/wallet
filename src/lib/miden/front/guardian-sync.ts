@@ -5,13 +5,13 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from 'lib/miden/guardian/account';
+import { createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
 import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
-import { createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
@@ -23,7 +23,12 @@ import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
-import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS, type SelfHealOutcome } from './guardian-selfheal';
+import {
+  SELF_HEAL_AUTH_FAILURE_THRESHOLD,
+  SELF_HEAL_COOLDOWN_MS,
+  SELF_HEAL_MAX_ATTEMPTS,
+  type SelfHealOutcome
+} from './guardian-selfheal';
 import {
   guardianSyncFuseKey,
   isSyncFused,
@@ -886,7 +891,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // Guardian still unreachable / rejecting cold — a later tick may retry per
-    // the bounded schedule (see decideColdReRegisterSelfHeal).
+    // the bounded schedule (see `selfHealLedger`).
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
   }
   return attempted ? 'attempted' : 'refused-transiently';
@@ -1137,7 +1142,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // collapses stale-allowlist, clock-skew, and replay failures into one 401,
       // and on v0.16.0 a co-signed rotation self-syncs the allowlist via
       // canonicalization — so a transient 401 clears on its own. Only after the
-      // 401 has PERSISTED (decideColdReRegisterSelfHeal) do we cold-re-register
+      // 401 has PERSISTED (the persistence gate + `selfHealLedger`) do we cold-re-register
       // to repair a genuinely-stale allowlist, and only a bounded number of
       // times.
       if (isGuardianAuthRejection(error)) {

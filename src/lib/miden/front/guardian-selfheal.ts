@@ -54,37 +54,7 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  */
 export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
 
-export interface SelfHealAttemptState {
-  /** Number of cold re-register attempts already made for this account. */
-  attempts: number;
-  /** `Date.now()` of the last attempt. */
-  lastAttemptAt: number;
-}
-
-/**
- * Decide whether to attempt a cold re-register self-heal for an account right
- * now. Pure (all state passed in) so it is exhaustively unit-testable.
- *
- * @param now                     current `Date.now()`
- * @param consecutiveAuthFailures consecutive 401s observed for this account
- *                                (reset to 0 on any successful sync)
- * @param state                   prior attempt state, or `undefined` if none
- */
-export function decideColdReRegisterSelfHeal(
-  now: number,
-  consecutiveAuthFailures: number,
-  state: SelfHealAttemptState | undefined
-): boolean {
-  // Rule out transient 401s: require the failure to persist.
-  if (consecutiveAuthFailures < SELF_HEAL_AUTH_FAILURE_THRESHOLD) return false;
-
-  const attempts = state?.attempts ?? 0;
-  // Give up once re-registering the on-chain signer set has demonstrably not
-  // fixed it (the signer isn't the on-chain signer — nothing to re-authorize).
-  if (attempts >= SELF_HEAL_MAX_ATTEMPTS) return false;
-
-  // Rate-limit attempts.
-  if (state && now - state.lastAttemptAt < SELF_HEAL_COOLDOWN_MS) return false;
-
-  return true;
-}
+// The BOUNDED RETRY and COOLDOWN halves of the decision live in the shared
+// `guardian/attempt-ledger.ts` (the sync module's `selfHealLedger`); the
+// PERSISTENCE gate stays at the caller, against `consecutiveAuthFailures`.
+// This module keeps the constants and the outcome contract.

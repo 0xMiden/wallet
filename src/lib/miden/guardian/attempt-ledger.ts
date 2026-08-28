@@ -98,8 +98,13 @@ type AttemptState = { attempts: number; lastAttemptAt: number };
 
 const subjectKey = (s: AttemptSubject): string => `${s.accountPublicKey}|${s.endpoint ?? ''}|${s.guardianKey ?? ''}`;
 
-export function createAttemptLedger(policy: AttemptPolicy, clock: () => number = Date.now): AttemptLedger {
+export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
+  // Lazy property read, NOT a captured `Date.now` reference: ledgers are
+  // module-scoped, so a captured reference would be bound before any test's
+  // `jest.spyOn(Date, 'now')` and every timing test would silently run on the
+  // wall clock.
+  const readClock = () => (clock ? clock() : Date.now());
 
   const gapMs = (attempts: number): number =>
     policy.curve === 'doubling' ? policy.backoffMs * 2 ** Math.max(attempts - 1, 0) : policy.backoffMs;
@@ -107,14 +112,14 @@ export function createAttemptLedger(policy: AttemptPolicy, clock: () => number =
   const spent = (s: AttemptState | undefined): boolean => (s?.attempts ?? 0) >= policy.maxAttempts;
 
   return {
-    mayAttempt(subject, now = clock()) {
+    mayAttempt(subject, now = readClock()) {
       const s = state.get(subjectKey(subject));
       if (spent(s)) return false;
       if (s && now - s.lastAttemptAt < gapMs(s.attempts)) return false;
       return true;
     },
 
-    begin(subject, now = clock()) {
+    begin(subject, now = readClock()) {
       const key = subjectKey(subject);
       const attemptsAtBegin = state.get(key)?.attempts ?? 0;
       state.set(key, { attempts: attemptsAtBegin, lastAttemptAt: now });
@@ -129,7 +134,7 @@ export function createAttemptLedger(policy: AttemptPolicy, clock: () => number =
               : outcome === 'closed'
                 ? Math.max(policy.maxAttempts, attemptsAtBegin)
                 : attemptsAtBegin;
-          state.set(key, { attempts, lastAttemptAt: clock() });
+          state.set(key, { attempts, lastAttemptAt: readClock() });
         }
       };
     },
@@ -173,10 +178,7 @@ export interface RateCooldown {
   clearAll(): void;
 }
 
-export function createRateCooldown(
-  bounds: { floorMs: number; capMs: number },
-  clock: () => number
-): RateCooldown {
+export function createRateCooldown(bounds: { floorMs: number; capMs: number }, clock: () => number): RateCooldown {
   const until = new Map<string, number>();
   return {
     impose(key, askedMs) {
