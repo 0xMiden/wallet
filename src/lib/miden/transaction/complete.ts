@@ -1,4 +1,5 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { feeFieldsFromResult } from '../activity/fee';
 
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
@@ -232,6 +233,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage,
     transactionId: executedTransaction.id().toHex(),
     secondaryAccountId,
@@ -329,6 +331,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
@@ -453,6 +456,7 @@ export const completeReplaceHotKeyTransaction = async (
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
@@ -491,6 +495,7 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Account secured',
     transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
@@ -537,6 +542,7 @@ export const completeSwitchGuardianTransaction = async (
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // `result` is absent on the apply-after-submit-failed reconcile path: the
@@ -749,6 +755,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
   try {
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
@@ -774,6 +781,7 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -790,6 +798,7 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Deposited to lending',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,

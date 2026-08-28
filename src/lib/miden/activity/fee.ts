@@ -52,3 +52,20 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
   }
   return undefined;
 }
+
+/**
+ * The fee fields to record on a transaction row, ready to spread into an update.
+ *
+ * Returns an empty object rather than `{ feeAmount: undefined }` when no fee was
+ * paid: these spread into a partial update that `Object.assign`s over the stored
+ * row, so writing explicit undefineds would erase whatever is already there.
+ */
+export function feeFieldsFromResult(
+  result: TransactionResult | undefined
+): { feeAmount?: bigint; feeFaucetId?: string } {
+  if (!result) {
+    return {};
+  }
+  const paid = feePaidFromResult(result);
+  return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
+}

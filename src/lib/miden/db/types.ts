@@ -338,6 +338,15 @@ export interface ITransaction {
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
+  /**
+   * Fee this transaction actually paid, in the fee asset's smallest unit.
+   *
+   * Read from the emitted TX_FEE note rather than computed: the charge scales
+   * with the transaction's cycle count, which is only known after it runs.
+   * Absent on rows written before fees, and on zero-fee chains.
+   */
+  feeAmount?: bigint;
+  feeFaucetId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
