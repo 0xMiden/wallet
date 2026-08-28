@@ -177,13 +177,13 @@ export function isFeeUnpayableError(raw: string): boolean {
   );
 }
 
-export function resolveTransactionErrorMessage(
+function classifyTransactionError(
   error: unknown,
+  raw: string,
   stage?: ITransactionStage,
   delegateTransaction?: boolean,
   abandonedPreWrite?: boolean
 ): string {
-  const raw = formatRawTransactionError(error);
   // A lock-recovery eviction is checked FIRST because every mapping below reads
   // the stage, and the stage is exactly what an eviction makes unreliable: it
   // says where the pipeline was when its caller was rejected, not where the
@@ -230,4 +230,24 @@ export function resolveTransactionErrorMessage(
     return TRANSACTION_FEE_UNPAYABLE_ERROR;
   }
   return raw;
+}
+
+export function resolveTransactionErrorMessage(
+  error: unknown,
+  stage?: ITransactionStage,
+  delegateTransaction?: boolean,
+  abandonedPreWrite?: boolean
+): string {
+  const raw = formatRawTransactionError(error);
+  const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
+  // Keep the raw failure reachable in logs whenever a mapping replaces it. The
+  // friendly copy is deliberately non-technical, so a mapped error otherwise
+  // erases the only detail that identifies it -- which procedure root a prover
+  // could not resolve, which limb overflowed, which stage the kernel aborted in.
+  // The stored row and the UI still show `message`; this costs one log line and
+  // is the difference between a diagnosable failure and a shrug.
+  if (message !== raw) {
+    console.warn('[transaction] error classified, raw cause:', raw);
+  }
+  return message;
 }
