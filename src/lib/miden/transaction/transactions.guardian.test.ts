@@ -5762,6 +5762,47 @@ describe('generateTransaction — direct switch audit marker', () => {
     expect(extra.directSwitchReason).toContain('outgoing or new guardian unreachable');
   });
 
+  // The escape route for the users who need it most. A rotation whose registration
+  // never landed leaves the chain naming an operator that holds NOTHING for this
+  // account; three exhausted self-heal attempts then mark it `unrepairable`, and
+  // Settings offers exactly one action — Rotate Guardian. That action used to die at
+  // the first step, because loading the outgoing service calls the guardian's
+  // `getState`, which answers `account_not_found`: not a 5xx, so the fallback did
+  // not fire and the row failed terminally with the user's only offered recovery
+  // unable to run. An operator with no record cannot co-sign a proposal for the
+  // account, and the direct path needs nothing from it.
+  it.each([
+    ['account_not_found', 'account_not_found'],
+    ['state_not_found', 'state_not_found'],
+    ['data_unavailable', 'data_unavailable']
+  ])('escapes an outgoing guardian that answers %s', async (_label, code) => {
+    const txId = `switch-guardian-marker-unknown-${code}`;
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockRejectedValue(Object.assign(new Error('no such account'), { code }));
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    // Attributed to the outgoing operator whichever phase threw: the new guardian
+    // is only asked for its `/pubkey`, which is not account-scoped and so cannot
+    // answer "no record of this account".
+    expect(extra.directSwitchReason).toContain('outgoing guardian has no record of this account');
+    expect(extra.directSwitchReason).not.toContain('unreachable');
+  });
+
+  // And the two classes stay distinct in the audit trail, since the row is the only
+  // record of which verdict routed it.
+  it('keeps a semantic guardian rejection on the normal path', async () => {
+    const txId = 'switch-guardian-marker-semantic-rejection';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockRejectedValue(Object.assign(new Error('Conflict'), { status: 409 }));
+
+    await run(txId, provider);
+
+    expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();
+  });
+
   it('distinguishes the post-proposal cold-co-sign fallback in the recorded reason', async () => {
     const txId = 'switch-guardian-marker-cold-cosign';
     const provider = setup(txId);

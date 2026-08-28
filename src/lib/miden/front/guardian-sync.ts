@@ -6,6 +6,7 @@ import {
 } from 'lib/miden/guardian/account';
 import {
   finalizeDirectGuardianSwitch,
+  isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
@@ -429,27 +430,6 @@ export function __resetGuardianSyncOutageForTest(): void {
   // current pass.
   syncGeneration += 1;
   notifyOutageListeners();
-}
-
-/**
- * The operator answered, and its answer is "I have no record of this account".
- *
- * Distinct from a 401, which means "I know this account but not this signer" —
- * the two need different repairs, and conflating them is why the missing
- * registration had none. Matched on the guardian's stable machine-readable codes
- * rather than on text; `data_unavailable` and its account-scoped sibling are
- * included because the server uses them for a state blob it cannot produce,
- * which is the same practical condition.
- */
-function isGuardianAccountUnknown(err: unknown): boolean {
-  if (typeof err !== 'object' || err === null) return false;
-  const code = 'code' in err ? err.code : undefined;
-  return (
-    code === 'account_not_found' ||
-    code === 'state_not_found' ||
-    code === 'account_data_unavailable' ||
-    code === 'data_unavailable'
-  );
 }
 
 /**

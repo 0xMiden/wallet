@@ -86,6 +86,36 @@ const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * The operator answered, and its answer is "I have no record of this account".
+ *
+ * Distinct from a 401, which means "I know this account but not this signer" —
+ * the two need different repairs, and conflating them is why the missing
+ * registration had none. Matched on the guardian's stable machine-readable codes
+ * rather than on text; `data_unavailable` and its account-scoped sibling are
+ * included because the server uses them for a state blob it cannot produce,
+ * which is the same practical condition.
+ *
+ * Second consumer, and the reason this lives beside `isGuardianUnreachableError`
+ * rather than staying private to the sync loop: it gates the SAME direct-switch
+ * fallback. An outgoing guardian with no record of the account cannot co-sign a
+ * proposal for it, so for the purpose of rotating away it is exactly as unusable
+ * as one that is down — and rotating away is the documented escape from that
+ * state. Without this, the escape route rejected the user at the first step (the
+ * service load calls the guardian's `getState`), leaving an account whose
+ * registration never landed with no working exit at all.
+ */
+export const isGuardianAccountUnknown = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = 'code' in err ? err.code : undefined;
+  return (
+    code === 'account_not_found' ||
+    code === 'state_not_found' ||
+    code === 'account_data_unavailable' ||
+    code === 'data_unavailable'
+  );
+};
+
+/**
  * Is this error the outgoing guardian being UNREACHABLE (connection refused,
  * DNS, timeout, TLS, or a proxy 5xx with no guardian body) — as opposed to a
  * semantic guardian rejection? Only unreachability triggers the direct-switch

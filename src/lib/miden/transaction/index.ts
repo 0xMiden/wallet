@@ -17,6 +17,7 @@ import { MultisigService } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
+  isGuardianAccountUnknown,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
 import {
@@ -2038,13 +2039,36 @@ const generateGuardianTransaction = async (
         // fall back to the direct on-chain switch — the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
         // Reachable-guardian errors (401/409/…) keep the normal handling.
-        if (!isGuardianUnreachableError(error)) throw error;
-        console.warn(`[Guardian] ${unreachableSubject} unreachable — switching directly on-chain:`, error);
+        //
+        // "It answered, and it has no record of this account" is the second
+        // condition that has to route here, and leaving it out closed the escape
+        // route on the users who needed it most. A rotation whose registration
+        // never landed (`registerFailed`, then three exhausted self-heal attempts
+        // → `unrepairable`) leaves the chain naming an operator that holds nothing
+        // for this account. Settings shows "Needs attention" and offers exactly
+        // one action, Rotate Guardian — and that action died at the FIRST step,
+        // because loading the outgoing service calls the guardian's `getState`,
+        // which answers `account_not_found`. That is not a 5xx, so the fallback
+        // did not fire, and the row failed terminally with the user's only offered
+        // recovery unable to run. An operator with no record cannot co-sign a
+        // proposal for the account, so for the purpose of rotating AWAY it is
+        // exactly as unusable as one that is down, and the direct path needs
+        // nothing from it: it signs locally with hot + cold and submits on chain.
+        const directSwitchTrigger = isGuardianUnreachableError(error)
+          ? `${unreachableSubject} unreachable`
+          : isGuardianAccountUnknown(error)
+            ? // Always the OUTGOING operator, whichever phase threw: the new
+              // guardian is only ever asked for its `/pubkey`, which is not
+              // account-scoped and cannot answer "no record of this account".
+              'outgoing guardian has no record of this account'
+            : undefined;
+        if (directSwitchTrigger === undefined) throw error;
+        console.warn(`[Guardian] ${directSwitchTrigger} — switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
           signCallback,
           guardianProvider,
-          `${unreachableSubject} unreachable before the proposal was pushed: ${describeError(error)}`
+          `${directSwitchTrigger} before the proposal was pushed: ${describeError(error)}`
         );
         return;
       }
