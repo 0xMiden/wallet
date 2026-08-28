@@ -662,6 +662,17 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
     // A rollback landed, so the endpoint this pass resolved before calling us is
     // no longer what the account names.
     let bindingChanged = false;
+    // NEWEST FIRST. A rollback chain has to unwind in LIFO order or it unwinds
+    // wrong: with A→B and B→C both discarded, taking A→B first finds the account
+    // on C and can conclude nothing useful about a rotation two steps back, while
+    // taking B→C first restores B and leaves the account exactly where A→B's own
+    // rollback expects to find it. `listUnconfirmedSwitchRows` returns Dexie's
+    // primary-key order — uuids — so without this the order is arbitrary, and the
+    // per-pass cap below would make it a lasting choice rather than a transient
+    // one: the two rows it defers are the two it never looks at.
+    //
+    // `initiatedAt` (seconds) over `completedAt`, which is optional on the row.
+    const ordered = [...rows].sort((a, b) => b.initiatedAt - a.initiatedAt);
     // Rows that actually reached the node this pass. Each one costs a full chain
     // sync (`readDirectSwitchCommitState` syncs before it looks) and, on a
     // discarded rotation, an operator round trip on top — all serialized, all
@@ -671,7 +682,7 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
     // keep their place in the list and their budget, and the next pass starts
     // where the cooldown lets it.
     let probed = 0;
-    for (const row of rows) {
+    for (const row of ordered) {
       if (probed >= PENDING_ROTATION_ROWS_PER_PASS) {
         unsettled.push(row.id);
         continue;
@@ -1341,6 +1352,24 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     await coldService.reRegisterCurrentStateOnGuardian();
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
+    // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where
+    // treating it as one did the most damage. Every hold above is on the ~3 s
+    // tick against a client the idle loop also parks, so this catch sees real
+    // poison; swallowed into `'attempted'` it charged the operator's budget, and
+    // three of those called `markGuardianUnrepairable(pk, 'the operator keeps
+    // rejecting this device')` about a guardian that never rejected anything —
+    // recoverable only by a successful sync the same parked client prevents.
+    // Worse, the caller then reached its fuse feed with the original 401 in hand,
+    // so `noteNonEvictionSyncFailure` ZEROED the eviction count and the fuse
+    // could never light for the wallet's default account type.
+    if (isWasmClientPoisonedError(e)) {
+      console.warn(
+        `[Guardian Sync] the WASM client was evicted while cold re-registering ${account.publicKey} — ` +
+          `the attempt is abandoned, not cancelled:`,
+        e
+      );
+      return 'evicted';
+    }
     // Guardian still unreachable / rejecting cold — a later tick may retry per
     // the bounded schedule (see `selfHealLedger`).
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
@@ -1482,6 +1511,12 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       console.warn(`[Guardian Sync] could not resolve the guardian endpoint for ${account.publicKey}`, resolveError);
       continue;
     }
+    // Derived as soon as the endpoint is known, because the arms that report an
+    // eviction now START before the gate below: drift and the two self-heals each
+    // break out of this loop, and each has to book its evidence itself. The GATE
+    // stays where it was — its position in the pass is deliberate — but the key it
+    // uses is just a function of the account and the operator this lap talks to.
+    const fuseKey = guardianSyncFuseKey(account.publicKey, endpoint);
     const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
     if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
       console.warn(
@@ -1557,7 +1592,16 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // pass does next is a second borrow of somebody else's client. The recheck
     // above breaks out of its row loop for exactly this reason; the account loop
     // owes the same. The next tick starts from a fresh client.
-    if (driftEvicted) break;
+    if (driftEvicted) {
+      // Booked before the break. The fuse feed lives in this loop's CATCH, and
+      // drift is deliberately caught locally so a reconciliation failure cannot
+      // break the loop — so nothing downstream of here ever reports this. Drift
+      // imports nothing from `sync-fuse` either, and its three holds run at the
+      // guardian ceiling on the 3 s tick, so its evictions were the largest
+      // source of parked-client evidence the ledger never received.
+      noteSyncWatchdogEviction(fuseKey);
+      break;
+    }
 
     // SHADOW dispatcher (guardian-recovery-dispatcher.ts): classify this
     // account's facts and count disagreements with what the legacy predicates
@@ -1633,7 +1677,6 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // only the mobile/desktop loop while this producer went on feeding a ledger
     // nobody read there (#777). The key reuses the endpoint resolved above, so the
     // evidence is booked against the operator this lap actually talks to.
-    const fuseKey = guardianSyncFuseKey(account.publicKey, endpoint);
     if (isSyncFused(fuseKey)) continue;
 
     try {
@@ -1713,11 +1756,27 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // does not re-read on every 3s tick.
           const attempt = selfHealLedger.begin(healSubject);
           const outcome = await attemptColdReRegisterSelfHeal(account);
+          if (outcome === 'evicted') {
+            // CHARGED, like the missing-registration arm: an eviction abandons
+            // the call without cancelling it, so the `/configure` may still land
+            // and a refund would let the next tick prepare a second one.
+            attempt.settle('charged');
+            // Booked HERE, not at the loop's fuse feed below — the `break` skips
+            // that, and the `error` it would classify is the 401, not the poison.
+            // This hold is the one most likely to park (it is on the 3 s tick and
+            // shares the client with the idle loop), so withholding its evidence
+            // is what kept the fuse from ever lighting.
+            noteSyncWatchdogEviction(fuseKey);
+            break;
+          }
           attempt.settle(
             outcome === 'attempted' ? 'charged' : outcome === 'refused-permanently' ? 'closed' : 'refunded'
           );
           // Budget spent (or closed): the 401 is now permanent as far as this
           // wallet is concerned, and nothing else would ever say so on screen.
+          // Reachable only from outcomes that are ACTUALLY about the operator —
+          // `'evicted'` returns above precisely so a local WASM failure cannot
+          // reach this line and accuse a healthy guardian.
           if (selfHealLedger.budgetSpent(healSubject)) {
             markGuardianUnrepairable(account.publicKey, 'the operator keeps rejecting this device');
           }
@@ -1774,8 +1833,35 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           // Same stop rule as the recheck and drift arms: an eviction under the
           // self-heal leaves its call abandoned inside a client the mutex has
           // already handed to a successor, so the pass takes no further holds.
-          if (await attemptMissingRegistrationSelfHeal(account)) break;
+          if (await attemptMissingRegistrationSelfHeal(account)) {
+            // Booked before the break, for the same reason as the drift arm: the
+            // fuse feed at the bottom of this catch is skipped, and the `error`
+            // it would classify is the operator's "unknown account" response,
+            // not the poison — so it would have withdrawn evidence instead of
+            // adding it.
+            noteSyncWatchdogEviction(fuseKey);
+            break;
+          }
         }
+      } else if (isWasmClientPoisonedError(error)) {
+        // THE GUARDIAN ROUND TRIP ITSELF EVICTED. `service.sync()` builds its
+        // service under a frontend hold at the sync ceiling, so this is a real
+        // arm, not a defensive one — and it was the last of the four that went
+        // on to the next account, which then took fresh holds while this call was
+        // still inside WASM. It says nothing about the server, so the failure
+        // counts are cleared like any other local failure; the difference is that
+        // the pass stops. Booked before the break for the same reason as the
+        // siblings above.
+        consecutiveAuthFailures.delete(account.publicKey);
+        consecutiveUnknownAccount.delete(account.publicKey);
+        consecutiveServerFailures.delete(account.publicKey);
+        noteSyncWatchdogEviction(fuseKey);
+        console.error(
+          `[Guardian Sync] the WASM client was evicted syncing ${account.publicKey}; abandoning the rest of ` +
+            `this pass rather than borrowing a client another flow now owns:`,
+          error
+        );
+        break;
       } else {
         // Non-auth error — don't accumulate auth-failure count.
         consecutiveAuthFailures.delete(account.publicKey);

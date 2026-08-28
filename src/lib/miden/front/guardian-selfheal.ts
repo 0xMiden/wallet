@@ -51,8 +51,21 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             more; no later tick can change that, so stop asking.
  *  - `refused-transiently`  — could not tell (unreadable account/commitment); no
  *                             guardian traffic happened, so retry later for free.
+ *  - `evicted`              — the WASM client was evicted under the attempt. A
+ *                             SEPARATE outcome rather than one of the three above,
+ *                             because it is the only one that is not a statement
+ *                             about the OPERATOR at all, and the caller has to do
+ *                             two things no other outcome asks for: stop the pass
+ *                             (the abandoned call still holds a borrow of a client
+ *                             the mutex has already handed on) and book the
+ *                             eviction against the realm's sync fuse. Folded into
+ *                             `attempted` it charged a LOCAL failure to the
+ *                             operator's budget and, three deep, accused a healthy
+ *                             guardian of "rejecting this device"; folded into
+ *                             `refused-transiently` it refunded a `/configure`
+ *                             that an abandoned-not-cancelled call may still land.
  */
-export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
+export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently' | 'evicted';
 
 // The BOUNDED RETRY and COOLDOWN halves of the decision live in the shared
 // `guardian/attempt-ledger.ts` (the sync module's `selfHealLedger`); the

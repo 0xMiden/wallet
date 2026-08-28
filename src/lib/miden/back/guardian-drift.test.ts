@@ -1118,13 +1118,47 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   });
 
   // A second rotation landed while this one was being rechecked. Rolling back to
-  // a value from before BOTH would undo a commit that succeeded.
-  it('supersedes without writing when the account already names something else', async () => {
+  // a value from before BOTH would undo a commit that succeeded — but only the
+  // CHAIN can say the newer one succeeded, so the move alone is not the answer.
+  it('supersedes when the account moved on and the new binding has authority', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = boundTo('https://newer');
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
       'superseded'
     );
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // THE TWO-ROTATION TRAP, and the reason "moved on" cannot mean "resolved".
+  // A→B and B→C both complete unconfirmed and the node discards both. Probing
+  // A→B first finds the account on C, which has no authority either. Answering
+  // `'superseded'` here spent the caller's one irreversible demote on the only
+  // row recording A, and the account ended up bound to B — an operator that was
+  // never authorized — with drift blind to it, because its cheap path compares
+  // the baseline against the chain and both still name A.
+  it("reports 'stale' when the account moved on to a binding that also lacks authority", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    const vault = boundTo('https://newer', 7);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    // And emphatically no write: `revertTo` is two rotations stale here, so
+    // writing it would undo whatever the newer row is still repairing.
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // An account bound to nothing has no rollback target to compare and no
+  // authority to test. Fail closed rather than rebinding on absence.
+  it("reports 'stale' when the account names no endpoint at all", async () => {
+    const vault = boundTo('');
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
 
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
     expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();

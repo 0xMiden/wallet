@@ -173,7 +173,11 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-3',
-      data: 'Handler failed'
+      // The internal port carries `name` as well as `message`, so the frontend can
+      // still tell WHICH class of backend failure it got — the poison classifier
+      // reads exactly this field, and a bare message string made it dead code on
+      // the extension.
+      data: { message: 'Handler failed', name: 'Error', errors: undefined }
     });
   });
 
@@ -192,7 +196,7 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-4',
-      data: 'Not Found'
+      data: { message: 'Not Found', name: 'Error', errors: undefined }
     });
   });
 

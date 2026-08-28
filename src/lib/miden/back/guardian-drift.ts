@@ -863,10 +863,30 @@ export async function revertGuardianEndpointAfterDiscard(
   // irreversible demote. Answering it here traded a re-read on the next pass for
   // a permanently unrepairable binding.
   if (!account) return 'stale';
-  // Moved off this rotation's target under the rollback — nothing left to undo.
-  if (!account.guardianEndpoint || !sameGuardianEndpoint(account.guardianEndpoint, discardedEndpoint)) {
-    return 'superseded';
-  }
+  // NOT `'superseded'` on its own. "The account names something other than this
+  // rotation's target" is only good news if the something else has authority —
+  // and with two rotations unconfirmed at once it usually does not.
+  //
+  // A→B and B→C both complete unconfirmed (the dedup in `initiate.ts` only looks
+  // at Queued/GeneratingTransaction rows, and an unconfirmed rotation is
+  // Completed, so the user can start the second one), and the node discards
+  // both. `listUnconfirmedSwitchRows` imposes no order, so the pass can take
+  // A→B first: the account names C, and answering `'superseded'` here spent the
+  // caller's one irreversible demote on the ONLY row that records A. Then B→C
+  // rolls back to B — an operator that never held authority — and drift cannot
+  // see it, because its cheap path compares the stored baseline against the
+  // chain and both still name A's key, so it never reads the endpoint at all.
+  // The account ends up bound to the middle operator with the rollback evidence
+  // destroyed and every surface green, decided by nothing but uuid collation.
+  //
+  // So fall through to the chain check in every case and let AUTHORITY decide.
+  // The two conditions then differ only in what a `'mismatch'` means: with the
+  // binding still on this rotation's target it licenses the rollback, and with
+  // the binding moved on it licenses nothing — that is somebody else's row to
+  // repair — but it must not read as "nothing to undo" either.
+  const bindingMovedOn =
+    !account.guardianEndpoint || !sameGuardianEndpoint(account.guardianEndpoint, discardedEndpoint);
+  if (!account.guardianEndpoint) return 'stale';
 
   const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
@@ -894,8 +914,18 @@ export async function revertGuardianEndpointAfterDiscard(
   // instead — by the caller's per-row cooldown and its per-pass row cap — which
   // is the bound that can be raised without turning slowness into a verdict.
   const authority = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
+  // The bound endpoint answers for the account's on-chain guardian, so SOME
+  // rotation to it landed — whichever row owned it. Nothing to roll back, and the
+  // caller may settle. This is the one answer that licenses the demote, and it is
+  // now the only path to it.
   if (authority === 'match') return 'superseded';
   if (authority !== 'mismatch') return 'stale';
+  // Unauthorized, but not by this row's doing: the binding has moved to a third
+  // value since, so `revertTo` is two rotations stale and writing it would undo
+  // whatever the later row is still trying to repair. Leave it to that row, and
+  // report `'stale'` so this one keeps its budget moving toward the manual
+  // prompt instead of being demoted on a conclusion it did not establish.
+  if (bindingMovedOn) return 'stale';
 
   const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
     guardianEndpoint: revertTo

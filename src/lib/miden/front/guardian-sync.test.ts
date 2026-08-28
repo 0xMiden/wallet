@@ -2625,4 +2625,55 @@ describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => 
     expect(storeState.checkGuardianDrift).toHaveBeenCalledTimes(1);
     expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
   });
+
+  // THE GUARDIAN ROUND TRIP ITSELF. `service.sync()` builds its service under a
+  // frontend hold at the sync ceiling, so this arm is as real as the other three
+  // — and it was the last one that went on to the next account regardless.
+  it('does not touch the next account after the guardian round trip is evicted', async () => {
+    mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Every break must ALSO book its evidence.
+   *
+   * Three of the four breaks jump out of the loop from a point above (or inside
+   * the catch and before) the fuse feed at the bottom, so the report cannot be
+   * left to it — and for two of them the value the feed would have classified is
+   * not the poison at all but the operator's own 401/unknown-account response,
+   * which reads as a NON-eviction failure and therefore ZEROES the count. That is
+   * strictly worse than silence: the arms most likely to park were the ones
+   * erasing the evidence.
+   */
+  describe('and books the eviction against the account fuse', () => {
+    const fuseKeyFor = (pk: string) => guardianSyncFuseKey(pk, 'https://guardian.test');
+
+    const parkUntilFused = async (arm: () => void) => {
+      storeState.accounts = [first] as never;
+      arm();
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+    };
+
+    it('when drift evicts', async () => {
+      await parkUntilFused(() =>
+        storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
+      expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
+    });
+
+    it('when the guardian round trip evicts', async () => {
+      await parkUntilFused(() =>
+        mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
+      expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
+    });
+  });
 });
