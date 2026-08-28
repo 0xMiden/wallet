@@ -13,6 +13,7 @@ import {
   __resetGuardianSyncOutageForTest,
   getGuardianLastSyncAt,
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
+  GUARDIAN_SYNC_STAMP_FRESH_MS,
   isGuardianSyncOutage,
   isGuardianUnrepairable,
   MISSING_REGISTRATION_BACKOFF_MS,
@@ -20,6 +21,7 @@ import {
   MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
+  SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
@@ -896,6 +898,17 @@ describe('syncGuardianAccounts — 429 back-off', () => {
     await syncGuardianAccounts();
     expect(sync).toHaveBeenCalledTimes(2);
     nowSpy.mockRestore();
+  });
+
+  // The success stamp's lifetime has to OUTLAST the longest cooldown this same
+  // module can impose on itself, or the pill flaps across a cooldown the wallet
+  // chose. A hand-picked 90s sat above the 30s fallback floor and BELOW the 120s
+  // ceiling, so one 429 carrying a large Retry-After was enough: park for 120s,
+  // stamp expires at 90s, Settings reads Online → Checking → Online with nothing
+  // actually wrong. Asserted as an ORDERING between the two constants, which is
+  // the property, rather than against either number.
+  it('keeps the success stamp fresh across the longest cooldown it can impose', () => {
+    expect(GUARDIAN_SYNC_STAMP_FRESH_MS).toBeGreaterThan(SYNC_RATE_LIMIT_MAX_COOLDOWN_MS);
   });
 
   it('never self-heals on a 429 — it is not an auth failure', async () => {

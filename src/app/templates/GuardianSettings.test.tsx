@@ -55,10 +55,13 @@ jest.mock('lib/store', () => ({
 // mounted page react — a `() => () => {}` stub could never show the pill moving.
 const mockIsGuardianSyncOutage = jest.fn((_pk: string) => false);
 const mockGetGuardianLastSyncAt = jest.fn((_pk: string): number | undefined => undefined);
-// Mirrors `GUARDIAN_SYNC_STAMP_FRESH_MS`. Not imported: the real module is mocked
+// Mirrors `GUARDIAN_SYNC_STAMP_FRESH_MS`, which is itself derived
+// (`SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 30s`) so it cannot end up shorter than the
+// rate-limit cooldown it has to outlast. Not imported: the real module is mocked
 // wholesale here, and `requireActual` on it would pull the store and guardian
-// stack into a component test for one number.
-const MOCK_STAMP_FRESH_MS = 90_000;
+// stack into a component test for one number. The tests below use it RELATIVELY
+// (stamp = now - (this + 1)), so they assert the rule, not the number.
+const MOCK_STAMP_FRESH_MS = 150_000;
 const syncListeners = new Set<() => void>();
 const mockIsGuardianUnrepairable = jest.fn((_pk: string) => false);
 const notifySyncListeners = () => {
@@ -274,8 +277,9 @@ describe('a stale success stamp', () => {
 
       expect(screen.getByText('guardianCheckingLabel')).toBeInTheDocument();
       expect(screen.queryByText('online')).not.toBeInTheDocument();
-      // And the row moved with the clock rather than freezing at "30s ago".
-      expect(screen.getByText(/^2\s?m(in\.?)? ago$/)).toBeInTheDocument();
+      // And the row moved with the clock rather than freezing at "30s ago":
+      // 30s + the freshness window, rendered in minutes.
+      expect(screen.getByText(/^3\s?m(in\.?)? ago$/)).toBeInTheDocument();
     } finally {
       jest.useRealTimers();
     }

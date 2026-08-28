@@ -1789,7 +1789,11 @@ const generateDirectSwitchGuardianTransaction = async (
       row.extraInputs = transaction.extraInputs;
     })
     .catch(markError => {
-      // Audit-only: never let it cost the rotation.
+      // Non-fatal: never let it cost the rotation. Both consumers survive losing
+      // it — `reconcileStructuralApplyFailure` reads the in-memory copy above, and
+      // the in-progress screen falls back to the `signing-locally` stage stamped
+      // just below (`isDirectGuardianSwitch`), which is a separate write. It is
+      // NOT audit-only, so do not weaken either of those.
       console.warn('[Guardian] could not record the direct-switch marker on the row (non-fatal):', markError);
     });
 

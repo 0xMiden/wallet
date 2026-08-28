@@ -24,6 +24,7 @@ import {
   insertGuardianAccountMonotonically,
   resolveGuardianEndpoint
 } from './account';
+import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -57,6 +58,30 @@ const SYNC_RETRY_DELAY_MS = 1000;
 // set this strictly below MAX_SYNC_RETRIES (guardian-owner call).
 const MAX_GUARDIAN_CANONICALIZE_RETRIES = 30;
 const MAX_GUARDIAN_REGISTER_RETRIES = 8;
+
+/**
+ * Per-attempt ceiling on the two POST-COMMIT round-trips to the NEW guardian in
+ * {@link MultisigService.finalizeGuardianSwitch} — its `GET /pubkey` and each
+ * `registerOnGuardian` attempt.
+ *
+ * `GuardianHttpClient` calls bare `fetch` with no `AbortSignal` (the reason
+ * `withOutgoingGuardianDeadline` exists for the arms that talk to the OUTGOING
+ * operator), and these two calls sit PAST the on-chain commit. An operator that
+ * accepts the connection and then goes silent therefore produces no error at all,
+ * the retry budget below never advances on silence, and
+ * `completeSwitchGuardianTransaction` never reaches its terminal status write —
+ * parking a committed rotation at `GeneratingTransaction`, which the routed UI
+ * observes and never dismisses, and never recording `registerFailed`, the very
+ * flag whose self-heal exists to finish this registration later. The direct path
+ * bounds its counterparts for exactly this reason; the coordinated path had the
+ * same hole (F-144 bounded only the endpoint persist beside it).
+ *
+ * Matched to the direct path's `DIRECT_REGISTER_TIMEOUT_MS` /
+ * `NEW_GUARDIAN_PUBKEY_TIMEOUT_MS`: generous, because expiring early costs an
+ * attempt out of the budget, and its job is only to convert silence into a
+ * failure the loop can consume.
+ */
+export const POST_COMMIT_GUARDIAN_TIMEOUT_MS = 30_000;
 // The per-attempt backoff (capped exponential, and Retry-After-aware on 429s)
 // lives in `guardianRegisterBackoffMs` (./serialize, #619).
 
@@ -585,7 +610,11 @@ export class MultisigService {
 
       registerGuardianOrigin(newGuardianEndpoint);
       const nextGuardian = new GuardianHttpClient(newGuardianEndpoint);
-      const { commitment } = await nextGuardian.getPubkey('ecdsa');
+      const { commitment } = await withTimeout(
+        nextGuardian.getPubkey('ecdsa'),
+        POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+        `New guardian ${newGuardianEndpoint} pubkey fetch`
+      );
 
       this.multisig.setGuardianClient(nextGuardian);
       this.multisig.guardianPublicKey = commitment;
@@ -601,9 +630,24 @@ export class MultisigService {
     let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_GUARDIAN_REGISTER_RETRIES; attempt++) {
       try {
-        await this.multisig.registerOnGuardian(stateBase64);
+        await withTimeout(
+          this.multisig.registerOnGuardian(stateBase64),
+          POST_COMMIT_GUARDIAN_TIMEOUT_MS,
+          'New guardian registration'
+        );
         return;
       } catch (error) {
+        // The operator already holds the account: the goal state, so it must not
+        // be retried into a failure. Newly reachable now that an attempt can
+        // TIME OUT — a `/configure` the server applied and answered too late
+        // leaves the account registered, and the next attempt says so. Reporting
+        // `registerFailed` for that arms a self-heal against a state that needs
+        // no healing. (Not proof the held state is the state THIS rotation
+        // intended; that comparison belongs elsewhere, as on the direct path.)
+        if (isGuardianAccountAlreadyRegistered(error)) {
+          console.warn('New guardian already holds this account; registration is a no-op.');
+          return;
+        }
         lastError = error;
         console.warn(`registerOnGuardian failed (attempt ${attempt}/${MAX_GUARDIAN_REGISTER_RETRIES})`, error);
         if (attempt < MAX_GUARDIAN_REGISTER_RETRIES) {

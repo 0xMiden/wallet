@@ -273,4 +273,28 @@ describe('isDirectGuardianSwitch', () => {
     expect(isDirectGuardianSwitch({ type: 'switch-guardian', extraInputs: {} } as never)).toBe(false);
     expect(isDirectGuardianSwitch({ type: 'send', extraInputs: { switchedDirectly: true } } as never)).toBe(false);
   });
+
+  // The marker write is deliberately non-fatal, so a dexie failure leaves the row
+  // WITHOUT it while the `signing-locally` stage — a separate write — still lands.
+  // Reading only the marker then labelled a direct rotation with the coordinated
+  // step "Guardian approved" underneath a title reading "Signing locally".
+  it('is true from the signing-locally stage when the marker write was lost', () => {
+    expect(isDirectGuardianSwitch({ type: 'switch-guardian', stage: 'signing-locally' } as never)).toBe(true);
+    // And it keeps holding once the row moves past that stage.
+    expect(
+      isDirectGuardianSwitch({
+        type: 'switch-guardian',
+        stage: 'proving',
+        stageTimestamps: { 'signing-locally': 1 }
+      } as never)
+    ).toBe(true);
+    // A coordinated switch never stamps it, so it stays false.
+    expect(
+      isDirectGuardianSwitch({
+        type: 'switch-guardian',
+        stage: 'proving',
+        stageTimestamps: { 'signing-proposal': 1 }
+      } as never)
+    ).toBe(false);
+  });
 });

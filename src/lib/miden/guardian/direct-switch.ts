@@ -22,7 +22,7 @@ import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
-import { withTimeout } from './discover';
+import { isGuardianAccountAlreadyRegistered, withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -414,16 +414,6 @@ export const createDirectSwitchGuardianRequest = async (
   });
   return { request, chainAnchorB64: built.chainAnchorB64 };
 };
-
-/**
- * Does this error mean the operator already has a record of the account?
- *
- * Duck-typed on the guardian's stable machine-readable code, like every other
- * guardian error check here (see `isGuardianUnreachableError`), so it survives
- * the duplicate-package error-class instances this repo can end up with.
- */
-const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
-  typeof err === 'object' && err !== null && 'code' in err && err.code === 'account_already_exists';
 
 /**
  * Ask the NODE whether a submitted direct rotation actually took effect.

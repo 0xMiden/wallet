@@ -247,12 +247,20 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
  * On the extension a popup reopen resets the module, bounding it to one session;
  * on mobile and desktop the realm is long-lived and it was genuinely unbounded.
  *
- * 90s is ~30 missed ticks: comfortably longer than any single sync round trip
- * (`service.sync()` has no client deadline, so a healthy-but-slow account must
- * not flap) and longer than both 429 cooldown floors, while still being a
- * statement about the present rather than about the session.
+ * DERIVED from the rate-limit ceiling rather than picked, because the two have to
+ * be ordered and an earlier hand-picked 90s was NOT: it sat above the 30s
+ * fallback floor but below `SYNC_RATE_LIMIT_MAX_COOLDOWN_MS`, so a single 429
+ * carrying a large `Retry-After` produced exactly the flap this lifetime exists to
+ * prevent — the loop parks for 120s by design, the stamp expires at 90s, and
+ * Settings flips Online → Checking → Online across one deliberate cooldown. That
+ * needed no sustained fault, just one header.
+ *
+ * The slack on top covers the sync that ENDS the cooldown: the stamp is only
+ * refreshed once that round trip completes, and `service.sync()` has no client
+ * deadline, so a healthy-but-slow account must not flap either. Still a statement
+ * about the present rather than about the session.
  */
-export const GUARDIAN_SYNC_STAMP_FRESH_MS = 90_000;
+export const GUARDIAN_SYNC_STAMP_FRESH_MS = SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 30_000;
 
 /**
  * Is this account's last completed sync recent enough to describe the present?

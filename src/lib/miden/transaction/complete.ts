@@ -367,6 +367,22 @@ const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
  */
 export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
 
+/**
+ * How many times to try writing the terminal status of a rotation that has
+ * ALREADY committed on chain, and how long to space the attempts.
+ *
+ * Only reached when the first write already failed, so the cost is paid only on a
+ * path that is going wrong. The point of more than one retry is that the failures
+ * worth surviving here (an IndexedDB transaction abort under contention) recur
+ * immediately and then clear, which is precisely the shape a single immediate
+ * retry cannot survive. Small and bounded because the alternative to giving up is
+ * not waiting forever: past this the row is reaped into Failed, which for a
+ * committed rotation is a lie, so the budget exists to make that outcome rare
+ * rather than to eliminate it (see the residual noted at the call site).
+ */
+export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
+export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -699,15 +715,39 @@ export const completeSwitchGuardianTransaction = async (
     // try — `resultFields` is inert plain data by this point, so omitting it
     // only cost the row its on-chain transaction id and the receipt's explorer
     // link.
+    //
+    // RETRIED MORE THAN ONCE, and spaced. A single retry made the honest status
+    // depend on two consecutive IndexedDB writes, and the reachable cause of the
+    // first failure — a transaction abort under contention, a storage hiccup — is
+    // exactly the kind that recurs immediately and then clears. What happens if
+    // both fail is not "the row is left alone": it stays at
+    // `GeneratingTransaction`, and `cancelStuckTransactions` reaps an in-progress
+    // row into FAILED, so the fallback IS the lie this block refuses to write,
+    // just delivered later and with a generic reason. Spacing the attempts costs
+    // nothing on the happy path (it is only reached when a write has already
+    // failed) and removes the single-retry coincidence.
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
-    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    const completedPayload = {
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
       ...resultFields
-    }).catch(retryError => {
-      console.error('Could not record the completed status for the guardian switch row either:', retryError);
-    });
+    };
+    for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+      try {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, completedPayload);
+        return;
+      } catch (retryError) {
+        console.error(
+          `Could not record the completed status for the guardian switch row ` +
+            `(attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+          retryError
+        );
+        if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+          await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+        }
+      }
+    }
   }
 };
 

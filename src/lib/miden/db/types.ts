@@ -66,10 +66,17 @@ export interface ISwitchGuardianExtraInputs {
   // `registerFailed`: the on-chain `update_guardian` committed but registering
   // the account on the NEW operator did not land, so that operator has no record
   // of the account. Recovery is owned by guardian-sync's missing-registration
-  // self-heal (`attemptMissingRegistrationSelfHeal`), which is reachable because
-  // the endpoint write below it always lands first — deliberately NOT the 401
+  // self-heal (`attemptMissingRegistrationSelfHeal`) — deliberately NOT the 401
   // cold-re-register self-heal, which needs a guardian state load and therefore
   // cannot run against an operator that has never seen the account.
+  //
+  // That self-heal talks to whatever endpoint the vault names, so it reaches the
+  // NEW operator only if the endpoint write ATTEMPTED before it actually landed.
+  // Completion attempts it first but does not guarantee it: both can fail, and
+  // this flag and `endpointPersistFailed` can both be set on one row. When they
+  // are, the vault still names the old operator, the missing-registration
+  // self-heal is pointed at the wrong host, and drift reconciliation — the repair
+  // `endpointPersistFailed` already names — is what recovers the account.
   registerFailed?: boolean;
   // `endpointPersistFailed`: the rotation committed on chain but the vault still
   // names the previous operator (e.g. the wallet auto-locked mid-rotation, so the

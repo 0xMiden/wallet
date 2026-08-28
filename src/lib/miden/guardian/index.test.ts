@@ -11,7 +11,33 @@
  * All external collaborators are stubbed to keep tests hermetic.
  */
 
-import { isGuardianAuthRejection, MultisigService } from './index';
+import { isGuardianAuthRejection, MultisigService, POST_COMMIT_GUARDIAN_TIMEOUT_MS } from './index';
+import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS } from './serialize';
+
+/**
+ * Fire retry BACKOFFS immediately without disabling request DEADLINES.
+ *
+ * These tests replaced `setTimeout` with an immediate-invoke stub so they would
+ * not sit on real backoff timers. That also fires the `withTimeout` deadlines the
+ * guardian calls are wrapped in, so every bounded request "timed out" on its
+ * first tick — the stub silently rewrote what was under test. Bounded by the cap
+ * on the delays being skipped (`GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS`, and the
+ * shorter sync retry wait below it), so anything longer — i.e. a deadline — keeps
+ * a real timer and never fires before the promise it guards settles.
+ */
+const skipRetryBackoffs = () => {
+  const original = global.setTimeout;
+  (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void, ms?: number) => {
+    if ((ms ?? 0) <= GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS) {
+      fn();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return original(fn, ms);
+  }) as typeof setTimeout;
+  return () => {
+    (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = original;
+  };
+};
 
 const mockFetchFromStorage = jest.fn();
 jest.mock('../front/storage', () => ({
@@ -403,11 +429,7 @@ describe('MultisigService', () => {
     });
 
     it('throws "Max sync retries reached" after MAX_SYNC_RETRIES consecutive nonce-too-low failures', async () => {
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       const nonceErr = new Error('nonce is too low');
       const syncState = jest.fn(async () => {
@@ -421,17 +443,13 @@ describe('MultisigService', () => {
         // 30 retries + the initial attempt = 31 calls.
         expect(syncState).toHaveBeenCalledTimes(31);
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
 
     it('increments the retry counter on a nonce-too-low error', async () => {
       // Short-circuit the wait between retries so the test doesn't sit on a real 3s timer.
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       const multisig = makeMultisig({
         syncState: jest.fn().mockRejectedValueOnce(new Error('nonce is too low')).mockResolvedValueOnce(undefined)
@@ -444,7 +462,7 @@ describe('MultisigService', () => {
         expect(service.syncRetryCount).toBe(0);
         expect(multisig.syncState).toHaveBeenCalledTimes(2);
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
 
@@ -453,11 +471,7 @@ describe('MultisigService', () => {
       // (its blob briefly lags on-chain). It's transient, so we WAIT and retry — we must
       // NOT re-register on the first sign (that re-`configure`s the old guardian after a
       // switch and strands the account).
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       const syncState = jest
         .fn()
@@ -475,18 +489,14 @@ describe('MultisigService', () => {
         expect(registerOnGuardian).not.toHaveBeenCalled(); // waited, did not re-register
         expect(syncState).toHaveBeenCalledTimes(2); // initial + one retry
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
 
     it('re-registers once as a last resort after the canonicalization window, then the retried sync succeeds', async () => {
       // Only after the bounded wait is exhausted do we treat the lag as a genuine
       // divergence and re-register the current on-chain state once, then retry.
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       // 30 waited retries, then the 31st failure exhausts the window and
       // re-registers; the 32nd attempt succeeds.
@@ -507,7 +517,7 @@ describe('MultisigService', () => {
         expect(registerOnGuardian).toHaveBeenCalledTimes(1); // last-resort re-register, once
         expect(syncState).toHaveBeenCalledTimes(32); // 31 lag failures + 1 success after re-register
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
   });
@@ -743,11 +753,7 @@ describe('MultisigService', () => {
     });
 
     it('finalizeGuardianSwitch retries a transient registration failure then succeeds', async () => {
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       const multisig = makeMultisig({
         registerOnGuardian: jest.fn().mockRejectedValueOnce(new Error('guardian down')).mockResolvedValueOnce(undefined)
@@ -760,16 +766,79 @@ describe('MultisigService', () => {
         await service.finalizeGuardianSwitch('https://new');
         expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(2);
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
 
+    // Both calls this makes to the NEW guardian sit PAST the on-chain commit, and
+    // `GuardianHttpClient` uses bare `fetch` with no `AbortSignal` — so an operator
+    // that accepts the connection and then goes silent produces no error at all.
+    // The retry budget bounds REJECTIONS and never advances on silence, so an
+    // unbounded wait here parks `completeSwitchGuardianTransaction` before its
+    // terminal status write: a committed rotation stuck at GeneratingTransaction,
+    // with `registerFailed` — the flag whose self-heal would finish the job —
+    // never written. F-144 bounded the endpoint persist beside it and left these.
+    it('finalizeGuardianSwitch gives up on a new guardian whose /pubkey never answers', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockImplementationOnce(() => new Promise(() => {}));
+
+      jest.useFakeTimers();
+      try {
+        // Reduced to a value BEFORE advancing: the rejection has to have a handler
+        // attached while the timers move, or it lands as an unhandled rejection.
+        const outcome = service.finalizeGuardianSwitch('https://new').then(
+          () => 'resolved',
+          (err: Error) => err.message
+        );
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS + 1);
+        expect(await outcome).toMatch(/timed out/);
+      } finally {
+        jest.useRealTimers();
+      }
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
+    it('finalizeGuardianSwitch gives up on a new guardian whose registration never answers', async () => {
+      const multisig = makeMultisig({ registerOnGuardian: jest.fn(() => new Promise(() => {})) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+
+      jest.useFakeTimers();
+      try {
+        const outcome = service.finalizeGuardianSwitch('https://new').then(
+          () => 'resolved',
+          (err: Error) => err.message
+        );
+        // Every attempt has to expire on its own deadline, so the whole budget is
+        // what bounds the silence — and it terminates.
+        await jest.advanceTimersByTimeAsync(POST_COMMIT_GUARDIAN_TIMEOUT_MS * 10 + 60_000 * 10);
+        expect(await outcome).toMatch('Failed to register account on the new guardian');
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    // Newly reachable now that an attempt can TIME OUT: a `/configure` the server
+    // applied but answered too late leaves the account registered, and the next
+    // attempt says so. Retrying that into a failure would report `registerFailed`
+    // for a state that needs no healing, arming a self-heal against nothing.
+    it('finalizeGuardianSwitch treats "already registered" as the goal state', async () => {
+      const alreadyThere = Object.assign(new Error('nope'), { code: 'account_already_exists' });
+      const multisig = makeMultisig({ registerOnGuardian: jest.fn(async () => Promise.reject(alreadyThere)) });
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: 'new-commit', pubkey: 'new-pubkey' });
+
+      await expect(service.finalizeGuardianSwitch('https://new')).resolves.toBeUndefined();
+      // Not retried into the budget — one look is enough.
+      expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
+
     it('finalizeGuardianSwitch throws after exhausting registration retries', async () => {
-      const origSetTimeout = global.setTimeout;
-      (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) => {
-        fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout;
+      const restoreTimers = skipRetryBackoffs();
 
       const multisig = makeMultisig({
         registerOnGuardian: jest.fn(async () => Promise.reject(new Error('guardian down')))
@@ -785,7 +854,7 @@ describe('MultisigService', () => {
         // MAX_GUARDIAN_REGISTER_RETRIES attempts.
         expect(multisig.registerOnGuardian).toHaveBeenCalledTimes(8);
       } finally {
-        (global as unknown as { setTimeout: typeof setTimeout }).setTimeout = origSetTimeout;
+        restoreTimers();
       }
     });
   });

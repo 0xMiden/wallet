@@ -326,12 +326,19 @@ export async function resolveGuardianDrift(
   // answer here, not the last resort — though "likeliest" is not "believed on its
   // own word"; see the corroboration below.
   //
-  // And a `'unreachable'` verdict must be able to change nothing at all. While
-  // the endpoint is down there is no evidence either way, so writing
-  // `needs-user-input` would accuse an endpoint that may be exactly right, and
-  // writing `'resolving'` first would strand the account in a status with no
-  // banner and no recovery path if we then bail. Returning before any write
-  // leaves the account as it was and lets the next tick retry.
+  // And an `'unreachable'` verdict must not accuse on the strength of ONE window:
+  // while the endpoint is down there is no evidence either way, so writing
+  // `needs-user-input` off a single silent probe would accuse an endpoint that may
+  // be exactly right. It is therefore folded into `'silent'` below and takes the
+  // duration rule, rather than short-circuiting the function.
+  //
+  // It deliberately does NOT return early, which is what an earlier version did
+  // (F-018-era). Bailing on unreachable is what stranded a custom operator with no
+  // exit (F-055): on the direct-switch path the previous operator is unreachable BY
+  // DEFINITION, so the account whose vault still names it could never progress past
+  // this point, and the prompt that feeds `applyUserGuardianEndpoint` never
+  // appeared. Restoring an early return here re-breaks that repair.
+  //
   // Three states, not a boolean, because the accusation below turns on WHICH of
   // them holds and a boolean has to fold two of them together:
   //

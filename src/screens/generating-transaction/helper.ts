@@ -61,9 +61,22 @@ const stepStartStamp = (
  * outgoing operator? Reads the `switchedDirectly` marker the direct path stamps
  * on the row before it signs, so the step labels are right while the steps are
  * happening and not only on the receipt.
+ *
+ * The `signing-locally` STAGE counts as the same evidence, because the marker
+ * write is deliberately non-fatal: the direct path logs and continues when the
+ * dexie `modify` fails (the flow it protects reads its own in-memory copy), and
+ * the stage stamp that follows is a separate write that still lands. Without this
+ * the screen would read the marker as absent and label a direct rotation with the
+ * coordinated step "Guardian approved" — while its own title said "Signing
+ * locally" — which is the contradiction these labels exist to remove. The
+ * TIMESTAMP rather than the live stage, so it keeps holding once the row moves on
+ * to executing/proving. `signing-locally` has exactly one producer.
  */
 export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
-  tx?.type === 'switch-guardian' && tx.extraInputs?.switchedDirectly === true;
+  tx?.type === 'switch-guardian' &&
+  (tx.extraInputs?.switchedDirectly === true ||
+    tx.stage === 'signing-locally' ||
+    tx.stageTimestamps?.['signing-locally'] !== undefined);
 
 export const getTransactionStepState = (
   index: number,

@@ -19,6 +19,7 @@ import {
   completeReplaceHotKeyTransaction,
   completeSwitchGuardianTransaction,
   ENDPOINT_PERSIST_TIMEOUT_MS,
+  TERMINAL_STATUS_WRITE_BACKOFF_MS,
   completeUpdateProcedureThresholdTransaction,
   ensureGuardianProcedureThresholds,
   generateTransaction,
@@ -493,6 +494,76 @@ describe('completeSwitchGuardianTransaction', () => {
     // the post-commit sequence.
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
     expect(row.extraInputs).toMatchObject({ registerFailed: false });
+  });
+
+  // The terminal write is what makes a committed rotation stop spinning, and it
+  // used to get exactly ONE immediate retry — so the honest status depended on two
+  // consecutive IndexedDB writes, and the failure worth surviving here (a
+  // transaction abort under contention) is precisely the kind that recurs at once
+  // and then clears. What happens when the retry also fails is not "the row is
+  // left alone": it stays at GeneratingTransaction and the stuck reaper writes
+  // FAILED, which for a rotation that is already a fact on chain is the lie the
+  // whole block exists to refuse.
+  it('keeps retrying the terminal status when the write fails more than twice', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const multisigService = { finalizeGuardianSwitch: jest.fn(async () => {}) };
+    const provider = { ...makeGuardianProvider(true), setGuardianEndpoint: jest.fn(async () => {}) };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    // The primary write plus the first TWO retries fail; the third lands. Three
+    // is the number that distinguishes this from the single-retry behaviour it
+    // replaces: the primary write consumes one failure by itself, so a test that
+    // only needed two would pass with a budget of one retry.
+    const repo = jest.requireMock('lib/miden/repo') as {
+      transactions: { where: jest.Mock };
+    };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let failures = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => ({
+      ...realWhere(query),
+      modify: async (fn: (row: Record<string, unknown>) => void) => {
+        // Fail ONLY the terminal status write. The post-commit sequence makes
+        // other `modify` calls (stage stamps), and letting those consume the
+        // budget made this pass with a single retry — the very behaviour it is
+        // supposed to distinguish. Probed rather than counted, so the test does
+        // not depend on how many unrelated writes precede it.
+        const probe: Record<string, unknown> = { extraInputs: {} };
+        let targetsCompleted = false;
+        try {
+          fn(probe);
+          targetsCompleted = probe.status === ITransactionStatus.Completed;
+        } catch {
+          targetsCompleted = false;
+        }
+        if (targetsCompleted && failures < 3) {
+          failures++;
+          throw new Error('IndexedDB transaction aborted');
+        }
+        return realWhere(query).modify(fn);
+      }
+    }));
+
+    jest.useFakeTimers();
+    try {
+      const completion = completeSwitchGuardianTransaction(
+        tx,
+        makeResult() as never,
+        multisigService as never,
+        provider as never
+      );
+      // The attempts are SPACED — a single immediate retry is what this replaces.
+      await jest.advanceTimersByTimeAsync(TERMINAL_STATUS_WRITE_BACKOFF_MS * 4);
+      await completion;
+    } finally {
+      jest.useRealTimers();
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(failures).toBe(3);
   });
 
   it('records registerFailed=false on a clean switch', async () => {
