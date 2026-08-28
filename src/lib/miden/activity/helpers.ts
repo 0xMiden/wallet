@@ -1,4 +1,5 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
+import { isFeeNote } from './fee';
 import BigNumber from 'bignumber.js';
 
 import { compareAccountIds } from './utils';
@@ -117,6 +118,10 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     assets.forEach(asset => inputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
   });
   outputNotes.forEach(outputNote => {
+    // The kernel's fee note is an output note too, but it is not value the user
+    // sent: folding it in inflates the amount and adds the native faucet to the
+    // set, which can flip a single-faucet send into the generic 'Executed' label.
+    if (isFeeNote(outputNote)) return;
     const assets = outputNote.assets()!.fungibleAssets();
     outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
     assets.forEach(asset => outputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
