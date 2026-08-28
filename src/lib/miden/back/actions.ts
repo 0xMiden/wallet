@@ -459,17 +459,6 @@ export function startGuardianRecovery(accountPublicKey: string) {
 }
 
 /**
- * Detect and, where possible, auto-resolve an out-of-band guardian switch for
- * an account. `resolveGuardianDrift` writes through the vault's guardian
- * setters directly (not through the `setGuardian*` actions above), so this
- * wrapper re-reads the current account state afterward and broadcasts it —
- * same reason `setGuardianEndpoint` broadcasts: without it the popup's
- * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
- * when `resolveGuardianDrift` reports `changed: true` — the periodic
- * guardian-sync loop calls this every 3s per guardian account, and on the
- * common no-op tick (nothing drifted) there's nothing new to broadcast.
- */
-/**
  * The drift resolvers' vault adapter, with each accounts-list write on the
  * single-writer queue. Only the individual writes are queued, not the whole
  * resolution: it makes guardian HTTP calls between them, and holding the queue
@@ -486,6 +475,17 @@ function queuedDriftVaultAdapter(vault: Vault) {
   };
 }
 
+/**
+ * Detect and, where possible, auto-resolve an out-of-band guardian switch for
+ * an account. `resolveGuardianDrift` writes through the vault's guardian
+ * setters directly (not through the `setGuardian*` actions above), so this
+ * wrapper re-reads the current account state afterward and broadcasts it —
+ * same reason `setGuardianEndpoint` broadcasts: without it the popup's
+ * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
+ * when `resolveGuardianDrift` reports `changed: true` — the periodic
+ * guardian-sync loop calls this every 3s per guardian account, and on the
+ * common no-op tick (nothing drifted) there's nothing new to broadcast.
+ */
 export function checkGuardianDrift(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
     const { status, changed } = await resolveGuardianDrift(queuedDriftVaultAdapter(vault), accountPublicKey);

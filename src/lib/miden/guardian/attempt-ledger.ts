@@ -110,8 +110,14 @@ export interface AttemptLedger {
    * facts before the endpoint and on-chain guardian key are in hand, and
    * hardcoding `'available'` there made the shadow blind to the one fact it
    * exists to watch.
+   *
+   * Pass `endpoint` when the caller knows which operator it is asking about. An
+   * account-wide answer INHERITS across a rotation — the budget spent against
+   * the operator the account has just left keeps answering "spent" for the new
+   * one — and for a fact that only feeds a divergence tally, inheriting is the
+   * same defect as hardcoding, in the other direction.
    */
-  anySpentForAccount(accountPublicKey: string): boolean;
+  anySpentForAccount(accountPublicKey: string, endpoint?: string): boolean;
   /**
    * Forget ONE subject — the "this particular question is settled" reset. Use
    * this rather than `clearForAccount` when the budget is keyed narrower than
@@ -137,7 +143,18 @@ export interface AttemptLedger {
  * refund then taking one back reopened a budget that had been permanently shut.
  * A flag cannot be decremented.
  */
-type AttemptState = { accountPublicKey: string; attempts: number; lastAttemptAt: number; closed: boolean };
+type AttemptState = {
+  accountPublicKey: string;
+  // Retained so `anySpentForAccount` can be narrowed to one operator. Without
+  // it the account-level question inherits across a rotation: a budget spent
+  // against the operator the account has just left still answers "spent" for
+  // the new one, which is the same fact-that-is-not-a-fact — read high this
+  // time rather than low — that hardcoding it read low.
+  endpoint?: string;
+  attempts: number;
+  lastAttemptAt: number;
+  closed: boolean;
+};
 
 export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
@@ -166,6 +183,7 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
       const existing = state.get(key);
       state.set(key, {
         accountPublicKey: subject.accountPublicKey,
+        endpoint: subject.endpoint,
         attempts: existing?.attempts ?? 0,
         lastAttemptAt: now,
         closed: existing?.closed ?? false
@@ -225,9 +243,11 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
       return state.get(subjectKey(subject))?.attempts ?? 0;
     },
 
-    anySpentForAccount(accountPublicKey) {
+    anySpentForAccount(accountPublicKey, endpoint) {
       for (const entry of state.values()) {
-        if (entry.accountPublicKey === accountPublicKey && spent(entry)) return true;
+        if (entry.accountPublicKey !== accountPublicKey) continue;
+        if (endpoint !== undefined && entry.endpoint !== endpoint) continue;
+        if (spent(entry)) return true;
       }
       return false;
     },

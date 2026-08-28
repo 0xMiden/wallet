@@ -645,10 +645,13 @@ const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
  * account, derive the cosigner allowlist from that SAME fresh account (never a
  * cached set), then `configure` on the new guardian with retry/backoff.
  *
- * Throws `GuardianRegistrationPreflightError` when it refuses before contacting
- * the operator; the three call sites (`complete.ts`, the direct-switch pipeline,
- * and the missing-registration self-heal) all treat that as a refund rather than
- * a spent attempt.
+ * Throws `GuardianRegistrationPreflightError` when it refuses before the
+ * `/configure` — which is not the same as before touching the operator at all,
+ * since the commitment check ahead of it does a `/pubkey`. Two production
+ * callers, and they treat it differently on purpose: the missing-registration
+ * self-heal refunds the attempt rather than spending it, while the completion
+ * path (`complete.ts`) has no budget to refund and books every throw here as
+ * `registerFailed`, leaving the repair to that same self-heal.
  */
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,

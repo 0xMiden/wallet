@@ -193,8 +193,23 @@ const mockGetAccount = jest.fn();
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({ getAccount: (...a: unknown[]) => mockGetAccount(...a) }),
-  withWasmClientLock: async (fn: () => Promise<unknown>) => fn()
+  // The hold is handed to the callback and `assertWasmHoldCurrent` compares
+  // against it for real, rather than being stubbed to a no-op — a stub would
+  // make every post-await liveness guard in this module vacuously green, which
+  // is precisely the property those guards exist to have tested. A test that
+  // wants to simulate an eviction reassigns `currentWasmHold`.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentWasmHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    currentWasmHold = {};
+    return fn(currentWasmHold);
+  }
 }));
+
+let currentWasmHold: object = {};
 
 /**
  * One cursor driving BOTH clocks.
@@ -2258,10 +2273,74 @@ describe('syncGuardianAccounts — pending-rotation recheck (the W1 exit)', () =
 
   it('demotes the row once the chain reports the rotation discarded', async () => {
     mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
 
     await syncGuardianAccounts();
 
     expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('row-w1', false);
+  });
+
+  // A row written before the completion started stamping the previous endpoint.
+  // Demoting it spends the one irreversible settle on a state whose only repair
+  // is the rollback this row cannot supply — and drift cannot substitute, since
+  // its baseline and the chain agree (both still the old operator) so it never
+  // reads the endpoint the account is actually bound to. The account would be
+  // left naming an operator with no authority and looking healthy everywhere.
+  it('refuses to demote a discarded rotation it has no rollback target for', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-legacy', transactionId: '0xtxlegacy', extraInputs: { newGuardianEndpoint: 'https://new.test' } }
+    ]);
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+    expect(storeState.revertGuardianEndpointAfterDiscard).not.toHaveBeenCalled();
+    // Closed rather than charged — no later tick can grow a field the completion
+    // did not write — so the prompt is up on the next pass, not in 30 minutes.
+    await syncGuardianAccounts();
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+  });
+
+  // `'stale'` is not only the lost-CAS race: the rollback also answers it when
+  // the operator could not be reached to prove the mismatch, which for a
+  // rotation discarded to a dead endpoint is the answer on EVERY pass. Left
+  // unsettled, the retry never ends and the budget never spends, so the prompt
+  // that is this exit's only other way out is unreachable.
+  it('charges a rollback that keeps answering stale, so exhaustion surfaces it', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('stale');
+    const clock = useFakeClocks(11_000_000);
+
+    for (let pass = 0; pass <= PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; pass += 1) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
+    clock.restore();
   });
 
   // Completion pointed the vault at the new operator before it knew the commit

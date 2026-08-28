@@ -4,6 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import {
@@ -23,8 +24,21 @@ import { getMidenClient } from '../sdk/miden-client';
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
-  withWasmClientLock: (fn: () => unknown) => fn()
+  // Hands the callback a real hold and compares against it for real, so the
+  // post-await liveness guards inside these holds are actually exercised rather
+  // than stubbed green. Reassign `currentWasmHold` to simulate an eviction.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentWasmHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
+  withWasmClientLock: (fn: (hold: object) => unknown) => {
+    currentWasmHold = {};
+    return fn(currentWasmHold);
+  }
 }));
+
+let currentWasmHold: object = {};
 jest.mock('lib/miden/guardian/operator-map', () => ({
   checkEndpointCommitment: jest.fn(),
   identifyGuardianOperator: jest.fn(),
@@ -1076,7 +1090,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('rolls the binding back when the chain says the bound endpoint has no authority', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1093,7 +1107,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('supersedes when the bound endpoint does answer for the on-chain commitment', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1113,15 +1127,18 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     );
 
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
-    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+    expect(checkEndpointCommitment).not.toHaveBeenCalled();
   });
 
-  it('supersedes when the account is gone', async () => {
+  // `'stale'`, not `'superseded'`, and the difference is the caller's one
+  // irreversible demote: a missing record is a statement about the VAULT (a
+  // removed account, a frontend snapshot ahead of the backend), not evidence
+  // that the rotation no longer needs rolling back. `applyUserGuardianEndpoint`
+  // draws the same line on the same read.
+  it("reports 'stale' rather than 'superseded' when the account is not in the vault", async () => {
     const vault = makeVault(undefined);
 
-    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
-      'superseded'
-    );
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
 
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
@@ -1132,7 +1149,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('matches the discarded target across trailing-slash and host-case spellings', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://New.Example.com/', 2);
 
     expect(
@@ -1156,7 +1173,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it("reports 'stale' when the operator could not be reached to prove the mismatch", async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
@@ -1170,7 +1187,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it("reports 'stale' when the epoch moved between the read and the write", async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new', 4);
     vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
 
@@ -1182,7 +1199,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('treats a missing epoch as 0 rather than refusing the rollback', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new');
 
     await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');

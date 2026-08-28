@@ -40,7 +40,7 @@ import {
   noteSyncWatchdogEviction
 } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import {
   isSyncWatchdogEviction,
   isWasmClientPoisonedError,
@@ -204,17 +204,6 @@ const missingRegistrationLedger = createAttemptLedger(
   monotonicNowMs
 );
 
-/**
- * `Date.now()` before which an account's sync is paused because the guardian
- * rate-limited it. This tick runs every ~3s per account, which makes it by far
- * the guardian's most frequent caller — and it was the ONE caller that ignored a
- * 429 completely. The transaction pipeline requeues on the server's own
- * `Retry-After` and `registerOnGuardianWithRetry` honours it too; this path just
- * logged the error and came back 3 seconds later, sustaining the very condition
- * the guardian was complaining about. Two wallets sharing a runner's IP sit at
- * ~40 requests/minute from this poll alone against a 60/minute cap, so once
- * transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
- */
 /** Cooldown when the guardian rate-limits without naming one. */
 export const SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS = 30_000;
 /** Ceiling on a server-provided cooldown, so one bad header can't park syncing. */
@@ -228,6 +217,18 @@ const GUARDIAN_RATE_LIMIT_BOUNDS = {
   capMs: SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
 };
 
+/**
+ * Per-account pause while the guardian is rate-limiting this wallet.
+ *
+ * This tick runs every ~3s per account, which makes it by far
+ * the guardian's most frequent caller — and it was the ONE caller that ignored a
+ * 429 completely. The transaction pipeline requeues on the server's own
+ * `Retry-After` and `registerOnGuardianWithRetry` honours it too; this path just
+ * logged the error and came back 3 seconds later, sustaining the very condition
+ * the guardian was complaining about. Two wallets sharing a runner's IP sit at
+ * ~40 requests/minute from this poll alone against a 60/minute cap, so once
+ * transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
+ */
 const guardianRateLimit = createRateCooldown(GUARDIAN_RATE_LIMIT_BOUNDS, monotonicNowMs);
 
 // --- Guardian sync outage (server unreachable / 5xx) -------------------------
@@ -357,18 +358,22 @@ export function isGuardianLastSyncFresh(accountPublicKey: string, now: number = 
  * The operator is ANSWERING and the account still cannot use it, and the wallet
  * has stopped trying to fix that on its own.
  *
- * Two ways in, and they share an ending: a 401 whose cold re-register budget is
- * spent (or was closed outright because this device was rotated out), and an
+ * THREE ways in, and they share an ending: a 401 whose cold re-register budget
+ * is spent (or was closed outright because this device was rotated out), an
  * operator that reports no record of the account after the registration budget
- * is spent. Both are silent otherwise — a 401 and an unknown-account both CLEAR
- * the outage flag, because the server did answer, and neither stamps a sync. So
- * the status derived from those two signals alone read "Checking" forever, next
- * to a "Last sync" row saying the same, on an account that in fact cannot
- * co-sign anything and whose repair has already given up. This is the third
- * signal, and it exists so that state is nameable on screen.
+ * is spent, and a submitted rotation the chain never confirmed whose recheck
+ * budget is spent. All three are silent otherwise — a 401 and an unknown-account
+ * both CLEAR the outage flag, because the server did answer, and neither stamps
+ * a sync; an unconfirmed rotation does not even reach the operator. So the
+ * status derived from the other signals alone read "Checking" forever, next to
+ * a "Last sync" row saying the same, on an account that in fact cannot co-sign
+ * anything and whose repair has already given up. This is the third signal, and
+ * it exists so that state is nameable on screen.
  *
- * Cleared by any successful sync — including the one a manual rotation produces,
- * which is the way out the pill points at.
+ * A successful sync clears only the OPERATOR verdicts (`unrepairableAccounts`).
+ * It says nothing about whether a rotation committed, so the pending-rotation
+ * owners survive it by design and retract only when the row stops being pending
+ * — see `pendingRotationExhaustedOwner` below.
  */
 export function isGuardianUnrepairable(accountPublicKey: string): boolean {
   if (unrepairableAccounts.has(accountPublicKey)) return true;
@@ -576,42 +581,21 @@ export function __resetGuardianSyncOutageForTest(): void {
 }
 
 /**
- * Push a registration to an operator that reports no record of the account.
+ * What the rest of the pass needs to know from the recheck.
  *
- * This is the recovery half of `registerFailed` (see `ISwitchGuardianExtraInputs`).
- * A rotation whose `update_guardian` committed but whose post-commit
- * `/configure` did not land leaves the account in a state no other self-heal can
- * reach: on chain the new operator IS the guardian, so nothing is "drifted" for
- * the drift reconciler to fix, and every guardian-authenticated call fails
- * because the operator holds no state to authenticate against — including the
- * state load that the 401 self-heal's cold service needs before it can
- * re-register.
- *
- * `finalizeDirectGuardianSwitch` is the one registration path with no such
- * precondition: it reads the signer allowlist from the LOCAL account and POSTs
- * `/configure` directly. That is also what makes this the most dangerous write
- * in this module — the POST carries this device's serialized account as the
- * operator's authoritative `initialState` — so it is gated the same way the cold
- * re-register is, plus one guard that path does not need.
- *
- * The caller supplies persistence (the verdict has repeated); this function
- * supplies the bounded/backed-off budget and the three refusals below.
- *
- * The endpoint is the pointer the account CHOSE, which is neither the raw field
- * nor the fully-resolved one. The raw field was wrong: a pre-per-account-endpoint
- * account on a custom operator has the legacy global key as its only pointer,
- * since the unlock backfill leaves that account's field empty rather than
- * stamping a guess — so this refused the repair for exactly the population it
- * serves, and refused it BEFORE `markGuardianUnrepairable` below, leaving the
- * account not merely unrepaired but unnameable (no outage flag, since the
- * operator answered; no sync stamp; no unrepairable flag) which Guardian Settings
- * renders as "Checking" forever. The fully-resolved value would be wrong the
- * other way and far worse: its last arm is the network DEFAULT, and this function
- * POSTs the device's serialized private account state as that operator's
- * authoritative `initialState`. An account with no pointer at all must still
- * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
- * sync loop and the drift reconciler; this was the last one.
+ * Three separate facts, not one return value with three readings: `pendingRowId`
+ * is evidence for the shadow classifier, `evicted` decides whether this pass may
+ * take another WASM hold at all, and `bindingChanged` says the endpoint the pass
+ * resolved before calling here is now wrong.
  */
+type PendingRotationRecheckResult = {
+  pendingRowId?: string;
+  evicted: boolean;
+  bindingChanged: boolean;
+};
+
+const NO_RECHECK_RESULT: PendingRotationRecheckResult = { evicted: false, bindingChanged: false };
+
 /**
  * The W1 exit: verify a submitted-unconfirmed rotation against the node until
  * it answers, then settle the row honestly. This was the acknowledged wedge
@@ -632,22 +616,6 @@ export function __resetGuardianSyncOutageForTest(): void {
  * Timer-driven WASM hold discipline (#777): bounded at the sync ceiling,
  * labeled, gated on and reporting into its own sync-fuse key.
  */
-/**
- * What the rest of the pass needs to know from the recheck.
- *
- * Three separate facts, not one return value with three readings: `pendingRowId`
- * is evidence for the shadow classifier, `evicted` decides whether this pass may
- * take another WASM hold at all, and `bindingChanged` says the endpoint the pass
- * resolved before calling here is now wrong.
- */
-type PendingRotationRecheckResult = {
-  pendingRowId?: string;
-  evicted: boolean;
-  bindingChanged: boolean;
-};
-
-const NO_RECHECK_RESULT: PendingRotationRecheckResult = { evicted: false, bindingChanged: false };
-
 async function runPendingRotationRecheck(account: WalletAccount): Promise<PendingRotationRecheckResult> {
   try {
     if (isSyncFused('pending-rotation-recheck')) return NO_RECHECK_RESULT;
@@ -709,8 +677,7 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
         // `getTransactionCommitState` matches `tx.id().toHex()`, so a row id
         // could only ever answer 'not-found' — the recheck would burn its whole
         // budget without ever looking, and then raise the exhausted prompt that
-        // no successful sync clears. A row with no captured hash is the
-        // `verifySendLanded` case: indeterminate, so refund rather than charge.
+        // no successful sync clears.
         if (!row.transactionId) {
           // CLOSED, not refunded: no future tick can give this row a hash (it is
           // stamped once, by the completion that already ran), so retrying is
@@ -786,10 +753,28 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
         if (!landed) {
           const revertTo = row.extraInputs?.previousGuardianEndpoint;
           if (revertTo === undefined) {
+            // A row written before the completion started stamping the previous
+            // endpoint. DO NOT DEMOTE IT: the demote is the point of no return,
+            // and the rollback it would be spending is the only repair this
+            // state has. Drift cannot substitute — its cheap path compares the
+            // stored BASELINE against the chain, both of which still name the
+            // old operator, so it answers `'in-sync'` without ever reading the
+            // endpoint the account is actually bound to. Demoting here left an
+            // account pointed at an operator with no on-chain authority, looking
+            // healthy on every surface, with nothing left to notice it.
+            //
+            // Closed rather than charged: no future tick can grow the field a
+            // completion that already ran did not write, so thirty minutes of
+            // rechecks would reach a conclusion available now. The row stays
+            // pending, which is what keeps the prompt up until a human fixes it.
+            attempt.settle('closed');
+            unsettled.push(row.id);
             console.error(
               `[Guardian Sync] guardian switch ${row.id} was discarded but the row records no previous endpoint — ` +
-                `the account may still name an operator with no on-chain authority`
+                `${account.publicKey} may still name an operator with no on-chain authority, and this pass cannot ` +
+                `roll it back; leaving the rotation pending and surfacing it for manual recovery`
             );
+            continue;
           } else {
             // Conditional on the account still naming THIS rotation's target.
             // Rows are not ordered here, and a rotation can legitimately land
@@ -808,11 +793,21 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
                   `its guardian switch`
               );
             } else if (outcome === 'stale') {
-              // The binding moved between the read and the write. Leave the row
-              // pending so the next pass re-derives against the new state.
+              // CHARGED, not left on the begin stamp. `'stale'` is not only the
+              // lost-CAS race it reads like: the rollback also answers `'stale'`
+              // whenever it could not READ the evidence — an operator that never
+              // responds to the authority check, a commitment the client could
+              // not fetch — and for a rotation discarded to a dead endpoint that
+              // is the answer on every pass, forever. Unsettled, the budget never
+              // moves, so the retry is unbounded AND `budgetSpent` never turns
+              // true, which means the manual-recovery prompt this exit exists to
+              // raise is unreachable: the account stays bound to an operator with
+              // no authority and every surface reads green. Charging bounds the
+              // loop and lets exhaustion surface it.
+              attempt.settle('charged');
               console.warn(
-                `[Guardian Sync] guardian binding for ${account.publicKey} moved while rolling back the discarded ` +
-                  `switch ${row.id}; leaving the row pending for the next pass`
+                `[Guardian Sync] could not roll ${account.publicKey} back off the discarded switch ${row.id} ` +
+                  `(binding moved, or the operator could not be checked); leaving the row pending for the next pass`
               );
               unsettled.push(row.id);
               continue;
@@ -839,6 +834,17 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
         // and retry the write.
         unsettled.push(row.id);
         console.warn(`[Guardian Sync] could not settle pending rotation ${row.id} (will retry):`, settleError);
+        // The rollback in this arm takes a WASM hold of its own, so an eviction
+        // arrives HERE and not in the read's catch above. Unclassified it was the
+        // worst of both: the loop went on to take a fresh hold for the next row —
+        // the double borrow the eviction plumbing exists to stop — and, because
+        // the read had already set `probeSucceeded`, the pass then withdrew the
+        // fuse evidence the eviction had just created.
+        if (isWasmClientPoisonedError(settleError)) {
+          probeEvicted = true;
+          evicted = true;
+          break;
+        }
       }
     }
     if (probeSucceeded && !probeEvicted) noteSyncSuccess('pending-rotation-recheck');
@@ -858,10 +864,46 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
 }
 
 /**
- * True when the realm's WASM client was evicted under this attempt, so the
- * caller must stop taking holds for the rest of the pass. Every other outcome —
- * refused, registered, failed — is `false`: they are all reasons to move on to
- * the next account, not to abandon the pass.
+ * Push a registration to an operator that reports no record of the account.
+ *
+ * Returns TRUE when the realm's WASM client was evicted under this attempt, so
+ * the caller must stop taking holds for the rest of the pass. Every other
+ * outcome — refused, registered, failed — is `false`: they are all reasons to
+ * move on to the next account, not to abandon the pass.
+ *
+ * This is the recovery half of `registerFailed` (see `ISwitchGuardianExtraInputs`).
+ * A rotation whose `update_guardian` committed but whose post-commit
+ * `/configure` did not land leaves the account in a state no other self-heal can
+ * reach: on chain the new operator IS the guardian, so nothing is "drifted" for
+ * the drift reconciler to fix, and every guardian-authenticated call fails
+ * because the operator holds no state to authenticate against — including the
+ * state load that the 401 self-heal's cold service needs before it can
+ * re-register.
+ *
+ * `finalizeDirectGuardianSwitch` is the one registration path with no such
+ * precondition: it reads the signer allowlist from the LOCAL account and POSTs
+ * `/configure` directly. That is also what makes this the most dangerous write
+ * in this module — the POST carries this device's serialized account as the
+ * operator's authoritative `initialState` — so it is gated the same way the cold
+ * re-register is, plus one guard that path does not need.
+ *
+ * The caller supplies persistence (the verdict has repeated); this function
+ * supplies the bounded/backed-off budget and the three refusals below.
+ *
+ * The endpoint is the pointer the account CHOSE, which is neither the raw field
+ * nor the fully-resolved one. The raw field was wrong: a pre-per-account-endpoint
+ * account on a custom operator has the legacy global key as its only pointer,
+ * since the unlock backfill leaves that account's field empty rather than
+ * stamping a guess — so this refused the repair for exactly the population it
+ * serves, and refused it BEFORE `markGuardianUnrepairable` below, leaving the
+ * account not merely unrepaired but unnameable (no outage flag, since the
+ * operator answered; no sync stamp; no unrepairable flag) which Guardian Settings
+ * renders as "Checking" forever. The fully-resolved value would be wrong the
+ * other way and far worse: its last arm is the network DEFAULT, and this function
+ * POSTs the device's serialized private account state as that operator's
+ * authoritative `initialState`. An account with no pointer at all must still
+ * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
+ * sync loop and the drift reconciler; this was the last one.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<boolean> {
   // A pointer we could not READ gets the same refusal as no pointer at all, and
@@ -892,9 +934,15 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   // raced any queued client operation for the single-threaded client — the
   // `recursive use of an object` failure. `resolveGuardianDrift` already reads
   // its commitment this way; this path was the outlier.
-  const snapshot = await withWasmClientLock(async () => {
+  const snapshot = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
     if (!sdkAccount) return undefined;
+    // Both reads below walk the account's storage, which is a borrow of the
+    // client the handle came from — so after this parking await they are calls
+    // on a client an eviction may already have given to a successor. Both also
+    // swallow their own failure, so the double borrow would land as "no
+    // commitment" and "no hot signer" rather than as an error.
+    assertWasmHoldCurrent(hold, 'guardian missing-registration snapshot, after the account read');
     return {
       guardian: getGuardianCommitmentFromAccount(sdkAccount),
       // Its own failure is still a distinct outcome from "no account": the
@@ -1076,6 +1124,14 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
 }
 
 /**
+ * Bounds for the plain account reads on this path. Reached only from the sync loop, so
+ * they get the sync ceiling rather than the five-minute backstop reserved for writes a
+ * user is waiting on, and a label so an eviction names them (#777). A single `getAccount`
+ * that has not answered in two minutes is parked, not slow.
+ */
+const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-read' };
+
+/**
  * Re-register the account's CURRENT on-chain signer set on the guardian,
  * COLD-signed, to repair a stale request-auth allowlist. Cold is a permanent
  * allowlist member (present in any signer set the account has held), so a
@@ -1095,14 +1151,6 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
  * never-registered / never-canonicalized signer set. Idempotent (registers the
  * on-chain state), so a spurious run is harmless.
  */
-/**
- * Bounds for the plain account reads on this path. Reached only from the sync loop, so
- * they get the sync ceiling rather than the five-minute backstop reserved for writes a
- * user is waiting on, and a label so an eviction names them (#777). A single `getAccount`
- * that has not answered in two minutes is parked, not slow.
- */
-const GUARDIAN_READ_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-self-heal-read' };
-
 async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
   if (!account.coldPublicKey) return 'refused-permanently';
@@ -1497,10 +1545,28 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
           selfHeal: selfHealLedger.budgetSpent({ accountPublicKey: account.publicKey, endpoint })
             ? 'spent'
             : 'available',
-          // Account-level, because the narrow subjects these two are keyed by
-          // (the on-chain guardian key; the row id) are not in hand here.
-          missingRegistration: missingRegistrationLedger.anySpentForAccount(account.publicKey) ? 'spent' : 'available',
-          recheck: pendingRotationRecheckLedger.anySpentForAccount(account.publicKey) ? 'spent' : 'available'
+          // Narrowed as far as each subject allows. The missing-registration
+          // budget is keyed by (account, endpoint, on-chain guardian key) and
+          // only the key is out of reach, so it is asked per OPERATOR — asked
+          // per account it kept answering "spent" for the operator the account
+          // had just rotated to, from a budget belonging to the one it left.
+          missingRegistration: missingRegistrationLedger.anySpentForAccount(account.publicKey, endpoint)
+            ? 'spent'
+            : 'available',
+          // The recheck budget is keyed by row, and the row IS in hand — the
+          // classifier reads this fact only inside its `pendingRotation` arm, so
+          // it is a claim about THAT rotation. Account-wide, one exhausted row
+          // reported its sibling exhausted and named the wrong one in the prompt.
+          recheck: (
+            pendingRotationRow
+              ? pendingRotationRecheckLedger.budgetSpent({
+                  accountPublicKey: account.publicKey,
+                  rowId: pendingRotationRow
+                })
+              : pendingRotationRecheckLedger.anySpentForAccount(account.publicKey)
+          )
+            ? 'spent'
+            : 'available'
         }
       });
       // A route that names the pending-rotation state specifically, while the

@@ -106,8 +106,25 @@ const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
   return found;
 };
 
+/**
+ * THE SCRIPT KIND HAS TO FOLLOW THE EXTENSION, and getting it wrong fails open.
+ *
+ * A `.ts` file parsed as TSX is not rejected — `createSourceFile` never throws.
+ * It returns a WRECKED TREE: the first generic arrow (`<T>(x: T) => x`) reads as
+ * an unclosed JSX element, and everything after it collapses into error nodes
+ * this walk then finds nothing in. Under a blanket `ScriptKind.TSX` that
+ * silently unfenced five production modules, `guardian/direct-switch.ts` and
+ * `transaction/index.ts` among them — the two likeliest places for a raw
+ * rotation-flag read to appear.
+ */
 const parse = (code: string, fileName = 'probe.tsx'): ts.SourceFile =>
-  ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  ts.createSourceFile(
+    fileName,
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
 
 /**
  * The complete allowed-reader sets. Writers and plumbing that transports the
@@ -175,6 +192,32 @@ describe('guardian claim fence', () => {
   it('scans the whole source tree, UI included', () => {
     expect(files.length).toBeGreaterThan(600);
     expect(files).toContain(path.join(ROOT, 'src/app/templates/history/HistoryView.tsx'));
+  });
+
+  // Counting the files is not enough: a file can be scanned and still contribute
+  // nothing, because a mis-parse produces error nodes rather than an exception.
+  // That is exactly what a blanket `ScriptKind.TSX` did — the walk visited every
+  // file and found nothing in five of them, `guardian/direct-switch.ts` and
+  // `transaction/index.ts` among them. A syntax check is what makes "no
+  // offenders" mean "no reads" rather than "no tree".
+  it('parses every scanned file cleanly, so an empty result means what it says', () => {
+    const broken = files.filter(file => {
+      const { diagnostics } = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+        fileName: file,
+        reportDiagnostics: true,
+        compilerOptions: { jsx: ts.JsxEmit.Preserve, target: ts.ScriptTarget.Latest }
+      });
+      return (diagnostics ?? []).length > 0;
+    });
+    expect(broken.map(file => path.relative(ROOT, file))).toEqual([]);
+  });
+
+  // The specific construct that made a `.ts` file parse as JSX: a generic arrow
+  // with no trailing comma. Under TSX its `<T>` opens an element that never
+  // closes and the rest of the file is swallowed, so the read below vanishes.
+  it('reads through a generic arrow in a .ts file, the construct TSX mangles', () => {
+    const code = `const pick = <T>(x: T) => x;\nexport const bad = (tx: Row) => tx.extraInputs?.commitUnconfirmed;`;
+    expect(fieldReads(parse(code, 'probe.ts'), FLAG_NAMES)).toHaveLength(1);
   });
 
   it('rotation outcome flags are read only by the verdict module', () => {

@@ -9,7 +9,16 @@ import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/ty
 
 import { midenClientProxy } from './miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front/storage';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+
+/**
+ * Drift's account reads are driven by the ~3 s guardian tick, so they take the
+ * sync ceiling rather than the five-minute last-resort default, and they carry a
+ * label — a dozen sites share that ceiling, and an eviction record without one
+ * cannot say which flow parked.
+ */
+const GUARDIAN_DRIFT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-drift-read' };
 
 /**
  * How long to wait before re-probing operators for an account whose drift is
@@ -342,10 +351,16 @@ export async function resolveGuardianDrift(
   // along so a rotation completing during the probes turns the write stale.
   const snapshotEpoch = account.guardianEpoch ?? 0;
 
-  const onChain = await withWasmClientLock(async () => {
+  const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-  });
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
   if (!onChain) return { status: 'in-sync', changed: false };
 
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
@@ -753,10 +768,16 @@ export async function applyUserGuardianEndpoint(
   if (!account) return 'stale';
   const snapshotEpoch = account.guardianEpoch ?? 0;
 
-  const onChain = await withWasmClientLock(async () => {
+  const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-  });
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
   if (!onChain) return 'no-onchain-guardian';
 
   const verdict = await verifyEndpointMatchesCommitment(endpoint, onChain);
@@ -835,22 +856,41 @@ export async function revertGuardianEndpointAfterDiscard(
   revertTo: string
 ): Promise<RevertDiscardedEndpointOutcome> {
   const account = await vault.getAccount(accountPublicKey);
-  // Gone or moved under the rollback — nothing here to roll back.
-  if (!account) return 'superseded';
+  // `'stale'`, NOT `'superseded'` — the same distinction `applyUserGuardianEndpoint`
+  // draws for this exact read. A missing record is a statement about the VAULT (a
+  // removed account, a frontend snapshot ahead of the backend), not about the
+  // rotation, and only `'superseded'` licenses the caller to spend its one
+  // irreversible demote. Answering it here traded a re-read on the next pass for
+  // a permanently unrepairable binding.
+  if (!account) return 'stale';
+  // Moved off this rotation's target under the rollback — nothing left to undo.
   if (!account.guardianEndpoint || !sameGuardianEndpoint(account.guardianEndpoint, discardedEndpoint)) {
     return 'superseded';
   }
 
-  const onChain = await withWasmClientLock(async () => {
+  const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-  });
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
   // An account with no on-chain guardian at all cannot have authorized the bound
   // endpoint either — but it also cannot corroborate the rollback target, and a
   // read that came back empty is as likely to be a cold local client as a real
   // absence. Leave it pending rather than rebinding on no evidence.
   if (!onChain) return 'stale';
-  const authority = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
+  // `checkEndpointCommitment` on the TICK timeout, not `verifyEndpointMatchesCommitment`
+  // — the two differ in nothing but that. The 20 s ceiling is for a URL a user
+  // just submitted, which fires once and has no successor to defer to; this
+  // caller is the ~3 s recheck, and paying 20 s per row per pass to a dead
+  // endpoint stalls the whole guardian tick behind it. The verdict is the same
+  // three-way answer either way, and a timeout reads `'unreachable'` → `'stale'`,
+  // so a slow-but-alive operator costs a pass, not the rollback.
+  const authority = await checkEndpointCommitment(account.guardianEndpoint, onChain);
   if (authority === 'match') return 'superseded';
   if (authority !== 'mismatch') return 'stale';
 
