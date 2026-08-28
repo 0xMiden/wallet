@@ -27,7 +27,7 @@ import {
  */
 export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, onDoneClick, onViewExplorer }) => {
   const { t } = useTranslation();
-  const { amountText } = useReceiptAmount(transaction);
+  const { amountText, feeText } = useReceiptAmount(transaction);
   const isConsume = transaction?.type === 'consume';
   const destinationAddress = transaction?.secondaryAccountId;
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
@@ -45,10 +45,11 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
         amountText,
         amountLabel: isConsume ? t('totalConsumed', { defaultValue: 'Total Consumed' }) : undefined,
         noteIds,
+        feeText,
         txHash,
         onViewExplorer
       }),
-    [amountText, destinationAddress, isConsume, noteIds, onViewExplorer, t, txHash]
+    [amountText, destinationAddress, feeText, isConsume, noteIds, onViewExplorer, t, txHash]
   );
 
   // "Payment Sent!" reads wrong for claim/guardian ops that fall through here.

@@ -82,7 +82,16 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const amountText =
     consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
 
-  return { tokenMetadata, tokenSymbol, amountText };
+  // The fee is always paid in the native asset, so it resolves against the native
+  // faucet rather than the transaction's own token. Absent on zero-fee chains and
+  // on rows written before fees were recorded, in which case no row is rendered.
+  const feeMetadata = resolveDisplayMetadata(transaction?.feeFaucetId, assetsMetadata, nativeFaucetId);
+  const feeText =
+    transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata)
+      ? `${formatAmount(transaction.feeAmount, feeMetadata.decimals)} ${feeMetadata.symbol}`
+      : undefined;
+
+  return { tokenMetadata, tokenSymbol, amountText, feeText };
 };
 
 export const SuccessHero: FC = () => (
