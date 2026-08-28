@@ -64,21 +64,35 @@ export function NativeNoteAutoConsumeManager(): null {
             isWorthClaiming(n.amount, baseFee)
         );
         if (nativeNotes.length === 0) return;
-        const { initiateConsumeTransaction, startBackgroundTransactionProcessing, getUncompletedTransactions } =
+        const {
+            initiateConsumeTransaction,
+            initiateConsumeNotesTransaction,
+            startBackgroundTransactionProcessing,
+            getUncompletedTransactions
+          } =
           await import('../transaction');
         const delegate = isDelegateProofEnabled();
-        // One consume tx PER NOTE (mirroring Explore), not a batch: a Miden tx is atomic,
-        // so batching lets one un-consumable note fail the whole tx and throttle its
-        // healthy mates via the shared row's #215 backoff. Per-note isolates failures —
-        // including at enqueue: a per-note try/catch keeps one note's failure from
-        // skipping its mates.
-        for (const note of nativeNotes) {
+          // ONE transaction for the whole batch: every consume pays its own fee, so
+          // claiming a backlog note-by-note charges the user N fees for what the chain
+          // will settle for one.
+          //
+          // A Miden tx is atomic, so a single un-consumable note fails the batch. That
+          // is what the split below is for: on failure each note is retried alone, which
+          // isolates the poison note instead of letting it throttle its healthy mates
+          // through the shared row's #215 backoff -- the regression the previous
+          // per-note-always design existed to avoid.
           try {
-            await initiateConsumeTransaction(publicKey, note, delegate);
-          } catch (noteErr) {
-            console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+            await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate);
+          } catch (batchErr) {
+            console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+            for (const note of nativeNotes) {
+              try {
+                await initiateConsumeTransaction(publicKey, note, delegate);
+              } catch (noteErr) {
+                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+              }
+            }
           }
-        }
         // This route-independent consumer is the one that fires when the user is
         // NOT on Home, so it must also dismiss the now-stale "click to claim"
         // notification once it auto-claims the note (#459).
