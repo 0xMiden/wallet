@@ -573,7 +573,6 @@
   "cannotSendToSelf": "Kendi adresinize gönderim yapamazsınız",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
   "encryptedWalletFileExporting": "Cüzdan dosyanız oluşturuluyor…",
   "encryptedWalletFileExportFailedTitle": "Dışa Aktarma Başarısız",
   "encryptedWalletFileExportFailedDesc": "Cüzdan dosyanız oluşturulamadı, bu nedenle hiçbir şey kaydedilmedi. Lütfen dışa aktarmayı tekrar deneyin.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Varsayılan ayarlara sıfırla",
   "devEndpointResetAndReonboard": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
   "devEndpointsRow": "Ağ uç noktaları",
-  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak."
+  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

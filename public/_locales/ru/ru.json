@@ -573,7 +573,6 @@
   "cannotSendToSelf": "Нельзя отправлять на свой собственный адрес",
   "amountMustBeLessThanBalance": "Сумма должна быть меньше остатка",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать «Получить». При этом ваши средства не тратятся и комиссия не взимается.",
   "encryptedWalletFileExporting": "Создание файла кошелька…",
   "encryptedWalletFileExportFailedTitle": "Ошибка экспорта",
   "encryptedWalletFileExportFailedDesc": "Файл вашего кошелька не удалось создать, поэтому ничего не было сохранено. Пожалуйста, попробуйте экспортировать ещё раз.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Сброс настроек до значений по умолчанию",
   "devEndpointResetAndReonboard": "Сброс настроек до значений по умолчанию и повторная регистрация",
   "devEndpointsRow": "Сетевые конечные точки",
-  "devEndpointResetConfirm": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления."
+  "devEndpointResetConfirm": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

@@ -573,7 +573,6 @@
   "cannotSendToSelf": "Du kannst nicht an deine eigene Adresse senden.",
   "amountMustBeLessThanBalance": "Der Betrag muss geringer sein als der Kontostand.",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Führt automatisch die Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Dabei werden weder Ihre Gelder ausgegeben noch Gebühren erhoben.",
   "encryptedWalletFileExporting": "Erstellen Ihrer Wallet-Datei…",
   "encryptedWalletFileExportFailedTitle": "Export fehlgeschlagen",
   "encryptedWalletFileExportFailedDesc": "Ihre Wallet-Datei konnte nicht erstellt werden, daher wurde nichts gespeichert. Bitte versuchen Sie den Export erneut.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Auf Standardwerte zurücksetzen",
   "devEndpointResetAndReonboard": "Auf Standardwerte zurücksetzen und erneut einrichten",
   "devEndpointsRow": "Netzwerkendpunkte",
-  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase."
+  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

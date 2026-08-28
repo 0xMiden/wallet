@@ -573,7 +573,6 @@
   "cannotSendToSelf": "你不能寄到自己的地址",
   "amountMustBeLessThanBalance": "金额必须小于余额",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "会自动将收到的 MIDEN notes 计入您的余额——这与点击“Claim”的效果相同。该操作不会消耗您的资金，也不会产生任何费用。",
   "encryptedWalletFileExporting": "正在创建您的钱包文件……",
   "encryptedWalletFileExportFailedTitle": "导出失败",
   "encryptedWalletFileExportFailedDesc": "无法创建您的钱包文件，因此未保存任何内容。请尝试再次导出。",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "恢复默认设置",
   "devEndpointResetAndReonboard": "恢复默认设置并重新注册",
   "devEndpointsRow": "网络端点",
-  "devEndpointResetConfirm": "这将永久删除该钱包，包括您的密钥和交易记录。您需要使用恢复短语才能将其恢复。"
+  "devEndpointResetConfirm": "这将永久删除该钱包，包括您的密钥和交易记录。您需要使用恢复短语才能将其恢复。",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

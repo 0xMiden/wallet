@@ -573,7 +573,6 @@
   "cannotSendToSelf": "You can't send to your own address",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
   "encryptedWalletFileExporting": "Creating your wallet file…",
   "encryptedWalletFileExportFailedTitle": "Export Failed",
   "encryptedWalletFileExportFailedDesc": "Your wallet file could not be created, so nothing was saved. Please try exporting again.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Reset to defaults",
   "devEndpointResetAndReonboard": "Reset to defaults & re-onboard",
   "devEndpointsRow": "Network endpoints",
-  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

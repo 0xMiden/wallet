@@ -573,7 +573,6 @@
   "cannotSendToSelf": "Не можна відправляти на власну адресу",
   "amountMustBeLessThanBalance": "Сума повинна бути меншою за залишок на рахунку",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Автоматично зараховує надходження MIDEN notes на ваш баланс — так само, як при натисканні кнопки «Отримати». Це не витрачає ваші кошти та не додає жодних комісій.",
   "encryptedWalletFileExporting": "Створення файлу вашого гаманця…",
   "encryptedWalletFileExportFailedTitle": "Експорт не вдався",
   "encryptedWalletFileExportFailedDesc": "Файл вашого гаманця не вдалося створити, тому нічого не було збережено. Спробуйте експортувати ще раз.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Скинути до заводських налаштувань",
   "devEndpointResetAndReonboard": "Скинути налаштування до заводських та пройти реєстрацію заново",
   "devEndpointsRow": "Кінцеві точки мережі",
-  "devEndpointResetConfirm": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення."
+  "devEndpointResetConfirm": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

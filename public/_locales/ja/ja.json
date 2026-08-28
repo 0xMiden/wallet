@@ -573,7 +573,6 @@
   "cannotSendToSelf": "自分の住所宛てには送れません",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "受信したMIDEN（notes）を自動的に残高に反映します。これは「Claim」をタップするのと同じ動作です。資金が消費されたり、手数料が加算されたりすることはありません。",
   "encryptedWalletFileExporting": "ウォレットファイルの作成中…",
   "encryptedWalletFileExportFailedTitle": "エクスポートに失敗しました",
   "encryptedWalletFileExportFailedDesc": "ウォレットファイルを作成できなかったため、何も保存されませんでした。再度エクスポートをお試しください。",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "デフォルト設定に戻す",
   "devEndpointResetAndReonboard": "デフォルト設定にリセットして、オンボーディングをやり直す",
   "devEndpointsRow": "ネットワークエンドポイント",
-  "devEndpointResetConfirm": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。"
+  "devEndpointResetConfirm": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

@@ -4340,5 +4340,9 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "insufficientFeeAsset": {
+    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
   }
 }

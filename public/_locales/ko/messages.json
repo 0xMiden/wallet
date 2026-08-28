@@ -4340,5 +4340,9 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "insufficientFeeAsset": {
+    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
   }
 }

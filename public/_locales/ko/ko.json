@@ -573,7 +573,6 @@
   "cannotSendToSelf": "자신의 주소로 발송할 수 없습니다.",
   "amountMustBeLessThanBalance": "금액은 잔액보다 적어야 합니다.",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "수신된 MIDENnotes을 잔액에 자동으로 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 이 과정에서 자금이 지출되거나 수수료가 추가되지 않습니다.",
   "encryptedWalletFileExporting": "지갑 파일 생성 중…",
   "encryptedWalletFileExportFailedTitle": "내보내기 실패",
   "encryptedWalletFileExportFailedDesc": "지갑 파일을 생성할 수 없었으므로 아무것도 저장되지 않았습니다. 다시 내보내기를 시도해 주십시오.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "기본값으로 재설정",
   "devEndpointResetAndReonboard": "기본값으로 재설정 및 재등록",
   "devEndpointsRow": "네트워크 엔드포인트",
-  "devEndpointResetConfirm": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다."
+  "devEndpointResetConfirm": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

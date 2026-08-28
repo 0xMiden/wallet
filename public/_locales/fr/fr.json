@@ -573,7 +573,6 @@
   "cannotSendToSelf": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
   "amountMustBeLessThanBalance": "Le montant doit être inférieur au solde",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Intègre automatiquement les « MIDEN » (notes) entrants dans votre solde — comme si vous appuyiez sur « Réclamer ». Cela ne dépense pas vos fonds et n’ajoute aucun frais.",
   "encryptedWalletFileExporting": "Création de votre fichier de portefeuille…",
   "encryptedWalletFileExportFailedTitle": "Échec de l’exportation",
   "encryptedWalletFileExportFailedDesc": "Votre fichier de portefeuille n’a pas pu être créé ; rien n’a donc été enregistré. Veuillez réessayer l’exportation.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Rétablir les paramètres par défaut",
   "devEndpointResetAndReonboard": "Réinitialisation aux paramètres par défaut et nouvelle configuration",
   "devEndpointsRow": "Terminaisons réseau",
-  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer."
+  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }

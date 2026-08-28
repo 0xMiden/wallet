@@ -573,7 +573,6 @@
   "cannotSendToSelf": "No puedes enviar nada a tu propia dirección.",
   "amountMustBeLessThanBalance": "El importe debe ser inferior al saldo",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
-  "autoConsumeSettingsDescription": "Reclama automáticamente los MIDEN entrantes notes en tu saldo, igual que al pulsar «Reclamar». No gasta tus fondos ni añade ninguna comisión.",
   "encryptedWalletFileExporting": "Creando tu archivo de monedero…",
   "encryptedWalletFileExportFailedTitle": "Error al exportar",
   "encryptedWalletFileExportFailedDesc": "No se ha podido crear el archivo de tu monedero, por lo que no se ha guardado nada. Intenta exportarlo de nuevo.",
@@ -970,5 +969,6 @@
   "devEndpointResetDefaults": "Restablecer los valores predeterminados",
   "devEndpointResetAndReonboard": "Restablecer la configuración predeterminada y volver a dar de alta",
   "devEndpointsRow": "Terminales de red",
-  "devEndpointResetConfirm": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla."
+  "devEndpointResetConfirm": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
 }
