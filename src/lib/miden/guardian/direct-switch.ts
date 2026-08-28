@@ -244,7 +244,7 @@ export const createDirectSwitchGuardianRequest = async (
   // `switch-guardian` is in no requeue set and has no user Retry, so nothing ever
   // frees it. The coordinated arms wrap their outgoing-guardian calls in
   // `withOutgoingGuardianDeadline` for the same reason; this one had nothing.
-  const { commitment } = await withTimeout(
+  const { commitment, pubkey } = await withTimeout(
     new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
     NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
     `New guardian ${newGuardianEndpoint} pubkey`
@@ -253,6 +253,34 @@ export const createDirectSwitchGuardianRequest = async (
   // SDK splices it into transaction-script SOURCE. See
   // `assertGuardianKeyCommitment`.
   const newGuardianPubkey = assertGuardianKeyCommitment(commitment, newGuardianEndpoint);
+  // The commitment is the ONLY field that reaches the chain, and both device keys
+  // are about to sign an account update installing it — so a well-formed response
+  // whose commitment does not belong to the key the operator actually signs with
+  // installs an operator that can never co-sign, with no error anywhere. The same
+  // endpoint would keep serving the same commitment, so the drift reconciler
+  // affirms it too. When the response carries the public key, that is checkable
+  // for free.
+  //
+  // Only a DERIVED disagreement refuses. An unparseable key means an encoding this
+  // wallet does not know, not a lie, and this path is the last exit from a dead
+  // operator — refusing on "I could not check" would strand the account over a
+  // field the protocol marks optional.
+  if (pubkey) {
+    const derived = await commitmentFromPublicKeyHex(pubkey).catch(deriveError => {
+      console.warn(
+        `Could not derive a commitment from the public key ${newGuardianEndpoint} returned; ` +
+          `continuing on the commitment it declared:`,
+        deriveError
+      );
+      return undefined;
+    });
+    if (derived !== undefined && !sameCommitment(derived, commitment)) {
+      throw new Error(
+        `Refusing to rotate to ${newGuardianEndpoint}: the commitment it declared does not match the public key ` +
+          `it returned with it`
+      );
+    }
+  }
 
   // Build the unsigned request and execute it for its summary in ONE lock
   // scope (same rule as createReplaceHotKeyProposal): the WASM client is
@@ -443,8 +471,8 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
 export const GUARDIAN_REGISTRATION_PREFLIGHT = 'GuardianRegistrationPreflightError';
 
 export class GuardianRegistrationPreflightError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = GUARDIAN_REGISTRATION_PREFLIGHT;
   }
 }
@@ -452,6 +480,32 @@ export class GuardianRegistrationPreflightError extends Error {
 /** Name-based, so it survives module mocking and structured-clone boundaries. */
 export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
   error instanceof Error && error.name === GUARDIAN_REGISTRATION_PREFLIGHT;
+
+/**
+ * Tag EVERYTHING raised before the first `/configure` as preflight, rather than
+ * enumerating throw sites.
+ *
+ * Enumerating is what the first cut did, and it missed most of them: the local
+ * `syncState`, the pinned-version assert inside `AccountInspector.fromAccount`,
+ * the strict signer read, the key-derivation import, and a watchdog eviction of
+ * the lock hold itself all throw plain errors from this window. Each one landed
+ * in the caller's "the write may have landed" arm and spent an attempt from a
+ * budget only a SUCCESSFUL registration refunds — so three local read failures
+ * disabled the repair for the session. The invariant is positional, not
+ * per-site: no request has been sent yet, so nothing thrown here can be
+ * evidence about the operator. `cause` keeps the original for the log.
+ */
+const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isGuardianRegistrationPreflightError(error)) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new GuardianRegistrationPreflightError(`Could not prepare the guardian registration: ${detail}`, {
+      cause: error
+    });
+  }
+};
 
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
@@ -466,8 +520,8 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, hotCommitment } =
-    await withWasmClientLock(async () => {
+  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners } = await asPreflight(() =>
+    withWasmClientLock(async () => {
       await midenClientProxy.syncState();
       const account = await midenClientProxy.getAccount(walletAccount.publicKey);
       if (!account) {
@@ -481,10 +535,10 @@ export const finalizeDirectGuardianSwitch = async (
         // Storage's own count, so the completeness check below compares the read
         // against what the account SAYS it holds rather than against a constant.
         declaredSigners: detected.numSigners,
-        hotCommitment: (await getSignerDetailsFromAccount(account, false)).commitment,
         signerCommitments: detected.signerCommitments
       };
-    });
+    })
+  );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
   // SHORTER than the count storage declares is a truncated read — and this
@@ -512,17 +566,22 @@ export const finalizeDirectGuardianSwitch = async (
   // And THIS DEVICE has to be in the policy it is installing.
   //
   // Note what the comparison is between. Deriving the left-hand side from the
-  // same account read as the allowlist proves nothing — `hotCommitment` is that
-  // read's own slot 0, so it is a member by construction and the check is a
-  // tautology. The question is whether the WALLET RECORD's hot key, the key
-  // `setSigner` below authenticates the `/configure` with, is in the set: if
-  // another device rotated the hot key, this device's record is stale, the
-  // allowlist it just read belongs to that other device, and pushing it would
-  // hand the new operator a policy this device cannot then talk to. `/configure`
-  // is account-wide, so the mirror image is worse — the same guard in
-  // `attemptMissingRegistrationSelfHeal` exists to stop this device revoking the
-  // one that legitimately owns the account.
-  const deviceHotCommitment = await commitmentFromPublicKeyHex(hotPublicKey);
+  // same account read as the allowlist proves nothing — that read's own slot 0 is
+  // a member of that read by construction, and the check is a tautology. The
+  // question is whether the WALLET RECORD's hot key — the key `setSigner` below
+  // authenticates `/configure` with, and the only one this device can actually
+  // sign as — is in the set. If another device rotated the hot key, this record
+  // is stale, the allowlist just read belongs to that other device, and pushing
+  // it hands the new operator a policy this device cannot then talk to.
+  // `/configure` is account-wide, so the mirror image is worse — the same guard
+  // in `attemptMissingRegistrationSelfHeal` exists to stop this device revoking
+  // the one that legitimately owns the account.
+  //
+  // The checked value is then the SIGNED-WITH value, deliberately: verifying one
+  // commitment and authenticating with another would leave the guard true and the
+  // request still unauthorized. `deviceHotCommitment` and `hotPublicKey` are a
+  // derived pair, so they cannot disagree.
+  const deviceHotCommitment = await asPreflight(() => commitmentFromPublicKeyHex(hotPublicKey));
   if (!signerCommitments.some(commitment => sameCommitment(commitment, deviceHotCommitment))) {
     throw new GuardianRegistrationPreflightError(
       "Refusing to register on the new guardian with an allowlist that omits this device's hot signer commitment"
@@ -532,7 +591,7 @@ export const finalizeDirectGuardianSwitch = async (
   registerGuardianOrigin(newGuardianEndpoint);
   const guardian = new GuardianHttpClient(newGuardianEndpoint);
   guardian.setSigner(
-    new WalletSigner(ensureHexPrefix(hotPublicKey), ensureHexPrefix(hotCommitment), guardianProvider.signWord)
+    new WalletSigner(ensureHexPrefix(hotPublicKey), ensureHexPrefix(deviceHotCommitment), guardianProvider.signWord)
   );
 
   let lastError: unknown;

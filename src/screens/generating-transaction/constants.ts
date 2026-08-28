@@ -19,13 +19,15 @@ export interface TransactionStepDef {
    */
   startStage: ITransactionStage;
   /**
-   * Stage that opens this step on a path that never reaches `startStage`. The
-   * offline guardian rotation is the case that needs it: it signs locally and so
-   * stamps `signing-locally` where the proposal path stamps `creating-proposal`,
-   * and without a fallback the step's start boundary is simply missing and the
-   * row renders no duration at all. Resolved AFTER `startStage`, so a row that
-   * carries both (a direct switch after a failed proposal attempt) still times
-   * from the earlier of the two.
+   * Stage that opens this step on a path that never reaches `startStage`.
+   *
+   * Resolved AFTER `startStage`, so `startStage` must be the EARLIER of the two
+   * whenever a row can carry both — otherwise the step times from the later stamp
+   * and silently drops the span in front of it. The offline rotation's first step
+   * is the case that makes this concrete: it always stamps `creating-proposal`
+   * (the attempt against the dead operator is what sends it down that path) and
+   * then `signing-locally`, so `creating-proposal` is the `startStage` there too,
+   * and only the LABEL differs from the coordinated set.
    */
   fallbackStartStage?: ITransactionStage;
   /**
@@ -96,11 +98,13 @@ export const DIRECT_SWITCH_TRANSACTION_STEPS = [
     id: 'signed-locally',
     labelKey: 'transactionStepSignedLocally',
     defaultLabel: 'Signed on this device',
-    startStage: 'signing-locally',
-    // The direct path always stamps `signing-locally`, so this only covers a row
-    // that predates the stage (or lost the stamp to a failed write): fall back to
-    // the proposal attempt it made first rather than rendering no duration.
-    fallbackStartStage: 'creating-proposal',
+    // Same boundaries as the coordinated first step, deliberately: this row
+    // reaches `signing-locally` only by first attempting a proposal and waiting
+    // out the unreachable operator, and that wait is the bulk of what the user
+    // sat through. Opening the step at `signing-locally` would report the local
+    // signature alone — a couple of seconds standing in for half a minute.
+    startStage: 'creating-proposal',
+    fallbackStartStage: 'signing-locally',
     activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
   },
   ...GUARDIAN_TRANSACTION_STEPS.slice(1)

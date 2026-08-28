@@ -14,6 +14,7 @@ import {
   getGuardianLastSyncAt,
   GUARDIAN_SYNC_OUTAGE_THRESHOLD,
   isGuardianSyncOutage,
+  isGuardianUnrepairable,
   MISSING_REGISTRATION_BACKOFF_MS,
   MISSING_REGISTRATION_MAX_ATTEMPTS,
   MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
@@ -458,6 +459,82 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
     expect(mockReRegister).not.toHaveBeenCalled();
     expect(mockGetSignerDetails).not.toHaveBeenCalled();
+  });
+
+  // The SDK refusing to import a guardian state that is NOT AHEAD of local is an
+  // answer, not a failed look: a device that had been rotated out would be facing
+  // a guardian holding the NEWER state. Refusing here would make the repair
+  // unreachable in the one state it is for.
+  it('proceeds when the guardian state is merely behind local, which is what the re-register repairs', async () => {
+    mockAdoptGuardianState.mockRejectedValue(
+      new Error('Refusing to overwrite local state: incoming nonce 3 is not greater than local nonce 4')
+    );
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-behind', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  // The other half of the fail-closed guard: this device failing to derive its OWN
+  // commitment is just as much "I cannot show I am still the signer" as the chain
+  // read failing, and must not buy the account-wide write either.
+  it('does not re-register when this device cannot derive its own hot-key commitment', async () => {
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('key material unavailable'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-noderive', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+  });
+
+  // A 401 clears the outage flag (the server answered) and stamps no sync, so once
+  // the repair budget is spent nothing else in this module says the account is
+  // stuck. That silence is what the guardian screen used to render as "Checking".
+  it('reports the account as unrepairable once the re-register budget is spent', async () => {
+    mockReRegister.mockRejectedValue(new Error('configure rejected'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-stuck', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+    let now = 5_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      await syncGuardianAccounts();
+      now += SELF_HEAL_COOLDOWN_MS;
+    }
+
+    expect(isGuardianUnrepairable('acct-stuck')).toBe(true);
+
+    // And a sync that finally lands stands it back down.
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    await syncGuardianAccounts();
+    expect(isGuardianUnrepairable('acct-stuck')).toBe(false);
+
+    nowSpy.mockRestore();
   });
 
   it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {

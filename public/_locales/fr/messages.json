@@ -2060,6 +2060,10 @@
     "message": "Non connecté",
     "englishSource": "Not connected"
   },
+  "guardianNeedsAttentionLabel": {
+    "message": "Nécessite votre attention",
+    "englishSource": "Needs attention"
+  },
   "guardianCheckingLabel": {
     "message": "En vérification",
     "englishSource": "Checking"

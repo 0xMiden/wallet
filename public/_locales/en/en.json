@@ -440,6 +440,7 @@
   "guardianLocation": "Location:",
   "guardianOfflineLabel": "Offline",
   "guardianNotConnectedLabel": "Not connected",
+  "guardianNeedsAttentionLabel": "Needs attention",
   "guardianCheckingLabel": "Checking",
   "whatIsAGuardian": "What is a Guardian?",
   "guardianInfoDescription": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",

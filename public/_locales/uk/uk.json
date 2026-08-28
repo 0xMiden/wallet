@@ -440,6 +440,7 @@
   "guardianLocation": "Місцезнаходження:",
   "guardianOfflineLabel": "Офлайн",
   "guardianNotConnectedLabel": "Не підключено",
+  "guardianNeedsAttentionLabel": "Потребує уваги",
   "guardianCheckingLabel": "Перевірка",
   "whatIsAGuardian": "Що таке «Guardian»?",
   "guardianInfoDescription": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",

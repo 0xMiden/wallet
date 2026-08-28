@@ -440,6 +440,7 @@
   "guardianLocation": "Ubicación:",
   "guardianOfflineLabel": "Sin conexión",
   "guardianNotConnectedLabel": "No conectado",
+  "guardianNeedsAttentionLabel": "Requiere atención",
   "guardianCheckingLabel": "Comprobando",
   "whatIsAGuardian": "¿Qué es un «Guardian»?",
   "guardianInfoDescription": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",

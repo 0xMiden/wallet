@@ -440,6 +440,7 @@
   "guardianLocation": "Местоположение:",
   "guardianOfflineLabel": "Офлайн",
   "guardianNotConnectedLabel": "Не подключено",
+  "guardianNeedsAttentionLabel": "Требует внимания",
   "guardianCheckingLabel": "Проверка",
   "whatIsAGuardian": "Что такое «Guardian»?",
   "guardianInfoDescription": "Guardian — это независимый сервис, который <b>соподписывает каждую транзакцию</b> из вашего кошелька, добавляя систему безопасности без отказа от самостоятельного хранения.",

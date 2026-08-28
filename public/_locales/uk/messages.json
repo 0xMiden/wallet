@@ -2060,6 +2060,10 @@
     "message": "Не підключено",
     "englishSource": "Not connected"
   },
+  "guardianNeedsAttentionLabel": {
+    "message": "Потребує уваги",
+    "englishSource": "Needs attention"
+  },
   "guardianCheckingLabel": {
     "message": "Перевірка",
     "englishSource": "Checking"

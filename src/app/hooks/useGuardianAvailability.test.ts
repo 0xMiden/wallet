@@ -25,6 +25,18 @@ function deferredPings(): Map<string, (online: boolean) => void> {
   return resolvers;
 }
 
+/** Same shape, but the caller decides WHEN each ping rejects. */
+function deferredRejectingPings(): Map<string, (reason: unknown) => void> {
+  const rejecters = new Map<string, (reason: unknown) => void>();
+  mockPing.mockImplementation(
+    (endpoint: string) =>
+      new Promise<boolean>((_resolve, reject) => {
+        rejecters.set(endpoint, reject);
+      })
+  );
+  return rejecters;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
 });
@@ -106,13 +118,16 @@ describe('useGuardianAvailability', () => {
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on('unhandledRejection', onUnhandled);
     try {
-      const resolvers = deferredPings();
+      // Rejecting, not resolving: a resolving fixture cannot produce an unhandled
+      // rejection no matter what the hook does, so the assertion below would hold
+      // even with the rejection handler deleted.
+      const rejecters = deferredRejectingPings();
       const endpoint = 'https://gone.example.com';
       const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
 
       unmount();
 
-      await act(async () => resolvers.get(endpoint)!(true));
+      await act(async () => rejecters.get(endpoint)!(new Error('probe failed after unmount')));
       await Promise.resolve();
       await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -293,6 +308,30 @@ describe('useGuardianAvailability', () => {
     // And the live round still works after the stale one resolved through it.
     await act(async () => resolvers.get('https://new.example.com')!(false));
     expect(result.current).toEqual({ 'https://new.example.com': 'offline' });
+  });
+
+  // The same drop, through the REJECTION arm. Both arms write, so both need the
+  // generation guard — and a suite that only supersedes a resolving ping cannot
+  // tell whether the second guard is there.
+  it('drops a superseded verdict that arrives as a rejection', async () => {
+    const rejecters = deferredRejectingPings();
+    const { result, rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
+      initialProps: { endpoints: ['https://old.example.com'] }
+    });
+    rerender({ endpoints: ['https://new.example.com'] });
+
+    await act(async () => rejecters.get('https://old.example.com')!(new Error('probe failed')));
+
+    expect(result.current).toEqual({});
+  });
+
+  // The picker renders before its options resolve, so an empty list is a real
+  // first render — not a degenerate case.
+  it('probes nothing and reports nothing for an empty endpoint list', () => {
+    const { result } = renderHook(() => useGuardianAvailability([]));
+
+    expect(mockPing).not.toHaveBeenCalled();
+    expect(result.current).toEqual({});
   });
 
   // A superseded round handing the in-flight slot back would clear it out from

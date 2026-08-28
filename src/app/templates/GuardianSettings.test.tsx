@@ -49,11 +49,13 @@ jest.mock('lib/store', () => ({
 const mockIsGuardianSyncOutage = jest.fn((_pk: string) => false);
 const mockGetGuardianLastSyncAt = jest.fn((_pk: string): number | undefined => undefined);
 const syncListeners = new Set<() => void>();
+const mockIsGuardianUnrepairable = jest.fn((_pk: string) => false);
 const notifySyncListeners = () => {
   for (const listener of syncListeners) listener();
 };
 jest.mock('lib/miden/front/guardian-sync', () => ({
   isGuardianSyncOutage: (pk: string) => mockIsGuardianSyncOutage(pk),
+  isGuardianUnrepairable: (pk: string) => mockIsGuardianUnrepairable(pk),
   getGuardianLastSyncAt: (pk: string) => mockGetGuardianLastSyncAt(pk),
   subscribeGuardianSyncOutage: (listener: () => void) => {
     syncListeners.add(listener);
@@ -283,6 +285,40 @@ it('keeps the OFFLINE pill readable in both themes', () => {
 
   const pill = screen.getByText('guardianOfflineLabel').closest('div');
   expect(pill).toHaveClass('text-red-700', 'dark:text-red-300');
+});
+
+// An operator that ANSWERS and still rejects this device clears the outage flag
+// (the server is up) and stamps no sync, so the two signals the pill was built on
+// both read "nothing to report" — leaving "Checking" on an account that cannot
+// transact and whose automatic repair has already given up.
+it('names the state where the guardian answers, the account cannot use it, and repair has stopped', () => {
+  mockIsGuardianUnrepairable.mockReturnValue(true);
+  try {
+    render(<GuardianSettings />);
+
+    const pill = screen.getByRole('status');
+    expect(pill).toHaveTextContent('guardianNeedsAttentionLabel');
+    expect(pill).not.toHaveTextContent('guardianCheckingLabel');
+    // And the row below agrees: nothing is checking.
+    expect(screen.getByText('never')).toBeInTheDocument();
+  } finally {
+    mockIsGuardianUnrepairable.mockReturnValue(false);
+  }
+});
+
+// Unreachable outranks answering-but-unusable: it is the more immediate fault and
+// the one with a CTA on this screen.
+it('still says Offline when the operator is unreachable, even if repair has also stopped', () => {
+  mockIsGuardianUnrepairable.mockReturnValue(true);
+  mockIsGuardianSyncOutage.mockReturnValue(true);
+  try {
+    render(<GuardianSettings />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('guardianOfflineLabel');
+  } finally {
+    mockIsGuardianUnrepairable.mockReturnValue(false);
+    mockIsGuardianSyncOutage.mockReturnValue(false);
+  }
 });
 
 // The sync loop filters out accounts with no hot key (see the filter's docstring

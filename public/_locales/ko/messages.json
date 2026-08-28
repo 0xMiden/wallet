@@ -2060,6 +2060,10 @@
     "message": "연결되지 않음",
     "englishSource": "Not connected"
   },
+  "guardianNeedsAttentionLabel": {
+    "message": "조치 필요",
+    "englishSource": "Needs attention"
+  },
   "guardianCheckingLabel": {
     "message": "확인 중",
     "englishSource": "Checking"

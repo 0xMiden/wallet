@@ -7,6 +7,7 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { isExtension } from 'lib/platform';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import type { WalletAccount } from 'lib/shared/types';
@@ -167,6 +168,8 @@ export const GUARDIAN_SYNC_OUTAGE_THRESHOLD = 6;
 
 const consecutiveServerFailures = new Map<string, number>();
 const outageAccounts = new Set<string>();
+// Answering, unusable, and out of automatic repairs — see `isGuardianUnrepairable`.
+const unrepairableAccounts = new Set<string>();
 const outageListeners = new Set<() => void>();
 
 const notifyOutageListeners = (): void => {
@@ -219,6 +222,37 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
   return lastGuardianSyncAt.get(accountPublicKey);
 }
 
+/**
+ * The operator is ANSWERING and the account still cannot use it, and the wallet
+ * has stopped trying to fix that on its own.
+ *
+ * Two ways in, and they share an ending: a 401 whose cold re-register budget is
+ * spent (or was closed outright because this device was rotated out), and an
+ * operator that reports no record of the account after the registration budget
+ * is spent. Both are silent otherwise — a 401 and an unknown-account both CLEAR
+ * the outage flag, because the server did answer, and neither stamps a sync. So
+ * the status derived from those two signals alone read "Checking" forever, next
+ * to a "Last sync" row saying the same, on an account that in fact cannot
+ * co-sign anything and whose repair has already given up. This is the third
+ * signal, and it exists so that state is nameable on screen.
+ *
+ * Cleared by any successful sync — including the one a manual rotation produces,
+ * which is the way out the pill points at.
+ */
+export function isGuardianUnrepairable(accountPublicKey: string): boolean {
+  return unrepairableAccounts.has(accountPublicKey);
+}
+
+function markGuardianUnrepairable(accountPublicKey: string, reason: string): void {
+  if (unrepairableAccounts.has(accountPublicKey)) return;
+  console.warn(
+    `[Guardian Sync] ${accountPublicKey} cannot use its guardian and automatic repair has stopped (${reason}) — ` +
+      `surfacing it on the guardian screen`
+  );
+  unrepairableAccounts.add(accountPublicKey);
+  notifyOutageListeners();
+}
+
 function recordGuardianServerFailure(accountPublicKey: string): void {
   const fails = (consecutiveServerFailures.get(accountPublicKey) ?? 0) + 1;
   consecutiveServerFailures.set(accountPublicKey, fails);
@@ -246,23 +280,33 @@ function clearGuardianServerFailures(accountPublicKey: string): void {
 function recordSuccessfulGuardianSync(accountPublicKey: string): void {
   consecutiveServerFailures.delete(accountPublicKey);
   outageAccounts.delete(accountPublicKey);
+  unrepairableAccounts.delete(accountPublicKey);
   lastGuardianSyncAt.set(accountPublicKey, Date.now());
   notifyOutageListeners();
 }
 
 /**
- * Test-only: reset every piece of this module's per-session sync state — the
- * outage flag and its counter, the in-flight coalescing promise, the
- * missing-registration heal's persistence count and attempt budget, and the
- * last-sync stamps. Notifies subscribers unconditionally, so a
- * `useSyncExternalStore` reader that outlives the reset cannot keep a snapshot
- * the module no longer agrees with.
+ * Test-only: reset every piece of this module's per-session sync state.
+ *
+ * EVERY piece, literally — a partial reset is worse than none, because the state
+ * it leaves behind is per-account and therefore invisible until some later test
+ * happens to reuse an account key, at which point it skips a branch it meant to
+ * exercise (`hardeningChecked` is the sharp one: it gates a once-per-session
+ * call). Add new module state to this list when you add it.
+ *
+ * Notifies subscribers unconditionally, so a `useSyncExternalStore` reader that
+ * outlives the reset cannot keep a snapshot the module no longer agrees with.
  */
 export function __resetGuardianSyncOutageForTest(): void {
   consecutiveServerFailures.clear();
   outageAccounts.clear();
+  unrepairableAccounts.clear();
   syncInFlight = undefined;
   consecutiveUnknownAccount.clear();
+  consecutiveAuthFailures.clear();
+  selfHealState.clear();
+  rateLimitedUntil.clear();
+  hardeningChecked.clear();
   missingRegistrationState.clear();
   lastGuardianSyncAt.clear();
   notifyOutageListeners();
@@ -367,7 +411,16 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   const healKey = `${account.publicKey}|${endpoint}|${onChainGuardian ?? 'no-guardian-key'}`;
   const now = Date.now();
   const prior = missingRegistrationState.get(healKey);
-  if (!isMissingRegistrationPushDue(now, prior)) return;
+  if (!isMissingRegistrationPushDue(now, prior)) {
+    // Budget spent on this triple. The operator keeps saying it has no record of
+    // an account whose on-chain guardian it is, and this wallet has stopped
+    // pushing — a standstill nothing else surfaces, since an unknown-account
+    // answer clears the outage flag and stamps no sync.
+    if ((prior?.attempts ?? 0) >= MISSING_REGISTRATION_MAX_ATTEMPTS) {
+      markGuardianUnrepairable(account.publicKey, 'the operator holds no record of the account');
+    }
+    return;
+  }
 
   // Stamp the clock BEFORE the guards, without consuming an attempt. A refusal
   // is not free — the endpoint probe below is an HTTP round trip — and a refusal
@@ -546,19 +599,39 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // Deliberately NOT `MultisigService.sync()`: that wrapper's last-resort stage
     // re-registers local state on a lagging guardian, which is the exact push this
     // function has to decide about first.
-    // And if that read fails, STOP. Logging and carrying on would run the guard
-    // against this device's own pre-rotation copy — the state in which this
-    // device is still signer 0 no matter who actually holds the account — so the
-    // guard would pass by construction and the write would go through. That is
-    // not the guard degrading, it is the guard inverted: the one case it exists
-    // to catch is the one where the local copy is stale, which is the same case
-    // where this read failing leaves it stale. Refuse transiently instead; the
-    // heal is defensive, the budget is untouched, and there is another tick.
+    // And if that read fails, STOP — with one exception, below. Logging and
+    // carrying on would run the guard against this device's own pre-rotation
+    // copy — the state in which this device is still signer 0 no matter who
+    // actually holds the account — so the guard would pass by construction and
+    // the write would go through. That is not the guard degrading, it is the
+    // guard inverted: the one case it exists to catch is the one where the local
+    // copy is stale, which is the same case where this read failing leaves it
+    // stale. Refuse transiently instead; the heal is defensive, the budget is
+    // untouched, and there is another tick.
+    //
+    // THE EXCEPTION is the SDK refusing to import because the incoming state is
+    // NOT AHEAD of local (`isSafeToOverwriteLocalState`: a nonce no greater than
+    // local, or a commitment that does not match on chain). That is not a failure
+    // to look — it is the answer. A device that had been rotated out would be
+    // looking at a guardian holding the NEWER state, which imports cleanly; a
+    // guardian that is behind or holding a diverged blob is the stale-registration
+    // case this whole function exists to repair, and it is repaired by the push
+    // below. Refusing here would make the heal unreachable in exactly the state
+    // that needs it — the same shape of mistake as swallowing the failure, in the
+    // opposite direction.
     const coldService = await MultisigService.buildColdMultisigService(staleAccount, account, zustandProvider.signWord);
     const adopted = await coldService
       .adoptGuardianStateOnce()
       .then(() => true)
       .catch(e => {
+        if (isGuardianCanonicalizationError(e)) {
+          console.warn(
+            `[Guardian Sync] the guardian's state for ${account.publicKey} is not ahead of local — proceeding to ` +
+              `the re-register, which is the repair for exactly that:`,
+            e
+          );
+          return true;
+        }
         console.warn(
           `[Guardian Sync] not self-healing ${account.publicKey}: could not read the guardian's state, so this ` +
             `device cannot tell whether it is still the account's signer:`,
@@ -778,17 +851,20 @@ async function runGuardianAccountsSync(): Promise<void> {
           // stamped either way, so a refusal still respects the cooldown instead
           // of re-reading on every 3s tick.
           const outcome = await attemptColdReRegisterSelfHeal(account);
-          selfHealState.set(account.publicKey, {
-            attempts:
-              outcome === 'attempted'
-                ? (prev?.attempts ?? 0) + 1
-                : // Rotated out of the account: no tick will make this apply, so
-                  // close the budget rather than probing twice more on cooldown.
-                  outcome === 'refused-permanently'
-                  ? SELF_HEAL_MAX_ATTEMPTS
-                  : (prev?.attempts ?? 0),
-            lastAttemptAt: now
-          });
+          const attempts =
+            outcome === 'attempted'
+              ? (prev?.attempts ?? 0) + 1
+              : // Rotated out of the account: no tick will make this apply, so
+                // close the budget rather than probing twice more on cooldown.
+                outcome === 'refused-permanently'
+                ? SELF_HEAL_MAX_ATTEMPTS
+                : (prev?.attempts ?? 0);
+          selfHealState.set(account.publicKey, { attempts, lastAttemptAt: now });
+          // Budget spent (or closed): the 401 is now permanent as far as this
+          // wallet is concerned, and nothing else would ever say so on screen.
+          if (attempts >= SELF_HEAL_MAX_ATTEMPTS) {
+            markGuardianUnrepairable(account.publicKey, 'the operator keeps rejecting this device');
+          }
         }
       } else if (isGuardianRateLimited(error)) {
         // Back off for as long as the guardian asked, and say so once rather than

@@ -63,11 +63,12 @@ jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
 // prefix/case normalization the allowlist check relies on is exercised rather
 // than assumed. The stub mirrors production's shape: one commitment per key, so
 // a different device's key derives a different commitment.
+const mockCommitmentFromPublicKeyHex = jest.fn(async (publicKeyHex: string) =>
+  publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
+);
 jest.mock('lib/secure-hot-key/commitment', () => ({
   ...jest.requireActual('lib/secure-hot-key/commitment'),
-  commitmentFromPublicKeyHex: jest.fn(async (publicKeyHex: string) =>
-    publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
-  )
+  commitmentFromPublicKeyHex: (...args: [string]) => mockCommitmentFromPublicKeyHex(...args)
 }));
 
 // Zero backoff so the retry loop runs at test speed — but through a spy, not a
@@ -124,7 +125,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 // well-formed one.
 const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
 
-const mockGuardianGetPubkey = jest.fn(async () => ({ commitment: NEW_GUARDIAN_COMMITMENT }));
+const mockGuardianGetPubkey = jest.fn<Promise<{ commitment: string; pubkey?: string }>, []>(async () => ({
+  commitment: NEW_GUARDIAN_COMMITMENT
+}));
 const mockGuardianConfigure = jest.fn();
 const mockGuardianSetSigner = jest.fn();
 jest.mock('@openzeppelin/miden-multisig-client', () => {
@@ -187,6 +190,10 @@ beforeEach(() => {
     getAccount: jest.fn(async () => sdkAccount),
     client: { kind: 'web-client' }
   });
+  mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
+    publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
+  );
+  mockProxySyncState.mockResolvedValue(undefined);
   mockProxyGetAccount.mockResolvedValue(sdkAccount);
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
@@ -478,6 +485,43 @@ describe('createDirectSwitchGuardianRequest', () => {
     ).rejects.toThrow('missing hotPublicKey/coldPublicKey');
   });
 
+  // The commitment is the only field that reaches the chain, and both device keys
+  // sign to install it — so an operator that declares one key and holds another
+  // gets an account it can never co-sign for, silently. When the response carries
+  // the public key, the two are checkable against each other.
+  it('refuses a new guardian whose declared commitment does not match the key it returned', async () => {
+    mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: '0xoperatorkey' });
+    mockCommitmentFromPublicKeyHex.mockResolvedValue(`0x${'9'.repeat(64)}`);
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).rejects.toThrow('does not match the public key');
+    expect(mockedMultisigClient.buildUpdateGuardianTransactionRequest).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
+  });
+
+  it('proceeds when the declared commitment and the returned key agree', async () => {
+    mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: '0xoperatorkey' });
+    mockCommitmentFromPublicKeyHex.mockResolvedValue(NEW_GUARDIAN_COMMITMENT);
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).resolves.toBeDefined();
+  });
+
+  // A key this wallet cannot parse is an encoding it does not know, not a lie —
+  // and this path is the last exit from a dead operator, so "I could not check"
+  // must not become "you may not leave".
+  it('proceeds when the returned key cannot be parsed at all', async () => {
+    mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'not-a-key' });
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('unexpected public key length'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
+    ).resolves.toBeDefined();
+  });
+
   // `getPubkey` returns `(await response.json()).commitment` unchecked, and the
   // SDK interpolates it into MASM source. A commitment that isn't exactly one
   // hex word must never reach the script builder, and must cost no signature.
@@ -664,6 +708,37 @@ describe('finalizeDirectGuardianSwitch', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toThrow('omits this device');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('tags a local read failure as preflight, whatever threw it', async () => {
+    // Not just the enumerated guards: the account read itself, the sync in front
+    // of it, and the key derivation behind it are all pre-`/configure`, and each
+    // one used to reach the caller as a plain error that spent a repair attempt.
+    mockProxyGetAccount.mockResolvedValue(undefined);
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('tags a failing local sync as preflight too', async () => {
+    mockProxySyncState.mockRejectedValue(new Error('rpc unavailable'));
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

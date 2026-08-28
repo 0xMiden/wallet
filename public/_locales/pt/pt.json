@@ -440,6 +440,7 @@
   "guardianLocation": "Localização:",
   "guardianOfflineLabel": "Offline",
   "guardianNotConnectedLabel": "Não conectado",
+  "guardianNeedsAttentionLabel": "Requer atenção",
   "guardianCheckingLabel": "Verificando",
   "whatIsAGuardian": "O que é um “Guardian”?",
   "guardianInfoDescription": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",

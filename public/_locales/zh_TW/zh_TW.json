@@ -440,6 +440,7 @@
   "guardianLocation": "地點：",
   "guardianOfflineLabel": "離線",
   "guardianNotConnectedLabel": "未連線",
+  "guardianNeedsAttentionLabel": "需要處理",
   "guardianCheckingLabel": "檢查中",
   "whatIsAGuardian": "什麼是「Guardian」？",
   "guardianInfoDescription": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",

@@ -440,6 +440,7 @@
   "guardianLocation": "場所：",
   "guardianOfflineLabel": "オフライン",
   "guardianNotConnectedLabel": "未接続",
+  "guardianNeedsAttentionLabel": "対応が必要です",
   "guardianCheckingLabel": "確認中",
   "whatIsAGuardian": "Guardianとは何ですか？",
   "guardianInfoDescription": "Guardianは、<b>ウォレットからのすべての取引</b>に共同署名を行う独立したサービスであり、自己管理を放棄することなく安全網を追加します。",

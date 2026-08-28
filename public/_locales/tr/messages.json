@@ -2060,6 +2060,10 @@
     "message": "Bağlı değil",
     "englishSource": "Not connected"
   },
+  "guardianNeedsAttentionLabel": {
+    "message": "İlgi gerekiyor",
+    "englishSource": "Needs attention"
+  },
   "guardianCheckingLabel": {
     "message": "Kontrol ediliyor",
     "englishSource": "Checking"

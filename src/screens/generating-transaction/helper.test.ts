@@ -88,6 +88,25 @@ describe('getStepDurationsMs', () => {
 
   // Both stamps can exist on one row: a proposal attempt that failed and
   // requeued into the direct path. The earlier stamp is the honest start.
+  // The offline rotation's first step declares `signing-locally` and falls back to
+  // `creating-proposal`, and the row always stamps the fallback FIRST — the failed
+  // proposal against the dead operator is what sent it down this path. Timing from
+  // the declared stage would drop that whole wait from the label.
+  it('times the offline first step from the proposal attempt that preceded it', () => {
+    const durations = getStepDurationsMs(DIRECT_SWITCH_TRANSACTION_STEPS, {
+      'creating-proposal': 1_000,
+      'signing-locally': 31_000,
+      proving: 32_000,
+      submitting: 33_000,
+      'registering-guardian': 34_000,
+      complete: 35_000
+    });
+
+    // 31s, not the 1s of local signing: the wait on the dead operator is the part
+    // the user actually experienced.
+    expect(durations[0]).toBe(31_000);
+  });
+
   it('prefers the proposal stamp when a row carries both', () => {
     const durations = getStepDurationsMs(GUARDIAN_TRANSACTION_STEPS, {
       'creating-proposal': 100,

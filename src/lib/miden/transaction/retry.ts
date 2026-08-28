@@ -126,7 +126,7 @@ export const isRequeueableTransaction = (tx: {
 
 /**
  * Structural account operations — the ones that rewrite the account's own
- * authorization rather than move value. Neither is requeueable (see
+ * authorization rather than move value. None of them is requeueable (see
  * `REQUEUEABLE_TYPES`): the user re-initiates them from Settings.
  */
 const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'];

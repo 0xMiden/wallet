@@ -14,6 +14,7 @@ import { Button } from 'components/Button';
 import {
   getGuardianLastSyncAt,
   isGuardianSyncOutage,
+  isGuardianUnrepairable,
   subscribeGuardianSyncOutage
 } from 'lib/miden/front/guardian-sync';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -59,6 +60,12 @@ const GuardianSettings: FC = () => {
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
     currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
   );
+  // The operator ANSWERS and the account still cannot use it, with automatic
+  // repair exhausted. Distinct from an outage — the endpoint is up, so nothing
+  // else on this screen would ever say anything is wrong.
+  const guardianUnrepairable = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
+    currentAccountPk ? isGuardianUnrepairable(currentAccountPk) : false
+  );
   // The GUARDIAN's own last sync, from the same channel as the pill — not the
   // store's wallet-wide `lastSyncedAt`, which a healthy chain sync keeps
   // refreshing while the guardian is down, putting "3s ago" next to an Offline
@@ -79,19 +86,22 @@ const GuardianSettings: FC = () => {
   // and not "never synced, historically". `guardianStatus` is the one place
   // that turns those two signals into a status, so the pill and the "Last
   // sync" row below always read as one consistent story rather than two.
-  const guardianStatus: 'not-connected' | 'offline' | 'checking' | 'online' = !hasHotKey
+  const guardianStatus: 'not-connected' | 'offline' | 'unrepairable' | 'checking' | 'online' = !hasHotKey
     ? 'not-connected'
     : guardianOutage
       ? 'offline'
-      : guardianLastSyncAt === undefined
-        ? 'checking'
-        : 'online';
+      : guardianUnrepairable
+        ? 'unrepairable'
+        : guardianLastSyncAt === undefined
+          ? 'checking'
+          : 'online';
   const lastSync =
     guardianLastSyncAt !== undefined
       ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
-      : // "Checking" only while something IS checking; an account with no hot key
-        // has genuinely never synced from this device and is not about to.
-        hasHotKey
+      : // "Checking" only while something IS checking. An account with no hot key
+        // has genuinely never synced from this device and is not about to — and
+        // neither has one whose repair budget is spent.
+        hasHotKey && !guardianUnrepairable
         ? t('guardianCheckingLabel')
         : t('never');
 
@@ -137,10 +147,12 @@ const GuardianSettings: FC = () => {
             aria-live="polite"
             className={clsx(
               'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
-              guardianStatus === 'offline'
+              guardianStatus === 'offline' || guardianStatus === 'unrepairable'
                 ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
                   // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
-                  // there, short of AA at this size.
+                  // there, short of AA at this size. Both fault states take it:
+                  // "unreachable" and "answering but unusable" differ in cause,
+                  // not in whether the account can transact.
                   'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
                 : guardianStatus === 'online'
                   ? 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
@@ -153,7 +165,7 @@ const GuardianSettings: FC = () => {
             <span
               className={clsx(
                 'h-2 w-2 rounded-full',
-                guardianStatus === 'offline'
+                guardianStatus === 'offline' || guardianStatus === 'unrepairable'
                   ? 'bg-red-500'
                   : guardianStatus === 'online'
                     ? 'bg-green-500'
@@ -163,11 +175,13 @@ const GuardianSettings: FC = () => {
             <span>
               {guardianStatus === 'offline'
                 ? t('guardianOfflineLabel')
-                : guardianStatus === 'online'
-                  ? t('online')
-                  : guardianStatus === 'checking'
-                    ? t('guardianCheckingLabel')
-                    : t('guardianNotConnectedLabel')}
+                : guardianStatus === 'unrepairable'
+                  ? t('guardianNeedsAttentionLabel')
+                  : guardianStatus === 'online'
+                    ? t('online')
+                    : guardianStatus === 'checking'
+                      ? t('guardianCheckingLabel')
+                      : t('guardianNotConnectedLabel')}
             </span>
           </div>
         )}

@@ -440,6 +440,7 @@
   "guardianLocation": "Standort:",
   "guardianOfflineLabel": "Offline",
   "guardianNotConnectedLabel": "Nicht verbunden",
+  "guardianNeedsAttentionLabel": "Erfordert Aufmerksamkeit",
   "guardianCheckingLabel": "Wird geprüft",
   "whatIsAGuardian": "Was ist ein „Guardian“?",
   "guardianInfoDescription": "Ein „Guardian“ ist ein unabhängiger Dienst, der <b>jede Transaktion</b> aus Ihrer Wallet mitunterzeichnet und so ein Sicherheitsnetz bietet, ohne dass Sie die Selbstverwahrung aufgeben müssen.",
