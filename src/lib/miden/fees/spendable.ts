@@ -60,3 +60,28 @@ export function maxSendableNative(
   const reserve = (verificationBaseFee * FEE_RESERVE_MULTIPLE) / 10 ** decimals;
   return Math.max(0, balance - reserve);
 }
+
+/**
+ * Whether claiming a note yields the holder more than it costs to claim.
+ *
+ * Auto-consume runs unattended, so a note worth less than its own fee makes the
+ * balance go DOWN when the wallet collects it. That is also a cheap griefing
+ * vector: one fee buys an attacker a batch of dust notes, each of which costs the
+ * victim a fee to sweep up.
+ *
+ * The floor is exactly the fee -- the only threshold that is arithmetically
+ * provable rather than a judgement call. A note at or below it cannot profit the
+ * holder; a note above it nets something, however little. Anything stricter would
+ * start refusing notes a user might reasonably want, which is a product decision
+ * rather than arithmetic.
+ *
+ * Both arguments are in the asset's smallest unit -- note amounts arrive from the
+ * chain unscaled, so unlike the send cap there is no decimals conversion here.
+ * Fails open on an unknown fee: refusing to claim during startup strands value.
+ */
+export function isWorthClaiming(amount: bigint, verificationBaseFee: number | null): boolean {
+  if (verificationBaseFee === null || verificationBaseFee <= 0) {
+    return true;
+  }
+  return amount > BigInt(verificationBaseFee);
+}

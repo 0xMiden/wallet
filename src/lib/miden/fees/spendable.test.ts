@@ -1,6 +1,6 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 
-import { hasNoFeeAsset, maxSendableNative } from './spendable';
+import { hasNoFeeAsset, isWorthClaiming, maxSendableNative } from './spendable';
 
 const NATIVE = 'mtst1native';
 
@@ -64,5 +64,30 @@ describe('maxSendableNative', () => {
 
   it('never returns a negative amount when the reserve exceeds the balance', () => {
     expect(maxSendableNative(0.1, 10000, DECIMALS)).toBe(0);
+  });
+});
+
+describe('isWorthClaiming', () => {
+  // Unlike the send cap, both sides here are already in base units: a note's
+  // amount comes off the chain unscaled, as does the fee. No decimals conversion.
+  it('rejects a note worth less than the fee to claim it', () => {
+    expect(isWorthClaiming(9999n, 10000)).toBe(false);
+  });
+
+  it('rejects a note worth exactly the fee, which nets the user nothing', () => {
+    expect(isWorthClaiming(10000n, 10000)).toBe(false);
+  });
+
+  it('accepts a note worth more than the fee', () => {
+    expect(isWorthClaiming(10001n, 10000)).toBe(true);
+  });
+
+  it('accepts any note on a chain that charges nothing', () => {
+    expect(isWorthClaiming(1n, 0)).toBe(true);
+  });
+
+  it('accepts any note while the fee is unknown', () => {
+    // Fail open: refusing to claim during startup would strand real value.
+    expect(isWorthClaiming(1n, null)).toBe(true);
   });
 });
