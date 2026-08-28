@@ -927,6 +927,25 @@ describe('applyUserGuardianEndpoint', () => {
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 
+  // The whole point of the tri-state: an operator that did not answer is not an
+  // operator that answered WRONG, and only the second justifies telling the user
+  // their URL is not their guardian. Without this case, collapsing the verdict
+  // back to `'mismatch'` here passed every suite — the banner's own tests mock
+  // this action wholesale, so they cannot see a backend collapse, and the tests
+  // one layer down only pin `verifyEndpointMatchesCommitment` itself.
+  it('reports unreachable as unreachable rather than collapsing it into mismatch', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
+    const vault = makeVault({ publicKey: 'pk' });
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://cold-start')).toBe('unreachable');
+
+    // Unreachable is still not a licence to WRITE: nothing was confirmed.
+    expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+    expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
   it('rejects without calling verify when the account has no on-chain guardian commitment', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue(undefined);
     const vault = makeVault({ publicKey: 'pk' });

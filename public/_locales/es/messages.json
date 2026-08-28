@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "El cambio se envió, pero este dispositivo no pudo confirmar que se ejecutara on-chain. Tus ajustes de Guardian mostrarán el nuevo Guardian en cualquier caso, así que no sirven para confirmarlo: abre esta transacción en Actividad para comprobarlo. Si más adelante se rechaza una transacción por no poder cofirmarse, vuelve a realizar el cambio.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "El cambio se envió, pero este dispositivo no pudo confirmar que se completara en la cadena. La billetera no puede confirmarlo por ti: tanto la configuración de Guardian como la entrada de esta transacción en Actividad mostrarán el nuevo Guardian de cualquier modo. Si más adelante se rechaza una transacción porque no se pudo cofirmar, vuelve a ejecutar el cambio.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Este dispositivo tampoco pudo guardar la dirección del nuevo Guardian, así que sigue mostrando la anterior. La billetera te pedirá que la vuelvas a introducir; esa solicitud no inicia otro cambio.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Una vez confirmado el cambio, las nuevas transacciones necesitarán que tu nuevo Guardian esté accesible para poder completarse.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Una vez que el cambio se confirme on-chain, tu nuevo Guardian cofirmará todas las transacciones y tu antiguo Guardian ya no podrá cofirmar por tu cuenta.",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "No cierres esta ventana hasta que se haya generado la transacción",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Tu transacción se envió, pero este dispositivo no pudo confirmarla en la red.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Tu transacción se ha procesado correctamente y se ha confirmado en la red.",

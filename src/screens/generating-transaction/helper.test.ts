@@ -13,7 +13,8 @@ import {
   getStageTitleKey,
   getStepDurationsMs,
   getTransactionStepState,
-  isDirectGuardianSwitch
+  isDirectGuardianSwitch,
+  isUnconfirmedGuardianSwitch
 } from './helper';
 
 describe('getActiveStepIndex', () => {
@@ -296,5 +297,29 @@ describe('isDirectGuardianSwitch', () => {
         stageTimestamps: { 'signing-proposal': 1 }
       } as never)
     ).toBe(false);
+  });
+});
+
+describe('isUnconfirmedGuardianSwitch', () => {
+  it('is true only for a switch-guardian row whose commit was never confirmed', () => {
+    expect(isUnconfirmedGuardianSwitch(undefined)).toBe(false);
+    expect(
+      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never)
+    ).toBe(true);
+    // A row written before the flag existed, and a row that DID confirm, are
+    // the same answer: nothing to qualify.
+    expect(isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: {} } as never)).toBe(false);
+    expect(
+      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: false } } as never)
+    ).toBe(false);
+    // Strict `=== true`, so a truthy non-boolean from a hand-edited row does
+    // not silently qualify a confirmed rotation.
+    expect(
+      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: 'yes' } } as never)
+    ).toBe(false);
+    // The flag is meaningless on any other type; no other flow sets it.
+    expect(isUnconfirmedGuardianSwitch({ type: 'send', extraInputs: { commitUnconfirmed: true } } as never)).toBe(
+      false
+    );
   });
 });

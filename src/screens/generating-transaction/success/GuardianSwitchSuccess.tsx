@@ -56,14 +56,17 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // receipt is the user's only notice.
   const commitUnconfirmed = extra?.commitUnconfirmed === true;
 
-  // `guardianSwitchSuccessInfo1` states the old guardian can no longer co-sign.
-  // That is precisely INVERTED when the rotation may not have landed, so it is
-  // swapped for a line that describes what the wallet actually knows. The rest
-  // are forward-looking and stay true either way.
+  // Two of the four bullets assert the rotation took effect, and both are
+  // INVERTED when it may not have landed: info1 says the old guardian can no
+  // longer co-sign, and info3 says new transactions need the NEW guardian
+  // reachable — when in fact, if the switch did not land, they still need the
+  // old one, which is the operator this path already found unreachable. Both
+  // are swapped for "once the switch is confirmed" phrasings. info2 (nothing
+  // moved) and info4 (you can rotate again) hold either way.
   const infoKeys = [
     commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1',
     'guardianSwitchSuccessInfo2',
-    'guardianSwitchSuccessInfo3',
+    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3',
     'guardianSwitchSuccessInfo4'
   ] as const;
 
@@ -118,6 +121,17 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
               {commitUnconfirmed
                 ? t('guardianSwitchUnconfirmedBody')
                 : t(endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody')}
+              {/* `commitUnconfirmed` outranks the other two because their bodies
+                  open by asserting the commit. But outranking them dropped the
+                  one INSTRUCTION on this screen: the unsaved-address case needs
+                  the user to re-enter the address, and needs them to know that
+                  prompt is not a second rotation. Without it, a user reading
+                  "run the switch again" above and then seeing the OLD operator
+                  in Settings has been walked into starting one. Appended rather
+                  than substituted, so the unconfirmed framing still leads.
+                  `registerFailed` has no equivalent line: it self-heals from the
+                  sync loop and asks nothing of the user. */}
+              {commitUnconfirmed && endpointNotSaved && <> {t('guardianSwitchUnconfirmedEndpointNotSaved')}</>}
             </>
           }
         />

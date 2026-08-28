@@ -36,7 +36,8 @@ import {
   getStageTitleKey,
   getStepDurationsMs,
   getTransactionStepState,
-  isDirectGuardianSwitch
+  isDirectGuardianSwitch,
+  isUnconfirmedGuardianSwitch
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
@@ -275,6 +276,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // the persisted per-stage timestamps — never from live `stage` observation
   // (a Dexie liveQuery coalesces rapid stage writes, dropping a step's timing).
   const signedLocally = isDirectGuardianSwitch(activeTransaction) || isDirectGuardianSwitch(completedTransaction);
+  // The completed row may be one the pipeline submitted without confirming. The
+  // generic success description asserts the transaction was "confirmed on the
+  // network", which is the single fact that state means the wallet does not
+  // have — and this screen holds it in an announced live region for 1.5s before
+  // the careful receipt replaces it.
+  const commitUnconfirmed =
+    isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
   const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
 
@@ -316,10 +324,10 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       return t('transactionErrorDescription');
     }
     if (transactionComplete) {
-      return t('transactionSuccessDescription');
+      return t(commitUnconfirmed ? 'transactionSubmittedUnconfirmedDescription' : 'transactionSuccessDescription');
     }
     return t(getStageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, t, activeStage]);
+  }, [transactionComplete, hasErrors, t, activeStage, commitUnconfirmed]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {

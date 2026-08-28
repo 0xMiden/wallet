@@ -998,6 +998,42 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     expect(isGuardianSyncOutage(pk)).toBe(false);
   });
 
+  // The module's invariant is "the server ANSWERED, so it is alive, so the
+  // outage stands down", and it is implemented at three sites. Only the 401 one
+  // above was pinned: deleting either of the two below left all 87 tests green,
+  // because the test that looked like it covered the unknown-account arm
+  // asserted `isGuardianSyncOutage(...) === false` on a fixture that never
+  // increments the counter in the first place — false either way. The
+  // regression that misses is a banner telling the user to rotate away from an
+  // operator that is demonstrably up and merely rate-limiting them.
+  it('a 429 proves the server is up — it clears an armed outage', async () => {
+    const pk = 'outage-429';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    sync.mockRejectedValue({ status: 429, meta: {} });
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+  });
+
+  it('an unknown-account verdict proves the server is up — it clears an armed outage', async () => {
+    const pk = 'outage-unknown-account';
+    storeState.accounts = [guardianAccount(pk)] as never;
+    const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+    await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+    expect(isGuardianSyncOutage(pk)).toBe(true);
+
+    sync.mockRejectedValue({ code: 'account_not_found', message: 'no such account' });
+    await runSyncs(1);
+    expect(isGuardianSyncOutage(pk)).toBe(false);
+  });
+
   it('a local (non-server) failure resets the consecutive count so mixed errors never arm it', async () => {
     const pk = 'outage-mixed';
     storeState.accounts = [guardianAccount(pk)] as never;

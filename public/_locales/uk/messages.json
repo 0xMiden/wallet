@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла ончейн. Налаштування Guardian у будь-якому разі покажуть нового Guardian, тож підтвердити це вони не можуть — відкрийте цю транзакцію в розділі «Активність», щоб перевірити. Якщо згодом транзакцію буде відхилено через неможливість співпідпису, виконайте зміну ще раз.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла в мережі. Гаманець не може підтвердити це за вас — і налаштування Guardian, і запис цієї транзакції в Активності в будь-якому разі покажуть нового Guardian. Якщо пізніша транзакція буде відхилена через відсутність співпідпису, виконайте зміну ще раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Цей пристрій також не зміг зберегти адресу нового Guardian, тому досі показує попередню. Гаманець попросить ввести її знову — цей запит не починає нову зміну.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Після підтвердження зміни новим транзакціям знадобиться доступність нового Guardian, щоб вони могли завершитися.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Щойно зміну буде підтверджено ончейн, новий Guardian співпідписуватиме кожну транзакцію, а попередній Guardian більше не зможе підписувати за ваш обліковий запис.",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Не закривайте це вікно, доки транзакція не буде сформована",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Вашу транзакцію надіслано, але цей пристрій не зміг підтвердити її в мережі.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакція була успішно оброблена та підтверджена в мережі.",

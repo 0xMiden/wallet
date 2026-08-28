@@ -703,7 +703,11 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-      displayMessage: 'Guardian switched',
+      // The Activity list renders this string as the row title, so it is a
+      // claim about the chain, not a log line. "Guardian switched" is one the
+      // unconfirmed path cannot make — and the receipt's recovery copy used to
+      // send the user to Activity to check, where this asserted the opposite.
+      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
@@ -742,7 +746,7 @@ export const completeSwitchGuardianTransaction = async (
     // failed) and removes the single-retry coincidence.
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
     const completedPayload = {
-      displayMessage: 'Guardian switched',
+      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
       extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
       ...resultFields

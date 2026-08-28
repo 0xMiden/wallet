@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Der Wechsel wurde übermittelt, aber dieses Gerät konnte nicht bestätigen, dass er on-chain ausgeführt wurde. Deine Guardian-Einstellungen nennen so oder so den neuen Guardian und können das daher nicht bestätigen — öffne diese Transaktion in den Aktivitäten, um es zu prüfen. Wenn eine spätere Transaktion abgelehnt wird, weil sie nicht mitsigniert werden konnte, führe den Wechsel erneut durch.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Der Wechsel wurde übermittelt, aber dieses Gerät konnte nicht bestätigen, dass er on chain wirksam wurde. Die Wallet kann das nicht für Sie bestätigen — Ihre Guardian-Einstellungen und der Aktivitätseintrag dieser Transaktion nennen in beiden Fällen den neuen Guardian. Wenn eine spätere Transaktion abgelehnt wird, weil sie nicht mitsigniert werden konnte, führen Sie den Wechsel erneut aus.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Dieses Gerät konnte außerdem die Adresse des neuen Guardians nicht speichern und zeigt daher weiterhin die vorherige an. Die Wallet wird Sie bitten, sie erneut einzugeben — diese Abfrage startet keinen weiteren Wechsel.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Sobald der Wechsel bestätigt ist, müssen neue Transaktionen Ihren neuen Guardian erreichen können, bevor sie abgeschlossen werden können.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Sobald der Wechsel on-chain bestätigt ist, signiert dein neuer Guardian jede Transaktion mit, und dein alter Guardian kann für dein Konto nicht mehr mitsignieren.",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Schließen Sie dieses Fenster erst, wenn die Transaktion erstellt wurde.",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Ihre Transaktion wurde übermittelt, aber dieses Gerät konnte sie im Netzwerk nicht bestätigen.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Ihre Transaktion wurde erfolgreich verarbeitet und im Netzwerk bestätigt.",

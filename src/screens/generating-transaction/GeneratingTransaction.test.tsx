@@ -587,6 +587,41 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  // `transactionSuccessDescription` reads "successfully processed and CONFIRMED
+  // ON THE NETWORK" — the one fact an unconfirmed rotation means the wallet
+  // never established. This screen holds it in an announced live region for the
+  // 1.5s before the careful receipt mounts, so the receipt's qualification was
+  // being contradicted by the screen the user was already reading.
+  it('does not claim network confirmation for a guardian switch that was only submitted', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={true}
+        activeType="switch-guardian"
+        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never}
+      />
+    );
+    expect(container.textContent).toContain('transactionSubmittedUnconfirmedDescription');
+    expect(container.textContent).not.toContain('transactionSuccessDescription');
+    act(() => root.unmount());
+  });
+
+  it('still claims confirmation for a guardian switch whose commit WAS confirmed', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={true}
+        activeType="switch-guardian"
+        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: false } } as never}
+      />
+    );
+    expect(container.textContent).toContain('transactionSuccessDescription');
+    expect(container.textContent).not.toContain('transactionSubmittedUnconfirmedDescription');
+    act(() => root.unmount());
+  });
+
   it('renders fallback labels when no activeStage', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} />

@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла ончейн. Настройки Guardian в любом случае покажут нового Guardian, поэтому подтвердить это они не могут — откройте эту транзакцию в разделе «Активность», чтобы проверить. Если позже транзакция будет отклонена из-за невозможности совместной подписи, выполните смену ещё раз.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла в сети. Кошелёк не может подтвердить это за вас — и настройки Guardian, и запись этой транзакции в Активности в любом случае покажут нового Guardian. Если следующая транзакция будет отклонена из-за отсутствия соподписи, выполните смену ещё раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Это устройство также не смогло сохранить адрес нового Guardian, поэтому по-прежнему показывает предыдущий. Кошелёк попросит ввести его заново — этот запрос не начинает новую смену.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "После подтверждения смены новым транзакциям потребуется доступность нового Guardian, чтобы они могли завершиться.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "После подтверждения смены ончейн новый Guardian будет совместно подписывать каждую транзакцию, а прежний Guardian больше не сможет подписывать за ваш аккаунт.",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Не закрывайте это окно до тех пор, пока транзакция не будет сгенерирована",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Ваша транзакция отправлена, но это устройство не смогло подтвердить её в сети.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакция была успешно обработана и подтверждена в сети.",

@@ -78,6 +78,18 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
     tx.stage === 'signing-locally' ||
     tx.stageTimestamps?.['signing-locally'] !== undefined);
 
+/**
+ * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that
+ * the rotation committed. The row still completes — it is not a failure, and
+ * there is no honest way to call it one — so every surface that reads
+ * "completed" as "confirmed on chain" has to consult this instead. The receipt
+ * was the first to do so; the in-progress screen and the Activity row title
+ * followed, because a receipt that is careful for 1.5 seconds after two screens
+ * have already certified the opposite is not careful at all.
+ */
+export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boolean =>
+  tx?.type === 'switch-guardian' && tx.extraInputs?.commitUnconfirmed === true;
+
 export const getTransactionStepState = (
   index: number,
   activeStepIndex: number,

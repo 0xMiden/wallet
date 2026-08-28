@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "更换已提交，但此设备无法确认它已在链上生效。无论结果如何，你的 Guardian 设置都会显示新的 Guardian，因此无法用来确认——请在「活动」中打开这笔交易进行核对。如果之后有交易因无法联合签名而被拒绝，请重新执行更换。",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "切换已提交，但本设备无法确认它已在链上生效。钱包无法为你确认——无论结果如何，Guardian 设置和该交易的活动记录都会显示新的 Guardian。如果后续交易因无法联合签名而被拒绝，请重新执行切换。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "本设备也未能保存新 Guardian 的地址，因此仍显示上一个地址。钱包会请你重新输入——该提示不会启动另一次切换。",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "切换确认后，新交易需要能够连接到你的新 Guardian 才能完成。",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "更换在链上确认后，新的 Guardian 将联合签名你的每一笔交易，原先的 Guardian 将无法再为你的账户联合签名。",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "在生成交易之前，请勿关闭此窗口",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "你的交易已提交，但本设备无法在网络上确认它。",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "您的交易已成功处理并在网络上得到确认。",

@@ -2461,8 +2461,16 @@
     "englishSource": "Not confirmed yet."
   },
   "guardianSwitchUnconfirmedBody": {
-    "message": "Değişiklik gönderildi, ancak bu cihaz zincir üzerinde gerçekleştiğini doğrulayamadı. Guardian ayarlarınız her durumda yeni Guardian'ı gösterecektir, bu yüzden doğrulama için kullanılamaz — kontrol etmek için bu işlemi Etkinlik bölümünde açın. Daha sonra bir işlem birlikte imzalanamadığı için reddedilirse değişikliği yeniden yapın.",
-    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+    "message": "Değişiklik gönderildi, ancak bu cihaz zincirde gerçekleştiğini doğrulayamadı. Cüzdan bunu sizin için doğrulayamaz — Guardian ayarlarınız da bu işlemin Etkinlik kaydı da her durumda yeni Guardian'ı gösterecek. Daha sonraki bir işlem ortak imzalanamadığı için reddedilirse değişikliği yeniden çalıştırın.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Bu cihaz yeni Guardian'ın adresini de kaydedemedi, bu yüzden hâlâ öncekini gösteriyor. Cüzdan adresi yeniden girmenizi isteyecek — bu istem yeni bir değişiklik başlatmaz.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Değişiklik onaylandıktan sonra yeni işlemlerin tamamlanabilmesi için yeni Guardian'ınıza erişilebilmesi gerekir.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
   },
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Değişiklik zincir üzerinde onaylandığında yeni Guardian'ınız her işlemi birlikte imzalar ve eski Guardian'ınız hesabınız için artık birlikte imzalayamaz.",
@@ -2787,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "İşlem oluşturulana kadar bu pencereyi kapatmayın",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "İşleminiz gönderildi, ancak bu cihaz ağda doğrulayamadı.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "İşleminiz başarıyla işleme alındı ve ağ üzerinde onaylandı.",

@@ -45,7 +45,13 @@ const SUCCESS_RECEIPT_KEYS = [
   'guardianSwitchSuccessInfo1',
   'guardianSwitchSuccessInfo2',
   'guardianSwitchSuccessInfo3',
-  'guardianSwitchSuccessInfo4'
+  'guardianSwitchSuccessInfo4',
+  // The two bullets the unconfirmed receipt SUBSTITUTES for info1 and info3.
+  // They are the same claims about the same subject, differing only in tense,
+  // so leaving them out of the sweep meant the replacement text was held to a
+  // weaker standard than the text it replaces.
+  'guardianSwitchUnconfirmedInfo1',
+  'guardianSwitchUnconfirmedInfo3'
 ] as const;
 
 // The whole receipt surface, labels included — every string that tells the user
@@ -87,7 +93,17 @@ const CONNECTIVITY_GUARDIAN_KEYS = [
 const GUARDIAN_SETUP_WARNING_KEYS = [
   'guardianSwitchSetupIncompleteTitle',
   'guardianSwitchEndpointNotSavedBody',
-  'guardianSwitchRegistrationPendingBody'
+  'guardianSwitchRegistrationPendingBody',
+  // The unconfirmed variant of the same alert. Omitting these is how the six
+  // strings added in rounds 22-23 reached a release candidate present in
+  // `en.json` and absent from every `messages.json`: the general parity tests
+  // compare each locale against `en/messages.json`, so a key missing from THAT
+  // file is missing from the comparison set as well, and only this list's
+  // explicit per-locale presence check can see it.
+  'guardianSwitchUnconfirmedHeading',
+  'guardianSwitchUnconfirmedTitle',
+  'guardianSwitchUnconfirmedBody',
+  'guardianSwitchUnconfirmedEndpointNotSaved'
 ] as const;
 
 /**

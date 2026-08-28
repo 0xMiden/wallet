@@ -4838,6 +4838,14 @@ describe('generateTransaction — Guardian routing', () => {
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // The reconcile knows the node ACCEPTED the transaction and nothing beyond
+    // that — no commit wait ran here. Asserted on the coordinated entry too,
+    // not just the direct one: with only the direct assertion, narrowing the
+    // literal `true` at the call site to `tookDirectPath` passed the suite and
+    // handed every coordinated apply-after-submit row the full-confidence
+    // receipt again.
+    expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true });
+    expect(row.displayMessage).toBe('Guardian switch submitted');
   });
 
   // A row that already took the DIRECT path must not have its reconcile ask the

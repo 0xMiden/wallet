@@ -30,6 +30,10 @@ jest.mock('react-i18next', () => ({
     t: (key: string) => {
       const map: Record<string, string> = {
         guardianSwitchSuccessTitle: "You've successfully rotated your Guardian!",
+        // Mapped so the heading assertions below compare RENDERED COPY. Left as
+        // bare keys they passed against a component that had reverted to the
+        // success heading, because neither key string reaches the DOM.
+        guardianSwitchUnconfirmedHeading: 'Guardian switch submitted',
         viewInActivities: 'View in Activities',
         done: 'Done',
         unknown: 'Unknown'
@@ -291,11 +295,24 @@ describe('GuardianSwitchSuccess', () => {
 
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedTitle');
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedBody');
-      expect(body()).not.toHaveTextContent('guardianSwitchSuccessTitle');
+      // ON THE TITLE NODE, and against RENDERED COPY. The heading swap is the
+      // headline claim of this fix, and the assertion that used to stand for it
+      // could not fail twice over: it read `body()`, which is the layout's
+      // `children` and never contains `props.title`; and it looked for the raw
+      // key `guardianSwitchSuccessTitle`, which the local `t` map resolves to
+      // English, so the key string is absent from the DOM in every state.
+      // Reverting the component to `t('guardianSwitchSuccessTitle')` passed.
+      expect(screen.getByTestId('title')).toHaveTextContent('Guardian switch submitted');
+      expect(screen.getByTestId('title')).not.toHaveTextContent("You've successfully rotated your Guardian!");
       // Inverted if the rotation did not land: the old guardian would still be
       // the on-chain one, and still able to co-sign.
       expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo1');
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
+      // Same inversion, one bullet down: "new transactions need your NEW
+      // guardian reachable" is false if the switch did not land, where they
+      // still need the old one — the operator this path already found down.
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo3');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedInfo3');
     });
 
     it('outranks the post-commit warnings, whose copy asserts the confirmation it lacks', () => {
@@ -317,6 +334,34 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).toHaveTextContent('guardianSwitchUnconfirmedBody');
       expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
       expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+      // Outranking the unsaved-address body must not swallow its INSTRUCTION.
+      // Suppressing it left the compound state telling the user to re-run the
+      // switch while Settings still named the OLD operator — i.e. walking them
+      // into the second on-chain rotation the suppressed copy exists to
+      // prevent. The short form is appended instead.
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
+    });
+
+    // The appended line is for the COMPOUND state only. On a row that merely
+    // failed to persist the endpoint, the full `guardianSwitchEndpointNotSavedBody`
+    // already says all of this and opens by confirming the commit, which is
+    // accurate there.
+    it('does not append the short unsaved-address line when the commit was confirmed', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              endpointPersistFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchUnconfirmedEndpointNotSaved');
     });
 
     it('leads with the unsaved address when both steps failed', () => {
