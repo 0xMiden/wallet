@@ -230,17 +230,52 @@ async function clearDriftProbeState(accountPublicKey: string): Promise<void> {
   await writeSilentDriftRun(accountPublicKey, undefined);
 }
 
+/**
+ * A repair whose CAS write came back `stale` reasoned from a binding that no
+ * longer exists — a rotation (or another repair) landed during this pass's
+ * probes. The repair is DISCARDED, not retried against the new state it never
+ * looked at; the next tick re-derives everything from a fresh snapshot.
+ *
+ * The probe cooldown armed earlier in this pass is released, deliberately: a
+ * stale-discarded pass established nothing about the NEW binding, and serving
+ * out its cooldown would leave the fresh endpoint unprobed (and any real drift
+ * unrepaired) for up to a full window. Without this, a repair that keeps
+ * losing the race could also keep re-arming its own delay — the "our fix
+ * creates the next wedge" shape rounds 17–20 of the #786 review kept finding.
+ */
+function discardStaleRepair(
+  accountPublicKey: string,
+  account: { guardianSyncStatus?: GuardianSyncStatus }
+): { status: GuardianSyncStatus; changed: boolean } {
+  nextDriftProbeAt.delete(accountPublicKey);
+  console.warn(
+    `[GuardianDrift] discarding a repair for ${accountPublicKey}: the guardian binding changed during the probe`
+  );
+  return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+}
+
 interface GuardianDriftVault {
   getAccount(pk: string): Promise<
     | {
         guardianEndpoint?: string;
         guardianOperatorCommitment?: string;
         guardianSyncStatus?: GuardianSyncStatus;
+        guardianEpoch?: number;
       }
     | undefined
   >;
-  setGuardianEndpoint(pk: string, endpoint: string): Promise<unknown>;
-  setGuardianOperatorCommitment(pk: string, commitment: string): Promise<unknown>;
+  /**
+   * CAS-guarded binding write (`Vault.updateGuardianBinding`). Every repair
+   * this module makes snapshots the account, spends seconds-to-minutes in HTTP
+   * probes, then writes — so each write carries the epoch of the snapshot it
+   * reasoned from, and a rotation landing in between turns the write `stale`
+   * instead of letting it resurrect the pre-rotation operator (F-220).
+   */
+  updateGuardianBinding(
+    pk: string,
+    expectedEpoch: number,
+    patch: { guardianEndpoint?: string; guardianOperatorCommitment?: string }
+  ): Promise<{ outcome: 'applied' | 'stale' }>;
   setGuardianSyncStatus(pk: string, status: GuardianSyncStatus): Promise<unknown>;
 }
 
@@ -303,6 +338,9 @@ export async function resolveGuardianDrift(
 ): Promise<{ status: GuardianSyncStatus; changed: boolean }> {
   const account = await vault.getAccount(accountPublicKey);
   if (!account) return { status: 'in-sync', changed: false };
+  // Everything this pass writes reasons from THIS snapshot; the epoch rides
+  // along so a rotation completing during the probes turns the write stale.
+  const snapshotEpoch = account.guardianEpoch ?? 0;
 
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
@@ -507,22 +545,27 @@ export async function resolveGuardianDrift(
       }
       // A built-in serves the on-chain commitment and it is not the endpoint on
       // the account: the stored endpoint is lying or stale either way, so prefer
-      // the built-in and repair the account to it.
-      if (
-        corroboration.outcome === 'identified' &&
-        !sameGuardianEndpoint(corroboration.operator.endpoint, storedEndpoint)
-      ) {
-        await vault.setGuardianEndpoint(accountPublicKey, corroboration.operator.endpoint);
-      }
-      // Otherwise the stored endpoint stands. Either it IS the built-in that
-      // serves this commitment, or a COMPLETE round of built-ins established
-      // that none does — in which case its self-report is the only evidence in
-      // existence, this is a genuine custom operator, and it is exactly the trust
-      // level `applyUserGuardianEndpoint` already accepts for a URL the user
-      // typed. This is also what keeps a deliberate rotation to a custom operator
-      // from being flagged `needs-user-input` on the very next tick.
+      // the built-in and repair the account to it. Otherwise the stored endpoint
+      // stands: either it IS the built-in that serves this commitment, or a
+      // COMPLETE round of built-ins established that none does — in which case
+      // its self-report is the only evidence in existence, this is a genuine
+      // custom operator, and it is exactly the trust level
+      // `applyUserGuardianEndpoint` already accepts for a URL the user typed.
+      // This is also what keeps a deliberate rotation to a custom operator from
+      // being flagged `needs-user-input` on the very next tick.
+      //
+      // One patch, one epoch check: endpoint (when repairing) and baseline land
+      // atomically, replacing the hand-ordered endpoint-then-baseline sequence.
+      const repairEndpoint =
+        corroboration.outcome === 'identified' && !sameGuardianEndpoint(corroboration.operator.endpoint, storedEndpoint)
+          ? corroboration.operator.endpoint
+          : undefined;
+      const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+        ...(repairEndpoint !== undefined ? { guardianEndpoint: repairEndpoint } : {}),
+        guardianOperatorCommitment: onChain
+      });
+      if (write.outcome === 'stale') return discardStaleRepair(accountPublicKey, account);
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-      await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
       await clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
@@ -569,9 +612,12 @@ export async function resolveGuardianDrift(
   // there is, and an incomplete round establishes nothing at all.
   const lookup = await identifyGuardianOperator(onChain);
   if (lookup.outcome === 'identified') {
-    await vault.setGuardianEndpoint(accountPublicKey, lookup.operator.endpoint);
+    const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+      guardianEndpoint: lookup.operator.endpoint,
+      guardianOperatorCommitment: onChain
+    });
+    if (write.outcome === 'stale') return discardStaleRepair(accountPublicKey, account);
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-    await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
     await clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: true };
   }
@@ -668,15 +714,10 @@ export async function resolveGuardianDrift(
  * one of the built-in providers): the user pastes the operator's URL, and
  * this checks it before ever writing it to the vault.
  *
- * On a match, persists the endpoint + `'in-sync'` status + commitment, in
- * that order — the commitment baseline is written LAST (mirrors
- * `resolveGuardianDrift`'s ordering) so that if the final write fails, the
- * account is left with the correct endpoint/status and a stale commitment,
- * which the next `resolveGuardianDrift` tick idempotently repairs, instead
- * of stuck stranded at `needs-user-input` with a commitment that already
- * matches on-chain. Anything other than `'applied'` persists nothing.
+ * On a match, persists endpoint + commitment in ONE epoch-guarded patch, then
+ * the `'in-sync'` status. Anything other than `'applied'` persists nothing.
  *
- * The outcome is four states rather than a boolean because the banner that
+ * The outcome is five states rather than a boolean because the banner that
  * calls this ACCUSES the user's typed URL on failure, and only ONE of those
  * states is evidence against it. `'mismatch'` means the operator answered and
  * declared a different commitment — that is a real mismatch. `'unreachable'`
@@ -696,6 +737,16 @@ export async function applyUserGuardianEndpoint(
   accountPublicKey: string,
   endpoint: string
 ): Promise<ApplyUserEndpointOutcome> {
+  // Snapshot before the reads this apply reasons from. The URL below is
+  // verified against the on-chain commitment AS OF NOW — if a rotation lands
+  // during the verification round-trip, that evidence describes a guardian the
+  // account no longer has, so the CAS write refuses (`'stale'`) and the banner
+  // asks for one retry against the new state rather than binding a
+  // stale-verified endpoint.
+  const account = await vault.getAccount(accountPublicKey);
+  if (!account) return 'no-onchain-guardian';
+  const snapshotEpoch = account.guardianEpoch ?? 0;
+
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
@@ -705,9 +756,17 @@ export async function applyUserGuardianEndpoint(
   const verdict = await verifyEndpointMatchesCommitment(endpoint, onChain);
   if (verdict !== 'match') return verdict;
 
-  await vault.setGuardianEndpoint(accountPublicKey, endpoint);
+  // Endpoint + baseline in one guarded patch (the old endpoint-first,
+  // baseline-last ordering existed to keep a torn write repairable; the atomic
+  // patch removes the tear). Status stays a separate LWW write: if it fails
+  // after the binding landed, the next drift tick sees baseline == chain with
+  // a blocking status and idempotently repairs it.
+  const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+    guardianEndpoint: endpoint,
+    guardianOperatorCommitment: onChain
+  });
+  if (write.outcome === 'stale') return 'stale';
   await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-  await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
   return 'applied';
 }
 

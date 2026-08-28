@@ -884,6 +884,76 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
       await expect(vault.setGuardianSyncStatus('not-here', 'needs-user-input')).rejects.toThrow(PublicError);
     });
   });
+
+  describe('updateGuardianBinding (the guardian-write CAS)', () => {
+    it('applies an epoch-matched patch atomically and bumps the epoch (absent epoch reads as 0)', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      const write = await vault.updateGuardianBinding('pkA', 0, {
+        guardianEndpoint: 'https://op.example',
+        guardianOperatorCommitment: 'c1'
+      });
+
+      expect(write.outcome).toBe('applied');
+      expect(write.epoch).toBe(1);
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://op.example');
+      expect(pkA?.guardianOperatorCommitment).toBe('c1');
+      expect(pkA?.guardianEpoch).toBe(1);
+    });
+
+    it('refuses a stale-epoch patch without writing anything', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      await vault.updateGuardianBinding('pkA', 0, { guardianEndpoint: 'https://current.example' });
+
+      const write = await vault.updateGuardianBinding('pkA', 0, { guardianEndpoint: 'https://stale.example' });
+
+      expect(write.outcome).toBe('stale');
+      expect(write.epoch).toBe(1);
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://current.example');
+      expect(pkA?.guardianEpoch).toBe(1);
+    });
+
+    it('the F-220 scenario: a repair that snapshotted before a rotation cannot resurrect the old operator', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      // The drift repair snapshots the account (epoch 0) and goes probing.
+      const repairSnapshotEpoch = 0;
+
+      // A rotation completes while the repair's probes are in flight — the
+      // completion path writes through the force-with-bump legacy setter.
+      await vault.setGuardianEndpoint('pkA', 'https://new-guardian.example');
+
+      // The repair now writes what it reasoned from the PRE-rotation snapshot.
+      const write = await vault.updateGuardianBinding('pkA', repairSnapshotEpoch, {
+        guardianEndpoint: 'https://old-guardian.example',
+        guardianOperatorCommitment: 'pre-rotation-baseline'
+      });
+
+      expect(write.outcome).toBe('stale');
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://new-guardian.example');
+      expect(pkA?.guardianOperatorCommitment).toBeUndefined();
+    });
+
+    it('status writes stay last-write-wins and do not consume or bump the epoch', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      await vault.updateGuardianBinding('pkA', 0, { guardianEndpoint: 'https://op.example' });
+
+      await vault.setGuardianSyncStatus('pkA', 'resolving');
+
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEpoch).toBe(1);
+      // A binding write at the still-current epoch remains possible after any
+      // number of status writes — status cannot starve a repair.
+      const write = await vault.updateGuardianBinding('pkA', 1, { guardianOperatorCommitment: 'c2' });
+      expect(write.outcome).toBe('applied');
+    });
+  });
 });
 
 describe('Vault.createHDAccount', () => {

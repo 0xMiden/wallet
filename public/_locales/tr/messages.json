@@ -2592,6 +2592,10 @@
     "message": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "Adres doğrulanırken Guardian'ınız değişti. Lütfen tekrar deneyin.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "guardianUrlMismatch": {
     "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."

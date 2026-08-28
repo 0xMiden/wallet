@@ -204,6 +204,17 @@ async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex
   await encryptAndSaveMany([[accEvmSecretKeyStrgKey(evmAddress.toLowerCase()), privateKeyHex]], vaultKey);
 }
 
+/**
+ * The fields `Vault.updateGuardianBinding` may write in one guarded patch.
+ * Deliberately excludes `guardianSyncStatus`: status is advisory, self-corrects
+ * on the next tick, and stays last-write-wins so healthy loops cannot starve
+ * each other.
+ */
+export type GuardianBindingPatch = {
+  guardianEndpoint?: string;
+  guardianOperatorCommitment?: string;
+};
+
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
 
@@ -1182,47 +1193,84 @@ export class Vault {
   }
 
   /**
-   * Persist a per-account guardian endpoint after a switch-guardian lands, so
-   * runtime endpoint resolution (and the next service init) point at the new
-   * operator. Returns the updated accounts so the caller can broadcast
-   * `accountsUpdated` — without that the Effector snapshot keeps the stale
-   * endpoint and the popup rebuilds a service against the old guardian.
+   * The ONE write path for an account's guardian BINDING (endpoint and/or
+   * commitment baseline), guarded by a per-account epoch.
+   *
+   * Guardian binding writes follow read-snapshot → long HTTP probe →
+   * independent write, with minutes between snapshot and write (drift
+   * reconciliation probes operators; a rotation waits on chain commitment). A
+   * write whose snapshot predates a rotation used to WIN over the rotation —
+   * last-write-wins resurrected the dead operator's endpoint with an in-sync
+   * status (#786 review, F-220). The epoch closes that by construction: every
+   * applied binding write bumps `guardianEpoch`, and a CAS-gated write whose
+   * `expectedEpoch` no longer matches returns `stale` without writing,
+   * regardless of realm, timing or probe duration.
+   *
+   * `expectedEpoch: 'force'` is for the AUTHORITATIVE events — a rotation's
+   * completion, a user-typed endpoint apply through the legacy setters — which
+   * must never lose. They still bump, which is precisely what invalidates
+   * every stale repair in flight.
+   *
+   * The whole patch lands in one `encryptAndSaveMany`, eliminating the torn
+   * endpoint-then-baseline write sequences callers used to order by hand.
+   *
+   * `guardianSyncStatus` is deliberately NOT part of the binding: status is
+   * advisory and self-correcting on the next tick, and gating it (or bumping
+   * on it) would let two healthy loops starve each other's writes.
    */
-  async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
-    return withError('Failed to set guardian endpoint', async () => {
+  async updateGuardianBinding(accountPublicKey: string, expectedEpoch: number | 'force', patch: GuardianBindingPatch) {
+    return withError('Failed to update guardian binding', async () => {
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
       if (!account) {
         throw new PublicError('Account not found');
       }
+      const currentEpoch = account.guardianEpoch ?? 0;
+      if (expectedEpoch !== 'force' && currentEpoch !== expectedEpoch) {
+        const currentAccount = await this.getCurrentAccount();
+        return { outcome: 'stale' as const, epoch: currentEpoch, accounts: allAccounts, currentAccount };
+      }
       const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, guardianEndpoint } : acc
+        acc.publicKey === accountPublicKey ? { ...acc, ...patch, guardianEpoch: currentEpoch + 1 } : acc
       );
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
       const currentAccount = await this.getCurrentAccount();
-      return { accounts: newAllAccounts, currentAccount };
+      return { outcome: 'applied' as const, epoch: currentEpoch + 1, accounts: newAllAccounts, currentAccount };
     });
+  }
+
+  /**
+   * Persist a per-account guardian endpoint after a switch-guardian lands, so
+   * runtime endpoint resolution (and the next service init) point at the new
+   * operator. Returns the updated accounts so the caller can broadcast
+   * `accountsUpdated` — without that the Effector snapshot keeps the stale
+   * endpoint and the popup rebuilds a service against the old guardian.
+   *
+   * Force-with-bump: this setter serves the authoritative writers (rotation
+   * completion, the user-typed endpoint apply), which must never lose to a
+   * concurrent repair — and whose bump is what turns that repair's own write
+   * `stale`. A snapshot-based writer belongs on `updateGuardianBinding` with a
+   * real `expectedEpoch` instead.
+   */
+  async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
+    const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
+      guardianEndpoint
+    });
+    return { accounts, currentAccount };
   }
 
   /**
    * Persist the operator-wide guardian key commitment baseline for an account,
    * used by out-of-band-switch detection to know whether the on-chain guardian
    * signer still matches the account's stored `guardianEndpoint`.
+   *
+   * Force-with-bump, same contract as `setGuardianEndpoint` above.
    */
   async setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
-    return withError('Failed to set guardian operator commitment', async () => {
-      const allAccounts = await this.fetchAccounts();
-      const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
-      if (!account) {
-        throw new PublicError('Account not found');
-      }
-      const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, guardianOperatorCommitment } : acc
-      );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
-      const currentAccount = await this.getCurrentAccount();
-      return { accounts: newAllAccounts, currentAccount };
+    const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
+      guardianOperatorCommitment
     });
+    return { accounts, currentAccount };
   }
 
   /**
@@ -1475,11 +1523,19 @@ export class Vault {
           const operator = operatorMap.get(normalizeHex(onChainCommitment));
           if (!operator) continue;
 
-          // Endpoint first, commitment baseline last (mirrors resolveGuardianDrift):
-          // if the second write fails the account still has the correct endpoint,
-          // and resolveGuardianDrift idempotently re-affirms the baseline later.
-          await this.setGuardianEndpoint(acc.publicKey, operator.endpoint);
-          await this.setGuardianOperatorCommitment(acc.publicKey, onChainCommitment);
+          // One epoch-guarded patch: endpoint + baseline land atomically, and
+          // the CAS covers the minutes this loop's probes may have taken. The
+          // epoch was snapshotted before this pass's operator round; a rotation
+          // (or drift repair) landing meanwhile turns this stamp `stale` and the
+          // account simply retries next unlock — the same designed failure mode
+          // as every other skip in this loop.
+          const stamp = await this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
+            guardianEndpoint: operator.endpoint,
+            guardianOperatorCommitment: onChainCommitment
+          });
+          if (stamp.outcome === 'stale') {
+            console.warn('[Vault.backfillGuardianEndpoints] binding changed mid-backfill; skipping:', acc.publicKey);
+          }
         } catch (e) {
           console.warn('[Vault.backfillGuardianEndpoints] skipped one account (non-fatal):', acc.publicKey, e);
         }

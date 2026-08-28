@@ -52,12 +52,31 @@ const identified = (endpoint: string) => ({ outcome: 'identified', operator: { i
 const noBuiltInServesIt = { outcome: 'none' };
 const corroborationUnavailable = { outcome: 'unavailable' };
 
-const makeVault = (acc: Record<string, unknown> | undefined) => ({
-  getAccount: jest.fn(async () => acc),
-  setGuardianEndpoint: jest.fn(),
-  setGuardianOperatorCommitment: jest.fn(),
-  setGuardianSyncStatus: jest.fn()
-});
+const makeVault = (acc: Record<string, unknown> | undefined) => {
+  const vault = {
+    getAccount: jest.fn(async () => acc),
+    // Legacy per-field spies, kept so the existing assertions stay expressive;
+    // the production port writes through `updateGuardianBinding`, whose default
+    // mock fans the patch out to them and reports `applied`. A test that wants
+    // the CAS to refuse overrides `updateGuardianBinding` directly.
+    setGuardianEndpoint: jest.fn(),
+    setGuardianOperatorCommitment: jest.fn(),
+    setGuardianSyncStatus: jest.fn(),
+    updateGuardianBinding: jest.fn(
+      async (
+        pk: string,
+        _epoch: number,
+        patch: { guardianEndpoint?: string; guardianOperatorCommitment?: string }
+      ): Promise<{ outcome: 'applied' | 'stale' }> => {
+        if (patch.guardianEndpoint !== undefined) await vault.setGuardianEndpoint(pk, patch.guardianEndpoint);
+        if (patch.guardianOperatorCommitment !== undefined)
+          await vault.setGuardianOperatorCommitment(pk, patch.guardianOperatorCommitment);
+        return { outcome: 'applied' };
+      }
+    )
+  };
+  return vault;
+};
 
 /** Attaches recording implementations so write order can be asserted. */
 const trackWriteOrder = (vault: ReturnType<typeof makeVault>) => {
@@ -124,7 +143,7 @@ it('auto-resolves to the matching built-in operator on drift', async () => {
   expect(vault.setGuardianSyncStatus).not.toHaveBeenCalledWith('pk', 'resolving');
 });
 
-it('writes the commitment baseline LAST — after status is finalized to in-sync — so a failed last write self-heals instead of sticking at resolving', async () => {
+it('lands endpoint and baseline as one binding patch BEFORE the status write, so a failed status write self-heals on the next tick', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
   (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
@@ -132,7 +151,7 @@ it('writes the commitment baseline LAST — after status is finalized to in-sync
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
-  expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
+  expect(order).toEqual(['endpoint', 'commitment', 'status:in-sync']);
 });
 
 it('self-heals a stranded account (commitment already advanced to on-chain, but status stuck at resolving) back to in-sync', async () => {
@@ -225,7 +244,7 @@ it('affirms in-sync when the STORED endpoint matches on-chain and no built-in cl
   // + baseline are written, commitment LAST (mirroring the other branches).
   expect(identifyGuardianOperator).toHaveBeenCalledWith('customC');
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
-  expect(order).toEqual(['status:in-sync', 'commitment']);
+  expect(order).toEqual(['commitment', 'status:in-sync']);
 });
 
 // `GET /pubkey` is unauthenticated, so a stored endpoint can simply ASSERT the
@@ -249,7 +268,7 @@ it('prefers a built-in operator over a stored endpoint that self-certifies with 
   expect(identifyGuardianOperator).toHaveBeenCalledWith('newC');
   expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://real.guardian');
   expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'newC');
-  expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
+  expect(order).toEqual(['endpoint', 'commitment', 'status:in-sync']);
 });
 
 // Every built-in probe swallows its own failure, so a round where none of them
@@ -360,7 +379,7 @@ it('treats a stored endpoint differing from the built-in only in trailing slash 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
-  expect(order).toEqual(['status:in-sync', 'commitment']);
+  expect(order).toEqual(['commitment', 'status:in-sync']);
 });
 
 it('still flags needs-user-input when the stored endpoint does NOT match on-chain (genuine out-of-band switch)', async () => {
@@ -904,7 +923,7 @@ describe('applyUserGuardianEndpoint', () => {
     expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
   });
 
-  it('writes the commitment baseline LAST — after status is finalized to in-sync — matching resolveGuardianDrift ordering', async () => {
+  it('lands endpoint and baseline as one binding patch BEFORE the status write, matching resolveGuardianDrift', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
     (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
@@ -912,7 +931,7 @@ describe('applyUserGuardianEndpoint', () => {
 
     expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('applied');
 
-    expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
+    expect(order).toEqual(['endpoint', 'commitment', 'status:in-sync']);
   });
 
   it('rejects a user URL that does not match on-chain', async () => {
@@ -1116,5 +1135,45 @@ describe('the endpoint the account is actually bound to', () => {
     // Immediately after — no fake-timer advance — the retry must actually probe.
     expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
     expect(checkEndpointCommitment).toHaveBeenCalledWith('https://per-account.example', 'newC');
+  });
+});
+
+describe('CAS-stale repairs (the F-220 guard at the reconciler level)', () => {
+  it('discards an identified repair whose binding write comes back stale, leaving status untouched', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianSyncStatus: 'in-sync' });
+    vault.updateGuardianBinding.mockResolvedValue({ outcome: 'stale' as const });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+
+    // The repair is dropped whole: no status write may survive a binding the
+    // pass never looked at.
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  it('releases the probe cooldown on a stale outcome, so the next tick re-derives instead of waiting a window', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianSyncStatus: 'in-sync' });
+    vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' as const });
+
+    await resolveGuardianDrift(vault as never, 'pk');
+    // Immediately after — no fake-timer advance — the retry must re-probe and,
+    // with the CAS now applying, complete the repair the stale pass discarded.
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+    expect(identifyGuardianOperator).toHaveBeenCalledTimes(2);
+    expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
+  });
+
+  it("applyUserGuardianEndpoint returns 'stale' and writes no status when the binding changed under it", async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
+    vault.updateGuardianBinding.mockResolvedValue({ outcome: 'stale' as const });
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('stale');
+
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 });

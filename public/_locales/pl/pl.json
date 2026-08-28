@@ -571,6 +571,7 @@
   "guardianChangedBody": "Twój adres guardian został zmieniony i nie udało nam się zidentyfikować nowego operatora. Wpisz jego adres URL, aby ponownie nawiązać połączenie.",
   "guardianUrlUnreachable": "Nie udało się połączyć z tym operatorem. Sprawdź adres URL i połączenie, a następnie spróbuj ponownie.",
   "guardianUrlNoOnChainGuardian": "To konto nie ma jeszcze Guardiana on-chain, względem którego można by to zweryfikować.",
+  "guardianUrlStaleRetry": "Twój Guardian zmienił się podczas sprawdzania adresu. Spróbuj ponownie.",
   "guardianUrlMismatch": "Ten operator nie odpowiada adresowi guardian w łańcuchu bloków Twojego konta.",
   "connectivityGuardianTitle": "Guardian niedostępne",
   "connectivityGuardianBody": "Twój portfel guardian nie odpowiada, więc transakcje nie mogą zostać współpodpisane.",

@@ -52,7 +52,8 @@ const mockVault = {
   importAccountFromPrivateKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
-  setGuardianSyncStatus: jest.fn()
+  setGuardianSyncStatus: jest.fn(),
+  updateGuardianBinding: jest.fn()
 };
 
 // Mock store callbacks
@@ -523,23 +524,31 @@ describe('actions', () => {
       ];
       mockVault.fetchAccounts.mockResolvedValue(accounts);
       mockVault.getCurrentAccount.mockResolvedValue(undefined);
-      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
-      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        epoch: 1,
+        accounts,
+        currentAccount: undefined
+      });
       mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
 
       resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
         const account = await driftVault.getAccount(pk);
         expect(account).toEqual(accounts[0]);
-        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
-        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.updateGuardianBinding(pk, 0, {
+          guardianEndpoint: 'https://new-operator',
+          guardianOperatorCommitment: 'newC'
+        });
         await driftVault.setGuardianSyncStatus(pk, 'in-sync');
         return { status: 'in-sync', changed: true };
       });
 
       await checkGuardianDrift('pk1');
 
-      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
-      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 0, {
+        guardianEndpoint: 'https://new-operator',
+        guardianOperatorCommitment: 'newC'
+      });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
 
@@ -591,23 +600,31 @@ describe('actions', () => {
       const accounts = [{ publicKey: 'pk1', guardianOperatorCommitment: 'abc' }];
       mockVault.fetchAccounts.mockResolvedValue(accounts);
       mockVault.getCurrentAccount.mockResolvedValue(undefined);
-      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
-      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        epoch: 1,
+        accounts,
+        currentAccount: undefined
+      });
       mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
 
       applyVerified.mockImplementationOnce(async (driftVault: any, pk: string) => {
         const account = await driftVault.getAccount(pk);
         expect(account).toEqual(accounts[0]);
-        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
-        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.updateGuardianBinding(pk, 0, {
+          guardianEndpoint: 'https://new-operator',
+          guardianOperatorCommitment: 'newC'
+        });
         await driftVault.setGuardianSyncStatus(pk, 'in-sync');
         return true;
       });
 
       await applyUserGuardianEndpoint('pk1', 'https://new-operator');
 
-      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
-      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 0, {
+        guardianEndpoint: 'https://new-operator',
+        guardianOperatorCommitment: 'newC'
+      });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
   });

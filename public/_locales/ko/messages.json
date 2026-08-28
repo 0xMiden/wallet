@@ -2592,6 +2592,10 @@
     "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "주소를 확인하는 동안 Guardian이 변경되었습니다. 다시 시도해 주세요.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "guardianUrlMismatch": {
     "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."

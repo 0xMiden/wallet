@@ -571,6 +571,7 @@
   "guardianChangedBody": "您的 guardian 已更换，且我们无法识别新运营商。请输入其 URL 以重新连接。",
   "guardianUrlUnreachable": "无法连接该运营方。请检查网址和网络连接后重试。",
   "guardianUrlNoOnChainGuardian": "此账户尚未设置可用于核对的链上 Guardian。",
+  "guardianUrlStaleRetry": "在核对地址时,您的 Guardian 已发生变化。请重试。",
   "guardianUrlMismatch": "该操作者与您账户的链上guardian不匹配。",
   "connectivityGuardianTitle": "Guardian 无法访问",
   "connectivityGuardianBody": "您的 guardian 未响应，因此无法对交易进行联署。",

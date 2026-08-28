@@ -571,6 +571,7 @@
   "guardianChangedBody": "guardianが切り替わりましたが、新しい運営者を特定できませんでした。再接続するには、そのURLを入力してください。",
   "guardianUrlUnreachable": "その事業者に接続できませんでした。URL と接続状況を確認してから、もう一度お試しください。",
   "guardianUrlNoOnChainGuardian": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
+  "guardianUrlStaleRetry": "アドレスの確認中にGuardianが変更されました。もう一度お試しください。",
   "guardianUrlMismatch": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
   "connectivityGuardianTitle": "Guardian アクセス不可",
   "connectivityGuardianBody": "guardianが応答していないため、取引の共同署名を行うことができません。",

@@ -571,6 +571,7 @@
   "guardianChangedBody": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
   "guardianUrlUnreachable": "Bu operatöre ulaşılamadı. URL'yi ve bağlantınızı kontrol edip tekrar deneyin.",
   "guardianUrlNoOnChainGuardian": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
+  "guardianUrlStaleRetry": "Adres doğrulanırken Guardian'ınız değişti. Lütfen tekrar deneyin.",
   "guardianUrlMismatch": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
   "connectivityGuardianTitle": "Guardian erişilemez",
   "connectivityGuardianBody": "guardian'ınız yanıt vermiyor, bu nedenle işlemler ortak imzalanamıyor.",

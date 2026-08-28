@@ -2592,6 +2592,10 @@
     "message": "此账户尚未设置可用于核对的链上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "在核对地址时,您的 Guardian 已发生变化。请重试。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "guardianUrlMismatch": {
     "message": "该操作者与您账户的链上guardian不匹配。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."

@@ -2592,6 +2592,10 @@
     "message": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "アドレスの確認中にGuardianが変更されました。もう一度お試しください。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "guardianUrlMismatch": {
     "message": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."

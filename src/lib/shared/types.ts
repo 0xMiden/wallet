@@ -467,6 +467,14 @@ export interface WalletAccount {
    * baseline for out-of-band-switch detection. Absent on non-Guardian accounts.
    */
   guardianOperatorCommitment?: string;
+  /**
+   * Version of the guardian BINDING (endpoint + commitment baseline), bumped
+   * by every applied binding write (`Vault.updateGuardianBinding`). A writer
+   * that snapshotted the account before a rotation carries a dead epoch and
+   * its write returns `stale` instead of resurrecting the old operator.
+   * Absent means 0 — pre-epoch records need no migration write.
+   */
+  guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */
   guardianSyncStatus?: GuardianSyncStatus;
   /**
@@ -833,7 +841,7 @@ export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
  * `'unreachable'` (no answer, or an answer carrying no commitment) is a fact
  * about the network, not about the URL.
  */
-export type ApplyUserEndpointOutcome = 'applied' | 'mismatch' | 'unreachable' | 'no-onchain-guardian';
+export type ApplyUserEndpointOutcome = 'applied' | 'mismatch' | 'unreachable' | 'no-onchain-guardian' | 'stale';
 
 export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.ApplyUserGuardianEndpointResponse;

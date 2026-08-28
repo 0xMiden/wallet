@@ -571,6 +571,7 @@
   "guardianChangedBody": "Tu guardian ha cambiado y no hemos podido identificar al nuevo operador. Introduce su URL para volver a conectarte.",
   "guardianUrlUnreachable": "No se pudo contactar con ese operador. Comprueba la URL y tu conexión e inténtalo de nuevo.",
   "guardianUrlNoOnChainGuardian": "Esta cuenta todavía no tiene un Guardian on-chain con el que verificar.",
+  "guardianUrlStaleRetry": "Tu Guardian cambió mientras se comprobaba la dirección. Inténtalo de nuevo.",
   "guardianUrlMismatch": "Ese operador no coincide con el «guardian» en cadena de tu cuenta.",
   "connectivityGuardianTitle": "Guardian inaccesible",
   "connectivityGuardianBody": "Tu «guardian» no responde, por lo que las transacciones no pueden ser cofirmadas.",

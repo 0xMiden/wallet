@@ -2592,6 +2592,10 @@
     "message": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "Ihr Guardian hat sich geändert, während die Adresse geprüft wurde. Bitte versuchen Sie es erneut.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "guardianUrlMismatch": {
     "message": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."

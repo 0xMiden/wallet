@@ -571,6 +571,7 @@
   "guardianChangedBody": "guardian가 변경되었으며, 새로운 운영자를 확인할 수 없었습니다. URL을 입력하여 다시 연결하십시오.",
   "guardianUrlUnreachable": "해당 운영자에 연결할 수 없습니다. URL과 네트워크 연결을 확인한 후 다시 시도하세요.",
   "guardianUrlNoOnChainGuardian": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
+  "guardianUrlStaleRetry": "주소를 확인하는 동안 Guardian이 변경되었습니다. 다시 시도해 주세요.",
   "guardianUrlMismatch": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
   "connectivityGuardianTitle": "Guardian 접근 불가",
   "connectivityGuardianBody": "guardian가 응답하지 않아 거래를 공동 서명할 수 없습니다.",

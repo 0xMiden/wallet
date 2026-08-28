@@ -571,6 +571,7 @@
   "guardianChangedBody": "您的 guardian 已變更，且我們無法識別新營運商。請輸入其網址以重新連線。",
   "guardianUrlUnreachable": "無法連線至該營運方。請檢查網址與網路連線後再試一次。",
   "guardianUrlNoOnChainGuardian": "此帳戶尚未設定可用於核對的鏈上 Guardian。",
+  "guardianUrlStaleRetry": "在核對地址時,您的 Guardian 已發生變化。請重試。",
   "guardianUrlMismatch": "該操作者與您帳戶的鏈上guardian不符。",
   "connectivityGuardianTitle": "Guardian 無法連線",
   "connectivityGuardianBody": "您的 guardian 目前無法回應，因此無法進行交易共同簽署。",

@@ -21,7 +21,7 @@ import {
   accountsUpdated,
   currentAccountUpdated
 } from 'lib/miden/back/store';
-import { Vault } from 'lib/miden/back/vault';
+import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
@@ -445,10 +445,8 @@ export function startGuardianRecovery(accountPublicKey: string) {
 function queuedDriftVaultAdapter(vault: Vault) {
   return {
     getAccount: async (pk: string) => (await vault.fetchAccounts()).find(acc => acc.publicKey === pk),
-    setGuardianEndpoint: (pk: string, endpoint: string) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianEndpoint(pk, endpoint)),
-    setGuardianOperatorCommitment: (pk: string, commitment: string) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianOperatorCommitment(pk, commitment)),
+    updateGuardianBinding: (pk: string, expectedEpoch: number, patch: GuardianBindingPatch) =>
+      getAccountsWriteQueue().add(() => vault.updateGuardianBinding(pk, expectedEpoch, patch)),
     setGuardianSyncStatus: (pk: string, status: GuardianSyncStatus) =>
       getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status))
   };

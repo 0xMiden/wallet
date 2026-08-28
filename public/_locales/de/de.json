@@ -571,6 +571,7 @@
   "guardianChangedBody": "Ihr „guardian“ wurde gewechselt, und wir konnten den neuen Betreiber nicht identifizieren. Geben Sie dessen URL ein, um die Verbindung wiederherzustellen.",
   "guardianUrlUnreachable": "Dieser Betreiber war nicht erreichbar. Prüfe die URL und deine Verbindung und versuche es erneut.",
   "guardianUrlNoOnChainGuardian": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
+  "guardianUrlStaleRetry": "Ihr Guardian hat sich geändert, während die Adresse geprüft wurde. Bitte versuchen Sie es erneut.",
   "guardianUrlMismatch": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
   "connectivityGuardianTitle": "Guardian nicht erreichbar",
   "connectivityGuardianBody": "Ihr „guardian“ reagiert nicht, daher können Transaktionen nicht mitunterzeichnet werden.",

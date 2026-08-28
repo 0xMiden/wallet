@@ -571,6 +571,7 @@
   "guardianChangedBody": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
   "guardianUrlUnreachable": "Couldn't reach that operator. Check the URL and your connection, then try again.",
   "guardianUrlNoOnChainGuardian": "This account has no on-chain guardian to verify against yet.",
+  "guardianUrlStaleRetry": "Your Guardian changed while the address was being checked. Please try again.",
   "guardianUrlMismatch": "That operator doesn't match your account's on-chain guardian.",
   "connectivityGuardianTitle": "Guardian unreachable",
   "connectivityGuardianBody": "Your guardian isn't responding, so transactions can't be co-signed.",

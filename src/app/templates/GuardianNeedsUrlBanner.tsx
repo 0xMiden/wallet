@@ -68,6 +68,12 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
         setError(t('guardianUrlUnreachable'));
       } else if (outcome === 'no-onchain-guardian') {
         setError(t('guardianUrlNoOnChainGuardian'));
+      } else if (outcome === 'stale') {
+        // The account's guardian binding changed while the URL was being
+        // verified (a rotation landed, or drift repaired it first). Nothing is
+        // wrong with what the user typed — the evidence just describes a
+        // guardian the account no longer has, so ask for one retry.
+        setError(t('guardianUrlStaleRetry'));
       }
     } catch (e) {
       // Shape-based, then localized — same reasoning as RotateGuardianReview's
