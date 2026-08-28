@@ -2452,6 +2452,22 @@
     "message": "当前有哪些变化",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "已提交 Guardian 更换",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "尚未确认。",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "更换已提交，但此设备无法确认它已在链上生效。无论结果如何，你的 Guardian 设置都会显示新的 Guardian，因此无法用来确认——请在「活动」中打开这笔交易进行核对。如果之后有交易因无法联合签名而被拒绝，请重新执行更换。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "更换在链上确认后，新的 Guardian 将联合签名你的每一笔交易，原先的 Guardian 将无法再为你的账户联合签名。",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
   "guardianSwitchSetupIncompleteTitle": {
     "message": "设置未完成。",
     "englishSource": "Setup unfinished."
@@ -2547,6 +2563,14 @@
   "guardianChangedBody": {
     "message": "您的 guardian 已更换，且我们无法识别新运营商。请输入其 URL 以重新连接。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlUnreachable": {
+    "message": "无法连接该运营方。请检查网址和网络连接后重试。",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "此账户尚未设置可用于核对的链上 Guardian。",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlMismatch": {
     "message": "该操作者与您账户的链上guardian不匹配。",

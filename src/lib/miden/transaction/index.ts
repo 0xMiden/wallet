@@ -800,7 +800,14 @@ async function reconcileStructuralApplyFailure(
       console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
     }
   }
-  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
+  // `commitUnconfirmed: true`, unconditionally. This reconcile is reached from
+  // `isApplyAfterSubmitError`, i.e. the submit SUCCEEDED and the local apply then
+  // failed — which establishes that the node accepted the transaction, and
+  // nothing more. No commit wait ran here and `didDirectSwitchLand` was never
+  // called, so this path has strictly LESS evidence of a commit than the direct
+  // path's `landed === undefined` case that the flag was introduced for.
+  // Defaulting it to false let this exit render the full-confidence receipt.
+  await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider, true);
 }
 
 /**

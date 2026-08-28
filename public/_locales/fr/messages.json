@@ -2452,6 +2452,22 @@
     "message": "Quels sont les changements actuels ?",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Changement de Guardian envoyé",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Pas encore confirmé.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Le changement a été envoyé, mais cet appareil n'a pas pu confirmer son exécution on-chain. Vos paramètres Guardian indiqueront le nouveau Guardian dans tous les cas et ne peuvent donc pas le confirmer — ouvrez cette transaction dans Activité pour vérifier. Si une transaction ultérieure est refusée faute de cosignature, relancez le changement.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Une fois le changement confirmé on-chain, votre nouveau Guardian cosigne chaque transaction et votre ancien Guardian ne peut plus cosigner pour votre compte.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
   "guardianSwitchSetupIncompleteTitle": {
     "message": "Configuration incomplète.",
     "englishSource": "Setup unfinished."
@@ -2547,6 +2563,14 @@
   "guardianChangedBody": {
     "message": "Votre guardian a été modifié et nous n’avons pas pu identifier le nouvel opérateur. Saisissez son URL pour vous reconnecter.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlUnreachable": {
+    "message": "Impossible de joindre cet opérateur. Vérifiez l'URL et votre connexion, puis réessayez.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Ce compte n'a pas encore de Guardian on-chain permettant la vérification.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlMismatch": {
     "message": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",

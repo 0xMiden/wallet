@@ -4911,6 +4911,11 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // This exit is reached from an apply-after-submit failure: the node accepted
+    // the transaction and nothing here ever waited for, or asked about, a commit.
+    // That is LESS evidence than the direct path's `landed === undefined` case,
+    // so the receipt must not render the full-confidence copy.
+    expect((row.extraInputs as Record<string, unknown>).commitUnconfirmed).toBe(true);
   });
 
   it('cancels the tx when the structural apply-failure reconcile itself throws', async () => {

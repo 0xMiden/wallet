@@ -2452,6 +2452,22 @@
     "message": "Що змінилося зараз",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Зміну Guardian надіслано",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Ще не підтверджено.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Зміну надіслано, але цей пристрій не зміг підтвердити, що вона пройшла ончейн. Налаштування Guardian у будь-якому разі покажуть нового Guardian, тож підтвердити це вони не можуть — відкрийте цю транзакцію в розділі «Активність», щоб перевірити. Якщо згодом транзакцію буде відхилено через неможливість співпідпису, виконайте зміну ще раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Щойно зміну буде підтверджено ончейн, новий Guardian співпідписуватиме кожну транзакцію, а попередній Guardian більше не зможе підписувати за ваш обліковий запис.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
   "guardianSwitchSetupIncompleteTitle": {
     "message": "Налаштування не завершено.",
     "englishSource": "Setup unfinished."
@@ -2547,6 +2563,14 @@
   "guardianChangedBody": {
     "message": "Ваш сервер guardian був замінений, і нам не вдалося ідентифікувати нового оператора. Введіть його URL-адресу, щоб відновити з’єднання.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlUnreachable": {
+    "message": "Не вдалося зв'язатися з цим оператором. Перевірте URL-адресу та з'єднання, а потім спробуйте ще раз.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Цей обліковий запис ще не має ончейн-Guardian, з яким можна звірити адресу.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlMismatch": {
     "message": "Цей оператор не збігається з ланцюговим ідентифікатором вашого облікового запису (guardian).",

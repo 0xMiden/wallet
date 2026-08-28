@@ -567,10 +567,19 @@ export const completeSwitchGuardianTransaction = async (
   // so registration on the new guardian runs standalone instead.
   multisigService: MultisigService | undefined,
   guardianProvider: GuardianAccountProvider,
-  // True when the direct path submitted but could never establish that the
-  // rotation committed (`didDirectSwitchLand` answered `undefined`). Recorded on
-  // the row so the receipt can decline to claim a confirmation the code never
-  // obtained. Absent on every coordinated path, where the commit IS confirmed.
+  // True when the caller submitted but could never establish that the rotation
+  // COMMITTED. Recorded on the row so the receipt can decline to claim a
+  // confirmation the code never obtained.
+  //
+  // Two callers pass it: the direct path when `didDirectSwitchLand` answers
+  // `undefined`, and `reconcileStructuralApplyFailure` always — an
+  // apply-after-submit failure proves the node accepted the transaction and
+  // nothing beyond that.
+  //
+  // The default is `false` for the paths that WAITED for the commit and got it.
+  // That is a claim about the commit wait, not about which path called: do not
+  // read this default as "coordinated means confirmed" and add a caller without
+  // checking which of the two it is.
   commitUnconfirmed = false
 ) => {
   // Read the WASM-backed result fields ONCE, up front, before anything that can

@@ -2452,6 +2452,22 @@
     "message": "What changes now",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Guardian switch submitted",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Not confirmed yet.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
   "guardianSwitchSetupIncompleteTitle": {
     "message": "Setup unfinished.",
     "englishSource": "Setup unfinished."
@@ -2547,6 +2563,14 @@
   "guardianChangedBody": {
     "message": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlUnreachable": {
+    "message": "Couldn't reach that operator. Check the URL and your connection, then try again.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "This account has no on-chain guardian to verify against yet.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlMismatch": {
     "message": "That operator doesn't match your account's on-chain guardian.",

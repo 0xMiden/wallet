@@ -2452,6 +2452,22 @@
     "message": "Şu anda neler değişiyor",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Guardian değişikliği gönderildi",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Henüz onaylanmadı.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Değişiklik gönderildi, ancak bu cihaz zincir üzerinde gerçekleştiğini doğrulayamadı. Guardian ayarlarınız her durumda yeni Guardian'ı gösterecektir, bu yüzden doğrulama için kullanılamaz — kontrol etmek için bu işlemi Etkinlik bölümünde açın. Daha sonra bir işlem birlikte imzalanamadığı için reddedilirse değişikliği yeniden yapın.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Your Guardian settings will name the new Guardian either way, so they can't confirm it for you — open this transaction in Activity to check. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Değişiklik zincir üzerinde onaylandığında yeni Guardian'ınız her işlemi birlikte imzalar ve eski Guardian'ınız hesabınız için artık birlikte imzalayamaz.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
   "guardianSwitchSetupIncompleteTitle": {
     "message": "Kurulum tamamlanmadı.",
     "englishSource": "Setup unfinished."
@@ -2547,6 +2563,14 @@
   "guardianChangedBody": {
     "message": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
+  },
+  "guardianUrlUnreachable": {
+    "message": "Bu operatöre ulaşılamadı. URL'yi ve bağlantınızı kontrol edip tekrar deneyin.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlMismatch": {
     "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",

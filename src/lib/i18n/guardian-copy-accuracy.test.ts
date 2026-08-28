@@ -697,6 +697,23 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     expect(body).toMatch(/won'?t start another switch/i);
   });
 
+  it('does not offer a Guardian-settings check that cannot detect an unconfirmed switch', () => {
+    // Sibling rule to the one above, and a sharper trap. Completion persists the
+    // new endpoint FIRST and unconditionally (`complete.ts`), Settings renders
+    // the name from exactly that stored value, and drift short-circuits on a
+    // baseline that still matches on chain — so Settings names the new Guardian
+    // and the pill reads Online whether or not the rotation actually landed.
+    // "Check Settings; if it still shows the previous Guardian, retry" therefore
+    // instructs a check that CONFIRMS THE WRONG ANSWER, on the one screen that
+    // exists to warn about that exact silent failure.
+    const body = message('guardianSwitchUnconfirmedBody');
+    expect(body).not.toMatch(/if it still shows/i);
+    expect(body).not.toMatch(/check settings/i);
+    // It has to leave the user something they can actually act on.
+    expect(body).toMatch(/activity|explorer/i);
+    expect(body).toMatch(/run the switch again|try again/i);
+  });
+
   it('does not claim the old Guardian has no role at all after a direct switch', () => {
     // The direct-switch path never contacts the outgoing operator, so the
     // wallet has no way to know whether it retains state from before the
