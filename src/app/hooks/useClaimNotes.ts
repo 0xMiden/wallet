@@ -10,6 +10,7 @@ import {
   verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -45,6 +46,7 @@ export interface ClaimNotesState {
  */
 export function useClaimNotes(): ClaimNotesState {
   const account = useAccount();
+  const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
@@ -304,7 +306,17 @@ export function useClaimNotes(): ClaimNotesState {
           }
         }
 
-        for (const groupNotes of byFaucet.values()) {
+        // Native-asset group FIRST. The fee is withdrawn from this account's own vault,
+        // and a consume credits that vault before `pay_fee` takes from it -- so claiming
+        // the native note funds the groups that follow. Attempt a non-native group first
+        // on an empty vault and it fails on the fee, with a native note sitting unclaimed
+        // that would have paid for it. Map order is note-arrival order, so before this the
+        // outcome depended on which note happened to land first.
+        const orderedGroups = [...byFaucet.entries()]
+          .sort(([a], [b]) => Number(b === nativeFaucetId) - Number(a === nativeFaucetId))
+          .map(([, groupNotes]) => groupNotes);
+        
+        for (const groupNotes of orderedGroups) {
           const groupNoteIds = groupNotes.map(n => n.id);
           try {
             // User tapped Claim All — bypass the auto-consume backoff gate so

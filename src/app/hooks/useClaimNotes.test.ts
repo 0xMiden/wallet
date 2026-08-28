@@ -11,6 +11,7 @@ const mockGetFailedTransactions = jest.fn();
 const mockGetInputNoteDetails = jest.fn();
 const mockInitiateConsume = jest.fn();
 
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-miden' }));
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
   initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
@@ -175,6 +176,30 @@ describe('useClaimNotes failed-note check (#456)', () => {
   // single (faucetId, amount) pair derived from the FIRST input note, so a
   // mixed-faucet batch recorded only the first asset and dropped the rest from
   // history entirely. One transaction per faucet keeps each row honest.
+  it('claims the native-asset group first so the vault can pay the other fees', async () => {
+    // The fee comes out of the account's own vault. A non-native group attempted
+    // first on an empty vault fails, even though a MIDEN note is sitting right there
+    // that would have funded it -- and which group ran first was decided by note
+    // arrival order, so this failed intermittently rather than always.
+    const notes = [note('n-usdc', 'faucet-usdc'), note('n-miden', 'faucet-miden')];
+    mockUseClaimableNotes.mockReturnValue({
+      data: notes,
+      mutate: jest.fn().mockResolvedValue(notes)
+    });
+    mockInitiateConsume.mockResolvedValueOnce('tx-miden').mockResolvedValueOnce('tx-usdc');
+  
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+  
+    await act(async () => {
+      await result.current.handleClaimAll();
+    });
+  
+    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
+    expect(queuedNoteIds(0)).toEqual(['n-miden']);
+    expect(queuedNoteIds(1)).toEqual(['n-usdc']);
+  });
+  
   it("queues one consume transaction per faucet, grouping that faucet's notes together", async () => {
     const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc'), note('n-miden-2', 'faucet-miden')];
     mockUseClaimableNotes.mockReturnValue({
