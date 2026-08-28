@@ -1157,8 +1157,17 @@ export const updateBridgeClaimStatus = async (
  * the raw flags (the guardian claim fence).
  */
 export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
-  const rows = await Repo.transactions.where({ accountId }).toArray();
-  return rows.filter((row): row is SwitchGuardianTransaction => rotationVerdict(row)?.kind === 'submitted-unconfirmed');
+  // Filtered during the cursor walk rather than after a `toArray()`. The index
+  // is on `accountId` alone — neither `type` nor `status` is indexed, so every
+  // row of the account's history is visited either way — but materializing them
+  // all first also RETAINED each one, including the binary `requestBytes` /
+  // `resultBytes` payloads, for a result that is almost always empty. On a 3 s
+  // loop that is the difference between touching the history and keeping it.
+  const rows = await Repo.transactions
+    .where({ accountId })
+    .filter(row => rotationVerdict(row)?.kind === 'submitted-unconfirmed')
+    .toArray();
+  return rows.filter((row): row is SwitchGuardianTransaction => row.type === 'switch-guardian');
 };
 
 /**

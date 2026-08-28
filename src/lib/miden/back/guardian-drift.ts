@@ -789,6 +789,77 @@ export async function applyUserGuardianEndpoint(
   return 'applied';
 }
 
+export type RevertDiscardedEndpointOutcome = 'reverted' | 'superseded' | 'stale';
+
+/**
+ * Point an account back at its previous operator after the node DISCARDED the
+ * rotation that moved it — the other half of demoting the row, since completion
+ * persisted the new endpoint before it knew the commit was unconfirmed.
+ *
+ * The evidence for this rollback is a row that may have been listed thirty
+ * minutes and fifteen node reads ago, so the binding it names can legitimately
+ * have moved on in the meantime. Writing it unconditionally re-creates, from the
+ * repair path, exactly the silently-unusable account the repair exists to
+ * prevent — so the rollback has to earn the write three times over:
+ *
+ *  1. the account must still name the rotation's own target. Compared with
+ *     `sameGuardianEndpoint`, not `===`: drift canonicalizes spellings, so the
+ *     row's original URL and the stored one can be the same operator written two
+ *     ways, and a literal comparison would refuse a rollback the account needs.
+ *  2. THE CHAIN MUST AGREE THE BINDING IS UNAUTHORIZED. A URL is not a rotation
+ *     id: a user whose switch appeared not to work can simply rotate to the SAME
+ *     operator again, and if that retry commits, the account is correctly bound
+ *     to an endpoint that still equals `discardedEndpoint`. Condition 1 cannot
+ *     tell that apart from the stranded case, and neither can the epoch — the
+ *     retry's write is already in the past by the time this reads. What
+ *     distinguishes them is the only authority there is: whether the bound
+ *     endpoint answers for the account's on-chain guardian commitment. `'match'`
+ *     means some rotation to this operator did land, whichever row it belonged
+ *     to, and there is nothing to roll back.
+ *  3. the epoch read must survive to the write (the CAS), which is what a
+ *     concurrent force-writer's bump invalidates.
+ *
+ * NOT looking is never grounds to write: an unreachable operator or an unread
+ * commitment returns `'stale'`, which leaves the row pending for the next pass.
+ * That is the same fail-closed rule the hot-signer guard and
+ * `applyUserGuardianEndpoint` already follow — a guard over write authority
+ * cannot treat "I could not tell" as permission.
+ *
+ * `'superseded'` means the rollback is unnecessary and the caller should finish
+ * settling its row; `'stale'` means try again. They are NOT interchangeable.
+ */
+export async function revertGuardianEndpointAfterDiscard(
+  vault: GuardianDriftVault,
+  accountPublicKey: string,
+  discardedEndpoint: string,
+  revertTo: string
+): Promise<RevertDiscardedEndpointOutcome> {
+  const account = await vault.getAccount(accountPublicKey);
+  // Gone or moved under the rollback — nothing here to roll back.
+  if (!account) return 'superseded';
+  if (!account.guardianEndpoint || !sameGuardianEndpoint(account.guardianEndpoint, discardedEndpoint)) {
+    return 'superseded';
+  }
+
+  const onChain = await withWasmClientLock(async () => {
+    const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
+  });
+  // An account with no on-chain guardian at all cannot have authorized the bound
+  // endpoint either — but it also cannot corroborate the rollback target, and a
+  // read that came back empty is as likely to be a cold local client as a real
+  // absence. Leave it pending rather than rebinding on no evidence.
+  if (!onChain) return 'stale';
+  const authority = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
+  if (authority === 'match') return 'superseded';
+  if (authority !== 'mismatch') return 'stale';
+
+  const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
+    guardianEndpoint: revertTo
+  });
+  return write.outcome === 'applied' ? 'reverted' : 'stale';
+}
+
 function normalizedEqual(a: string, b: string): boolean {
   const n = (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase();
   return n(a) === n(b);

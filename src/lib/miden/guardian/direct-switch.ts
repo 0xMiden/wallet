@@ -613,11 +613,21 @@ export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
  * disabled the repair for the session. The invariant is positional, not
  * per-site: no request has been sent yet, so nothing thrown here can be
  * evidence about the operator. `cause` keeps the original for the log.
+ *
+ * ONE EXCEPTION, and it is not about the operator either. A poison error says
+ * the realm's WASM client was taken away mid-call — a fact the CALLER has to act
+ * on, because its next step is another hold on a client somebody else now owns.
+ * Rewrapping it as a preflight error tells that caller the opposite of what it
+ * needs: "refused before contacting the operator, refund and carry on". The
+ * refund is right; carrying on is not, and the wrapper is what erased the
+ * difference. Kill classifiers read this class by name (`isWasmClientPoisoned-
+ * Error`), so it has to survive the rethrow intact.
  */
 const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
   try {
     return await operation();
   } catch (error) {
+    if (isWasmClientPoisonedError(error)) throw error;
     if (isGuardianRegistrationPreflightError(error)) throw error;
     const detail = error instanceof Error ? error.message : String(error);
     throw new GuardianRegistrationPreflightError(`Could not prepare the guardian registration: ${detail}`, {
@@ -655,8 +665,16 @@ export const finalizeDirectGuardianSwitch = async (
 
   const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, guardianCommitment } =
     await asPreflight(() =>
-      withWasmClientLock(async () => {
+      withWasmClientLock(async hold => {
         await midenClientProxy.syncState();
+        // Same parking-await rule as `readDirectSwitchCommitState`, and this is
+        // the more dangerous of the two: an eviction during the sync releases the
+        // mutex, and the reads below would then serialize an account handle out
+        // of a client a successor already owns — a blob this function POSTs to
+        // the operator as the account's authoritative state and its new signer
+        // allowlist. The self-heal reaches here from the 3 s loop, so it is a
+        // scheduled exposure, not a once-per-rotation one.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the state sync');
         const account = await midenClientProxy.getAccount(walletAccount.publicKey);
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);

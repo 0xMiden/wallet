@@ -6,7 +6,8 @@ import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'l
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
-  resolveGuardianDrift
+  resolveGuardianDrift,
+  revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery } from 'lib/miden/back/guardian-recovery';
 import {
@@ -391,50 +392,35 @@ export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: 
 
 /**
  * Point an account back at its previous operator after the node DISCARDED the
- * rotation that moved it — the other half of demoting the row, since completion
- * persisted the new endpoint before it knew the commit was unconfirmed.
+ * rotation that moved it. The guards live in `guardian-drift.ts` next to the
+ * other write that verifies an endpoint against the chain before binding it;
+ * this wrapper only supplies the queued vault adapter and broadcasts the result.
  *
- * Not `setGuardianEndpoint`. That setter is `force`, for the authoritative
- * writers that must never lose; this is the opposite kind of write. Its evidence
- * is a row that may have been listed thirty minutes and fifteen node reads ago,
- * and in that window the binding can legitimately have moved on — a second
- * rotation that DID commit, or a user-typed endpoint the banner applied. Forcing
- * a stale rollback over either one re-creates, from the repair path, exactly the
- * silently-unusable account the repair exists to prevent.
+ * Deliberately NOT `setGuardianEndpoint`, which is `force` — for the
+ * authoritative writers that must never lose. This is the opposite kind of
+ * write: its evidence is up to half an hour old and everything it touches may
+ * have moved since.
  *
- * So the write is doubly conditional, and both conditions are checked in the
- * SAME queued task as the write:
- *  - the account must still name `discardedEndpoint`, the target of the rotation
- *    being rolled back. If it names anything else, something authoritative moved
- *    it and this rollback is no longer about the current binding;
- *  - the epoch read here must survive to the write (the CAS), which is what the
- *    force-writers' bump invalidates.
- * `'superseded'` and `'stale'` are both success for the caller: the rollback is
- * unnecessary, not failed.
+ * Broadcast only on `'reverted'`, like `checkGuardianDrift`: the other two
+ * outcomes wrote nothing, and this runs off a 3 s loop.
  */
 export function revertGuardianEndpointAfterDiscard(
   accountPublicKey: string,
   discardedEndpoint: string,
   revertTo: string
 ) {
-  return withUnlocked(({ vault }) =>
-    getAccountsWriteQueue().add(async (): Promise<'reverted' | 'superseded' | 'stale'> => {
-      const accounts = await vault.fetchAccounts();
-      const account = accounts.find(acc => acc.publicKey === accountPublicKey);
-      if (!account) return 'superseded';
-      if (account.guardianEndpoint !== discardedEndpoint) return 'superseded';
-      const {
-        outcome,
-        accounts: updated,
-        currentAccount
-      } = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
-        guardianEndpoint: revertTo
-      });
-      if (outcome !== 'applied') return 'stale';
-      accountsUpdated({ accounts: updated, currentAccount });
-      return 'reverted';
-    })
-  );
+  return withUnlocked(async ({ vault }) => {
+    const outcome = await revertDiscardedGuardianEndpoint(
+      queuedDriftVaultAdapter(vault),
+      accountPublicKey,
+      discardedEndpoint,
+      revertTo
+    );
+    if (outcome === 'reverted') {
+      accountsUpdated({ accounts: await vault.fetchAccounts(), currentAccount: await vault.getCurrentAccount() });
+    }
+    return outcome;
+  });
 }
 
 export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {

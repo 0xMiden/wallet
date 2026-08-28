@@ -407,6 +407,27 @@ function retirePendingRotationPrompts(accountPublicKey: string): boolean {
   return retired;
 }
 
+/**
+ * Retire this account's row prompts whose rows are no longer pending.
+ *
+ * The recheck retires a prompt when it settles that row itself, and retires all
+ * of an account's prompts when nothing is pending at all — but a row can also
+ * leave the list by a route neither branch sees (deleted, settled by another
+ * realm, migrated). With a sibling row keeping the list non-empty, such an entry
+ * is unreachable by both, and `isGuardianUnrepairable` scans by VALUE, so one
+ * orphan holds the whole account unrepairable for the realm's lifetime.
+ */
+function prunePendingRotationPrompts(accountPublicKey: string, liveRowIds: ReadonlySet<string>): boolean {
+  let pruned = false;
+  for (const [rowId, owner] of pendingRotationExhaustedOwner) {
+    if (owner === accountPublicKey && !liveRowIds.has(rowId)) {
+      pendingRotationExhaustedOwner.delete(rowId);
+      pruned = true;
+    }
+  }
+  return pruned;
+}
+
 function markGuardianUnrepairable(accountPublicKey: string, reason: string): void {
   if (unrepairableAccounts.has(accountPublicKey)) return;
   console.warn(
@@ -611,9 +632,25 @@ export function __resetGuardianSyncOutageForTest(): void {
  * Timer-driven WASM hold discipline (#777): bounded at the sync ceiling,
  * labeled, gated on and reporting into its own sync-fuse key.
  */
-async function runPendingRotationRecheck(account: WalletAccount): Promise<string | undefined> {
+/**
+ * What the rest of the pass needs to know from the recheck.
+ *
+ * Three separate facts, not one return value with three readings: `pendingRowId`
+ * is evidence for the shadow classifier, `evicted` decides whether this pass may
+ * take another WASM hold at all, and `bindingChanged` says the endpoint the pass
+ * resolved before calling here is now wrong.
+ */
+type PendingRotationRecheckResult = {
+  pendingRowId?: string;
+  evicted: boolean;
+  bindingChanged: boolean;
+};
+
+const NO_RECHECK_RESULT: PendingRotationRecheckResult = { evicted: false, bindingChanged: false };
+
+async function runPendingRotationRecheck(account: WalletAccount): Promise<PendingRotationRecheckResult> {
   try {
-    if (isSyncFused('pending-rotation-recheck')) return undefined;
+    if (isSyncFused('pending-rotation-recheck')) return NO_RECHECK_RESULT;
     const { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } = await import('lib/miden/transaction');
     const rows = await listUnconfirmedSwitchRows(account.publicKey);
     if (rows.length === 0) {
@@ -623,8 +660,14 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
       // would otherwise sit in the ledger for the realm's lifetime.
       pendingRotationRecheckLedger.clearForAccount(account.publicKey);
       if (retirePendingRotationPrompts(account.publicKey)) notifyOutageListeners();
-      return undefined;
+      return NO_RECHECK_RESULT;
     }
+    // A prompt whose row has left the unconfirmed list by any route other than
+    // this loop settling it — deleted, resolved elsewhere, migrated away — would
+    // otherwise hold the whole account unrepairable forever, since the only
+    // other retirement is the empty-list branch above and there is a sibling row
+    // keeping the list non-empty.
+    if (prunePendingRotationPrompts(account.publicKey, new Set(rows.map(row => row.id)))) notifyOutageListeners();
     // Rows still awaiting an answer when this pass ends. Only one of these may
     // be reported as the account's pending rotation.
     const unsettled: string[] = [];
@@ -633,6 +676,13 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
     // whole loop, not any single row within it.
     let probeSucceeded = false;
     let probeEvicted = false;
+    // Reported to the CALLER, not just used here. Breaking this row loop only
+    // stops the recheck's own holds; the account loop goes on to take several
+    // more (drift, the guardian round trip) against the same abandoned client.
+    let evicted = false;
+    // A rollback landed, so the endpoint this pass resolved before calling us is
+    // no longer what the account names.
+    let bindingChanged = false;
     for (const row of rows) {
       // `rowId`, not `guardianKey`: the budget is spent per durable INTENT, and
       // the node read below is keyed on the on-chain hash, which is a different
@@ -684,9 +734,17 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
         // inside one probe. The success is booked once, after the loop.
         probeSucceeded = true;
       } catch (recheckError) {
-        const evicted = isSyncWatchdogEviction(recheckError);
-        if (evicted) {
-          probeEvicted = true;
+        // TWO DIFFERENT QUESTIONS, and conflating them left the narrower answer
+        // driving the wider decision. The FUSE only wants watchdog evictions —
+        // its subject is a parked node, and a WASM trap says nothing about one.
+        // The BREAK wants any poison at all, because what makes continuing
+        // unsafe is that the mutex is already a successor's, which is equally
+        // true of a trap eviction. Classifying the break with the watchdog-only
+        // predicate meant a trap fell through to `continue` and the next row
+        // took a fresh hold on somebody else's client — the exact double borrow
+        // the break exists to prevent.
+        const poisoned = isWasmClientPoisonedError(recheckError);
+        if (isSyncWatchdogEviction(recheckError)) {
           noteSyncWatchdogEviction('pending-rotation-recheck');
         } else {
           noteNonEvictionSyncFailure('pending-rotation-recheck');
@@ -699,7 +757,11 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
         // successor. Taking a fresh hold for the next row would be a second
         // borrow of a client somebody else is inside, so the whole pass stops
         // here and the next tick starts from a clean client.
-        if (evicted) break;
+        if (poisoned) {
+          probeEvicted = true;
+          evicted = true;
+          break;
+        }
         continue;
       }
       if (state !== 'committed' && state !== 'discarded') {
@@ -740,6 +802,7 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
             );
             if (outcome === 'reverted') {
               clearGuardianServiceFor(account.publicKey);
+              bindingChanged = true;
               console.warn(
                 `[Guardian Sync] pointed ${account.publicKey} back at ${revertTo} after the node discarded ` +
                   `its guardian switch`
@@ -783,15 +846,24 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
     // shadow classifier tells it a rotation is outstanding after the chain
     // answered — the same "fact that is not a fact" that made two hardcoded
     // budgets bias the divergence tally the trigger flip reads.
-    return unsettled[0];
+    return { pendingRowId: unsettled[0], evicted, bindingChanged };
   } catch (e) {
     // Best-effort: the recheck must never break the sync loop.
     console.warn(`[Guardian Sync] pending-rotation recheck failed for ${account.publicKey} (non-fatal):`, e);
+    // A poison error can reach here too — from the Dexie import, the row list,
+    // or anything else on this path that ran under an abandoned client. The
+    // caller has to hear about it for the same reason the inner break exists.
+    return { evicted: isWasmClientPoisonedError(e), bindingChanged: false };
   }
-  return undefined;
 }
 
-async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
+/**
+ * True when the realm's WASM client was evicted under this attempt, so the
+ * caller must stop taking holds for the rest of the pass. Every other outcome —
+ * refused, registered, failed — is `false`: they are all reasons to move on to
+ * the next account, not to abandon the pass.
+ */
+async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<boolean> {
   // A pointer we could not READ gets the same refusal as no pointer at all, and
   // for the stronger of the two reasons: this function POSTs the device's
   // serialized private account state, so the one thing it must never do is
@@ -807,9 +879,9 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       `[GuardianSync] could not read the guardian pointer for ${account.publicKey}; skipping self-heal`,
       error
     );
-    return;
+    return false;
   }
-  if (!endpoint) return;
+  if (!endpoint) return false;
 
   // Read once and decide everything from that one snapshot: the budget key, both
   // guards, and (via `finalizeDirectGuardianSwitch`, which re-syncs and re-reads
@@ -834,7 +906,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       })
     };
   });
-  if (!snapshot) return;
+  if (!snapshot) return false;
 
   const onChainGuardian = snapshot.guardian;
   const healSubject = {
@@ -853,7 +925,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     if (missingRegistrationLedger.budgetSpent(healSubject)) {
       markGuardianUnrepairable(account.publicKey, 'the operator holds no record of the account');
     }
-    return;
+    return false;
   }
 
   // Open the attempt BEFORE the guards — `begin` stamps the clock without
@@ -902,14 +974,14 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
         `commitment on ${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so ` +
         `this device cannot show it is still the account's signer.`
     );
-    return;
+    return false;
   }
   if (!sameCommitment(localHot, onChainHot.commitment)) {
     console.warn(
       `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: this device's hot key is no longer ` +
         `the account's on-chain signer (it was rotated to another device).`
     );
-    return;
+    return false;
   }
 
   // STOP unless the local state DESCRIBES a rotation to this operator.
@@ -934,7 +1006,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: the local account names no guardian key, ` +
         `so there is nothing to check the operator against.`
     );
-    return;
+    return false;
   }
   const endpointHoldsGuardianKey = await checkEndpointCommitment(endpoint, onChainGuardian);
   if (endpointHoldsGuardianKey !== 'match') {
@@ -943,7 +1015,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
         `guardian key this device's account state names (${endpointHoldsGuardianKey}), so that state may predate ` +
         `a rotation another device performed.`
     );
-    return;
+    return false;
   }
 
   // Charged before the await: an attempt that throws — or that is torn down
@@ -964,6 +1036,20 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
     );
   } catch (e) {
+    if (isWasmClientPoisonedError(e)) {
+      // CHARGED, not refunded: an eviction abandons the call, it does not cancel
+      // it, so the `/configure` this attempt was preparing may still be in flight
+      // and may still land. Refunding would let the next tick prepare a second
+      // one. Reported to the caller so the pass stops taking holds — the
+      // abandoned call is still inside a client the mutex has already handed on.
+      attempt.settle('charged');
+      console.warn(
+        `[Guardian Sync] the WASM client was evicted while registering ${account.publicKey} on ${endpoint} — ` +
+          `the attempt is abandoned, not cancelled, so it counts:`,
+        e
+      );
+      return true;
+    }
     if (isGuardianRegistrationPreflightError(e)) {
       // Give the attempt back. This failure happened before any `/configure`,
       // so the reason to count it — that the write may have landed — does not
@@ -977,7 +1063,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
           `not be read completely enough to authorize the operator (no attempt spent):`,
         e
       );
-      return;
+      return false;
     }
     attempt.settle('charged');
     console.warn(
@@ -986,6 +1072,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       e
     );
   }
+  return false;
 }
 
 /**
@@ -1324,7 +1411,21 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // operator returning 429s silenced the one probe that can settle a pending
     // rotation — the same mistake as putting it behind the fuse. It carries its
     // own fuse key and its own per-row budget.
-    const pendingRotationRow = await runPendingRotationRecheck(account);
+    const recheck = await runPendingRotationRecheck(account);
+    // Same rule as the drift arm below, and for the same reason: an eviction
+    // hands the mutex to a successor while the abandoned call is still inside
+    // WASM, so every hold this pass would take next — drift's account read, the
+    // guardian round trip, the self-heal snapshot — is a second borrow. Breaking
+    // only the recheck's own row loop left all of those still to come.
+    if (recheck.evicted) break;
+    // The rollback just repointed the account, so `endpoint` above (and the
+    // stamp taken from it) name the operator we just rolled AWAY from. Syncing
+    // against it would spend a round trip on the wrong host, book the fuse under
+    // the wrong key, and leave `syncedGuardianEndpoint` recording a value that
+    // makes the next tick report a spurious operator change. Nothing else in
+    // this pass is urgent; the next tick resolves the new endpoint cleanly.
+    if (recheck.bindingChanged) continue;
+    const pendingRotationRow = recheck.pendingRowId;
 
     // Serve the guardian's own cooldown before anything else: a rate-limited
     // account has nothing to gain from another request, and every one we skip is
@@ -1378,9 +1479,15 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // all, so the tally could not observe the states it was counting and read
     // low by construction.
     {
+      // Re-read rather than reuse the pass-start snapshot. Two writers have run
+      // since it was taken — the recheck's endpoint rollback and drift's apply,
+      // both of which move `guardianSyncStatus` — so classifying the snapshot
+      // counts divergences against facts the vault no longer holds. An in-memory
+      // store read (`useWalletStore.getState().accounts`), so this costs nothing.
+      const current = (await zustandProvider.getAccounts()).find(acc => acc.publicKey === account.publicKey) ?? account;
       const shadowRoute = classifyGuardianRecovery({
-        syncStatus: account.guardianSyncStatus,
-        hasHotKey: Boolean(account.hotPublicKey),
+        syncStatus: current.guardianSyncStatus,
+        hasHotKey: Boolean(current.hotPublicKey),
         outage: isGuardianSyncOutage(account.publicKey),
         unrepairable: isGuardianUnrepairable(account.publicKey),
         // The row the recheck above already listed — no second Dexie read, and
@@ -1558,7 +1665,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         const unknownVerdicts = (consecutiveUnknownAccount.get(account.publicKey) ?? 0) + 1;
         consecutiveUnknownAccount.set(account.publicKey, unknownVerdicts);
         if (unknownVerdicts >= MISSING_REGISTRATION_PERSISTENCE_THRESHOLD) {
-          await attemptMissingRegistrationSelfHeal(account);
+          // Same stop rule as the recheck and drift arms: an eviction under the
+          // self-heal leaves its call abandoned inside a client the mutex has
+          // already handed to a successor, so the pass takes no further holds.
+          if (await attemptMissingRegistrationSelfHeal(account)) break;
         }
       } else {
         // Non-auth error — don't accumulate auth-failure count.

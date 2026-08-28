@@ -20,50 +20,94 @@
 
 import fs from 'fs';
 import path from 'path';
+import ts from 'typescript';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 
 /**
- * Every way a fenced field can be READ, not just the two that were obvious.
+ * Every way a fenced field can be READ, found on the SYNTAX TREE rather than by
+ * pattern-matching the text.
  *
- *  - `.flag` — also matches `?.flag` (the optional chain still ends in `.flag`).
- *  - `['flag']` — bracket access, with optional whitespace inside the brackets.
- *  - `{ flag }` / `{ flag: alias }` / `{ flag = default }` — DESTRUCTURING, which
- *    the first version of this fence missed entirely. That was not a theoretical
- *    hole: `const { commitUnconfirmed } = tx.extraInputs ?? {}` is one keystroke
- *    from the form that WAS caught, and `complete.ts` already destructures
- *    `tx.extraInputs` inside the function that writes these very flags. A fence
- *    that catches `a.b` and not `const { b } = a` does not close the class.
- *  - `({ flag }) => …` — a destructured PARAMETER, which is the same read one
- *    call frame earlier and ends in `})` rather than `} =`. Matched only in
- *    arrow-parameter position, not on a bare `})`, so an object literal passed
- *    as an argument (`update(id, { commitUnconfirmed: true })` — a write, and
- *    the writers are not what this fence governs) stays out of it.
+ * The first two versions of this fence were regexes, and both leaked. The first
+ * missed destructuring entirely; the second, widened for it, still missed a
+ * destructured parameter on a `function` declaration (`{…}` followed by `)` and
+ * a return type, not by `=` or `=>`), a nested destructure (`const {extraInputs:
+ * {commitUnconfirmed}} = tx` — the inner `[^{}]*` cannot cross a brace pair),
+ * and a presence test (`'commitUnconfirmed' in extra`), which is precisely the
+ * F-222 shape this fence's docstring names. Each hole was invisible to
+ * inspection and each was one ordinary keystroke away from a form that WAS
+ * caught: `function name({…})` is the dominant declaration style in the very UI
+ * files being fenced.
  *
- * A regex scan can always be defeated by enough indirection (a variable-held
- * property name, `Reflect.get`, a helper returning the whole `extraInputs`).
- * The bar is the forms a person writes without trying to evade the fence.
+ * None of those are expressible as regex holes to patch — one needs recursive
+ * brace matching, another needs to know that a `}` is a parameter's rather than
+ * an object literal's. The tree knows both for free, so the matcher asks it:
+ *
+ *  - `PropertyAccessExpression` — `x.flag`, `x?.flag`, and a write `x.flag = v`
+ *    (the writers are allowlisted by file, not by syntax).
+ *  - `ElementAccessExpression` with a string-literal argument — `x['flag']`.
+ *  - `BindingElement` — EVERY destructure, at any depth and in any position:
+ *    declaration, parameter (arrow, `function`, method), catch, `for…of`. A
+ *    rename reads the source name (`propertyName`), a shorthand reads its own.
+ *  - `'flag' in x` and `Object.hasOwn(x, 'flag')` — a presence test is a read of
+ *    the field's absence, which is exactly the evidence F-222 misused.
+ *
+ * A `PropertyAssignment` in an object literal (`{ commitUnconfirmed: true }`) is
+ * a WRITE and is deliberately not a `BindingElement`, so it stays out with no
+ * special case — the arrow-parameter regex needed one and got it wrong.
+ *
+ * Indirection can still defeat this (a variable-held property name,
+ * `Reflect.get`, a helper that returns the whole `extraInputs`). The bar is the
+ * forms a person writes without trying to evade the fence.
  */
-const fieldRead = (names: string[]): RegExp => {
-  const alt = names.join('|');
-  return new RegExp(
-    // dot / optional-chain access
-    `[.](${alt})\\b` +
-      // bracket access with a string literal
-      `|\\[\\s*['"\`](${alt})['"\`]\\s*\\]` +
-      // destructuring binding `{ ... name ... } =` (including rename/default),
-      // or a destructured arrow parameter `({ ... name ... }) =>`, optionally
-      // type-annotated on either side
-      `|\\{[^{}]*\\b(${alt})\\b[^{}]*\\}\\s*(?:=(?!=)|(?::[^)=]+)?\\)\\s*(?::[^=]+)?=>)`,
-    'g'
-  );
-};
-
 const FLAG_NAMES = ['commitUnconfirmed', 'registerFailed', 'endpointPersistFailed'];
 const SYNC_STATUS_NAMES = ['guardianSyncStatus'];
 
-const FLAG_READ = fieldRead(FLAG_NAMES);
-const SYNC_STATUS_READ = fieldRead(SYNC_STATUS_NAMES);
+type FieldSet = readonly string[];
+
+const literalText = (node: ts.Node): string | undefined => (ts.isStringLiteralLike(node) ? node.text : undefined);
+
+const hasOwnCallee = (expression: ts.Expression): boolean => {
+  const text = expression.getText();
+  return text.endsWith('hasOwn') || text.endsWith('hasOwnProperty');
+};
+
+/** Every fenced-field read in one file, as the source text that produced it. */
+const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
+  const fenced = new Set(names);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && fenced.has(node.name.getText())) {
+      found.push(node.getText());
+    } else if (ts.isElementAccessExpression(node)) {
+      const key = literalText(node.argumentExpression);
+      if (key !== undefined && fenced.has(key)) found.push(node.getText());
+    } else if (ts.isBindingElement(node)) {
+      // A rename (`{ flag: alias }`) reads `propertyName`; a shorthand
+      // (`{ flag }`) reads its own `name`. Both are reads of the field.
+      const read = node.propertyName ?? node.name;
+      if (ts.isIdentifier(read) && fenced.has(read.text)) found.push(node.getText());
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.InKeyword &&
+      fenced.has(literalText(node.left) ?? '')
+    ) {
+      found.push(node.getText());
+    } else if (
+      ts.isCallExpression(node) &&
+      hasOwnCallee(node.expression) &&
+      node.arguments.some(arg => fenced.has(literalText(arg) ?? ''))
+    ) {
+      found.push(node.getText());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+};
+
+const parse = (code: string, fileName = 'probe.tsx'): ts.SourceFile =>
+  ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
 /**
  * The complete allowed-reader sets. Writers and plumbing that transports the
@@ -104,47 +148,41 @@ const sourceFiles = (dir: string): string[] =>
       : [];
   });
 
-/**
- * Strip comments so prose ABOUT a field (of which the guardian modules have
- * plenty) does not count as a read. Naive string handling is fine here: the
- * fenced identifiers never appear inside string literals in ways that matter,
- * and a false positive fails loudly for a human to look at.
- */
-const stripComments = (source: string): string =>
-  source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^[ \t]*\/\/.*$/gm, '')
-    .replace(/([^:'"])\/\/[^\n]*/g, '$1');
-
-const matchCount = (code: string, pattern: RegExp): number => [...stripComments(code).matchAll(pattern)].length;
+const matchCount = (code: string, names: FieldSet): number => fieldReads(parse(code), names).length;
 
 describe('guardian claim fence', () => {
   const files = sourceFiles(path.join(ROOT, 'src'));
+  // Parse once, ask twice. Both fenced sets walk the same 600+ files.
+  const parsed = new Map(files.map(file => [file, parse(fs.readFileSync(file, 'utf8'), file)]));
 
-  const offenders = (pattern: RegExp, allowed: Set<string>): string[] => {
+  const offenders = (names: FieldSet, allowed: Set<string>): string[] => {
     const out: string[] = [];
-    for (const file of files) {
+    for (const [file, source] of parsed) {
       const rel = path.relative(ROOT, file);
       if (allowed.has(rel)) continue;
-      const code = stripComments(fs.readFileSync(file, 'utf8'));
-      const matches = [...code.matchAll(pattern)];
-      if (matches.length > 0) out.push(`${rel} (${matches.map(m => m[0]).join(', ')})`);
+      const reads = fieldReads(source, names);
+      if (reads.length > 0) out.push(`${rel} (${reads.join(', ')})`);
     }
     return out.sort();
   };
 
-  // A fence that scanned nothing would pass both assertions below in silence. A
-  // narrowed extension filter or a new ignore is all it would take.
-  it('scans the source tree', () => {
-    expect(files.length).toBeGreaterThan(300);
+  // A fence that scanned nothing would pass both assertions below in silence,
+  // and the two narrowings that would actually blind it — dropping `.tsx`, or
+  // rooting the walk at `src/lib` — each leave several hundred files, so a round
+  // floor cannot tell them from a healthy scan. Pin the real magnitude, and pin
+  // a UI file BY NAME so the half of the tree this fence exists for cannot be
+  // dropped while the count still looks plausible.
+  it('scans the whole source tree, UI included', () => {
+    expect(files.length).toBeGreaterThan(600);
+    expect(files).toContain(path.join(ROOT, 'src/app/templates/history/HistoryView.tsx'));
   });
 
   it('rotation outcome flags are read only by the verdict module', () => {
-    expect(offenders(FLAG_READ, FLAG_ALLOWED)).toEqual([]);
+    expect(offenders(FLAG_NAMES, FLAG_ALLOWED)).toEqual([]);
   });
 
   it('guardianSyncStatus is read only by its owner, the guard, the derivation and the plumbing', () => {
-    expect(offenders(SYNC_STATUS_READ, SYNC_STATUS_ALLOWED)).toEqual([]);
+    expect(offenders(SYNC_STATUS_NAMES, SYNC_STATUS_ALLOWED)).toEqual([]);
   });
 
   /**
@@ -155,11 +193,11 @@ describe('guardian claim fence', () => {
    * pre-authorizing a future raw read in the two files most likely to grow one.
    */
   it.each([
-    ['flags', FLAG_ALLOWED, FLAG_READ],
-    ['guardianSyncStatus', SYNC_STATUS_ALLOWED, SYNC_STATUS_READ]
-  ])('every %s allowlist entry still needs its licence', (_label, allowed, pattern) => {
+    ['flags', FLAG_ALLOWED, FLAG_NAMES],
+    ['guardianSyncStatus', SYNC_STATUS_ALLOWED, SYNC_STATUS_NAMES]
+  ])('every %s allowlist entry still needs its licence', (_label, allowed, names) => {
     const unnecessary = [...allowed].filter(
-      rel => matchCount(fs.readFileSync(path.join(ROOT, rel), 'utf8'), pattern) === 0
+      rel => matchCount(fs.readFileSync(path.join(ROOT, rel), 'utf8'), names) === 0
     );
     expect(unnecessary).toEqual([]);
   });
@@ -170,39 +208,55 @@ describe('guardian claim fence', () => {
       ['optional chain', 'const lying = tx.extraInputs?.commitUnconfirmed === true;'],
       ['bracket access', `const lying = tx.extraInputs['commitUnconfirmed'];`],
       ['bracket access, padded', `const lying = tx.extraInputs[ 'commitUnconfirmed' ];`],
-      // The whole reason this list exists: each of these was GREEN before.
+      // Each of these was GREEN under one or other of the two regex versions.
       ['destructuring', 'const { commitUnconfirmed } = tx.extraInputs ?? {};'],
       ['destructuring, renamed', 'const { commitUnconfirmed: unconfirmed } = tx.extraInputs ?? {};'],
       ['destructuring, defaulted', 'const { registerFailed = false } = tx.extraInputs ?? {};'],
       ['destructured parameter', 'const f = ({ endpointPersistFailed }) => true;'],
-      ['destructured parameter, typed', 'const f = ({ endpointPersistFailed }: Flags) => true;']
+      ['destructured parameter, typed', 'const f = ({ endpointPersistFailed }: Flags) => true;'],
+      // The four the widened regex still missed. `function name({…})` is the
+      // dominant declaration style in the UI files this fence governs, so the
+      // first of these was not an exotic form — it was the likely one.
+      [
+        'destructured parameter on a function declaration',
+        'function f({ endpointPersistFailed }: Flags) { return 1; }'
+      ],
+      ['destructured parameter on a method', 'const o = { f({ registerFailed }: Flags) { return 1; } };'],
+      ['nested destructuring', 'const { extraInputs: { commitUnconfirmed } } = tx;'],
+      ['for-of destructuring', 'for (const { commitUnconfirmed } of rows) { use(commitUnconfirmed); }'],
+      // Absence-as-evidence — the F-222 shape by name.
+      ['presence test', `const legacy = !('commitUnconfirmed' in extra);`],
+      ['hasOwn', `const legacy = !Object.hasOwn(extra, 'commitUnconfirmed');`]
     ];
     for (const [label, code] of caught) {
-      expect(`${label}: ${matchCount(code, FLAG_READ)}`).toBe(`${label}: 1`);
+      expect(`${label}: ${matchCount(code, FLAG_NAMES)}`).toBe(`${label}: 1`);
     }
 
-    // Prose about a field is not a read of it.
-    expect(matchCount('// .registerFailed in prose does not count\n', FLAG_READ)).toBe(0);
-    expect(matchCount('/* commitUnconfirmed, registerFailed */\n', FLAG_READ)).toBe(0);
+    // Prose about a field is not a read of it — free on a tree, where the two
+    // regex versions each needed a comment-stripping pass to approximate it.
+    expect(matchCount('// .registerFailed in prose does not count\n', FLAG_NAMES)).toBe(0);
+    expect(matchCount('/* commitUnconfirmed, registerFailed */\n', FLAG_NAMES)).toBe(0);
 
-    expect(matchCount('if (account.guardianSyncStatus) {}', SYNC_STATUS_READ)).toBe(1);
-    expect(matchCount('const { guardianSyncStatus } = account;', SYNC_STATUS_READ)).toBe(1);
+    expect(matchCount('if (account.guardianSyncStatus) {}', SYNC_STATUS_NAMES)).toBe(1);
+    expect(matchCount('const { guardianSyncStatus } = account;', SYNC_STATUS_NAMES)).toBe(1);
 
-    // An object literal argument is a WRITE, and writers are not fenced — the
-    // arrow-parameter branch must not widen into every `})`.
-    expect(matchCount('await update(id, { commitUnconfirmed: true });', FLAG_READ)).toBe(0);
+    // An object literal argument is a WRITE, and writers are not fenced by
+    // syntax — they are allowlisted by file.
+    expect(matchCount('await update(id, { commitUnconfirmed: true });', FLAG_NAMES)).toBe(0);
+    // A local variable that merely SHARES the name is not a field read either.
+    expect(matchCount('const commitUnconfirmed = false; return commitUnconfirmed;', FLAG_NAMES)).toBe(0);
   });
 
   it('self-test: `offenders` reports a real file, and the allowlist is what suppresses it', () => {
-    // The assertions above exercise the patterns in isolation; this exercises
-    // the WALK, the strip and the allowlist together, which is what actually
-    // guards the tree.
-    const withoutAllowlist = offenders(FLAG_READ, new Set());
-    expect(withoutAllowlist).not.toEqual([]);
-
-    // And the suppression is the allowlist doing its job, not an empty scan:
-    // licensing every reporter must silence exactly those reports.
-    const reported = new Set(withoutAllowlist.map(entry => entry.slice(0, entry.indexOf(' ('))));
-    expect(offenders(FLAG_READ, reported)).toEqual([]);
+    // The assertions above exercise the matcher in isolation; this exercises the
+    // WALK, the parse and the allowlist together, which is what guards the tree.
+    const withoutAllowlist = offenders(FLAG_NAMES, new Set());
+    // Exactly one file interprets the flags, and licensing it is what silences
+    // the report. An `expect(...).not.toEqual([])` would also pass if the walk
+    // started reporting half the tree.
+    expect(withoutAllowlist.map(entry => entry.slice(0, entry.indexOf(' (')))).toEqual([
+      'src/lib/miden/guardian/rotation-verdict.ts'
+    ]);
+    expect(offenders(FLAG_NAMES, FLAG_ALLOWED)).toEqual([]);
   });
 });
