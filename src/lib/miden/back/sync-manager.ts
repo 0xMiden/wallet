@@ -33,7 +33,7 @@ import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../s
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { initiateConsumeTransaction } from '../transaction/initiate';
+import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
@@ -676,13 +676,20 @@ async function runSync(force: boolean): Promise<void> {
       if (nativeAutoConsumeNotes.length > 0) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
-          for (const note of nativeAutoConsumeNotes) {
-            // Per-note try/catch so one note's enqueue failure can't skip its mates or the
-            // processing kick below — matching the per-note isolation intent above.
-            try {
-              await initiateConsumeTransaction(accountPubKey, note, delegate);
-            } catch (noteErr) {
-              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+          // ONE transaction for the batch: each consume pays its own fee, so a backlog
+          // claimed note-by-note charges N fees for what settles in one. A Miden tx is
+          // atomic, so on failure each note is retried alone -- that isolates the poison
+          // note rather than letting it throttle its mates via the shared #215 backoff.
+          try {
+            await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate);
+          } catch (batchErr) {
+            console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+            for (const note of nativeAutoConsumeNotes) {
+              try {
+                await initiateConsumeTransaction(accountPubKey, note, delegate);
+              } catch (noteErr) {
+                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+              }
             }
           }
           const { startTransactionProcessing } = await import('./transaction-processor');
