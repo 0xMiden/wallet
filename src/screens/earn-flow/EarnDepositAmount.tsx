@@ -3,6 +3,9 @@ import React, { FC, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { navigate } from 'lib/woozie';
@@ -27,6 +30,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
   // allocator configuration uses hex, so compare their normalized account ids.
   const depositBalance = useMemo(
@@ -49,7 +54,10 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
 
   const amountValue = parseAmount(amount);
   const hasAmount = amountValue > 0;
-  const isValidAmount = hasAmount && amountValue <= token.balance;
+  // A deposit is a transaction, and the fee comes out of this account's own vault
+  // in the native asset -- holding USDC alone is not enough to move it.
+  const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
+  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-amount-page">

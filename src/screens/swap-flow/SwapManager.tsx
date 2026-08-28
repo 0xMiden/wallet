@@ -7,6 +7,9 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { deriveRequestAmount, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
@@ -33,6 +36,9 @@ const SwapManager: React.FC = () => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
+  const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
   const [offerToken, setOfferToken] = useState<SwapToken>(() => getSwapTokens()[0]!);
   const [requestToken, setRequestToken] = useState<SwapToken>(() => getSwapTokens()[1]!);
@@ -267,6 +273,7 @@ const SwapManager: React.FC = () => {
         case SwapFlowStep.SwapAmounts:
           return (
             <SwapAmounts
+        feeAssetMissing={feeAssetMissing}
               offerToken={offerToken}
               offerBalance={offerBalance}
               offerAmount={offerAmount}
