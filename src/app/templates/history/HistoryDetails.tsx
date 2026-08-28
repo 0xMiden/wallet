@@ -41,6 +41,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { rotationChip, rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -202,6 +203,23 @@ const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['e
     <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
       <span className="h-1.5 w-1.5 rounded-full bg-current" />
       <span className="text-xs font-medium">{t(status)}</span>
+    </div>
+  );
+};
+
+/**
+ * Amber "Submitted" pill for a switch-guardian row whose commit was never
+ * confirmed — the generic `StatusPill` reads such a row's Completed status as a
+ * green "Confirmed", the exact claim the row cannot make. The override table
+ * (`rotationChip`) lives with the verdict module; every other verdict defers to
+ * the generic pill.
+ */
+const GuardianSwitchStatusPill: FC<{ labelKey: string }> = ({ labelKey }) => {
+  const { t } = useTranslation();
+  return (
+    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', 'bg-status-pending/15 text-status-pending')}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+      <span className="text-xs font-medium">{t(labelKey)}</span>
     </div>
   );
 };
@@ -498,6 +516,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txType: tx.type,
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          guardianSwitchVerdict: rotationVerdict(tx)?.kind,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -1061,6 +1080,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  const guardianChip =
+    isGuardianSwitch && !entry?.isCancelled && entry?.guardianSwitchVerdict
+      ? rotationChip(entry.guardianSwitchVerdict)
+      : null;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
@@ -1240,6 +1263,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   // Miden note landed — the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
                   <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
+                ) : guardianChip ? (
+                  <GuardianSwitchStatusPill labelKey={guardianChip.labelKey} />
                 ) : (
                   <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}

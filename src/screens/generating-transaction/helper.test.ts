@@ -1,4 +1,4 @@
-import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import { ITransactionStatus, type ITransactionStage, type ITransactionType } from 'lib/miden/db/types';
 
 import {
   DIRECT_SWITCH_TRANSACTION_STEPS,
@@ -301,25 +301,58 @@ describe('isDirectGuardianSwitch', () => {
 });
 
 describe('isUnconfirmedGuardianSwitch', () => {
-  it('is true only for a switch-guardian row whose commit was never confirmed', () => {
+  // The flag is only ever written by the completion handler, so it exists on
+  // Completed rows alone — the verdict this wrapper consults keys on that.
+  const completed = ITransactionStatus.Completed;
+  it('is true only for a completed switch-guardian row whose commit was never confirmed', () => {
     expect(isUnconfirmedGuardianSwitch(undefined)).toBe(false);
     expect(
-      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never)
+      isUnconfirmedGuardianSwitch({
+        type: 'switch-guardian',
+        status: completed,
+        extraInputs: { commitUnconfirmed: true }
+      } as never)
     ).toBe(true);
     // A row written before the flag existed, and a row that DID confirm, are
     // the same answer: nothing to qualify.
-    expect(isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: {} } as never)).toBe(false);
+    expect(isUnconfirmedGuardianSwitch({ type: 'switch-guardian', status: completed, extraInputs: {} } as never)).toBe(
+      false
+    );
     expect(
-      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: false } } as never)
+      isUnconfirmedGuardianSwitch({
+        type: 'switch-guardian',
+        status: completed,
+        extraInputs: { commitUnconfirmed: false }
+      } as never)
     ).toBe(false);
     // Strict `=== true`, so a truthy non-boolean from a hand-edited row does
     // not silently qualify a confirmed rotation.
     expect(
-      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: 'yes' } } as never)
+      isUnconfirmedGuardianSwitch({
+        type: 'switch-guardian',
+        status: completed,
+        extraInputs: { commitUnconfirmed: 'yes' }
+      } as never)
     ).toBe(false);
     // The flag is meaningless on any other type; no other flow sets it.
-    expect(isUnconfirmedGuardianSwitch({ type: 'send', extraInputs: { commitUnconfirmed: true } } as never)).toBe(
-      false
-    );
+    expect(
+      isUnconfirmedGuardianSwitch({
+        type: 'send',
+        status: completed,
+        extraInputs: { commitUnconfirmed: true }
+      } as never)
+    ).toBe(false);
+    // An in-flight or failed row never qualifies, whatever its extraInputs
+    // claim — the verdict speaks only about completed rotations.
+    expect(
+      isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never)
+    ).toBe(false);
+    expect(
+      isUnconfirmedGuardianSwitch({
+        type: 'switch-guardian',
+        status: ITransactionStatus.Failed,
+        extraInputs: { commitUnconfirmed: true }
+      } as never)
+    ).toBe(false);
   });
 });

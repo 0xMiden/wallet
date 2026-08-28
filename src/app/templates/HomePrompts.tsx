@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianPresentation } from 'app/hooks/useGuardianPresentation';
 import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
@@ -125,6 +126,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
+  // Shared guardian-status derivation: the drift-banner gate below fires on the
+  // same decision as the banner's own gate and the settings pill.
+  const guardianPresentation = useGuardianPresentation();
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -424,7 +428,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             />
           );
         })}
-        {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+        {guardianPresentation.prompt === 'needs-user-input' && <GuardianNeedsUrlBanner />}
       </PromptCarousel>
       <FundWalletDrawer
         open={fundDrawerOpen}

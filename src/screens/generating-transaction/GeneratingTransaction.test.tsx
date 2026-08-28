@@ -599,7 +599,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
         onDoneClick={() => {}}
         transactionComplete={true}
         activeType="switch-guardian"
-        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never}
+        activeTransaction={
+          // Completed status: the flag is only ever written by the completion
+          // handler, and the verdict this screen consults keys on it.
+          { type: 'switch-guardian', status: 2, extraInputs: { commitUnconfirmed: true } } as never
+        }
       />
     );
     expect(container.textContent).toContain('transactionSubmittedUnconfirmedDescription');

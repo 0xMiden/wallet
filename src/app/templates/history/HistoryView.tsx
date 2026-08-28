@@ -11,6 +11,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { rotationChip, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
@@ -189,13 +190,22 @@ function buildRowProps(
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
+  // A completed rotation's title derives from its verdict at render, not from
+  // the frozen `displayMessage` snapshot — the claim stays attached to the
+  // evidence rather than to whatever the row said the day it completed.
+  const guardianTitleKey =
+    entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
+      ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+      : undefined;
   const title = isCancelled
     ? t('cancelled')
     : faucet
       ? t('faucetRequestTitle')
       : isSwap && entry.token && entry.requestedToken
         ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-        : entry.message || '';
+        : guardianTitleKey
+          ? t(guardianTitleKey)
+          : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -303,6 +313,15 @@ function buildRowProps(
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
+  } else if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
+    // A submitted-unconfirmed rotation is Completed in the DB, which the
+    // generic fallthrough below renders as a green "Confirmed" — the one claim
+    // that row cannot make. The override table lives with the verdict module.
+    const chip = rotationChip(entry.guardianSwitchVerdict);
+    if (chip) {
+      statusTone = chip.tone;
+      statusLabel = t(chip.labelKey);
+    }
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
