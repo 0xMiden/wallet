@@ -196,8 +196,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     [balances, nativeFaucetId, verificationBaseFee]
   );
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
+  // Dismiss means "not now", not "never again". An account that has run its native
+  // balance to zero on a fee-charging chain cannot transact at all, and this prompt
+  // is the way out -- so a previous dismissal stops suppressing it. Without the
+  // re-arm the user is left stuck with no affordance anywhere on Home.
+  const cannotPayFee = hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
-    faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
+    !cannotPayFee &&
+    (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
   const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal;
 
   useEffect(

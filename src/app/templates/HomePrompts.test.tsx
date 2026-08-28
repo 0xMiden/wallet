@@ -208,6 +208,32 @@ describe('HomePrompts', () => {
     expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
   });
 
+  it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
+    // Dismiss means "not now", not "never again". An account that has run its
+    // native balance to zero on a fee-charging chain is stuck, and the prompt is
+    // the way out -- keeping it hidden strands the user with no affordance.
+    mockBaseFee = 10000;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+    render(
+      <HomePrompts
+        account={account}
+        balances={[{ tokenId: 'MIDEN-ID', balance: 0 }] as TokenBalanceData[]}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+  });
+
   it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
     // Holding USDC is not the same as being funded: the fee comes out of the
     // native balance, so this account cannot transact and needs the faucet.
