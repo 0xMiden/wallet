@@ -2464,6 +2464,10 @@
     "message": "¿Qué cambia ahora?",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Configuración sin terminar.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Cambio de Guardian enviado",
     "englishSource": "Guardian switch submitted"
@@ -2487,10 +2491,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Una vez que el cambio se confirme on-chain, tu nuevo Guardian cofirmará todas las transacciones y tu antiguo Guardian ya no podrá cofirmar por tu cuenta.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Configuración sin terminar.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "El cambio se confirmó en cadena, pero este dispositivo no pudo guardar la dirección del nuevo Guardian. La cartera lo comprueba automáticamente y te pedirá que la introduzcas de nuevo si es necesario; esto no iniciará otro cambio. Si no aparece ningún aviso, contacta con soporte.",
@@ -2584,6 +2584,10 @@
     "message": "Tu guardian ha cambiado y no hemos podido identificar al nuevo operador. Introduce su URL para volver a conectarte.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Ese operador no coincide con el «guardian» en cadena de tu cuenta.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "No se pudo contactar con ese operador. Comprueba la URL y tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2591,10 +2595,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Esta cuenta todavía no tiene un Guardian on-chain con el que verificar.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Ese operador no coincide con el «guardian» en cadena de tu cuenta.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian inaccesible",

@@ -2464,6 +2464,10 @@
     "message": "現有變更內容",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "設定尚未完成。",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "已提交 Guardian 更換",
     "englishSource": "Guardian switch submitted"
@@ -2487,10 +2491,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "更換在鏈上確認後，新的 Guardian 將共同簽署你的每一筆交易，原先的 Guardian 將無法再為你的帳戶共同簽署。",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "設定尚未完成。",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "切換已在鏈上確認，但此裝置無法儲存新 Guardian 的地址。錢包會自動檢查，並在需要時提示您重新輸入；這不會啟動另一次切換。如果沒有出現提示，請聯絡支援團隊。",
@@ -2584,6 +2584,10 @@
     "message": "您的 guardian 已變更，且我們無法識別新營運商。請輸入其網址以重新連線。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "該操作者與您帳戶的鏈上guardian不符。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "無法連線至該營運方。請檢查網址與網路連線後再試一次。",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2591,10 +2595,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "此帳戶尚未設定可用於核對的鏈上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "該操作者與您帳戶的鏈上guardian不符。",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 無法連線",
