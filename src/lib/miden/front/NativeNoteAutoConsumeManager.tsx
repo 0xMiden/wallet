@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -49,8 +51,17 @@ export function NativeNoteAutoConsumeManager(): null {
       try {
         const nativeFaucetId = await getFaucetIdSetting();
         if (disposed || !nativeFaucetId) return;
+        // A note worth no more than its own fee makes the balance go DOWN when
+        // claimed. This runs unattended, so the wallet must not collect those on
+        // the user's behalf; `isWorthClaiming` fails open on an unknown fee.
+        const baseFee = await getVerificationBaseFee();
+        if (disposed) return;
         const nativeNotes: ConsumableNote[] = notes.filter(
-          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed
+          n =>
+            n.faucetId === nativeFaucetId &&
+            !n.swapOrder &&
+            !n.isBeingClaimed &&
+            isWorthClaiming(n.amount, baseFee)
         );
         if (nativeNotes.length === 0) return;
         const { initiateConsumeTransaction, startBackgroundTransactionProcessing, getUncompletedTransactions } =

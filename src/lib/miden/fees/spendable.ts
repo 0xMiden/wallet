@@ -79,9 +79,25 @@ export function maxSendableNative(
  * chain unscaled, so unlike the send cap there is no decimals conversion here.
  * Fails open on an unknown fee: refusing to claim during startup strands value.
  */
-export function isWorthClaiming(amount: bigint, verificationBaseFee: number | null): boolean {
+export function isWorthClaiming(
+  amount: bigint | string | null | undefined,
+  verificationBaseFee: number | null
+): boolean {
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return true;
   }
-  return amount > BigInt(verificationBaseFee);
+  // Callers run this inside unattended loops over chain-supplied data, so an
+  // amount that will not parse must not throw: that would stop the consumer for
+  // every note, not just the malformed one. Fail open and let the transaction
+  // itself be the judge.
+  let parsed: bigint;
+  try {
+    if (amount === null || amount === undefined) {
+      return true;
+    }
+    parsed = typeof amount === 'bigint' ? amount : BigInt(amount);
+  } catch {
+    return true;
+  }
+  return parsed > BigInt(verificationBaseFee);
 }

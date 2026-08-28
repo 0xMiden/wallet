@@ -86,6 +86,18 @@ describe('isWorthClaiming', () => {
     expect(isWorthClaiming(1n, 0)).toBe(true);
   });
 
+  it('accepts a note whose amount is a decimal string', () => {
+    expect(isWorthClaiming('10001', 10000)).toBe(true);
+    expect(isWorthClaiming('9999', 10000)).toBe(false);
+  });
+
+  it('accepts a note whose amount is missing rather than crashing the consumer', () => {
+    // This runs inside an unattended loop: throwing here would take down claiming
+    // for every note, not just the malformed one. Fail open -- never strand value.
+    expect(isWorthClaiming(undefined, 10000)).toBe(true);
+    expect(isWorthClaiming('not-a-number', 10000)).toBe(true);
+  });
+
   it('accepts any note while the fee is unknown', () => {
     // Fail open: refusing to claim during startup would strand real value.
     expect(isWorthClaiming(1n, null)).toBe(true);

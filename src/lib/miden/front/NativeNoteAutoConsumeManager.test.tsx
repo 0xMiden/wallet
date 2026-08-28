@@ -17,6 +17,10 @@ jest.mock('../transaction', () => ({
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => 'native-faucet');
 jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: () => mockGetFaucetIdSetting() }));
+let mockBaseFee: number | null = 0;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+}));
 
 let mockExtension = false;
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
@@ -63,6 +67,32 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockClaimable = [];
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
+  });
+
+  it('does not auto-consume a native note worth less than the fee to claim it', async () => {
+    // Auto-consume runs unattended, so claiming a note that costs more in fee than
+    // it yields silently moves the balance DOWN.
+    mockBaseFee = 10000;
+    mockClaimable = [
+      note('dust', 'native-faucet', { amount: '9999' }),
+      note('breakeven', 'native-faucet', { amount: '10000' }),
+      note('worthit', 'native-faucet', { amount: '10001' })
+    ];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBeGreaterThanOrEqual(1));
+    expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['worthit']));
+  });
+
+  it('auto-consumes every native note on a chain that charges no fee', async () => {
+    mockBaseFee = 0;
+    mockClaimable = [note('a', 'native-faucet', { amount: '1' }), note('b', 'native-faucet', { amount: '2' })];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['a', 'b']));
   });
 
   it('consumes the eligible native notes ONE TX PER NOTE (not a batch), skipping the rest', async () => {

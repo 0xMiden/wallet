@@ -2,7 +2,9 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -56,6 +58,7 @@ const Explore: FC = () => {
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const {
@@ -86,8 +89,16 @@ const Explore: FC = () => {
     // explicit guard also protects native-asset swap notes whose per-order
     // auto-consume setting is off: they remain available for manual settlement
     // without being picked up by the wallet-wide native-note auto-consumer.
-    return claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
+    // A note worth no more than its own fee costs the user money to collect, and
+    // this consumer runs without asking. `isWorthClaiming` fails open while the
+    // fee is unknown, so discovery latency never strands a real note.
+    return claimableNotes.filter(
+      note =>
+        note!.faucetId === midenFaucetId &&
+        !note!.swapOrder &&
+        isWorthClaiming(note!.amount, verificationBaseFee)
+    );
+  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
