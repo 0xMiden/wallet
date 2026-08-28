@@ -2,6 +2,11 @@
 
 ## 1.16.0 (TBD)
 
+### Changes
+
+- [CHANGE][ci] **The blockchain E2E harness funds the accounts it creates, so the suite runs against a fee-charging chain.** Since protocol 0.16 the fee is paid from inside the account's auth procedure, which withdraws from the account's own vault before anything else in the transaction runs — so on a chain whose `verification_base_fee` is non-zero, an account with an empty vault cannot transact at all, including to deploy itself. The harness now creates its faucet undeployed, funds it from a genesis wallet, and lets consumption of that funding note be its first transaction: note credit lands in the vault before `pay_fee` withdraws from it, so that transaction settles its own fee. Note recipients are funded the same way, because a wallet that is only ever sent tokens can never claim them — `pay_fee` takes the native asset, which a token note does not credit. The faucet is composed with `basic-wallet` as well as `basic-fungible-faucet`: the faucet component exports `mint_and_send` and `receive_and_burn` but not `receive_asset`, so a plain faucet cannot consume a P2ID note and has no way to be funded (genesis cannot seed one either — `[[fungible_faucet]]` takes no `assets`, only `[[wallet]]` does). Whether the chain charges is discovered from the first deployment that fails for want of a fee rather than configured, so a chain that starts charging is handled without a harness change and one that does not never takes the funding path.
+
+
 ## 1.16.0-rc.1 (2026-08-27)
 
 ### Changes
