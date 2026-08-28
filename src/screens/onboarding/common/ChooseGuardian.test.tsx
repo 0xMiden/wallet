@@ -510,20 +510,35 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
   });
 
-  it('replaces the default badge with the offline banner while that provider is down', () => {
-    // OZ is the default selection AND offline — the strip slot shows offline.
+  it('keeps the default badge alongside the offline verdict in the one strip slot', () => {
+    // OZ is the default selection AND offline. Offline takes the strip's colour,
+    // not the slot.
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
     render(<ChooseGuardianScreen />);
 
-    expect(screen.getByTestId('guardian-offline-banner')).toBeInTheDocument();
-    expect(screen.queryByText('default')).not.toBeInTheDocument();
+    const banner = screen.getByTestId('guardian-offline-banner');
+    expect(banner).toHaveTextContent('default · guardianOfflineLabel');
+    expect(banner).toHaveClass('text-red-700');
+  });
+
+  // The card most likely to be offline is the one the user is already on — that
+  // is the whole premise of the offline rotation flow — and "which operator am I
+  // leaving?" is the question this screen exists to answer. Dropping "Current"
+  // there hid it at exactly the moment it mattered.
+  it('still shows Current on the operator the account is on while it is down', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+
+    const banner = screen.getByTestId('guardian-offline-banner');
+    expect(banner).toHaveTextContent('currentLabel · guardianOfflineLabel');
+    expect(banner.closest('button')).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
   });
 
   it('names each card by its operator, so a down one is not just "Offline"', () => {
-    // The strip slot is shared: offline REPLACES the Current/Default badge. With
-    // the operator name in a sibling node and the wordmark SVG untitled, that
-    // made the button's accessible name "guardianOfflineLabel" for every down
-    // operator — on the screen whose entire purpose is telling them apart.
+    // With the operator name in a sibling node and the wordmark SVG untitled,
+    // the button's accessible name was whatever the strip said — i.e.
+    // "guardianOfflineLabel" for every down operator, on the screen whose entire
+    // purpose is telling them apart.
     mockUseGuardianAvailability.mockReturnValue({
       [OZ.endpoint]: 'offline',
       [GATEWAY.endpoint]: 'offline'

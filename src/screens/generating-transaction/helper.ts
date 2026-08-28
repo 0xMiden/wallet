@@ -1,4 +1,4 @@
-import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -55,6 +55,15 @@ const stepStartStamp = (
 ): number | undefined =>
   stageTimestamps?.[step.startStage] ??
   (step.fallbackStartStage === undefined ? undefined : stageTimestamps?.[step.fallbackStartStage]);
+
+/**
+ * Did this row rotate its guardian by signing locally, rather than through the
+ * outgoing operator? Reads the `switchedDirectly` marker the direct path stamps
+ * on the row before it signs, so the step labels are right while the steps are
+ * happening and not only on the receipt.
+ */
+export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
+  tx?.type === 'switch-guardian' && tx.extraInputs?.switchedDirectly === true;
 
 export const getTransactionStepState = (
   index: number,

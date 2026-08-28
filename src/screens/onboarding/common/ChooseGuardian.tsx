@@ -157,23 +157,19 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // existing safe lookup.
             const logoEntry = GUARDIAN_LOGOS[option.id];
             // Everything inside this button is either a wordmark SVG with no
-            // title or the ONE strip slot, and that slot is shared: an offline
-            // verdict replaces the Current/Default badge. So the control's
-            // accessible name was whatever the strip happened to say, and during
-            // an outage every down operator became a button named just
-            // "Offline" — indistinguishable from the others, on the screen whose
-            // entire job is choosing between them. The operator name and
-            // location live in a SIBLING node, which a button's name does not
-            // reach. Name it explicitly, and carry both statuses since a label
-            // has no slot to compete for.
-            const cardLabel = [
-              option.name,
+            // title or the ONE strip slot. So the control's accessible name was
+            // whatever the strip happened to say, and during an outage every
+            // down operator became a button named just "Offline" —
+            // indistinguishable from the others, on the screen whose entire job
+            // is choosing between them. The operator name and location live in a
+            // SIBLING node, which a button's name does not reach. Name it
+            // explicitly.
+            const cardStatuses = [
               isCurrent ? t('currentLabel') : isDefault ? t('default') : undefined,
               isOffline ? t('guardianOfflineLabel') : undefined
-            ]
-              .filter(Boolean)
-              // eslint-disable-next-line i18next/no-literal-string -- punctuation between already-localized tokens in an accessible name, not copy.
-              .join(', ');
+            ].filter((status): status is string => status !== undefined);
+            // eslint-disable-next-line i18next/no-literal-string -- punctuation between already-localized tokens, not copy.
+            const cardLabel = [option.name, ...cardStatuses].join(', ');
             return (
               <div key={option.id} className="flex flex-col">
                 <button
@@ -189,28 +185,30 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                     isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
                   )}
                 >
-                  {/* One strip slot: an offline verdict is the actionable fact, so it
-                      wins over the current/default badge while the outage lasts. */}
-                  {isOffline ? (
+                  {/* One strip slot, and up to two things to say in it. An offline
+                      verdict takes the strip's COLOUR — it is the actionable fact —
+                      but it must not take the slot outright: the card most likely to
+                      be offline is the one the user is currently on, and that is
+                      exactly when they need to see which operator they are leaving.
+                      Dropping "Current" there hid it on the only screen that answers
+                      the question. */}
+                  {cardStatuses.length > 0 && (
                     <div
-                      data-testid="guardian-offline-banner"
-                      className="flex h-8 w-full shrink-0 items-center justify-center bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300"
-                    >
-                      <span className="text-sm font-semibold">{t('guardianOfflineLabel')}</span>
-                    </div>
-                  ) : (
-                    (isCurrent || isDefault) && (
-                      <div
-                        className={cn(
-                          'flex h-8 w-full shrink-0 items-center justify-center',
-                          isCurrent
+                      data-testid={isOffline ? 'guardian-offline-banner' : undefined}
+                      className={cn(
+                        'flex h-8 w-full shrink-0 items-center justify-center',
+                        isOffline
+                          ? 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+                          : isCurrent
                             ? 'bg-grey-200 text-heading-gray dark:bg-grey-700'
                             : 'bg-primary-500 text-pure-white'
-                        )}
-                      >
-                        <span className="text-sm font-semibold">{isCurrent ? t('currentLabel') : t('default')}</span>
-                      </div>
-                    )
+                      )}
+                    >
+                      <span className="text-sm font-semibold">
+                        {/* eslint-disable-next-line i18next/no-literal-string -- separator between already-localized tokens, not copy. */}
+                        {cardStatuses.join(' · ')}
+                      </span>
+                    </div>
                   )}
                   <div className={cn('flex flex-1 items-center justify-center', isOffline && 'opacity-50')}>
                     {logoEntry ? (

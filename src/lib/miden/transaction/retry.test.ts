@@ -6,7 +6,12 @@ import {
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
 } from './constants';
-import { UnverifiableSendRetryError, isRequeueableTransaction, requeueFailedTransaction } from './retry';
+import {
+  UnverifiableSendRetryError,
+  isCancellableTransaction,
+  isRequeueableTransaction,
+  requeueFailedTransaction
+} from './retry';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 const mockTransactionsWhere = jest.fn();
@@ -310,6 +315,33 @@ describe('requeueFailedTransaction — ambiguous post-submit failures are not re
     await requeueFailedTransaction('tx-1');
 
     expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+});
+
+describe('isCancellableTransaction', () => {
+  it('offers Cancel on any pending value transfer', () => {
+    for (const status of [ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(true);
+    }
+  });
+
+  it('never offers Cancel on a terminal row', () => {
+    for (const status of [ITransactionStatus.Completed, ITransactionStatus.Failed]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(false);
+    }
+    expect(isCancellableTransaction({ status: undefined, type: 'send' })).toBe(false);
+  });
+
+  // A structural op is cancellable only up to pickup. Past that its tail runs
+  // beyond the on-chain write — the direct guardian switch can spend minutes in
+  // post-commit registration retries — so failing the row stops nothing, cannot
+  // be retried, and only replaces a rotation that DID land with a row claiming
+  // it failed.
+  it('withdraws Cancel from a structural op once it has been picked up', () => {
+    for (const type of ['switch-guardian', 'replace-hot-key'] as const) {
+      expect(isCancellableTransaction({ status: ITransactionStatus.Queued, type })).toBe(true);
+      expect(isCancellableTransaction({ status: ITransactionStatus.GeneratingTransaction, type })).toBe(false);
+    }
   });
 });
 

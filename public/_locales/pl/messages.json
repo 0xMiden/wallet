@@ -892,6 +892,10 @@
     "message": "Guardian zatwierdzono",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Podpisano na tym urządzeniu",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Wygenerowano dowód",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "Offline",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Nie połączono",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "Sprawdzanie",

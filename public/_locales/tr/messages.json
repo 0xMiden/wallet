@@ -892,6 +892,10 @@
     "message": "Guardian onaylandı",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Bu cihazda imzalandı",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Kanıt oluşturuldu",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "Çevrimdışı",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Bağlı değil",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "Kontrol ediliyor",

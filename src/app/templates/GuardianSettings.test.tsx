@@ -24,10 +24,21 @@ jest.mock('react-i18next', () => ({
 // any regression back to the store field shows up as a relative time next to an
 // Offline pill.
 const WALLET_SYNCED_AT = 1_700_000_000_000;
+// `hotPublicKey` is read too: the guardian sync loop skips accounts without one,
+// so the pill has a fourth state for them. Default to an activated account —
+// the not-connected case sets `mockHotPublicKey` to undefined.
+let mockHotPublicKey: string | undefined = 'hot-1';
 jest.mock('lib/store', () => ({
   useWalletStore: (
-    selector: (state: { lastSyncedAt: number | null; currentAccount: { publicKey: string } }) => unknown
-  ) => selector({ lastSyncedAt: WALLET_SYNCED_AT, currentAccount: { publicKey: 'acc-1' } })
+    selector: (state: {
+      lastSyncedAt: number | null;
+      currentAccount: { publicKey: string; hotPublicKey?: string };
+    }) => unknown
+  ) =>
+    selector({
+      lastSyncedAt: WALLET_SYNCED_AT,
+      currentAccount: { publicKey: 'acc-1', hotPublicKey: mockHotPublicKey }
+    })
 }));
 
 // Guardian sync state: the outage flag the status pill derives Online/Offline
@@ -272,6 +283,26 @@ it('keeps the OFFLINE pill readable in both themes', () => {
 
   const pill = screen.getByText('guardianOfflineLabel').closest('div');
   expect(pill).toHaveClass('text-red-700', 'dark:text-red-300');
+});
+
+// The sync loop filters out accounts with no hot key (see the filter's docstring
+// in `guardian-sync.ts`), so such an account never stamps a sync and never arms
+// an outage. Reading that as "checking" left the pill spinning for the lifetime
+// of the account, next to a "Last sync" row saying the same thing.
+it('says Not connected, not Checking, for an account with no activated hot key', () => {
+  mockHotPublicKey = undefined;
+  try {
+    render(<GuardianSettings />);
+
+    const pill = screen.getByRole('status');
+    expect(pill).toHaveTextContent('guardianNotConnectedLabel');
+    // "Last sync" is `never` here, not "checking": nothing is checking, and this
+    // device genuinely has not synced with the guardian.
+    expect(screen.getByText('never')).toBeInTheDocument();
+    expect(screen.queryByText('guardianCheckingLabel')).not.toBeInTheDocument();
+  } finally {
+    mockHotPublicKey = 'hot-1';
+  }
 });
 
 it('nests the section headings under the guardian name rather than beside it', () => {

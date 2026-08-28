@@ -50,6 +50,12 @@ const GuardianSettings: FC = () => {
   // guardian response) — the same signal the home connectivity banner reads.
   // Endpoint presence alone said "Online" through an entire outage.
   const currentAccountPk = useWalletStore(s => s.currentAccount?.publicKey);
+  // The guardian sync loop only runs for accounts that carry a hot key — see the
+  // filter's docstring in `guardian-sync.ts`. A rotation-pending or
+  // not-yet-migrated account is skipped entirely, so it never stamps a sync and
+  // never arms an outage: reading that silence as "checking" left the pill
+  // spinning forever on an account nothing was ever going to check.
+  const hasHotKey = useWalletStore(s => Boolean(s.currentAccount?.hotPublicKey));
   const guardianOutage = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
     currentAccountPk ? isGuardianSyncOutage(currentAccountPk) : false
   );
@@ -73,15 +79,21 @@ const GuardianSettings: FC = () => {
   // and not "never synced, historically". `guardianStatus` is the one place
   // that turns those two signals into a status, so the pill and the "Last
   // sync" row below always read as one consistent story rather than two.
-  const guardianStatus: 'offline' | 'checking' | 'online' = guardianOutage
-    ? 'offline'
-    : guardianLastSyncAt === undefined
-      ? 'checking'
-      : 'online';
+  const guardianStatus: 'not-connected' | 'offline' | 'checking' | 'online' = !hasHotKey
+    ? 'not-connected'
+    : guardianOutage
+      ? 'offline'
+      : guardianLastSyncAt === undefined
+        ? 'checking'
+        : 'online';
   const lastSync =
     guardianLastSyncAt !== undefined
       ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
-      : t('guardianCheckingLabel');
+      : // "Checking" only while something IS checking; an account with no hot key
+        // has genuinely never synced from this device and is not about to.
+        hasHotKey
+        ? t('guardianCheckingLabel')
+        : t('never');
 
   // No haptic here: this is handed to `Button`, whose onClick wrapper already
   // fires a hapticLight on every click, so the tap buzzed twice. Same double-fire
@@ -132,7 +144,10 @@ const GuardianSettings: FC = () => {
                   'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
                 : guardianStatus === 'online'
                   ? 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
-                  : 'bg-gray-50 text-heading-gray'
+                  : // Both neutral states share the auto-flipping tokens: neither is
+                    // a fault, and "not connected" is resolved by activating the
+                    // device key, which the app prompts for elsewhere.
+                    'bg-gray-50 text-heading-gray'
             )}
           >
             <span
@@ -150,7 +165,9 @@ const GuardianSettings: FC = () => {
                 ? t('guardianOfflineLabel')
                 : guardianStatus === 'online'
                   ? t('online')
-                  : t('guardianCheckingLabel')}
+                  : guardianStatus === 'checking'
+                    ? t('guardianCheckingLabel')
+                    : t('guardianNotConnectedLabel')}
             </span>
           </div>
         )}

@@ -892,6 +892,10 @@
     "message": "Guardian 承認済み",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "このデバイスで署名済み",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "証明が生成されました",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "オフライン",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "未接続",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "確認中",

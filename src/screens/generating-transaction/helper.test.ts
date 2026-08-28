@@ -1,13 +1,19 @@
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
-import { GUARDIAN_TRANSACTION_STEPS, STANDARD_TRANSACTION_STEPS } from './constants';
+import {
+  DIRECT_SWITCH_TRANSACTION_STEPS,
+  GUARDIAN_TRANSACTION_STEPS,
+  STANDARD_TRANSACTION_STEPS,
+  stepsForFlow
+} from './constants';
 import {
   getActiveStepIndex,
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
   getStepDurationsMs,
-  getTransactionStepState
+  getTransactionStepState,
+  isDirectGuardianSwitch
 } from './helper';
 
 describe('getActiveStepIndex', () => {
@@ -92,6 +98,21 @@ describe('getStepDurationsMs', () => {
       complete: 1_400
     });
     expect(durations[0]).toBe(400);
+  });
+
+  // The direct switch has no outgoing operator to sync with, so its post-commit
+  // work stamps `registering-guardian` and never `guardian-syncing` — which left
+  // the last step blank on exactly the path with the longest tail (up to eight
+  // registration attempts with backoff).
+  it('times the last guardian step from `registering-guardian` on the offline path', () => {
+    const durations = getStepDurationsMs(DIRECT_SWITCH_TRANSACTION_STEPS, {
+      'signing-locally': 200,
+      proving: 500,
+      submitting: 900,
+      'registering-guardian': 1_200,
+      complete: 2_000
+    });
+    expect(durations).toEqual([300, 400, 300, 800]);
   });
 
   it('returns undefined for a step whose start or end stamp is missing (no fabricated value)', () => {
@@ -203,5 +224,34 @@ describe('getProcessingTitleKey', () => {
     [undefined, 'generatingTransaction']
   ])('titles the in-progress view for %s', (type, expected) => {
     expect(getProcessingTitleKey(type)).toBe(expected);
+  });
+});
+
+describe('stepsForFlow', () => {
+  it('keeps the operator-approval label for an ordinary guardian transaction', () => {
+    expect(stepsForFlow(true)[0]?.labelKey).toBe('transactionStepGuardianApproved');
+  });
+
+  // "Guardian approved" on the offline rotation describes an approval that
+  // provably did not happen: the path exists BECAUSE the outgoing operator is
+  // unreachable, and the account's own hot and cold keys sign instead.
+  it('relabels the first step when the row signed locally', () => {
+    expect(stepsForFlow(true, true)[0]?.labelKey).toBe('transactionStepSignedLocally');
+    expect(stepsForFlow(true, true).slice(1)).toEqual(GUARDIAN_TRANSACTION_STEPS.slice(1));
+  });
+
+  it('ignores the marker for a non-guardian account, which has no such step', () => {
+    expect(stepsForFlow(false, true)).toEqual(STANDARD_TRANSACTION_STEPS);
+  });
+});
+
+describe('isDirectGuardianSwitch', () => {
+  it('is true only for a switch-guardian row carrying the direct marker', () => {
+    expect(isDirectGuardianSwitch(undefined)).toBe(false);
+    expect(isDirectGuardianSwitch({ type: 'switch-guardian', extraInputs: { switchedDirectly: true } } as never)).toBe(
+      true
+    );
+    expect(isDirectGuardianSwitch({ type: 'switch-guardian', extraInputs: {} } as never)).toBe(false);
+    expect(isDirectGuardianSwitch({ type: 'send', extraInputs: { switchedDirectly: true } } as never)).toBe(false);
   });
 });

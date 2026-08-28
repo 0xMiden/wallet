@@ -180,7 +180,11 @@ beforeEach(() => {
   }));
   mockGuardianGetPubkey.mockResolvedValue({ commitment: NEW_GUARDIAN_COMMITMENT });
   mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
-    signerCommitments: ['0xhot', '0xcold']
+    // `0x`-prefixed on purpose: storage hands back prefixed hex while
+    // getSignerDetailsFromAccount hands back bare, and the hot-membership check
+    // has to see through that.
+    numSigners: 2,
+    signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
   });
   mockedMultisigClient.chainAnchorToBase64.mockReturnValue('chain-anchor-b64');
   mockedMultisigClient.executeForSummary.mockResolvedValue({
@@ -480,6 +484,25 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(signWord).not.toHaveBeenCalled();
   });
 
+  // Silence is not a rejection here either, and this call is the one network hop
+  // the rotation makes BEFORE anything is signed. `GuardianHttpClient` passes no
+  // `AbortSignal`, so an endpoint that accepts the connection and never answers
+  // would leave the row in `signing-locally` with no error to fail it on.
+  it('bounds a new guardian that never answers the pubkey request', async () => {
+    jest.useFakeTimers();
+    mockGuardianGetPubkey.mockImplementation(() => new Promise(() => {}));
+
+    const settled = createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(2 * 60_000);
+
+    expect(await settled).toMatchObject({ message: expect.stringContaining('timed out') });
+    expect(signWord).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
   it('accepts an unprefixed uppercase commitment and normalizes it', async () => {
     mockGuardianGetPubkey.mockResolvedValue({ commitment: 'AB'.repeat(32) });
 
@@ -581,7 +604,7 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockGuardianConfigure).toHaveBeenCalledTimes(1);
     expect(mockGuardianConfigure).toHaveBeenCalledWith({
       accountId: '0xacct-id',
-      auth: { MidenEcdsa: { cosigner_commitments: ['0xhot', '0xcold'] } },
+      auth: { MidenEcdsa: { cosigner_commitments: ['0xhotcommitment', '0xcoldcommitment'] } },
       initialState: { data: expect.any(String), accountId: '0xacct-id' }
     });
   });
@@ -589,12 +612,45 @@ describe('finalizeDirectGuardianSwitch', () => {
   // An empty derive means a truncated storage read, not an account with no
   // signers; registering that would lock the account out of its own new guardian.
   it('refuses to register an empty signer allowlist', async () => {
-    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({ signerCommitments: [] });
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({ numSigners: 0, signerCommitments: [] });
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
-    ).rejects.toThrow('empty signer allowlist');
+    ).rejects.toThrow('incomplete signer allowlist');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  // The dangerous truncation is the PARTIAL one, which an emptiness check waves
+  // through: hot readable, cold's slot not. That set is well-formed and would
+  // install an allowlist without the cold key — the key every recovery path
+  // signs with, on the flow whose premise is that the old operator is gone.
+  it('refuses to register a partially-read signer allowlist', async () => {
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
+      numSigners: 2,
+      signerCommitments: ['0xhotcommitment']
+    });
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toThrow('storage declares 2 signers, read 1');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  // A complete read can still be the wrong policy to install: if this device's
+  // own hot commitment is not in it, `/configure` would hand the new operator an
+  // allowlist that locks out the very signer authenticating the call.
+  it('refuses to register an allowlist that omits this device hot signer', async () => {
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
+      numSigners: 2,
+      signerCommitments: ['0xsomeoneelse', '0xcoldcommitment']
+    });
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
+    ).rejects.toThrow('omits this device');
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 

@@ -10,7 +10,12 @@ import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearGuardianServiceFor, getOrCreateMultisigService, type GuardianAccountProvider } from './guardian-manager';
-import { decideColdReRegisterSelfHeal, type SelfHealAttemptState } from './guardian-selfheal';
+import {
+  decideColdReRegisterSelfHeal,
+  SELF_HEAL_MAX_ATTEMPTS,
+  type SelfHealAttemptState,
+  type SelfHealOutcome
+} from './guardian-selfheal';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
 
@@ -488,10 +493,11 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
  * never-registered / never-canonicalized signer set. Idempotent (registers the
  * on-chain state), so a spurious run is harmless.
  */
-async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<void> {
+async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<SelfHealOutcome> {
   // Legacy single-key record (pre-migration) has nothing to cold-sign with.
-  if (!account.coldPublicKey) return;
+  if (!account.coldPublicKey) return 'refused-permanently';
 
+  let attempted = false;
   try {
     // getAccount needs no syncState here: buildColdMultisigService only reads the
     // COLD commitment (stable across the rotation), and
@@ -499,7 +505,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // pushes. The two lock uses are sequential (this getAccount releases before
     // the cold service acquires), never nested — no reentrancy deadlock.
     const staleAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
-    if (!staleAccount) return;
+    if (!staleAccount) return 'refused-transiently';
 
     // ADOPT THE GUARDIAN'S OWN VIEW FIRST — the check below is worthless without it.
     //
@@ -527,7 +533,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     });
 
     const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
-    if (!sdkAccount) return;
+    if (!sdkAccount) return 'refused-transiently';
 
     // STOP if this device is no longer the account's hot signer.
     //
@@ -570,7 +576,11 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
           `${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so this device ` +
           `cannot show it is still the account's signer.`
       );
-      return;
+      // TRANSIENT: an unreadable commitment is this device failing to look, not a
+      // finding about the account. Spending an attempt on it would let three read
+      // failures exhaust a budget that can only be reset by a successful sync —
+      // which the stale allowlist is precisely what prevents.
+      return 'refused-transiently';
     }
     if (!sameCommitment(localHot, onChainHot.commitment)) {
       console.warn(
@@ -578,9 +588,15 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
           `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
           `the device that now owns the account.`
       );
-      return;
+      // PERMANENT: this device was rotated out, and no later tick changes that.
+      // The caller closes the budget on this outcome, which is what stops this
+      // from re-reading once a cooldown forever for a repair that cannot apply.
+      return 'refused-permanently';
     }
 
+    // Counted as an attempt from HERE, before the await: `/configure` may land
+    // even if the call then throws or is torn down mid-flight.
+    attempted = true;
     await coldService.reRegisterCurrentStateOnGuardian();
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
@@ -588,6 +604,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // the bounded schedule (see decideColdReRegisterSelfHeal).
     console.warn(`[Guardian Sync] cold re-register self-heal failed for ${account.publicKey}:`, e);
   }
+  return attempted ? 'attempted' : 'refused-transiently';
 }
 
 /**
@@ -717,8 +734,25 @@ async function runGuardianAccountsSync(): Promise<void> {
         const now = Date.now();
         if (decideColdReRegisterSelfHeal(now, fails, selfHealState.get(account.publicKey))) {
           const prev = selfHealState.get(account.publicKey);
-          selfHealState.set(account.publicKey, { attempts: (prev?.attempts ?? 0) + 1, lastAttemptAt: now });
-          await attemptColdReRegisterSelfHeal(account);
+          // Book the budget against what the attempt DID, not against the fact
+          // that it ran. `attempts` is only ever reset by a successful sync, and
+          // a stale allowlist is what makes success impossible — so charging an
+          // attempt for a run that never reached the guardian would let three
+          // local read failures disable the repair for good. `lastAttemptAt` is
+          // stamped either way, so a refusal still respects the cooldown instead
+          // of re-reading on every 3s tick.
+          const outcome = await attemptColdReRegisterSelfHeal(account);
+          selfHealState.set(account.publicKey, {
+            attempts:
+              outcome === 'attempted'
+                ? (prev?.attempts ?? 0) + 1
+                : // Rotated out of the account: no tick will make this apply, so
+                  // close the budget rather than probing twice more on cooldown.
+                  outcome === 'refused-permanently'
+                  ? SELF_HEAL_MAX_ATTEMPTS
+                  : (prev?.attempts ?? 0),
+            lastAttemptAt: now
+          });
         }
       } else if (isGuardianRateLimited(error)) {
         // Back off for as long as the guardian asked, and say so once rather than

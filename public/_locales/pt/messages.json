@@ -892,6 +892,10 @@
     "message": "Guardian aprovado",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Assinado neste dispositivo",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Prova gerada",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "Offline",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Não conectado",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "Verificando",

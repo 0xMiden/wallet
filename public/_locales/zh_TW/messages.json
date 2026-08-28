@@ -892,6 +892,10 @@
     "message": "Guardian 已核准",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "已在此裝置上簽署",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "已產生證明",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "離線",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "未連線",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "檢查中",

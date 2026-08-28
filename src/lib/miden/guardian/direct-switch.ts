@@ -23,6 +23,7 @@ import type { WalletAccount } from 'lib/shared/types';
 import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
 import { withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
+import { normalizeHex } from './operator-map';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -69,6 +70,17 @@ const MAX_DIRECT_REGISTER_RETRIES = 8;
  * parking the row forever rather than to hit a latency target.
  */
 const DIRECT_REGISTER_TIMEOUT_MS = 30_000;
+
+/**
+ * Ceiling on the NEW guardian's unauthenticated `GET /pubkey` — the one network
+ * call the direct switch makes BEFORE it signs anything.
+ *
+ * Same budget as the `/configure` write above, and generous for the same reason:
+ * it exists to stop a silent endpoint from parking a non-requeueable row, not to
+ * hit a latency target. There is no retry loop behind it — a failure here fails
+ * the rotation before any state changed, which is the safe direction.
+ */
+const NEW_GUARDIAN_PUBKEY_TIMEOUT_MS = 30_000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -223,7 +235,20 @@ export const createDirectSwitchGuardianRequest = async (
   }
 
   registerGuardianOrigin(newGuardianEndpoint);
-  const { commitment } = await new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa');
+  // Bounded, like every other guardian call on this path. `GuardianHttpClient`
+  // uses bare `fetch` with no `AbortSignal`, so an endpoint that accepts the
+  // connection and then goes silent produces no error at all — and this is the
+  // FIRST network call of the fallback, reached precisely because a guardian just
+  // failed to answer. Unbounded, a silent NEW endpoint parks the row at
+  // `signing-locally` forever while holding the per-account guardian lock, and
+  // `switch-guardian` is in no requeue set and has no user Retry, so nothing ever
+  // frees it. The coordinated arms wrap their outgoing-guardian calls in
+  // `withOutgoingGuardianDeadline` for the same reason; this one had nothing.
+  const { commitment } = await withTimeout(
+    new GuardianHttpClient(newGuardianEndpoint).getPubkey('ecdsa'),
+    NEW_GUARDIAN_PUBKEY_TIMEOUT_MS,
+    `New guardian ${newGuardianEndpoint} pubkey`
+  );
   // Validate before it becomes MASM: this value is unchecked wire data and the
   // SDK splices it into transaction-script SOURCE. See
   // `assertGuardianKeyCommitment`.
@@ -412,26 +437,58 @@ export const finalizeDirectGuardianSwitch = async (
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
-  const { accountIdHex, stateBase64, signerCommitments, hotCommitment } = await withWasmClientLock(async () => {
-    await midenClientProxy.syncState();
-    const account = await midenClientProxy.getAccount(walletAccount.publicKey);
-    if (!account) {
-      throw new Error(`Account ${accountId} is missing from local client`);
-    }
-    return {
-      accountIdHex: account.id().toString(),
-      stateBase64: u8ToB64(account.serialize()),
-      signerCommitments: AccountInspector.fromAccount(account).signerCommitments,
-      hotCommitment: (await getSignerDetailsFromAccount(account, false)).commitment
-    };
-  });
+  const { accountIdHex, stateBase64, signerCommitments, detectedSigners, declaredSigners, hotCommitment } =
+    await withWasmClientLock(async () => {
+      await midenClientProxy.syncState();
+      const account = await midenClientProxy.getAccount(walletAccount.publicKey);
+      if (!account) {
+        throw new Error(`Account ${accountId} is missing from local client`);
+      }
+      const detected = AccountInspector.fromAccount(account);
+      return {
+        accountIdHex: account.id().toString(),
+        stateBase64: u8ToB64(account.serialize()),
+        detectedSigners: detected.signerCommitments.length,
+        // Storage's own count, so the completeness check below compares the read
+        // against what the account SAYS it holds rather than against a constant.
+        declaredSigners: detected.numSigners,
+        hotCommitment: (await getSignerDetailsFromAccount(account, false)).commitment,
+        signerCommitments: detected.signerCommitments
+      };
+    });
 
-  // AccountInspector.fromAccount swallows per-slot read failures, so an empty
-  // set means a truncated read — registering an empty allowlist would lock the
-  // account out of its own new guardian (same guard as
-  // reRegisterCurrentStateOnGuardian).
-  if (signerCommitments.length === 0) {
-    throw new Error('Refusing to register on the new guardian with an empty signer allowlist (truncated read)');
+  // `AccountInspector.fromAccount` swallows per-slot read failures, so a set
+  // SHORTER than the count storage declares is a truncated read — and this
+  // allowlist becomes the new operator's authorization policy for the account.
+  //
+  // The empty case alone is not enough. A partial read of a 2-of-3 guardian
+  // account — say the hot key alone, cold's slot unreadable — passes a length
+  // check, and `/configure` then installs an allowlist the COLD key is not in.
+  // Cold is the key the recovery paths sign with (`buildColdMultisigService`,
+  // `reRegisterCurrentStateOnGuardian`), so the account would be left unable to
+  // repair its own registration on the operator it just rotated to, on the path
+  // whose whole premise is that the previous operator is gone. The inspector's
+  // own docs say a truncated read must not be stored as authoritative config;
+  // `assertCompleteDetectedConfig` is the library's check for exactly this, and
+  // it additionally requires the guardian commitment a guarded multisig always
+  // has. Failing here costs nothing — nothing has been written yet, and the
+  // rotation itself has already committed, so the row completes with
+  // `registerFailed` and the self-heal retries against a later, complete read.
+  if (declaredSigners === 0 || detectedSigners !== declaredSigners) {
+    throw new Error(
+      `Refusing to register on the new guardian with an incomplete signer allowlist: storage declares ` +
+        `${declaredSigners} signers, read ${detectedSigners} (truncated read)`
+    );
+  }
+  // And this device has to be IN the policy it is installing. The `/configure`
+  // call authenticates as the hot signer (`setSigner` below), so an allowlist
+  // that omits it would be a complete, well-formed set that locks out the only
+  // key able to talk to the operator afterwards — a read that is consistent and
+  // still wrong. Cheap to state, and it is the invariant the caller assumes.
+  if (!signerCommitments.some(commitment => normalizeHex(commitment) === normalizeHex(hotCommitment))) {
+    throw new Error(
+      "Refusing to register on the new guardian with an allowlist that omits this device's hot signer commitment"
+    );
   }
 
   registerGuardianOrigin(newGuardianEndpoint);

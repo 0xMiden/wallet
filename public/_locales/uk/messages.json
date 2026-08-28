@@ -892,6 +892,10 @@
     "message": "Guardian затверджено",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Підписано на цьому пристрої",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Створено доказ",
     "englishSource": "Proof generated"
@@ -2051,6 +2055,10 @@
   "guardianOfflineLabel": {
     "message": "Офлайн",
     "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Не підключено",
+    "englishSource": "Not connected"
   },
   "guardianCheckingLabel": {
     "message": "Перевірка",

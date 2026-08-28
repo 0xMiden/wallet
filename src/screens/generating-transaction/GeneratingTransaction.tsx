@@ -35,7 +35,8 @@ import {
   getStageDescriptionKey,
   getStageTitleKey,
   getStepDurationsMs,
-  getTransactionStepState
+  getTransactionStepState,
+  isDirectGuardianSwitch
 } from './helper';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
@@ -273,7 +274,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // The step set and per-step durations derive only from the account flow and
   // the persisted per-stage timestamps — never from live `stage` observation
   // (a Dexie liveQuery coalesces rapid stage writes, dropping a step's timing).
-  const steps = useMemo(() => stepsForFlow(isGuardian), [isGuardian]);
+  const signedLocally = isDirectGuardianSwitch(activeTransaction) || isDirectGuardianSwitch(completedTransaction);
+  const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
   const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
 
   useEffect(() => {

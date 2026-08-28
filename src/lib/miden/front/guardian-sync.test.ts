@@ -7,7 +7,7 @@
 
 import { WalletType } from 'screens/onboarding/types';
 
-import { SELF_HEAL_AUTH_FAILURE_THRESHOLD } from './guardian-selfheal';
+import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS } from './guardian-selfheal';
 import {
   __resetGuardianSyncOutageForTest,
   getGuardianLastSyncAt,
@@ -501,6 +501,66 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i++) await syncGuardianAccounts();
     expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
     expect(mockReRegister).toHaveBeenCalledTimes(1);
+  });
+
+  // The budget exists to stop a re-register that demonstrably does not help. A
+  // run that never reached the guardian has demonstrated nothing — and since the
+  // budget is only reset by a successful sync, which the stale allowlist is what
+  // prevents, charging those runs would disable the repair permanently after
+  // three unlucky local reads.
+  it('does not spend the bounded budget on runs that never reached the guardian', async () => {
+    mockGetSignerDetails.mockRejectedValue(new Error('storage read failed'));
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-unreadable', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    // Enough refusals to blow a budget of SELF_HEAL_MAX_ATTEMPTS, each past the
+    // cooldown so the decision gate itself is not what is holding them back.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    expect(mockReRegister).not.toHaveBeenCalled();
+
+    // The read recovers: the repair must still be available.
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    nowSpy.mockReturnValue(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    nowSpy.mockRestore();
+  });
+
+  // The opposite booking for the opposite outcome: being rotated out is a
+  // permanent answer, so it closes the budget instead of re-asking the guardian
+  // for its state once a cooldown forever.
+  it('closes the budget once it has established this device was rotated out', async () => {
+    mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-closed-budget', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now');
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      nowSpy.mockReturnValue(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockAdoptGuardianState).toHaveBeenCalledTimes(1);
+    nowSpy.mockRestore();
   });
 });
 

@@ -23,7 +23,11 @@ import fs from 'fs';
 import path from 'path';
 
 import { TRANSACTION_STAGES } from 'lib/miden/db/types';
-import { GUARDIAN_TRANSACTION_STEPS, STANDARD_TRANSACTION_STEPS } from 'screens/generating-transaction/constants';
+import {
+  DIRECT_SWITCH_TRANSACTION_STEPS,
+  GUARDIAN_TRANSACTION_STEPS,
+  STANDARD_TRANSACTION_STEPS
+} from 'screens/generating-transaction/constants';
 import { getStageDescriptionKey, getStageTitleKey } from 'screens/generating-transaction/helper';
 
 const englishKeys: Record<string, string> = JSON.parse(
@@ -40,8 +44,11 @@ describe('stage copy resolved through dynamic keys exists in en.json', () => {
 
   // The step rows are the other dynamic family on the same screen: each step's
   // `labelKey` reaches `t()` through the step definition, never as a literal.
-  it.each([...GUARDIAN_TRANSACTION_STEPS, ...STANDARD_TRANSACTION_STEPS])('has copy for the $id step row', step => {
-    expect(typeof englishKeys[step.labelKey]).toBe('string');
-    expect(englishKeys[step.labelKey]).not.toBe('');
-  });
+  it.each([...GUARDIAN_TRANSACTION_STEPS, ...STANDARD_TRANSACTION_STEPS, ...DIRECT_SWITCH_TRANSACTION_STEPS])(
+    'has copy for the $id step row',
+    step => {
+      expect(typeof englishKeys[step.labelKey]).toBe('string');
+      expect(englishKeys[step.labelKey]).not.toBe('');
+    }
+  );
 });
