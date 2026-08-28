@@ -48,9 +48,20 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
   // loop, so it explains rather than instructs.
   const endpointNotSaved = extra?.endpointPersistFailed === true;
   const registrationPending = extra?.registerFailed === true;
+  // A third, sharper case: the direct path SUBMITTED the rotation and never
+  // established that it committed. It outranks the other two, because both of
+  // their bodies open by asserting the switch is confirmed on chain — the one
+  // thing this state means the wallet does not know. If it did not land, the OLD
+  // operator is still the guardian and nothing downstream detects that, so this
+  // receipt is the user's only notice.
+  const commitUnconfirmed = extra?.commitUnconfirmed === true;
 
+  // `guardianSwitchSuccessInfo1` states the old guardian can no longer co-sign.
+  // That is precisely INVERTED when the rotation may not have landed, so it is
+  // swapped for a line that describes what the wallet actually knows. The rest
+  // are forward-looking and stay true either way.
   const infoKeys = [
-    'guardianSwitchSuccessInfo1',
+    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1',
     'guardianSwitchSuccessInfo2',
     'guardianSwitchSuccessInfo3',
     'guardianSwitchSuccessInfo4'
@@ -60,7 +71,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     <TransactionSuccessLayout
       headerTitle=""
       hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
-      title={t('guardianSwitchSuccessTitle')}
+      title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
         label: t('viewInActivities'),
@@ -95,14 +106,18 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
         </div>
       )}
 
-      {(endpointNotSaved || registrationPending) && (
+      {(commitUnconfirmed || endpointNotSaved || registrationPending) && (
         <Alert
           className="mt-3 w-full text-left"
           variant={AlertVariant.Warning}
           title={
             <>
-              <span className="font-semibold">{t('guardianSwitchSetupIncompleteTitle')}</span>{' '}
-              {t(endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody')}
+              <span className="font-semibold">
+                {t(commitUnconfirmed ? 'guardianSwitchUnconfirmedTitle' : 'guardianSwitchSetupIncompleteTitle')}
+              </span>{' '}
+              {commitUnconfirmed
+                ? t('guardianSwitchUnconfirmedBody')
+                : t(endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody')}
             </>
           }
         />

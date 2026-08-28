@@ -271,6 +271,54 @@ describe('GuardianSwitchSuccess', () => {
       expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
     });
 
+    // Sharper than the two above: those both KNOW the switch committed and only
+    // a follow-up step is missing. This one does not know that, so the two
+    // bodies above — which each open by asserting on-chain confirmation — would
+    // state the one fact the wallet failed to establish.
+    it('does not claim an on-chain confirmation it never obtained', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedTitle');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessTitle');
+      // Inverted if the rotation did not land: the old guardian would still be
+      // the on-chain one, and still able to co-sign.
+      expect(body()).not.toHaveTextContent('guardianSwitchSuccessInfo1');
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedInfo1');
+    });
+
+    it('outranks the post-commit warnings, whose copy asserts the confirmation it lacks', () => {
+      render(
+        <GuardianSwitchSuccess
+          transaction={switchGuardianTx({
+            extraInputs: {
+              previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT,
+              newGuardianEndpoint: KODA_ENDPOINT,
+              commitUnconfirmed: true,
+              endpointPersistFailed: true,
+              registerFailed: true
+            }
+          })}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(body()).toHaveTextContent('guardianSwitchUnconfirmedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchEndpointNotSavedBody');
+      expect(body()).not.toHaveTextContent('guardianSwitchRegistrationPendingBody');
+    });
+
     it('leads with the unsaved address when both steps failed', () => {
       render(
         <GuardianSwitchSuccess

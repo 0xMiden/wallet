@@ -1893,6 +1893,11 @@ const generateDirectSwitchGuardianTransaction = async (
     );
   }
 
+  // Distinct from `!commitConfirmed`: the commit WAIT failing is routine and is
+  // very often resolved by the node read below. This is the residue — submitted,
+  // and no evidence either way. It rides to the receipt so the success screen
+  // stops asserting a confirmation nothing established.
+  let commitUnconfirmed = false;
   if (!commitConfirmed) {
     const landed = await didDirectSwitchLand(id);
     if (landed === false) {
@@ -1901,6 +1906,7 @@ const generateDirectSwitchGuardianTransaction = async (
           'Leaving the stored guardian endpoint untouched.'
       );
     }
+    commitUnconfirmed = landed === undefined;
     console.warn(
       landed === true
         ? `Direct guardian switch ${id} is confirmed on chain despite the failed commit wait; finalizing.`
@@ -1909,7 +1915,7 @@ const generateDirectSwitchGuardianTransaction = async (
     );
   }
 
-  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider);
+  await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
   await setTransactionStage(transaction.id, 'complete');
 };
 

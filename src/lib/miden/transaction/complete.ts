@@ -566,7 +566,12 @@ export const completeSwitchGuardianTransaction = async (
   // no MultisigService exists — building one loads from the old guardian —
   // so registration on the new guardian runs standalone instead.
   multisigService: MultisigService | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // True when the direct path submitted but could never establish that the
+  // rotation committed (`didDirectSwitchLand` answered `undefined`). Recorded on
+  // the row so the receipt can decline to claim a confirmation the code never
+  // obtained. Absent on every coordinated path, where the commit IS confirmed.
+  commitUnconfirmed = false
 ) => {
   // Read the WASM-backed result fields ONCE, up front, before anything that can
   // select a terminal status depends on them.
@@ -693,7 +698,7 @@ export const completeSwitchGuardianTransaction = async (
       completedAt: Math.floor(Date.now() / 1000), // seconds
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
       // Absent on the apply-after-submit-failed reconcile path (no local
       // TransactionResult), and absent if reading the handle threw — the switch
       // is on chain either way, so the row completes without them.
@@ -730,7 +735,7 @@ export const completeSwitchGuardianTransaction = async (
     const completedPayload = {
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
       ...resultFields
     };
     for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {

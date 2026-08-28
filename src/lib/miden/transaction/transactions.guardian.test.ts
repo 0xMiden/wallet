@@ -4267,6 +4267,66 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
+    // Completing is the lesser harm, but "we went ahead on no evidence" is not
+    // "it committed", and the receipt is the only place left to say so. Without
+    // this the row is indistinguishable from a confirmed rotation and the
+    // success screen asserts a confirmation nothing established.
+    expect(row.extraInputs).toMatchObject({ commitUnconfirmed: true });
+  });
+
+  // The mirror of the case above: the chain DID answer, so the row must not
+  // carry the uncertainty flag and the receipt keeps its plain success copy.
+  it('Guardian switch-guardian: a commit the chain confirms after a failed wait is not marked unconfirmed', async () => {
+    const txId = 'switch-guardian-direct-waitfail-confirmed';
+    const result = makeResult();
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    mockDidDirectSwitchLand.mockResolvedValue(true);
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {
+        throw new Error('Deadline expired before operation could complete');
+      }),
+      client: makeClientApi(result)
+    });
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({ commitUnconfirmed: false });
   });
 
   // The state this guards is the worst one the direct path can reach and the one

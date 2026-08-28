@@ -97,6 +97,23 @@ export interface ISwitchGuardianExtraInputs {
   // support log cannot tell whether the unreachability verdict was right.
   switchedDirectly?: boolean;
   directSwitchReason?: string;
+  // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
+  // established that it committed. The commit wait failed without a verdict and
+  // the follow-up node read came back neither committed nor discarded, so
+  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway —
+  // deliberately, since the alternative strands the account on an operator the
+  // direct path has already judged unreachable — but "we went ahead on no
+  // evidence" is not the same fact as "it committed", and every other surface
+  // used to render them identically.
+  //
+  // It matters more here than the optimism usually would: if the rotation did
+  // NOT land, the OLD operator is still the on-chain guardian while the vault
+  // now names the new one, and nothing detects that afterwards — drift compares
+  // the on-chain guardian against its cached baseline, and both still name the
+  // old operator, so it reports `in-sync` without ever reading the stored
+  // endpoint. The receipt is the last place the user can be told, which is why
+  // this is persisted rather than merely logged.
+  commitUnconfirmed?: boolean;
 }
 
 /**
