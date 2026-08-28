@@ -2592,6 +2592,12 @@
     "message": "You can't send to your own address",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee"
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim"
+  },
   "insufficientFeeAsset": {
     "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
   },

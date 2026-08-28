@@ -970,5 +970,7 @@
   "devEndpointResetAndReonboard": "Сброс настроек до значений по умолчанию и повторная регистрация",
   "devEndpointsRow": "Сетевые конечные точки",
   "devEndpointResetConfirm": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
+  "notWorthClaiming": "Worth less than the network fee to claim",
+  "networkFee": "Network Fee"
 }

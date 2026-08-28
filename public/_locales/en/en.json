@@ -571,6 +571,8 @@
   "invalidMidenAccountId": "Invalid Miden account ID",
   "midenAddressWrongNetwork": "This address belongs to a different Miden network",
   "cannotSendToSelf": "You can't send to your own address",
+  "networkFee": "Network Fee",
+  "notWorthClaiming": "Worth less than the network fee to claim",
   "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "amountMustBeLessThanBalance": "Amount must be less than balance",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

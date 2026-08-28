@@ -79,7 +79,7 @@ export const buildReceiptRows = (
   // where an empty row would look like a failed read.
   if (feeText) {
     rows.push({
-      label: t('networkFee', { defaultValue: 'Network Fee' }),
+      label: t('networkFee'),
       value: feeText
     });
   }

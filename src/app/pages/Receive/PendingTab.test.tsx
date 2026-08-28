@@ -10,6 +10,8 @@ import { PendingTab, NoteWithMetadata } from './PendingTab';
 // end to end. `t` is the identity function, so an assertion on a rendered key
 // (e.g. 'noteUnavailable') proves that key was chosen.
 
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -98,6 +100,24 @@ const renderTab = (props: Partial<React.ComponentProps<typeof PendingTab>> = {})
 
 /** Enter the per-asset detail view by tapping its summary row. */
 const openDetail = () => fireEvent.click(screen.getByTestId('pending-asset-row'));
+
+describe('PendingTab — dust notes', () => {
+  it('marks a group the wallet will not auto-claim because it is worth less than the fee', () => {
+    // Auto-consume skips these, so without a hint the note just sits there with no
+    // explanation. Claiming stays available -- the user may still want it.
+    mockBaseFee = 2000000;
+    renderTab({ safeClaimableNotes: [makeNote('dust', { amount: '1000000' })] });
+
+    expect(screen.getByText('notWorthClaiming')).toBeInTheDocument();
+  });
+
+  it('does not mark a group worth more than the fee', () => {
+    mockBaseFee = 100;
+    renderTab({ safeClaimableNotes: [makeNote('rich', { amount: '1000000' })] });
+
+    expect(screen.queryByText('notWorthClaiming')).not.toBeInTheDocument();
+  });
+});
 
 describe('PendingTab — AssetSummaryRow attention badge (#456)', () => {
   it('shows the "needs attention" badge (not the neutral count) when a group note is retriable', () => {

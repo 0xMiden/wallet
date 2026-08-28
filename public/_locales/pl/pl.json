@@ -970,5 +970,7 @@
   "devEndpointResetAndReonboard": "Przywróć ustawienia domyślne i przeprowadź ponowną konfigurację",
   "devEndpointsRow": "Punkty końcowe sieci",
   "devEndpointResetConfirm": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
+  "notWorthClaiming": "Worth less than the network fee to claim",
+  "networkFee": "Network Fee"
 }

@@ -970,5 +970,7 @@
   "devEndpointResetAndReonboard": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
   "devEndpointsRow": "Ağ uç noktaları",
   "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
+  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
+  "notWorthClaiming": "Worth less than the network fee to claim",
+  "networkFee": "Network Fee"
 }

@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -71,6 +73,7 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
+
 
   const groupedNotes = useMemo(() => {
     const groups = new Map<string, AssetNoteGroup>();
@@ -166,6 +169,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   onSelectGroup,
   onClaimAll
 }) => {
+  const verificationBaseFee = useVerificationBaseFee();
   const { t } = useTranslation();
 
   const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
@@ -223,6 +227,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               tokenPrices={tokenPrices}
               retriableNoteIds={retriableNoteIds}
               invalidNoteIds={invalidNoteIds}
+              notWorthClaiming={!isWorthClaiming(group.totalAmount, verificationBaseFee)}
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
@@ -246,6 +251,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 };
 
 interface AssetSummaryRowProps {
+  /** True when the group's total is worth no more than the fee to claim it. */
+  notWorthClaiming?: boolean;
   group: AssetNoteGroup;
   tokenPrices: TokenPrices;
   retriableNoteIds: Set<string>;
@@ -255,6 +262,7 @@ interface AssetSummaryRowProps {
 }
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
+  notWorthClaiming,
   group,
   tokenPrices,
   retriableNoteIds,
@@ -301,6 +309,14 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           </span>
         </div>
       </div>
+      {notWorthClaiming && (
+        // Auto-consume skips this group, so say why rather than leaving it to sit
+        // there unexplained. Claiming stays available: the call is the user's, the
+        // wallet just will not spend their money on it unprompted.
+        <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
+          {t('notWorthClaiming')}
+        </div>
+      )}
       {needsAttentionCount > 0 ? (
         <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
           {t('notesUnresolved', { count: needsAttentionCount })}

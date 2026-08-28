@@ -4344,5 +4344,13 @@
   "insufficientFeeAsset": {
     "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
   }
 }

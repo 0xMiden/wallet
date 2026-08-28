@@ -1273,7 +1273,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                  {entry.fee && (
-                   <DetailRow label={t('networkFee', { defaultValue: 'Network Fee' })}>
+                   <DetailRow label={t('networkFee')}>
                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
                    </DetailRow>
                  )}
