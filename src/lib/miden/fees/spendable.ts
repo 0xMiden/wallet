@@ -32,3 +32,31 @@ export function hasNoFeeAsset(
   }
   return native.balance <= 0;
 }
+
+/**
+ * How much of the native asset the user may actually send, holding back enough to
+ * pay the transaction's own fee.
+ *
+ * The kernel charges `baseFee x (floor(log2(cycles)) + 1)`, and cycles are not
+ * knowable until the transaction is proven -- so no caller can quote the exact
+ * fee up front. We reserve a deliberate upper bound instead: observed devnet
+ * transactions land near 17x the base fee, so 30x keeps ~1.8x headroom and a send
+ * that passes this check does not then fail in the epilogue.
+ *
+ * `balance` is decimal-scaled for display while `verificationBaseFee` is in the
+ * asset's smallest unit, so the reserve is converted before subtracting. Mixing
+ * them would reserve 300000 MIDEN instead of 0.3 and disable sending entirely.
+ */
+export const FEE_RESERVE_MULTIPLE = 30;
+
+export function maxSendableNative(
+  balance: number,
+  verificationBaseFee: number | null,
+  decimals: number
+): number {
+  if (verificationBaseFee === null || verificationBaseFee <= 0) {
+    return balance;
+  }
+  const reserve = (verificationBaseFee * FEE_RESERVE_MULTIPLE) / 10 ** decimals;
+  return Math.max(0, balance - reserve);
+}
