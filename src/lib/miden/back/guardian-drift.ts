@@ -1,10 +1,9 @@
-import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
+import { getGuardianCommitmentFromAccount, resolveChosenGuardianEndpoint } from 'lib/miden/guardian/account';
 import {
   checkEndpointCommitment,
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
-import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianSyncStatus } from 'lib/shared/types';
 
@@ -147,16 +146,38 @@ async function readSilentDriftRuns(): Promise<Record<string, SilentDriftRun>> {
   }
 }
 
+/**
+ * Serializes the read-modify-write below. Every account's run lives in ONE
+ * storage object, so two concurrent updates each read the object, mutate their
+ * own account's entry, and write the whole thing back — and the later write
+ * silently drops the earlier account's progress. The drift check is dispatched
+ * per realm (popup, side panel, full page) onto the single backend, and the
+ * frontend's in-flight coalescing is module-local to each realm, so two passes
+ * genuinely can overlap here. The cost of losing a window is that a stranded
+ * account never reaches the run length its only prompt is gated on.
+ */
+let silentDriftWriteChain: Promise<void> = Promise.resolve();
+
 async function writeSilentDriftRun(accountPublicKey: string, run: SilentDriftRun | undefined): Promise<void> {
-  try {
-    const runs = await readSilentDriftRuns();
-    if (run) runs[accountPublicKey] = run;
-    else if (!(accountPublicKey in runs)) return;
-    else delete runs[accountPublicKey];
-    await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, runs);
-  } catch {
-    // See above.
-  }
+  const write = silentDriftWriteChain.then(async () => {
+    try {
+      const runs = await readSilentDriftRuns();
+      if (run) runs[accountPublicKey] = run;
+      else if (!(accountPublicKey in runs)) return;
+      else delete runs[accountPublicKey];
+      await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, runs);
+    } catch {
+      // See above.
+    }
+  });
+  // The chain must not be poisoned by a rejection, and the body above already
+  // swallows its own failures — this only keeps a future `putToStorage` throw
+  // from stalling every later write.
+  silentDriftWriteChain = write.then(
+    () => undefined,
+    () => undefined
+  );
+  await write;
 }
 
 /**
@@ -226,10 +247,13 @@ interface GuardianDriftVault {
  * built-in that serves the same commitment overrides the stored endpoint and the
  * account is repaired to it, and only when a COMPLETE round of built-ins reports
  * that none serves it does the stored endpoint's claim stand as a genuine custom
- * operator. A round that could not complete corroborates nothing, and writes
- * nothing — it leaves the account untouched for a later window to settle, rather
- * than latching the self-report on the strength of our own probes failing. If the
- * stored endpoint
+ * operator. A round that could not complete corroborates nothing, and writes no
+ * BASELINE — it leaves that for a later window to settle, rather than latching
+ * the self-report on the strength of our own probes failing. It does still LIFT a
+ * status that blocks, because requiring corroboration to accuse is protection and
+ * requiring it to exonerate would make an account's ability to transact depend on
+ * the availability of operators it does not use; see the `'unavailable'` branch,
+ * which is the authority on this rule. If the stored endpoint
  * answers with a different key, the built-ins are asked to name the new operator
  * (`identifyGuardianOperator`); on a match the new endpoint + status +
  * commitment are persisted and the account is back in sync, otherwise the
@@ -313,7 +337,12 @@ export async function resolveGuardianDrift(
   // it says only "the default operator is not your guardian" — which is exactly
   // what `'absent'` already means, and it must keep `'absent'`'s requirement of a
   // complete built-in round before accusing.
-  const storedEndpoint = account.guardianEndpoint || (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || '';
+  // One definition of "the pointer this account chose", shared with the
+  // missing-registration self-heal — the other caller that must not be handed a
+  // guessed default. It swallows a failed storage read for the same reason
+  // `readSilentDriftRuns` does: this gates an accusation, so a storage hiccup
+  // must not take the drift check down with it.
+  const storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts
@@ -406,10 +435,11 @@ export async function resolveGuardianDrift(
       // network, an offline device, a plain outage — or an attacker who can drop
       // traffic to one operator — used to arrive here indistinguishable from
       // "no built-in serves this commitment", and take the branch that latches
-      // the baseline forever. Change nothing at all instead: no write, no status,
-      // no baseline, so the account stays exactly as it was and the next probe
-      // window can corroborate for real. The cooldown set above is deliberately
-      // NOT cleared, so this costs one probe window per minute, not per tick.
+      // the baseline forever. Withhold the BASELINE instead, so the next probe
+      // window can corroborate for real — but not, as this originally did, every
+      // write: see the block below, which lifts a status that blocks. The
+      // cooldown set above is deliberately NOT cleared, so this costs one probe
+      // window per minute, not per tick.
       if (corroboration.outcome === 'unavailable') {
         // The endpoint DID answer, so end any silent run first — the rule is
         // "the endpoint spoke ⇒ the run is over", and applying it on some

@@ -2,6 +2,7 @@ import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
+  resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from 'lib/miden/guardian/account';
 import {
@@ -390,11 +391,20 @@ function resetEndpointScopedSyncState(accountPublicKey: string): boolean {
   // These three are the ones on screen, so the caller has to notify when any of
   // them actually changed — a notify on every tick would re-render the pill
   // forever.
-  const observable =
-    outageAccounts.delete(accountPublicKey) ||
-    unrepairableAccounts.delete(accountPublicKey) ||
-    lastGuardianSyncAt.delete(accountPublicKey);
-  return observable;
+  //
+  // Each delete is performed BEFORE the results are combined. Chaining them with
+  // `||` reads like a predicate and is in fact three mutations, so the operator
+  // short-circuited the moment the first one hit: on the primary path this
+  // feature exists for — banner arms, user rotates — `outageAccounts` held the
+  // account, and the stamp and the unrepairable flag were therefore never
+  // dropped. That left the OUTGOING operator's success stamp on an account now
+  // pointed at an operator that has never answered, which is F-137's defect
+  // reintroduced through F-137's own fix, and it is what
+  // `lastGuardianSyncAt`'s docstring promises cannot happen.
+  const outageCleared = outageAccounts.delete(accountPublicKey);
+  const unrepairableCleared = unrepairableAccounts.delete(accountPublicKey);
+  const stampCleared = lastGuardianSyncAt.delete(accountPublicKey);
+  return outageCleared || unrepairableCleared || stampCleared;
 }
 
 /**
@@ -476,9 +486,24 @@ function clearMissingRegistrationState(accountPublicKey: string): void {
  *
  * The caller supplies persistence (the verdict has repeated); this function
  * supplies the bounded/backed-off budget and the three refusals below.
+ *
+ * The endpoint is the pointer the account CHOSE, which is neither the raw field
+ * nor the fully-resolved one. The raw field was wrong: a pre-per-account-endpoint
+ * account on a custom operator has the legacy global key as its only pointer,
+ * since the unlock backfill leaves that account's field empty rather than
+ * stamping a guess — so this refused the repair for exactly the population it
+ * serves, and refused it BEFORE `markGuardianUnrepairable` below, leaving the
+ * account not merely unrepaired but unnameable (no outage flag, since the
+ * operator answered; no sync stamp; no unrepairable flag) which Guardian Settings
+ * renders as "Checking" forever. The fully-resolved value would be wrong the
+ * other way and far worse: its last arm is the network DEFAULT, and this function
+ * POSTs the device's serialized private account state as that operator's
+ * authoritative `initialState`. An account with no pointer at all must still
+ * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
+ * sync loop and the drift reconciler; this was the last one.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
-  const endpoint = account.guardianEndpoint;
+  const endpoint = await resolveChosenGuardianEndpoint(account);
   if (!endpoint) return;
 
   // Read once and decide everything from that one snapshot: the budget key, both

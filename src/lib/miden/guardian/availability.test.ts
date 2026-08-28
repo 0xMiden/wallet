@@ -50,6 +50,18 @@ describe('pingGuardianEndpoint', () => {
     await expect(pingGuardianEndpoint('https://weird.example.com')).resolves.toBe(false);
   });
 
+  // The body is an unchecked `response.json()` cast, so a host serving nonsense
+  // reaches here as a number or an object. A truthiness test called that online;
+  // only a guardian answers with a key commitment, which is the whole basis for
+  // reading this probe as liveness. Same values `fetchOperatorCommitment` refuses.
+  it.each([[1234], [true], [{ nested: 'object' }], [['a']], [null], [undefined]])(
+    'reports offline when the commitment is not a string (%p)',
+    async commitment => {
+      mockGetPubkey.mockResolvedValue({ commitment });
+      await expect(pingGuardianEndpoint('https://nonsense.example.com')).resolves.toBe(false);
+    }
+  );
+
   it('reports offline when the request outlives the deadline', async () => {
     jest.useFakeTimers();
     try {

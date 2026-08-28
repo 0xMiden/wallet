@@ -30,8 +30,37 @@ import { fetchFromStorage } from '../front/storage';
  * written anywhere in the codebase — grep for writers to confirm.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
+  return (await resolveChosenGuardianEndpoint(account)) ?? getEffectiveDefaultGuardianEndpoint();
+}
+
+/**
+ * The guardian pointer this account actually CHOSE — the per-account field, then
+ * the legacy global key — with the network default deliberately excluded, so an
+ * account with no pointer at all answers `undefined` rather than a guess.
+ *
+ * Split out because the two halves are not interchangeable for every caller, and
+ * conflating them has now been a defect in both directions. Callers that merely
+ * need somewhere to talk to want the default (`resolveGuardianEndpoint`). Callers
+ * about to make an ACCUSATION or a WRITE must not have it: the drift reconciler
+ * treats a denial from the default as no evidence, and the missing-registration
+ * self-heal POSTs this device's serialized private account state as an operator's
+ * authoritative `initialState` — which must never go to an endpoint the wallet
+ * guessed rather than one the account named.
+ *
+ * Reading the raw field alone is the opposite error, and the one this exists to
+ * stop repeating: a pre-per-account-endpoint account on a custom operator has the
+ * global key as its ONLY pointer, because the unlock backfill leaves that
+ * account's field empty rather than stamping a guess.
+ *
+ * Best-effort on the storage read: every caller is on a path where a failed read
+ * must degrade to the field rather than throw out of the surrounding check.
+ */
+export async function resolveChosenGuardianEndpoint(account: {
+  guardianEndpoint?: string;
+}): Promise<string | undefined> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
-  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+  const legacy = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY).catch(() => undefined);
+  return legacy || undefined;
 }
 
 /**

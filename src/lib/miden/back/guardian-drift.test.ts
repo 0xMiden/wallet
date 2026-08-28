@@ -30,7 +30,18 @@ jest.mock('lib/miden/guardian/operator-map', () => ({
   verifyEndpointMatchesCommitment: jest.fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({
-  getGuardianCommitmentFromAccount: jest.fn()
+  getGuardianCommitmentFromAccount: jest.fn(),
+  // The pointer the account CHOSE: its own field, then the legacy global key,
+  // never the network default. Shared with the missing-registration self-heal so
+  // there is one definition of it; the real implementation swallows a failed
+  // storage read, which the fake mirrors by simply not having one.
+  resolveChosenGuardianEndpoint: jest.fn(async (account: { guardianEndpoint?: string }) => {
+    if (account.guardianEndpoint) return account.guardianEndpoint;
+    // Required lazily: a `jest.mock` factory is hoisted above the imports.
+    const storage = jest.requireActual<typeof import('../front/storage')>('../front/storage');
+    const settings = jest.requireActual<typeof import('lib/settings/constants')>('lib/settings/constants');
+    return (await storage.fetchFromStorage<string>(settings.GUARDIAN_URL_STORAGE_KEY)) || undefined;
+  })
 }));
 
 // `identifyGuardianOperator` answers a three-way lookup, because a caller

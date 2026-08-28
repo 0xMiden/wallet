@@ -116,6 +116,40 @@ export const isGuardianAccountUnknown = (err: unknown): boolean => {
 };
 
 /**
+ * The operator answered, and its answer is "I am no longer this account's
+ * guardian" — `account_released` (HTTP 409), which the server emits after it
+ * observes the account switch away and which its own client documents as
+ * terminal on that server until the account is re-onboarded via `configure`.
+ *
+ * Deliberately NOT folded into `isGuardianAccountUnknown`, because it is a
+ * stronger statement than "no record": it is a positive assertion that this
+ * operator has stood down, which is affirmative evidence FOR the direct path
+ * rather than merely the absence of evidence against it.
+ *
+ * It has to route to the same fallback for the same reason. The state that
+ * produces it is a rotation that landed on chain while the wallet's own record
+ * of it did not — `endpointPersistFailed`, or an `apply()` that failed after the
+ * submission — so the vault still names an operator the chain no longer does.
+ * The user's offered repair is Rotate Guardian, and a released operator can
+ * neither co-sign nor be re-onboarded by this flow, so without this the repair
+ * died on the first call exactly as it did before F-166.
+ */
+export const isGuardianAccountReleased = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null) return false;
+  return 'code' in err && err.code === 'account_released';
+};
+
+/**
+ * Either answer that means "this operator cannot co-sign for this account" —
+ * no record of it, or a record it has deliberately given up. One predicate
+ * because every call site that cares treats them identically: the coordinated
+ * path is unavailable and the direct on-chain path needs nothing the operator
+ * could have supplied.
+ */
+export const isGuardianAccountUnusable = (err: unknown): boolean =>
+  isGuardianAccountUnknown(err) || isGuardianAccountReleased(err);
+
+/**
  * Is this error the outgoing guardian being UNREACHABLE (connection refused,
  * DNS, timeout, TLS, or a proxy 5xx with no guardian body) — as opposed to a
  * semantic guardian rejection? Only unreachability triggers the direct-switch
@@ -503,15 +537,6 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
 };
 
 /**
- * Post-commit finalization for a DIRECT guardian switch: register the
- * post-switch account state on the NEW guardian without a MultisigService
- * (there is none — building one would need the unreachable old guardian).
- * Mirrors `MultisigService.finalizeGuardianSwitch` +
- * `registerOnGuardianWithRetry`: fresh sync, serialize the post-switch
- * account, derive the cosigner allowlist from that SAME fresh account (never a
- * cached set), then `configure` on the new guardian with retry/backoff.
- */
-/**
  * Marks a failure that happened BEFORE any `/configure` was issued — a local
  * read that came back truncated, an account the client does not have, a signer
  * set this device is not in.
@@ -564,6 +589,20 @@ const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
   }
 };
 
+/**
+ * Post-commit finalization for a DIRECT guardian switch: register the
+ * post-switch account state on the NEW guardian without a MultisigService
+ * (there is none — building one would need the unreachable old guardian).
+ * Mirrors `MultisigService.finalizeGuardianSwitch` +
+ * `registerOnGuardianWithRetry`: fresh sync, serialize the post-switch
+ * account, derive the cosigner allowlist from that SAME fresh account (never a
+ * cached set), then `configure` on the new guardian with retry/backoff.
+ *
+ * Throws `GuardianRegistrationPreflightError` when it refuses before contacting
+ * the operator; the three call sites (`complete.ts`, the direct-switch pipeline,
+ * and the missing-registration self-heal) all treat that as a refund rather than
+ * a spent attempt.
+ */
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
   newGuardianEndpoint: string,
@@ -675,8 +714,15 @@ export const finalizeDirectGuardianSwitch = async (
         'nothing to check the operator against'
     );
   }
+  // On the tick budget this probe would be 5s, which is right for a caller that
+  // repeats every ~3s and wrong here: this fires ONCE, past the on-chain commit,
+  // in front of a retry loop that allows the very same operator 30s per attempt.
+  // A self-hosted operator cold-starting in 6s would fail the guard, book
+  // `registerFailed`, and hand the account to a self-heal that probes it on the
+  // same 5s budget — a slow operator convicted of being the wrong one, which is
+  // the mistake `USER_ENDPOINT_CHECK_TIMEOUT_MS` was introduced to stop making.
   const endpointHoldsGuardianKey = await asPreflight(() =>
-    checkEndpointCommitment(newGuardianEndpoint, guardianCommitment)
+    checkEndpointCommitment(newGuardianEndpoint, guardianCommitment, DIRECT_REGISTER_TIMEOUT_MS)
   );
   if (endpointHoldsGuardianKey !== 'match') {
     throw new GuardianRegistrationPreflightError(

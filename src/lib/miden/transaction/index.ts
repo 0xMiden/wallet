@@ -17,7 +17,7 @@ import { MultisigService } from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
-  isGuardianAccountUnknown,
+  isGuardianAccountUnusable,
   isGuardianUnreachableError
 } from 'lib/miden/guardian/direct-switch';
 import {
@@ -785,8 +785,19 @@ async function reconcileStructuralApplyFailure(
         'loading the outgoing guardian service for the switch reconcile'
       );
     } catch (error) {
-      if (!isGuardianUnreachableError(error)) throw error;
-      console.warn('[Guardian] old guardian unreachable during switch reconcile — finalizing directly', error);
+      // "Cannot co-sign for this account" belongs here as much as "is down", and
+      // this site is the sharpest of the three: the rotation has ALREADY been
+      // submitted, so a rethrow puts the caller on the "reconcile failed;
+      // cancelling" path and a switch that is on chain ends Failed with the vault
+      // still naming the old operator. `account_released` is the answer this very
+      // state produces — the operator saw the switch land and stood down — and it
+      // arrives as a 409, so before this it was rethrown by the one branch whose
+      // job is to finalize a rotation the outgoing operator can no longer help
+      // with. Completion handles the undefined service by registering on the new
+      // guardian directly, which is exactly what a released operator leaves us
+      // needing.
+      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      console.warn('[Guardian] old guardian unusable during switch reconcile — finalizing directly', error);
     }
   }
   await completeSwitchGuardianTransaction(tx as SwitchGuardianTransaction, undefined, service, guardianProvider);
@@ -1869,7 +1880,7 @@ const generateDirectSwitchGuardianTransaction = async (
     commitConfirmed = false;
     console.warn(
       `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +
-        'checking the on-chain guardian commitment to find out whether it landed:',
+        'asking the node whether the TRANSACTION committed or was discarded:',
       waitError
     );
   }
@@ -2040,27 +2051,36 @@ const generateGuardianTransaction = async (
         // switch-guardian as a recovery path is escaping a dead guardian.
         // Reachable-guardian errors (401/409/…) keep the normal handling.
         //
-        // "It answered, and it has no record of this account" is the second
+        // "It answered, and it cannot co-sign for this account" is the second
         // condition that has to route here, and leaving it out closed the escape
-        // route on the users who needed it most. A rotation whose registration
-        // never landed (`registerFailed`, then three exhausted self-heal attempts
-        // → `unrepairable`) leaves the chain naming an operator that holds nothing
-        // for this account. Settings shows "Needs attention" and offers exactly
-        // one action, Rotate Guardian — and that action died at the FIRST step,
-        // because loading the outgoing service calls the guardian's `getState`,
-        // which answers `account_not_found`. That is not a 5xx, so the fallback
-        // did not fire, and the row failed terminally with the user's only offered
-        // recovery unable to run. An operator with no record cannot co-sign a
-        // proposal for the account, so for the purpose of rotating AWAY it is
-        // exactly as unusable as one that is down, and the direct path needs
-        // nothing from it: it signs locally with hot + cold and submits on chain.
+        // route on the users who needed it most. Two answers carry it. A rotation
+        // whose registration never landed (`registerFailed`, then three exhausted
+        // self-heal attempts → `unrepairable`) leaves the chain naming an operator
+        // that holds NOTHING for this account, and it answers `account_not_found`.
+        // A rotation that landed on chain while the wallet's record of it did not
+        // (`endpointPersistFailed`, or a failed `apply()`) leaves the vault naming
+        // an operator the chain no longer does, and that one answers
+        // `account_released` — a 409, so not a 5xx either. In both states Settings
+        // shows "Needs attention" and offers exactly one action, Rotate Guardian,
+        // and that action died at the FIRST step because loading the outgoing
+        // service calls the guardian's `getState`. The row then failed terminally
+        // with the user's only offered recovery unable to run. Neither operator
+        // can co-sign a proposal for the account, so for the purpose of rotating
+        // AWAY both are exactly as unusable as one that is down, and the direct
+        // path needs nothing from either: it signs locally with hot + cold and
+        // submits on chain.
         const directSwitchTrigger = isGuardianUnreachableError(error)
           ? `${unreachableSubject} unreachable`
-          : isGuardianAccountUnknown(error)
-            ? // Always the OUTGOING operator, whichever phase threw: the new
-              // guardian is only ever asked for its `/pubkey`, which is not
-              // account-scoped and cannot answer "no record of this account".
-              'outgoing guardian has no record of this account'
+          : isGuardianAccountUnusable(error)
+            ? // Attributed by PHASE, not hardcoded. Only the service load is
+              // account-scoped to the outgoing operator alone; once it has
+              // succeeded the new endpoint is in play too, and a user-typed URL
+              // answering its non-account-scoped `/pubkey` with
+              // `404 {"code":"data_unavailable"}` reaches this same branch. This
+              // reason string is the row's only record of which operator a
+              // verdict was about, so it widens rather than guessing — the same
+              // rule the block above states for unreachability.
+              `${unreachableSubject} cannot co-sign for this account`
             : undefined;
         if (directSwitchTrigger === undefined) throw error;
         console.warn(`[Guardian] ${directSwitchTrigger} — switching directly on-chain:`, error);
@@ -2318,9 +2338,22 @@ const generateGuardianTransaction = async (
       );
     } catch (error) {
       // Connectivity to the outgoing guardian dropped between proposal push and
-      // cold co-sign: fall back to the direct on-chain switch.
-      if (!isGuardianUnreachableError(error)) throw error;
-      console.warn('[Guardian] outgoing guardian unreachable at cold co-sign — switching directly on-chain:', error);
+      // cold co-sign, or the operator stopped being able to co-sign for this
+      // account in that window: fall back to the direct on-chain switch.
+      //
+      // F-166 deliberately left the account-unusable verdicts off THIS catch, on
+      // the reasoning that a pushed proposal proves the operator knows the
+      // account. It does — at push time. What it does not prove is that the
+      // operator still holds it at co-sign time, and there is no exit from the
+      // gap: `switch-guardian` is in neither requeue set and has no user Retry, so
+      // the row fails terminally, and a fresh rotation attempt reaches an operator
+      // whose `getState` still answers, takes the coordinated path again, and dies
+      // at the same step. That is a loop, not an escape. Nothing about the
+      // verdict's timing changes what it means for the direct path, which asks the
+      // outgoing operator for nothing; the pushed delta is retracted best-effort
+      // just below, exactly as it is for an unreachable operator.
+      if (!isGuardianUnreachableError(error) && !isGuardianAccountUnusable(error)) throw error;
+      console.warn('[Guardian] outgoing guardian unusable at cold co-sign — switching directly on-chain:', error);
       // Try to retract the pushed delta first, best-effort and swallowed — the
       // same idiom the submission failure path below uses. It will usually fail
       // (it needs the operator we just failed to reach), but "the call may fail"
@@ -2336,10 +2369,10 @@ const generateGuardianTransaction = async (
       // the guardian, and the direct switch submits its own transaction), so
       // there is no co-signature the chain may be about to consume.
       //
-      // Deadline-bounded like the calls above it, and for a sharper reason: the
-      // verdict that put us here is that this operator is unreachable, and the
-      // shape that most often produces that verdict is one that accepts the
-      // connection and never replies. An unbounded best-effort call against it
+      // Deadline-bounded like the calls above it, and for a sharper reason: one
+      // of the two verdicts that reach here is that this operator is unreachable,
+      // and the shape that most often produces that verdict is one that accepts
+      // the connection and never replies. An unbounded best-effort call against it
       // does not merely delay the fallback, it replaces it — the row sits at
       // `signing-proposal` forever, and `switch-guardian` has no requeue and no
       // Retry. A cleanup step must not be able to cost more than the thing it
@@ -2359,7 +2392,9 @@ const generateGuardianTransaction = async (
         transaction as SwitchGuardianTransaction,
         signCallback,
         guardianProvider,
-        `outgoing guardian unreachable at cold co-sign, after the proposal was pushed: ${describeError(error)}`
+        `outgoing guardian ${
+          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
+        } at cold co-sign, after the proposal was pushed: ${describeError(error)}`
       );
       return;
     }

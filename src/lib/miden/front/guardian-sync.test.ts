@@ -118,10 +118,16 @@ const mockGetGuardianCommitmentFromAccount = jest.fn();
 const resolveEndpointDefault = async (account: { guardianEndpoint?: string }) =>
   account.guardianEndpoint ?? 'https://default.guardian.test';
 const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
+// The pointer the account CHOSE: field, then the legacy global key, and NEVER the
+// network default. The self-heal writes this device's private account state to it,
+// so an account with no pointer must resolve to `undefined` and be refused.
+const resolveChosenDefault = async (account: { guardianEndpoint?: string }) => account.guardianEndpoint;
+const mockResolveChosenGuardianEndpoint = jest.fn(resolveChosenDefault);
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
   getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args),
-  resolveGuardianEndpoint: (account: { guardianEndpoint?: string }) => mockResolveGuardianEndpoint(account)
+  resolveGuardianEndpoint: (account: { guardianEndpoint?: string }) => mockResolveGuardianEndpoint(account),
+  resolveChosenGuardianEndpoint: (account: { guardianEndpoint?: string }) => mockResolveChosenGuardianEndpoint(account)
 }));
 
 // One unauthenticated GET /pubkey: does the operator we are about to register on
@@ -943,6 +949,7 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     // `clearAllMocks` keeps implementations, so a test that overrides the
     // resolver would otherwise decide every operator identity after it.
     mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+    mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
   });
 
   const runSyncs = async (times: number) => {
@@ -1149,6 +1156,36 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       expect(isGuardianSyncOutage(pk)).toBe(false);
       await runSyncs(1);
       expect(isGuardianSyncOutage(pk)).toBe(true);
+    });
+
+    // The two tests above each arrange ONE piece of state, which is exactly why
+    // they both passed while the reset dropped only the first thing it hit: its
+    // three deletions were chained with `||`, so a rotation away from an operator
+    // that had earned an outage — the primary path this feature exists for, since
+    // the banner is what sends the user to rotate — kept that operator's success
+    // stamp. This arranges both at once, which is the real sequence.
+    it('drops the stamp even when the outage flag was armed first', async () => {
+      const pk = 'rotate-stamp-and-outage';
+      storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
+      const sync = jest.fn().mockResolvedValue(undefined);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      await runSyncs(1);
+      expect(getGuardianLastSyncAt(pk)).toEqual(expect.any(Number));
+
+      sync.mockRejectedValue(new Error('Failed to fetch'));
+      await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD);
+      expect(isGuardianSyncOutage(pk)).toBe(true);
+      // Still stamped: an outage does not retract a sync that really happened.
+      expect(getGuardianLastSyncAt(pk)).toEqual(expect.any(Number));
+
+      storeState.accounts = [at(pk, 'https://new.guardian.test')] as never;
+      await runSyncs(1);
+
+      expect(isGuardianSyncOutage(pk)).toBe(false);
+      // The one the short-circuit skipped: without it Guardian Settings reads a
+      // fresh stamp and renders a never-contacted operator "Online".
+      expect(getGuardianLastSyncAt(pk)).toBeUndefined();
     });
 
     it('drops a 429 cooldown the previous operator asked for', async () => {
@@ -1399,6 +1436,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
     mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
+    mockResolveChosenGuardianEndpoint.mockImplementation(resolveChosenDefault);
   });
 
   // All four codes reach this branch: the operator uses them interchangeably for
@@ -1440,6 +1478,25 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  // The pointer the account CHOSE, which is neither the raw field nor the fully
+  // resolved value. A pre-per-account-endpoint account on a custom operator has an
+  // EMPTY field and the legacy global key as its only pointer — the unlock backfill
+  // leaves the field empty rather than stamping a guess — so reading the field
+  // refused the repair for exactly the population this arm serves, and refused it
+  // BEFORE the unrepairable mark, leaving the account in the "Checking forever"
+  // state that mark exists to name.
+  it('repairs a legacy account that points at its operator through the global key', async () => {
+    storeState.accounts = [{ ...account, guardianEndpoint: undefined }] as never;
+    mockResolveChosenGuardianEndpoint.mockResolvedValue(endpoint);
+
+    await runUntilPersistent();
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+    // Against the operator that answered, not `undefined`.
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(account.publicKey, endpoint, expect.anything());
   });
 
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {

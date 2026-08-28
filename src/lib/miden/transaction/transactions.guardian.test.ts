@@ -5771,28 +5771,58 @@ describe('generateTransaction — direct switch audit marker', () => {
   // not fire and the row failed terminally with the user's only offered recovery
   // unable to run. An operator with no record cannot co-sign a proposal for the
   // account, and the direct path needs nothing from it.
+  //
+  // `account_released` is the same dead end reached from the other side: the
+  // rotation DID land on chain, the wallet's record of it did not, and the
+  // operator that saw it land has stood down. It arrives as a 409, so before it
+  // was named here it went out through the "semantic rejection" door below and
+  // failed the row terminally.
   it.each([
-    ['account_not_found', 'account_not_found'],
-    ['state_not_found', 'state_not_found'],
-    ['data_unavailable', 'data_unavailable']
-  ])('escapes an outgoing guardian that answers %s', async (_label, code) => {
-    const txId = `switch-guardian-marker-unknown-${code}`;
+    ['account_not_found', { code: 'account_not_found' }],
+    ['state_not_found', { code: 'state_not_found' }],
+    ['data_unavailable', { code: 'data_unavailable' }],
+    ['account_released', { code: 'account_released', status: 409 }]
+  ])('escapes an outgoing guardian that answers %s', async (label, shape) => {
+    const txId = `switch-guardian-marker-unusable-${label}`;
     const provider = setup(txId);
-    mockGetOrCreateMultisigService.mockRejectedValue(Object.assign(new Error('no such account'), { code }));
+    mockGetOrCreateMultisigService.mockRejectedValue(Object.assign(new Error('cannot co-sign'), shape));
 
     await run(txId, provider);
 
     const extra = markerExtraInputs(txId);
     expect(extra).toMatchObject({ switchedDirectly: true });
-    // Attributed to the outgoing operator whichever phase threw: the new guardian
-    // is only asked for its `/pubkey`, which is not account-scoped and so cannot
-    // answer "no record of this account".
-    expect(extra.directSwitchReason).toContain('outgoing guardian has no record of this account');
+    // Attributed by PHASE. The service load is the only account-scoped call to
+    // the outgoing operator alone, so a verdict from it names that operator and
+    // does not widen — and it must not read "unreachable", which is a different
+    // diagnosis for a different repair.
+    expect(extra.directSwitchReason).toContain('outgoing guardian cannot co-sign for this account');
     expect(extra.directSwitchReason).not.toContain('unreachable');
   });
 
+  // Past the service load the new endpoint is in play too — a user-typed URL
+  // answering its non-account-scoped `/pubkey` with an account-scoped code lands
+  // in the same branch — so the audit reason widens instead of naming the
+  // outgoing operator on an assumption.
+  it('widens the attribution when the verdict arrives after the service loaded', async () => {
+    const txId = 'switch-guardian-marker-unusable-after-load';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('no such account'), { code: 'data_unavailable' })),
+      abandonCandidate: jest.fn(async () => {})
+    });
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    expect(extra.directSwitchReason).toContain('outgoing or new guardian cannot co-sign for this account');
+  });
+
   // And the two classes stay distinct in the audit trail, since the row is the only
-  // record of which verdict routed it.
+  // record of which verdict routed it. A bare 409 with no code is a real conflict,
+  // not a released account.
   it('keeps a semantic guardian rejection on the normal path', async () => {
     const txId = 'switch-guardian-marker-semantic-rejection';
     const provider = setup(txId);
@@ -5801,6 +5831,33 @@ describe('generateTransaction — direct switch audit marker', () => {
     await run(txId, provider);
 
     expect(markerExtraInputs(txId).switchedDirectly).toBeUndefined();
+  });
+
+  // The cold co-sign is a later gap in the same rotation, and it had no exit at
+  // all: the row fails terminally, `switch-guardian` is in neither requeue set
+  // and has no Retry, and a fresh attempt reaches an operator whose `getState`
+  // still answers — so it takes the coordinated path and dies at the same step.
+  it('escapes an outgoing guardian that stops being able to co-sign mid-rotation', async () => {
+    const txId = 'switch-guardian-marker-cold-cosign-unusable';
+    const provider = setup(txId);
+    const abandonCandidate = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      abandonCandidate
+    });
+    mockBuildColdMultisigService.mockRejectedValue(
+      Object.assign(new Error('no such account'), { code: 'account_not_found' })
+    );
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    expect(extra.directSwitchReason).toContain('cannot co-sign for this account');
+    expect(extra.directSwitchReason).toContain('at cold co-sign');
+    // The pushed delta is still retracted best-effort, exactly as it is for an
+    // unreachable operator — it outlives this switch otherwise.
+    expect(abandonCandidate).toHaveBeenCalledWith(7);
   });
 
   it('distinguishes the post-proposal cold-co-sign fallback in the recorded reason', async () => {

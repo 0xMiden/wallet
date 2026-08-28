@@ -50,7 +50,13 @@ export async function pingGuardianEndpoint(
         }
       );
     });
-    return Boolean(result?.commitment);
+    // A STRING commitment, not merely a truthy one. The body is an unchecked
+    // `response.json()` cast, so `{"commitment": 1234}` reaches here as a number
+    // and `Boolean(1234)` reported a host serving nonsense as a live guardian —
+    // the same unvalidated value `fetchOperatorCommitment` refuses, on the same
+    // endpoint, for the same reason. Fails toward "offline", which is what every
+    // other non-guardian response already reports.
+    return typeof result?.commitment === 'string' && result.commitment.length > 0;
   } catch {
     return false;
   }

@@ -271,6 +271,22 @@ describe('getGuardianCommitmentFromAccount', () => {
     expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
+  // The inspector's return value is not type-checked at runtime, and a slot that
+  // yields a non-string does NOT throw inside the try above — so without the type
+  // guard, `stripHexPrefix` calls `.startsWith` on it and a bare TypeError escapes
+  // a function whose contract is `string | undefined`. Every caller reads
+  // `undefined` as "no guardian key, do nothing"; a throw instead strands the
+  // drift reconciler mid-status and can spend a self-heal attempt.
+  it.each([[1234], [true], [null], [{ nested: 1 }], [undefined]])(
+    'returns undefined rather than throwing for a %p commitment',
+    raw => {
+      mockGetGuardianCommitment.mockReturnValue(raw);
+
+      expect(() => getGuardianCommitmentFromAccount({} as never)).not.toThrow();
+      expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
+    }
+  );
+
   it('does not read the multisig signer commitments', () => {
     // The guardian key lives in its own storage slot; reading the signer
     // accessor here would return a device key and silently mis-report the

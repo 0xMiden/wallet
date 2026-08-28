@@ -741,6 +741,29 @@ describe('MultisigService', () => {
       expect(multisig.registerOnGuardian).toHaveBeenCalledWith('base64-bytes');
     });
 
+    // The post-commit sibling of the proposal-path guard above, and it needed its
+    // own case: every other `finalizeGuardianSwitch` test feeds a well-formed
+    // 32-byte word, so the validation could be deleted with all of them still
+    // green. `commitment` becomes `multisig.guardianPublicKey`, which is what the
+    // co-signing config is built from, so a non-commitment stored here surfaces
+    // later as an opaque authorization failure rather than a named refusal.
+    it.each([
+      ['an over-long body with MASM appended', `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}`],
+      ['a non-string body', 1234]
+    ])('finalizeGuardianSwitch refuses %s from the new guardian', async (_label, commitment) => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://old');
+      mockGetAccount.mockResolvedValueOnce({ serialize: () => new Uint8Array([1]) });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment, pubkey: 'new-pubkey' });
+
+      await expect(service.finalizeGuardianSwitch('https://new')).rejects.toThrow('malformed key commitment');
+      // Throwing before any of the three writes is the point: a half-configured
+      // service pointed at the new operator with an unusable key is worse than a
+      // refusal the caller books as `registerFailed` and the self-heal retries.
+      expect(multisig.setGuardianClient).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
     it('finalizeGuardianSwitch throws when the SDK has no record of the switched account', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://old');

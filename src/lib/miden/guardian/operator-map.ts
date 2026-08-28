@@ -229,13 +229,21 @@ export type EndpointCommitmentCheck = 'match' | 'mismatch' | 'unreachable';
  * The distinction is the point: a caller that collapses them cannot tell a
  * genuine out-of-band guardian switch from a network blip, and treating a blip
  * as a mismatch accuses an endpoint that may be perfectly correct.
+ *
+ * `timeoutMs` defaults to the tick budget, which is correct only for a caller
+ * that repeats: 5s is affordable because a ~3s tick tries again. A ONE-SHOT
+ * caller has no successor to defer to and must pass a generous value, or a
+ * cold-starting but perfectly correct self-hosted operator reads as `unreachable`
+ * on its only chance — the same mistake `USER_ENDPOINT_CHECK_TIMEOUT_MS` below
+ * exists to record.
  */
 export async function checkEndpointCommitment(
   endpoint: string,
-  onChainCommitment: string
+  onChainCommitment: string,
+  timeoutMs?: number
 ): Promise<EndpointCommitmentCheck> {
   try {
-    const commitment = await fetchOperatorCommitment(endpoint);
+    const commitment = await fetchOperatorCommitment(endpoint, timeoutMs);
     // An answer with no commitment is not a guardian answering, so it is no
     // more evidence of a mismatch than a dropped connection is.
     if (!commitment) return 'unreachable';

@@ -51,6 +51,11 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepGuardianApproved',
     defaultLabel: 'Guardian approved',
     startStage: 'creating-proposal',
+    // Unreachable today and kept deliberately: a row carrying `signing-locally`
+    // in its stage OR its stamps makes `isDirectGuardianSwitch` true, so
+    // `stepsForFlow` hands it the DIRECT set below and never this one. These two
+    // entries only keep the coordinated set from mistiming such a row if a future
+    // caller reaches it another way — they are not evidence that it can.
     fallbackStartStage: 'signing-locally',
     activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
   },
@@ -73,11 +78,13 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepSyncingGuardian',
     defaultLabel: 'Syncing with Guardian',
     startStage: 'guardian-syncing',
-    // The direct switch never syncs with the OUTGOING guardian — the whole path
-    // exists because it is unreachable. Its post-commit work is the registration
-    // on the incoming one, stamped `registering-guardian`, which is the boundary
-    // that opens this step there. Resolved only when `guardian-syncing` is
-    // absent, so an ordinary guardian send is unaffected.
+    // NO switch-guardian row stamps `guardian-syncing` — the type is excluded
+    // from the block that stamps it, on the coordinated path as well as the
+    // direct one — so this fallback is what times the step for every rotation,
+    // not just the offline kind. Their shared post-commit boundary is the
+    // registration on the INCOMING guardian, stamped `registering-guardian`.
+    // Resolved only when `guardian-syncing` is absent, so an ordinary guardian
+    // send is unaffected.
     fallbackStartStage: 'registering-guardian',
     activeStages: ['confirming', 'registering-guardian', 'delivering', 'guardian-syncing']
   }

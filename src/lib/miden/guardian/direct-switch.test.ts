@@ -838,9 +838,14 @@ describe('finalizeDirectGuardianSwitch', () => {
     // and against the endpoint it is about to write to.
     // Unprefixed: `getGuardianCommitmentFromAccount` strips it, and
     // `checkEndpointCommitment` normalizes both sides before comparing.
+    // Generously bounded, not on the ~3s tick's 5s budget: this fires ONCE, past
+    // the on-chain commit, in front of a loop that allows the same operator 30s
+    // per attempt — so a cold-starting self-hosted operator must not be convicted
+    // of being the wrong one.
     expect(mockCheckEndpointCommitment).toHaveBeenCalledWith(
       'https://new.guardian.test',
-      NEW_GUARDIAN_COMMITMENT.slice(2)
+      NEW_GUARDIAN_COMMITMENT.slice(2),
+      30_000
     );
   });
 
