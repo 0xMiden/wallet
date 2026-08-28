@@ -265,12 +265,16 @@ export async function checkEndpointCommitment(
 const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
 
 /**
- * Verify a specific endpoint's operator key matches the on-chain commitment.
+ * Verify a specific endpoint's operator key matches the on-chain commitment,
+ * on the timeout a user-submitted URL deserves rather than the sync tick's.
  *
- * Boolean by design for callers that are about to WRITE the endpoint: there,
- * unreachable and mismatched are the same answer — do not persist something that
- * could not be confirmed. Callers that instead have to choose between "leave it
- * alone" and "flag the user" want `checkEndpointCommitment`.
+ * This used to return a boolean, on the reasoning that a caller about to WRITE
+ * the endpoint treats unreachable and mismatched alike — both mean "do not
+ * persist". True about the WRITE, false about everything else: the caller also
+ * has to TELL THE USER why, and the boolean left it accusing a URL that may be
+ * perfectly correct behind an operator that simply never answered. Only
+ * `'match'` authorizes the write, exactly as before; the other two are now
+ * distinguishable by the surface that has to name a cause.
  */
 export async function verifyEndpointMatchesCommitment(
   endpoint: string,
