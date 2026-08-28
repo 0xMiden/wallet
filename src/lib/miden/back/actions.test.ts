@@ -18,6 +18,7 @@ import {
   startGuardianRecovery,
   checkGuardianDrift,
   applyUserGuardianEndpoint,
+  revertGuardianEndpointAfterDiscard,
   getAllDAppSessions,
   getCurrentAccount,
   createHDAccount,
@@ -626,6 +627,88 @@ describe('actions', () => {
         guardianOperatorCommitment: 'newC'
       });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
+    });
+  });
+
+  // The rollback the pending-rotation recheck runs when the node discards a
+  // guardian switch. It carries evidence stamped when the rotation was
+  // initiated, so it may be up to half an hour stale by the time it fires —
+  // every one of these cases is about it refusing to win against newer state.
+  describe('revertGuardianEndpointAfterDiscard', () => {
+    it('rolls the binding back when the account still names the discarded target', async () => {
+      const accounts = [{ publicKey: 'pk1', guardianEndpoint: 'https://new', guardianEpoch: 4 }];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        epoch: 5,
+        accounts,
+        currentAccount: accounts[0]
+      });
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe('reverted');
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 4, { guardianEndpoint: 'https://old' });
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts, currentAccount: accounts[0] });
+    });
+
+    // A second rotation landed while this one was being rechecked. Rolling back
+    // to a value from before BOTH of them would undo a commit that succeeded.
+    it('supersedes without writing when the account already names something else', async () => {
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1', guardianEndpoint: 'https://newer' }]);
+      mockVault.updateGuardianBinding.mockClear();
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe('superseded');
+      expect(mockVault.updateGuardianBinding).not.toHaveBeenCalled();
+    });
+
+    it('supersedes when the account is gone', async () => {
+      mockVault.fetchAccounts.mockResolvedValue([]);
+      mockVault.updateGuardianBinding.mockClear();
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe('superseded');
+      expect(mockVault.updateGuardianBinding).not.toHaveBeenCalled();
+    });
+
+    // The endpoint check and the CAS answer different questions: the first that
+    // the rollback is still about the current target, the second that nothing
+    // wrote between the read and the write. Only the CAS catches the latter.
+    it('reports stale when the epoch moved between the read and the write', async () => {
+      const accounts = [{ publicKey: 'pk1', guardianEndpoint: 'https://new', guardianEpoch: 4 }];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockAccountsUpdated.mockClear();
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'stale',
+        epoch: 6,
+        accounts,
+        currentAccount: undefined
+      });
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe('stale');
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
+    });
+
+    // An account that never carried an epoch reads as 0, which is the same
+    // baseline a fresh binding CAS expects — not a reason to skip the write.
+    it('treats a missing epoch as 0 rather than refusing the rollback', async () => {
+      const accounts = [{ publicKey: 'pk1', guardianEndpoint: 'https://new' }];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        epoch: 1,
+        accounts,
+        currentAccount: undefined
+      });
+
+      await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 0, { guardianEndpoint: 'https://old' });
     });
   });
 

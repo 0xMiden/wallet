@@ -169,6 +169,17 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.RevertGuardianEndpointRequest: {
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
+      };
+    }
+
     case WalletMessageType.SetGuardianOperatorCommitmentRequest: {
       await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
       return {

@@ -55,6 +55,18 @@ export interface GuardianAccountProvider {
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Roll the binding back after the node discards a rotation. The mirror image
+   * of `setGuardianEndpoint`: that one is authoritative and forces, this one
+   * carries evidence that may be half an hour old and so is refused unless the
+   * account still names `discardedEndpoint`. Frontend-only in practice — the
+   * pending-rotation recheck lives in the sync loop.
+   */
+  revertGuardianEndpointAfterDiscard?: (
+    accountPublicKey: string,
+    discardedEndpoint: string,
+    revertTo: string
+  ) => Promise<'reverted' | 'superseded' | 'stale'>;
 }
 
 /**

@@ -1167,46 +1167,47 @@ export const listUnconfirmedSwitchRows = async (accountId: string): Promise<Swit
  * `landed === true` upgrades the row to a confirmed rotation (the
  * receipt/Activity copy follows via `rotationVerdict`).
  *
- * `landed === false` demotes it to Failed. That is only HALF the repair, and
- * the caller has to finish it — which is why the endpoint to restore comes back
- * rather than being left to a reconciler. The completion persisted the NEW
- * endpoint before it knew the commit was unconfirmed (`complete.ts`, the
- * anti-stranding write), so a discarded rotation leaves the vault naming an
- * operator with no on-chain authority. Drift reconciliation cannot repair it:
- * its cheap path returns `in-sync` the moment the stored commitment BASELINE
- * equals the chain, and on a discarded rotation the baseline was never
- * advanced, so baseline == chain == the old operator and the stored endpoint is
- * never even read. An earlier version of this function told the user drift would
- * fix it automatically; that sentence described the wedge, not an exit from it.
+ * `landed === false` demotes it to Failed.
+ *
+ * THIS CALL IS THE POINT OF NO RETURN, and the caller has to have finished the
+ * vault side FIRST. Demoting sets `status = Failed`, and `rotationVerdict`
+ * answers `'failed'` on a Failed row before it ever looks at
+ * `commitUnconfirmed` — so the row drops out of `listUnconfirmedSwitchRows` the
+ * instant this resolves and no later pass can re-derive the repair from it. The
+ * completion persisted the NEW endpoint before it knew the commit was
+ * unconfirmed (the anti-stranding write above), so on a discarded rotation the
+ * vault names an operator with no on-chain authority; and drift reconciliation
+ * cannot repair that, because its cheap path returns `in-sync` the moment the
+ * stored commitment BASELINE equals the chain, and on a discarded rotation the
+ * baseline was never advanced — baseline == chain == the old operator, and the
+ * stored endpoint is never even read.
+ *
+ * So: roll the binding back, then call this. The reverse order buys a demoted
+ * row and a silently-unusable account whenever the vault write fails, with the
+ * only evidence of the repair already thrown away.
  */
-export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<{ revertEndpointTo?: string }> => {
+export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
   if (landed) {
     await Repo.transactions.where({ id }).modify(tx => {
       tx.displayMessage = 'Guardian switched';
       tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
     });
-    return {};
+    return;
   }
-  let revertEndpointTo: string | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
-    // text and is rendered verbatim on the failure card). What matters is that
-    // the sentence is TRUE: the previous version promised drift reconciliation
-    // would repair the stored endpoint, which it provably cannot.
-    tx.error =
-      'The node discarded this guardian switch after submission; the previous guardian is still active ' +
-      'and the wallet has been pointed back at it.';
+    // text and is rendered verbatim on the failure card). It says only what THIS
+    // function has established. An earlier version claimed the wallet had been
+    // pointed back at the previous guardian — written inside the Dexie modify,
+    // before the write that would make it true had even been attempted.
+    tx.error = 'The node discarded this guardian switch after submission; the previous guardian is still active.';
     // Cleared for the same reason the landed path clears it: the flag means
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
     tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
-    if (tx.type === 'switch-guardian') {
-      revertEndpointTo = tx.extraInputs?.previousGuardianEndpoint;
-    }
   });
-  return { revertEndpointTo };
 };
 
 /**

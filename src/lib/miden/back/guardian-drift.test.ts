@@ -934,6 +934,32 @@ describe('applyUserGuardianEndpoint', () => {
     expect(order).toEqual(['endpoint', 'commitment', 'status:in-sync']);
   });
 
+  // The binding is the load-bearing write; the status stamp is advisory and the
+  // next drift tick repairs it. Reporting failure after the binding landed sent
+  // the banner's generic catch at a user whose apply had succeeded — and whose
+  // retry could only ever be 'stale', because this write already bumped the epoch.
+  it("still reports 'applied' when the advisory status stamp fails after the binding landed", async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
+    vault.setGuardianSyncStatus.mockRejectedValueOnce(new Error('storage went away'));
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('applied');
+
+    expect(vault.updateGuardianBinding).toHaveBeenCalled();
+  });
+
+  // The vault record is gone or moved under the apply — a statement about the
+  // WALLET, not about the chain, which this path has established nothing about.
+  it("reports 'stale' rather than 'no-onchain-guardian' when the account is not in the vault", async () => {
+    const vault = makeVault(undefined);
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('stale');
+
+    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+  });
+
   it('rejects a user URL that does not match on-chain', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
     (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');

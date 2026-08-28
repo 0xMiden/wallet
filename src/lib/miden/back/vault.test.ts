@@ -939,6 +939,29 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
       expect(pkA?.guardianOperatorCommitment).toBeUndefined();
     });
 
+    // A patch is a set of fields to change, not a replacement binding. Spread
+    // whole, an explicitly-`undefined` key (the shape an optional read produces
+    // when its source is empty) erased a field the caller never mentioned —
+    // silently unbinding an operator on a write about the other field.
+    it('leaves a field the patch does not carry alone, even when the key is present and undefined', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      await vault.updateGuardianBinding('pkA', 0, {
+        guardianEndpoint: 'https://op.example',
+        guardianOperatorCommitment: 'baseline'
+      });
+
+      const write = await vault.updateGuardianBinding('pkA', 1, {
+        guardianEndpoint: 'https://moved.example',
+        guardianOperatorCommitment: undefined
+      });
+
+      expect(write.outcome).toBe('applied');
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://moved.example');
+      expect(pkA?.guardianOperatorCommitment).toBe('baseline');
+    });
+
     it('status writes stay last-write-wins and do not consume or bump the epoch', async () => {
       const vault = await seedVault('pw');
       await seedGuardianPair(vault);

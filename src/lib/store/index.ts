@@ -383,6 +383,17 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
     },
 
+    revertGuardianEndpointAfterDiscard: async (accountPublicKey, discardedEndpoint, revertTo) => {
+      const res = await request({
+        type: WalletMessageType.RevertGuardianEndpointRequest,
+        accountPublicKey,
+        discardedEndpoint,
+        revertTo
+      });
+      assertResponse(res.type === WalletMessageType.RevertGuardianEndpointResponse);
+      return res.outcome;
+    },
+
     setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
       const res = await request({
         type: WalletMessageType.SetGuardianOperatorCommitmentRequest,

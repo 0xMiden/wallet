@@ -128,7 +128,16 @@ export interface AttemptLedger {
   clearAll(): void;
 }
 
-type AttemptState = { accountPublicKey: string; attempts: number; lastAttemptAt: number };
+/**
+ * `closed` is tracked as its own flag rather than inferred from
+ * `attempts >= maxAttempts`, because a close is a stronger and MONOTONIC
+ * statement: "no future attempt can change this answer". Encoded only as a
+ * count it was reversible — a sibling handle's late refund subtracts its own
+ * charge from whatever it finds, so `closed` bumping the count to the cap and a
+ * refund then taking one back reopened a budget that had been permanently shut.
+ * A flag cannot be decremented.
+ */
+type AttemptState = { accountPublicKey: string; attempts: number; lastAttemptAt: number; closed: boolean };
 
 export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
@@ -141,7 +150,8 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
   const gapMs = (attempts: number): number =>
     policy.curve === 'doubling' ? policy.backoffMs * 2 ** Math.max(attempts - 1, 0) : policy.backoffMs;
 
-  const spent = (s: AttemptState | undefined): boolean => (s?.attempts ?? 0) >= policy.maxAttempts;
+  const spent = (s: AttemptState | undefined): boolean =>
+    s?.closed === true || (s?.attempts ?? 0) >= policy.maxAttempts;
 
   return {
     mayAttempt(subject, now = readClock()) {
@@ -153,8 +163,13 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
 
     begin(subject, now = readClock()) {
       const key = subjectKey(subject);
-      const attemptsAtBegin = state.get(key)?.attempts ?? 0;
-      state.set(key, { accountPublicKey: subject.accountPublicKey, attempts: attemptsAtBegin, lastAttemptAt: now });
+      const existing = state.get(key);
+      state.set(key, {
+        accountPublicKey: subject.accountPublicKey,
+        attempts: existing?.attempts ?? 0,
+        lastAttemptAt: now,
+        closed: existing?.closed ?? false
+      });
       // Every mutation below reads the LIVE entry rather than the count captured
       // at `begin`. With the captured count, two handles open on one subject
       // each wrote `attemptsAtBegin ± 1`, so two real pushes charged one attempt
@@ -163,12 +178,20 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
       // when it is broken is not the place to enforce it by assumption.
       let settled = false;
       let charged = 0;
-      const write = (attempts: number, at: number): void => {
+      const write = (attempts: number, at: number, close = false): void => {
         // A subject cleared underneath an open handle stays cleared: the clear
         // is a statement that the question is settled, and re-creating the entry
         // would resurrect evidence its owner just withdrew.
-        if (!state.has(key)) return;
-        state.set(key, { accountPublicKey: subject.accountPublicKey, attempts, lastAttemptAt: at });
+        const current = state.get(key);
+        if (!current) return;
+        state.set(key, {
+          accountPublicKey: subject.accountPublicKey,
+          attempts,
+          lastAttemptAt: at,
+          // Never un-set: a close is permanent, so a sibling handle settling
+          // afterwards cannot walk it back.
+          closed: current.closed || close
+        });
       };
       const live = (): number => state.get(key)?.attempts ?? 0;
       return {
@@ -189,7 +212,7 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
               : outcome === 'closed'
                 ? Math.max(policy.maxAttempts, live())
                 : live() - charged;
-          write(Math.max(attempts, 0), readClock());
+          write(Math.max(attempts, 0), readClock(), outcome === 'closed');
         }
       };
     },

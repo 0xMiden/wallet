@@ -95,6 +95,40 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
     expect(ledger.attempts(SUBJECT)).toBe(0);
   });
 
+  // 'closed' means the question has an answer and re-asking is pointless — it is
+  // not "the counter happens to sit at max". Two handles can be open on one
+  // subject (a slow first pass overlapping the next tick's), and while closure
+  // was only the counter, the second handle's late refund decremented it back
+  // under the cap and re-armed a budget that had already concluded.
+  it('a late refund from a concurrent handle cannot reopen a closed budget', () => {
+    const { ledger, tick } = make();
+    const first = ledger.begin(SUBJECT);
+    tick(60_000);
+    const second = ledger.begin(SUBJECT);
+
+    second.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+
+    first.settle('refunded');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+    tick(60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+  });
+
+  // Closure is sticky against the clock too, not just against refunds.
+  it('a closed budget stays closed however long the cooldown outlives it', () => {
+    const { ledger, tick } = make();
+    ledger.begin(SUBJECT).settle('closed');
+    tick(24 * 60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+
+    // Only an explicit clear re-arms it — that is the deliberate exit.
+    ledger.clear(SUBJECT);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(true);
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+  });
+
   it('keys budgets by the whole subject and clears by account prefix', () => {
     const { ledger, tick } = make();
     const otherEndpoint: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'https://other.example' };

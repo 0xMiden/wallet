@@ -163,6 +163,16 @@ export interface WalletActions {
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Conditional rollback after the node discards a rotation. Refused unless the
+   * account still names `discardedEndpoint`, so a rollback carrying old evidence
+   * cannot overwrite a binding something authoritative has since moved.
+   */
+  revertGuardianEndpointAfterDiscard: (
+    accountPublicKey: string,
+    discardedEndpoint: string,
+    revertTo: string
+  ) => Promise<'reverted' | 'superseded' | 'stale'>;
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;

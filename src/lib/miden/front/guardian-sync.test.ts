@@ -48,6 +48,7 @@ const storeState: {
   persistNewHotKey: jest.Mock;
   swapHotKey: jest.Mock;
   setGuardianEndpoint: jest.Mock;
+  revertGuardianEndpointAfterDiscard: jest.Mock;
   checkGuardianDrift: jest.Mock;
   signTransaction: jest.Mock;
 } = {
@@ -57,6 +58,7 @@ const storeState: {
   persistNewHotKey: jest.fn(),
   swapHotKey: jest.fn(),
   setGuardianEndpoint: jest.fn(),
+  revertGuardianEndpointAfterDiscard: jest.fn(async () => 'reverted'),
   checkGuardianDrift: jest.fn(),
   signTransaction: jest.fn()
 };
@@ -85,7 +87,12 @@ const mockEnsureGuardianProcedureThresholds = jest.fn();
 // because they are two identifiers, and the recheck asks the node about the
 // second while settling the row by the first.
 const mockListUnconfirmedSwitchRows = jest.fn(
-  async (..._a: unknown[]) => [] as Array<{ id: string; transactionId?: string }>
+  async (..._a: unknown[]) =>
+    [] as Array<{
+      id: string;
+      transactionId?: string;
+      extraInputs?: { newGuardianEndpoint: string; previousGuardianEndpoint?: string };
+    }>
 );
 const mockResolveUnconfirmedSwitch = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
@@ -2231,6 +2238,8 @@ describe('syncGuardianAccounts — pending-rotation recheck (the W1 exit)', () =
     mockResolveUnconfirmedSwitch.mockReset();
     mockResolveUnconfirmedSwitch.mockResolvedValue({});
     mockReadDirectSwitchCommitState.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('reverted');
   });
 
   it('upgrades the row once the chain confirms the rotation', async () => {
@@ -2262,11 +2271,100 @@ describe('syncGuardianAccounts — pending-rotation recheck (the W1 exit)', () =
   // Demoting the row without this leaves the account quietly unusable.
   it('points the account back at the previous operator when the node discards the rotation', async () => {
     mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
-    mockResolveUnconfirmedSwitch.mockResolvedValue({ revertEndpointTo: 'https://old.guardian.test' });
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
 
     await syncGuardianAccounts();
 
-    expect(storeState.setGuardianEndpoint).toHaveBeenCalledWith('pending-pk', 'https://old.guardian.test');
+    // Conditional, not a force write: the rollback names the endpoint it expects
+    // to still be bound, so a rotation that landed since cannot be undone.
+    expect(storeState.revertGuardianEndpointAfterDiscard).toHaveBeenCalledWith(
+      'pending-pk',
+      'https://new.guardian.test',
+      'https://old.guardian.test'
+    );
+  });
+
+  // The demote is the point of no return — a demoted row answers 'failed' and
+  // leaves the unconfirmed list, so a rollback attempted after it has nothing
+  // left to re-derive from. The vault write has to come first.
+  it('rolls the binding back BEFORE it demotes the row', async () => {
+    const order: string[] = [];
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockImplementation(async () => {
+      order.push('revert');
+      return 'reverted';
+    });
+    mockResolveUnconfirmedSwitch.mockImplementation(async () => {
+      order.push('demote');
+      return {};
+    });
+
+    await syncGuardianAccounts();
+
+    expect(order).toEqual(['revert', 'demote']);
+  });
+
+  // A rotation that legitimately landed while the discarded one was being
+  // rechecked moves the binding out from under the rollback. Demoting the row
+  // anyway would leave the newer, correct endpoint intact but lose the retry;
+  // leaving it pending re-derives against the new state next pass.
+  it('leaves the row pending when the binding moved under the rollback', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('stale');
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+  });
+
+  // Nothing to roll back: something authoritative already moved the binding off
+  // this rotation's target, so the row is all that is left to settle.
+  it('still demotes the row when the rollback is superseded', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-w1',
+        transactionId: '0xtxw1',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    storeState.revertGuardianEndpointAfterDiscard.mockResolvedValue('superseded');
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('row-w1', false);
   });
 
   // A row whose hash was never captured can never be asked about: the stamp

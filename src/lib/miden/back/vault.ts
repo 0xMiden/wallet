@@ -1242,9 +1242,21 @@ export class Vault {
         const currentAccount = await this.getCurrentAccount();
         return { outcome: 'stale' as const, epoch: currentEpoch, accounts: allAccounts, currentAccount };
       }
-      const newAllAccounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, ...patch, guardianEpoch: currentEpoch + 1 } : acc
-      );
+      // Field by field, NOT `{ ...acc, ...patch }`. Both patch fields are
+      // optional and `exactOptionalPropertyTypes` is off, so a spread merges an
+      // explicitly-`undefined` field as a value and CLEARS a bound endpoint or
+      // commitment baseline — an unbinding, from a call that type-checks. Callers
+      // were already dodging it by hand with `...(x !== undefined ? {…} : {})`;
+      // the guarantee belongs at the write, not at each call site.
+      const applyPatch = (acc: WalletAccount): WalletAccount => ({
+        ...acc,
+        ...(patch.guardianEndpoint !== undefined ? { guardianEndpoint: patch.guardianEndpoint } : {}),
+        ...(patch.guardianOperatorCommitment !== undefined
+          ? { guardianOperatorCommitment: patch.guardianOperatorCommitment }
+          : {}),
+        guardianEpoch: currentEpoch + 1
+      });
+      const newAllAccounts = allAccounts.map(acc => (acc.publicKey === accountPublicKey ? applyPatch(acc) : acc));
       await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
       const currentAccount = await this.getCurrentAccount();
       return { outcome: 'applied' as const, epoch: currentEpoch + 1, accounts: newAllAccounts, currentAccount };

@@ -41,7 +41,11 @@ import {
 } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import {
+  isSyncWatchdogEviction,
+  isWasmClientPoisonedError,
+  WASM_LOCK_SYNC_WATCHDOG_MS
+} from '../sdk/wasm-client-poison';
 
 /**
  * Default GuardianAccountProvider backed by the Zustand store. Frontend-only —
@@ -58,7 +62,9 @@ export const zustandProvider: GuardianAccountProvider = {
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
     useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
-    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
+    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint),
+  revertGuardianEndpointAfterDiscard: (accountPublicKey: string, discardedEndpoint: string, revertTo: string) =>
+    useWalletStore.getState().revertGuardianEndpointAfterDiscard(accountPublicKey, discardedEndpoint, revertTo)
 };
 
 /**
@@ -365,19 +371,41 @@ export function isGuardianLastSyncFresh(accountPublicKey: string, now: number = 
  * which is the way out the pill points at.
  */
 export function isGuardianUnrepairable(accountPublicKey: string): boolean {
-  return unrepairableAccounts.has(accountPublicKey) || pendingRotationExhausted.has(accountPublicKey);
+  if (unrepairableAccounts.has(accountPublicKey)) return true;
+  for (const owner of pendingRotationExhaustedOwner.values()) {
+    if (owner === accountPublicKey) return true;
+  }
+  return false;
 }
 
 /**
- * Accounts whose submitted-unconfirmed rotation exhausted its recheck budget.
- * A SEPARATE set from `unrepairableAccounts`, deliberately: that one is a
+ * ROWS whose submitted-unconfirmed rotation exhausted its recheck budget,
+ * mapped to the account that owns them.
+ *
+ * A SEPARATE ledger from `unrepairableAccounts`, deliberately: that one is a
  * verdict about the OPERATOR and is cleared by any successful guardian sync —
- * but a healthy operator sync answers nothing about whether the CHAIN
- * confirmed the rotation, so this evidence must survive it (the same
- * sibling-success-erases-the-evidence shape as F-137). Cleared only when the
- * pending row itself resolves.
+ * but a healthy operator sync answers nothing about whether the CHAIN confirmed
+ * the rotation, so this evidence must survive it (the same
+ * sibling-success-erases-the-evidence shape as F-137).
+ *
+ * Keyed by ROW for the same reason the budget is. Keyed by account, one row
+ * resolving retired the prompt while a sibling row nothing had answered was
+ * still exhausted — the erasure the row-keyed budget was introduced to stop,
+ * reappearing one field over in the flag the budget raises.
  */
-const pendingRotationExhausted = new Set<string>();
+const pendingRotationExhaustedOwner = new Map<string, string>();
+
+/** Retire every row prompt for an account. True when something was retired. */
+function retirePendingRotationPrompts(accountPublicKey: string): boolean {
+  let retired = false;
+  for (const [rowId, owner] of pendingRotationExhaustedOwner) {
+    if (owner === accountPublicKey) {
+      pendingRotationExhaustedOwner.delete(rowId);
+      retired = true;
+    }
+  }
+  return retired;
+}
 
 function markGuardianUnrepairable(accountPublicKey: string, reason: string): void {
   if (unrepairableAccounts.has(accountPublicKey)) return;
@@ -513,7 +541,7 @@ export function __resetGuardianSyncOutageForTest(): void {
   hardeningChecked.clear();
   missingRegistrationLedger.clearAll();
   pendingRotationRecheckLedger.clearAll();
-  pendingRotationExhausted.clear();
+  pendingRotationExhaustedOwner.clear();
   lastGuardianSyncAt.clear();
   syncedGuardianEndpoint.clear();
   // Retire any pass still in flight. Clearing `syncInFlight` alone let a running
@@ -589,28 +617,39 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
     const { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } = await import('lib/miden/transaction');
     const rows = await listUnconfirmedSwitchRows(account.publicKey);
     if (rows.length === 0) {
-      // The question is settled (or never existed) — retire the prompt, and the
-      // budgets with it. Rows can also leave this list by being deleted rather
+      // The question is settled (or never existed) — retire the prompts, and the
+      // budgets with them. Rows can also leave this list by being deleted rather
       // than resolved, and a row-keyed entry nothing will ever ask about again
       // would otherwise sit in the ledger for the realm's lifetime.
       pendingRotationRecheckLedger.clearForAccount(account.publicKey);
-      if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
+      if (retirePendingRotationPrompts(account.publicKey)) notifyOutageListeners();
       return undefined;
     }
+    // Rows still awaiting an answer when this pass ends. Only one of these may
+    // be reported as the account's pending rotation.
+    const unsettled: string[] = [];
+    // At least one node read got through, and none of them evicted. Both halves
+    // matter: the fuse's exit is a probe that completed, and this probe is the
+    // whole loop, not any single row within it.
+    let probeSucceeded = false;
+    let probeEvicted = false;
     for (const row of rows) {
       // `rowId`, not `guardianKey`: the budget is spent per durable INTENT, and
       // the node read below is keyed on the on-chain hash, which is a different
       // identifier again. Conflating the two is what made this whole exit inert.
       const subject = { accountPublicKey: account.publicKey, rowId: row.id };
       if (!pendingRotationRecheckLedger.mayAttempt(subject)) {
-        if (pendingRotationRecheckLedger.budgetSpent(subject) && !pendingRotationExhausted.has(account.publicKey)) {
+        if (pendingRotationRecheckLedger.budgetSpent(subject) && !pendingRotationExhaustedOwner.has(row.id)) {
           console.warn(
-            `[Guardian Sync] ${account.publicKey} has a guardian switch the chain never confirmed and the ` +
-              `recheck budget is spent — surfacing it on the guardian screen`
+            `[Guardian Sync] ${account.publicKey} has a guardian switch (${row.id}) the chain never confirmed and ` +
+              `the recheck budget is spent — surfacing it on the guardian screen`
           );
-          pendingRotationExhausted.add(account.publicKey);
+          pendingRotationExhaustedOwner.set(row.id, account.publicKey);
           notifyOutageListeners();
         }
+        // Still unanswered — it is the account's pending rotation even though
+        // this pass will not ask about it again.
+        unsettled.push(row.id);
         continue;
       }
       const attempt = pendingRotationRecheckLedger.begin(subject);
@@ -639,16 +678,22 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'pending-rotation-recheck'
         });
-        noteSyncSuccess('pending-rotation-recheck');
+        // NOT reported here. This loop takes one hold per row, and a success
+        // booked mid-loop zeroes the key a later row's eviction is about to
+        // accumulate against — the same erasure a shared fuse key produces,
+        // inside one probe. The success is booked once, after the loop.
+        probeSucceeded = true;
       } catch (recheckError) {
         const evicted = isSyncWatchdogEviction(recheckError);
         if (evicted) {
+          probeEvicted = true;
           noteSyncWatchdogEviction('pending-rotation-recheck');
         } else {
           noteNonEvictionSyncFailure('pending-rotation-recheck');
         }
         // Could not look — that is not a verdict, and not a spent attempt.
         attempt.settle('refunded');
+        unsettled.push(row.id);
         // An eviction ABANDONS the hold rather than cancelling it: the corpse is
         // still inside WASM and the mutex has already been handed to a
         // successor. Taking a fresh hold for the next row would be a second
@@ -657,53 +702,88 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<string
         if (evicted) break;
         continue;
       }
-      // Settling the row is a Dexie write, and its failure is NOT the node
+      if (state !== 'committed' && state !== 'discarded') {
+        // 'pending' / 'not-found': no verdict either way — spend one recheck.
+        attempt.settle('charged');
+        unsettled.push(row.id);
+        continue;
+      }
+      // Settling the row is a Dexie/vault write, and its failure is NOT the node
       // failing to answer. Folded into the catch above, a storage hiccup
       // refunded the attempt and reported a non-eviction sync failure — which
       // withdraws the successful probe this pass actually made.
       try {
-        if (state === 'committed' || state === 'discarded') {
-          const landed = state === 'committed';
-          const { revertEndpointTo } = await resolveUnconfirmedSwitch(row.id, landed);
-          // The other half of the demote. Completion had already pointed the
-          // vault at the new operator before it knew the commit was
-          // unconfirmed, so a discarded rotation leaves the account naming an
-          // operator with no on-chain authority — and drift reconciliation
-          // cannot see it (see `resolveUnconfirmedSwitch`).
-          if (revertEndpointTo !== undefined) {
-            await zustandProvider.setGuardianEndpoint?.(account.publicKey, revertEndpointTo);
-            clearGuardianServiceFor(account.publicKey);
-            console.warn(
-              `[Guardian Sync] pointed ${account.publicKey} back at ${revertEndpointTo} after the node discarded ` +
-                `its guardian switch`
-            );
-          } else if (!landed) {
+        const landed = state === 'committed';
+        // THE VAULT FIRST, THEN THE ROW. `resolveUnconfirmedSwitch` is the point
+        // of no return: a demoted row answers `'failed'` to `rotationVerdict`
+        // and drops out of the unconfirmed list forever, so a rollback attempted
+        // after it has no second chance and drift cannot re-derive one. Reverting
+        // first is idempotent instead — if the demote fails, the next pass re-reads
+        // the same discarded verdict, finds the binding already rolled back
+        // (`'superseded'`) and retries only the row write.
+        if (!landed) {
+          const revertTo = row.extraInputs?.previousGuardianEndpoint;
+          if (revertTo === undefined) {
             console.error(
               `[Guardian Sync] guardian switch ${row.id} was discarded but the row records no previous endpoint — ` +
                 `the account may still name an operator with no on-chain authority`
             );
+          } else {
+            // Conditional on the account still naming THIS rotation's target.
+            // Rows are not ordered here, and a rotation can legitimately land
+            // during the ≤30 minutes of rechecks — so a discarded A→B must not
+            // roll back a committed B→C, and an unconditional force write would.
+            const outcome = await zustandProvider.revertGuardianEndpointAfterDiscard?.(
+              account.publicKey,
+              row.extraInputs.newGuardianEndpoint,
+              revertTo
+            );
+            if (outcome === 'reverted') {
+              clearGuardianServiceFor(account.publicKey);
+              console.warn(
+                `[Guardian Sync] pointed ${account.publicKey} back at ${revertTo} after the node discarded ` +
+                  `its guardian switch`
+              );
+            } else if (outcome === 'stale') {
+              // The binding moved between the read and the write. Leave the row
+              // pending so the next pass re-derives against the new state.
+              console.warn(
+                `[Guardian Sync] guardian binding for ${account.publicKey} moved while rolling back the discarded ` +
+                  `switch ${row.id}; leaving the row pending for the next pass`
+              );
+              unsettled.push(row.id);
+              continue;
+            }
+            // 'superseded' (or no provider): nothing to roll back — something
+            // authoritative already moved the binding off this rotation's
+            // target, so demoting the row is all that is left.
           }
-          // Only THIS row's budget: the rows on one account are separate
-          // questions to the chain, and clearing the account re-armed an
-          // exhausted sibling that nothing had answered.
-          pendingRotationRecheckLedger.clear(subject);
-          console.warn(
-            `[Guardian Sync] pending rotation ${row.id} was ${state} on chain; ` +
-              `row ${landed ? 'upgraded' : 'demoted'}`
-          );
-        } else {
-          // 'pending' / 'not-found': no verdict either way — spend one recheck.
-          attempt.settle('charged');
         }
+        await resolveUnconfirmedSwitch(row.id, landed);
+        // Only THIS row's budget and THIS row's prompt: the rows on one account
+        // are separate questions to the chain, and clearing the account re-armed
+        // an exhausted sibling that nothing had answered.
+        pendingRotationRecheckLedger.clear(subject);
+        if (pendingRotationExhaustedOwner.delete(row.id)) notifyOutageListeners();
+        console.warn(
+          `[Guardian Sync] pending rotation ${row.id} was ${state} on chain; ` +
+            `row ${landed ? 'upgraded' : 'demoted'}`
+        );
       } catch (settleError) {
         // The look SUCCEEDED; only the bookkeeping failed. Leave the attempt on
         // its begin stamp (so this does not re-run every 3s) without refunding
         // against the node or touching the fuse, and let the next pass re-read
         // and retry the write.
+        unsettled.push(row.id);
         console.warn(`[Guardian Sync] could not settle pending rotation ${row.id} (will retry):`, settleError);
       }
     }
-    return rows[0]?.id;
+    if (probeSucceeded && !probeEvicted) noteSyncSuccess('pending-rotation-recheck');
+    // A row this pass already settled is NOT pending, and handing its id to the
+    // shadow classifier tells it a rotation is outstanding after the chain
+    // answered — the same "fact that is not a fact" that made two hardcoded
+    // budgets bias the divergence tally the trigger flip reads.
+    return unsettled[0];
   } catch (e) {
     // Best-effort: the recheck must never break the sync loop.
     console.warn(`[Guardian Sync] pending-rotation recheck failed for ${account.publicKey} (non-fatal):`, e);
@@ -1270,6 +1350,7 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // reconciliation is the fuse's own exit ramp and must not sit behind it.
     //
     // Best-effort: a drift-check failure must never break the sync loop.
+    let driftEvicted = false;
     await useWalletStore
       .getState()
       .checkGuardianDrift(account.publicKey)
@@ -1279,8 +1360,15 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         // reaches the network — so a failure here is exactly the kind that
         // repeats every tick while the account looks fine on screen. Swallowed
         // without a word, the one signal that recovery is not running was gone.
+        driftEvicted = isWasmClientPoisonedError(driftError);
         console.warn(`[Guardian Sync] drift reconciliation failed for ${account.publicKey}:`, driftError);
       });
+    // An eviction is not just another probe failure: the abandoned drift call is
+    // still inside WASM and the mutex is already a successor's, so anything this
+    // pass does next is a second borrow of somebody else's client. The recheck
+    // above breaks out of its row loop for exactly this reason; the account loop
+    // owes the same. The next tick starts from a fresh client.
+    if (driftEvicted) break;
 
     // SHADOW dispatcher (guardian-recovery-dispatcher.ts): classify this
     // account's facts and count disagreements with what the legacy predicates

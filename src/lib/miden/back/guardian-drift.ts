@@ -772,7 +772,20 @@ export async function applyUserGuardianEndpoint(
     guardianOperatorCommitment: onChain
   });
   if (write.outcome === 'stale') return 'stale';
-  await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+  // The BINDING is the load-bearing write and it has landed; the status is
+  // advisory. Reporting a failure here sends the banner's generic catch at the
+  // user, who then retries an apply that already succeeded — and the retry
+  // cannot succeed, because the epoch this one bumped makes it stale. The next
+  // drift tick sees baseline == chain with a blocking status and repairs it.
+  try {
+    await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+  } catch (statusError) {
+    console.warn(
+      `[GuardianDrift] bound ${accountPublicKey} to ${endpoint} but could not stamp the in-sync status ` +
+        `(the next drift tick will):`,
+      statusError
+    );
+  }
   return 'applied';
 }
 
