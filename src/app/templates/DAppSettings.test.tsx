@@ -12,7 +12,7 @@ import DAppSettings from './DAppSettings';
 // provide just the `PrivateDataPermission` enum the component reads. Values
 // mirror the real enum (`UPON_REQUEST` / `AUTO`) so the equality check behaves
 // identically to production.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' }
 }));
 

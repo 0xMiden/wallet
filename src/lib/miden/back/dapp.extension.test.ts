@@ -170,7 +170,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

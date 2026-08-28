@@ -20,7 +20,7 @@ import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 // ---------------------------------------------------------------------------
 
 // ESM wallet-adapter package: only the `PrivateDataPermission` enum is read.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' }
 }));
 

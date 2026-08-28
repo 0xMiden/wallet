@@ -21,7 +21,7 @@
 
 import React from 'react';
 
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import {
@@ -43,12 +43,12 @@ jest.mock('./dapp-browser', () => ({
   focusMainWindow: () => mockFocusMainWindow()
 }));
 
-// ── @demox-labs/miden-wallet-adapter-base — real enum values ───────
+// ── @miden-sdk/miden-wallet-adapter-base — real enum values ───────
 // The package is untransformed ESM, so jest substitutes the repo-level manual mock,
 // whose `AllowedPrivateData` is `{}` and whose `PrivateDataPermission` has neither
 // member. Every scope assertion would then compare `undefined` with `undefined` and
 // pass regardless of behaviour; these values mirror the real enums.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

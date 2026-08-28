@@ -181,7 +181,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 // Mock the wallet adapter package so the enums are defined at import time.
 // At runtime the package is an ESM .mjs build and may not destructure cleanly
 // in jest's CJS-emulation mode.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: {
     UponRequest: 'UPON_REQUEST',
     Auto: 'AUTO'
