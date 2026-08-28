@@ -4,6 +4,7 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
+  TRANSACTION_FEE_UNPAYABLE_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
@@ -119,3 +120,23 @@ describe('resolveTransactionErrorMessage', () => {
     );
   });
 });
+describe('fee failures', () => {
+  it('names the missing fee asset instead of returning the raw kernel assertion', () => {
+    // The kernel aborts with a vault-shortfall assertion when the account cannot
+    // cover its own fee. Raw, it reads as an internal error and the user is shown
+    // Retry -- which can only fail again, because nothing about the account changed.
+    const err = new Error(
+      'failed to execute transaction kernel program: failed to remove the fungible asset from ' +
+        'the vault since the amount of the asset in the vault is less than the amount to remove'
+    );
+    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+  });
+
+  it('names a missing fee conversion info abort rather than its numeric error code', () => {
+    // ERR_FEE_CONVERSION_INFO_MISSING surfaces only as a hashed code, which tells
+    // the user nothing and tells support even less.
+    const err = new Error('assertion failed with error code: 14712559985122731094');
+    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+  });
+});
+

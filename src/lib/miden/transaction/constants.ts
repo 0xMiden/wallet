@@ -26,6 +26,19 @@ export const PROVER_PROCEDURE_MISMATCH_ERROR =
 
 export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by user';
 
+/**
+ * The account could not pay this transaction's fee.
+ *
+ * Since protocol 0.16 the fee is withdrawn from the acting account's own vault
+ * inside the auth procedure, so this is a precondition rather than a transient
+ * fault: retrying changes nothing until the account holds more of the fee asset.
+ * The kernel reports it two ways -- a vault-shortfall assertion, and a hashed
+ * error code for a missing conversion-info commitment -- and neither is
+ * intelligible raw.
+ */
+export const TRANSACTION_FEE_UNPAYABLE_ERROR =
+  'Not enough MIDEN to pay the network fee. Receive some MIDEN and try again';
+
 export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and was cancelled';
 
 export const TRANSACTION_EXPIRED_ERROR = 'Transaction expired after being queued too long';
@@ -148,6 +161,22 @@ export const TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR =
  * before the row could have submitted; only `cancel.ts` can derive it, since it needs
  * the committed row rather than the stage alone.
  */
+/**
+ * Recognises the two shapes the kernel uses to report an unpayable fee.
+ *
+ * The numeric code is `error_code_from_msg("paying a non-zero fee requires
+ * conversion info committed via the auth args")` from miden-standards -- it is a
+ * stable hash of that message, so matching it is matching the message.
+ */
+export const ERR_FEE_CONVERSION_INFO_MISSING_CODE = '14712559985122731094';
+
+export function isFeeUnpayableError(raw: string): boolean {
+  return (
+    /amount of the asset in the vault is less than the amount to remove/i.test(raw) ||
+    raw.includes(ERR_FEE_CONVERSION_INFO_MISSING_CODE)
+  );
+}
+
 export function resolveTransactionErrorMessage(
   error: unknown,
   stage?: ITransactionStage,
@@ -193,6 +222,12 @@ export function resolveTransactionErrorMessage(
   // hedged timeout copy for the remote case rather than a false safety claim.
   if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
+  }
+  // A fee failure is deterministic: the account cannot cover its own fee, so the
+  // same transaction will fail identically until the balance changes. Naming it
+  // stops the UI offering a Retry that cannot succeed.
+  if (isFeeUnpayableError(raw)) {
+    return TRANSACTION_FEE_UNPAYABLE_ERROR;
   }
   return raw;
 }
