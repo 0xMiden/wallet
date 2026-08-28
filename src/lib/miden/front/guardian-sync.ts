@@ -1,3 +1,4 @@
+import { classifyGuardianRecovery, noteRecoveryDivergence } from 'lib/miden/back/guardian-recovery-dispatcher';
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import {
   getGuardianCommitmentFromAccount,
@@ -10,7 +11,8 @@ import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
   isGuardianRegistrationPreflightError,
-  isGuardianUnreachableError
+  isGuardianUnreachableError,
+  readDirectSwitchCommitState
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
@@ -161,6 +163,21 @@ export const MISSING_REGISTRATION_BACKOFF_MS = 60_000;
 // Doubling backoff (60s, then 120s — ~3 minutes across the three pushes),
 // measured from each attempt's settle so a push that spends minutes in
 // `/configure` deadlines still buys its full gap.
+/** Node reads per pending rotation before the user is told to intervene. */
+export const PENDING_ROTATION_RECHECK_MAX_ATTEMPTS = 15;
+/** Gap between rechecks of one pending rotation. */
+export const PENDING_ROTATION_RECHECK_BACKOFF_MS = 120_000;
+
+// The W1 exit's budget: a submitted-unconfirmed rotation gets a bounded run of
+// node reads (~30 minutes at the flat gap) before the state is surfaced as
+// needing the user. Keyed by the ROW id — two pending rotations on one account
+// are separate questions to the chain.
+const pendingRotationRecheckLedger = createAttemptLedger({
+  maxAttempts: PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
+  backoffMs: PENDING_ROTATION_RECHECK_BACKOFF_MS,
+  curve: 'flat'
+});
+
 const missingRegistrationLedger = createAttemptLedger({
   maxAttempts: MISSING_REGISTRATION_MAX_ATTEMPTS,
   backoffMs: MISSING_REGISTRATION_BACKOFF_MS,
@@ -332,8 +349,19 @@ export function isGuardianLastSyncFresh(accountPublicKey: string, now: number = 
  * which is the way out the pill points at.
  */
 export function isGuardianUnrepairable(accountPublicKey: string): boolean {
-  return unrepairableAccounts.has(accountPublicKey);
+  return unrepairableAccounts.has(accountPublicKey) || pendingRotationExhausted.has(accountPublicKey);
 }
+
+/**
+ * Accounts whose submitted-unconfirmed rotation exhausted its recheck budget.
+ * A SEPARATE set from `unrepairableAccounts`, deliberately: that one is a
+ * verdict about the OPERATOR and is cleared by any successful guardian sync —
+ * but a healthy operator sync answers nothing about whether the CHAIN
+ * confirmed the rotation, so this evidence must survive it (the same
+ * sibling-success-erases-the-evidence shape as F-137). Cleared only when the
+ * pending row itself resolves.
+ */
+const pendingRotationExhausted = new Set<string>();
 
 function markGuardianUnrepairable(accountPublicKey: string, reason: string): void {
   if (unrepairableAccounts.has(accountPublicKey)) return;
@@ -468,6 +496,8 @@ export function __resetGuardianSyncOutageForTest(): void {
   guardianRateLimit.clearAll();
   hardeningChecked.clear();
   missingRegistrationLedger.clearAll();
+  pendingRotationRecheckLedger.clearAll();
+  pendingRotationExhausted.clear();
   lastGuardianSyncAt.clear();
   syncedGuardianEndpoint.clear();
   // Retire any pass still in flight. Clearing `syncInFlight` alone let a running
@@ -517,6 +547,79 @@ export function __resetGuardianSyncOutageForTest(): void {
  * refuse. F-150 and F-151 fixed this same field-versus-identity confusion in the
  * sync loop and the drift reconciler; this was the last one.
  */
+/**
+ * The W1 exit: verify a submitted-unconfirmed rotation against the node until
+ * it answers, then settle the row honestly. This was the acknowledged wedge
+ * with no owner — a rotation whose commit wait failed completed the row on no
+ * evidence, and if it had NOT landed, drift saw baseline == chain (both still
+ * the old operator) and reported in-sync forever. The Dexie row is the durable
+ * intent; `didDirectSwitchLand`'s node read is the authority; the Seam-C
+ * ledger bounds the reads; a spent budget surfaces through the unrepairable
+ * prompt rather than going silent.
+ *
+ * Timer-driven WASM hold discipline (#777): bounded at the sync ceiling,
+ * labeled, gated on and reporting into its own sync-fuse key.
+ */
+async function runPendingRotationRecheck(account: WalletAccount): Promise<void> {
+  try {
+    if (isSyncFused('pending-rotation-recheck')) return;
+    const { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } = await import('lib/miden/transaction');
+    const rows = await listUnconfirmedSwitchRows(account.publicKey);
+    if (rows.length === 0) {
+      // The question is settled (or never existed) — retire the prompt.
+      if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
+      return;
+    }
+    for (const row of rows) {
+      const subject = { accountPublicKey: account.publicKey, guardianKey: row.id };
+      if (!pendingRotationRecheckLedger.mayAttempt(subject)) {
+        if (pendingRotationRecheckLedger.budgetSpent(subject) && !pendingRotationExhausted.has(account.publicKey)) {
+          console.warn(
+            `[Guardian Sync] ${account.publicKey} has a guardian switch the chain never confirmed and the ` +
+              `recheck budget is spent — surfacing it on the guardian screen`
+          );
+          pendingRotationExhausted.add(account.publicKey);
+          notifyOutageListeners();
+        }
+        continue;
+      }
+      const attempt = pendingRotationRecheckLedger.begin(subject);
+      try {
+        const state = await readDirectSwitchCommitState(row.id, {
+          watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+          label: 'pending-rotation-recheck'
+        });
+        noteSyncSuccess('pending-rotation-recheck');
+        if (state === 'committed') {
+          await resolveUnconfirmedSwitch(row.id, true);
+          pendingRotationRecheckLedger.clearForAccount(account.publicKey);
+          if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
+          console.warn(`[Guardian Sync] pending rotation ${row.id} confirmed on chain; row upgraded`);
+        } else if (state === 'discarded') {
+          await resolveUnconfirmedSwitch(row.id, false);
+          pendingRotationRecheckLedger.clearForAccount(account.publicKey);
+          if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
+          console.warn(`[Guardian Sync] pending rotation ${row.id} was discarded by the node; row demoted`);
+        } else {
+          // 'pending' / 'not-found': no verdict either way — spend one recheck.
+          attempt.settle('charged');
+        }
+      } catch (recheckError) {
+        if (isSyncWatchdogEviction(recheckError)) {
+          noteSyncWatchdogEviction('pending-rotation-recheck');
+        } else {
+          noteNonEvictionSyncFailure('pending-rotation-recheck');
+        }
+        // Could not look — that is not a verdict, and not a spent attempt.
+        attempt.settle('refunded');
+      }
+    }
+  } catch (e) {
+    // Best-effort: the recheck must never break the sync loop.
+    console.warn(`[Guardian Sync] pending-rotation recheck failed for ${account.publicKey} (non-fatal):`, e);
+  }
+}
+
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
   // A pointer we could not READ gets the same refusal as no pointer at all, and
   // for the stronger of the two reasons: this function POSTs the device's
@@ -1076,6 +1179,41 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         // without a word, the one signal that recovery is not running was gone.
         console.warn(`[Guardian Sync] drift reconciliation failed for ${account.publicKey}:`, driftError);
       });
+
+    // The W1 exit runs AHEAD of the guardian fuse gate on purpose: it talks to
+    // the NODE, not the guardian endpoint, so a parked operator must not gate
+    // the one probe that can settle a pending rotation. It carries its own
+    // fuse key and budget.
+    await runPendingRotationRecheck(account);
+
+    // SHADOW dispatcher (guardian-recovery-dispatcher.ts): classify this
+    // account's facts and count disagreements with what the legacy predicates
+    // do. The only divergence the legacy surfaces cannot express is a spent
+    // repair budget that never raised the unrepairable flag — a dead end the
+    // totality test forbids — so that is what the shadow watches for. The
+    // trigger flip happens only after a release of this reading zero.
+    {
+      const shadowRoute = classifyGuardianRecovery({
+        syncStatus: account.guardianSyncStatus,
+        hasHotKey: Boolean(account.hotPublicKey),
+        outage: isGuardianSyncOutage(account.publicKey),
+        unrepairable: isGuardianUnrepairable(account.publicKey),
+        budgets: {
+          selfHeal: selfHealLedger.budgetSpent({ accountPublicKey: account.publicKey, endpoint })
+            ? 'spent'
+            : 'available',
+          missingRegistration: 'available',
+          recheck: 'available'
+        }
+      });
+      if (
+        shadowRoute.route === 'prompt' &&
+        shadowRoute.reason === 'unrepairable-manual' &&
+        !isGuardianUnrepairable(account.publicKey)
+      ) {
+        noteRecoveryDivergence('spent-budget-without-unrepairable-flag');
+      }
+    }
 
     // Serve this account's own fuse next, for the same reason as the 429 cooldown
     // and one step stronger: a rate limit says "not yet", a lit fuse says "this

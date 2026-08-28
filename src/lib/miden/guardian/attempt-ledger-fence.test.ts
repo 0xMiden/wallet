@@ -38,6 +38,10 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
         'lastGuardianSyncAt',
         'outageAccounts',
         'outageListeners',
+        // Prompt evidence for an exhausted pending-rotation recheck — the
+        // budget itself lives in `pendingRotationRecheckLedger`; this set only
+        // remembers that it ran dry, and clears when the row resolves.
+        'pendingRotationExhausted',
         'syncedGuardianEndpoint',
         'unrepairableAccounts'
       ].sort()

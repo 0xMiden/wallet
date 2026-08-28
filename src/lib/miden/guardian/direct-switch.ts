@@ -525,12 +525,28 @@ export const createDirectSwitchGuardianRequest = async (
  * opinion about, and `getTransactionCommitState` is the same authority
  * `verifySendLanded` uses for the equivalent double-send question.
  */
-export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
+/**
+ * The raw node-authoritative read behind `didDirectSwitchLand` — THROWS on
+ * failure instead of folding it into `undefined`, for callers that must tell
+ * "no verdict" apart from "could not look" (the pending-rotation recheck feeds
+ * a sync fuse with exactly that distinction). The timer-driven caller passes
+ * the sync ceiling plus a label, per the bounded-hold discipline (#777).
+ */
+export const readDirectSwitchCommitState = async (
+  transactionId: string,
+  lockOptions?: Parameters<typeof withWasmClientLock>[1]
+) =>
+  withWasmClientLock(async () => {
+    await midenClientProxy.syncState();
+    return midenClientProxy.getTransactionCommitState(transactionId);
+  }, lockOptions);
+
+export const didDirectSwitchLand = async (
+  transactionId: string,
+  lockOptions?: Parameters<typeof withWasmClientLock>[1]
+): Promise<boolean | undefined> => {
   try {
-    const state = await withWasmClientLock(async () => {
-      await midenClientProxy.syncState();
-      return midenClientProxy.getTransactionCommitState(transactionId);
-    });
+    const state = await readDirectSwitchCommitState(transactionId, lockOptions);
     if (state === 'committed') return true;
     if (state === 'discarded') return false;
     // 'pending' — submitted and still awaiting a block, so it may yet land — and

@@ -22,7 +22,13 @@ import {
  * minutes forever. Guardian is the wallet's DEFAULT account type, so that path is the
  * likeliest one in the product, not a corner.
  */
-export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | 'note-import' | `guardian-sync:${string}`;
+export type SyncFuseKey =
+  | 'idle-sync'
+  | 'claimable-notes'
+  | 'balances'
+  | 'note-import'
+  | 'pending-rotation-recheck'
+  | `guardian-sync:${string}`;
 
 /**
  * The fuse key for one guardian account's sync probe.

@@ -4,6 +4,7 @@ import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
 import { withTimeout } from 'lib/miden/guardian/discover';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
@@ -1157,6 +1158,44 @@ export const updateBridgeClaimStatus = async (
  * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
  * pipeline is already done with this row, so there is no race.
  */
+/**
+ * Completed switch-guardian rows whose commit was never confirmed — the
+ * durable pending-rotation intents the recovery recheck works through. The
+ * Dexie row itself is the intent: it survives realm churn and vault locks and
+ * carries the transaction id and target endpoint, so no separate marker store
+ * exists to drift from it. Read through the verdict module, never the raw
+ * flags (the guardian claim fence).
+ */
+export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
+  const rows = await Repo.transactions.where({ accountId }).toArray();
+  return rows.filter((row): row is SwitchGuardianTransaction => rotationVerdict(row)?.kind === 'submitted-unconfirmed');
+};
+
+/**
+ * Settle a pending rotation once the node finally answered. `landed === true`
+ * upgrades the row to a confirmed rotation (the receipt/Activity copy follows
+ * via `rotationVerdict`); `landed === false` demotes it to Failed after the
+ * fact — the chain still names the OLD operator while the vault names the new
+ * one, which is exactly the state guardian drift reconciliation repairs on its
+ * next tick, so this write is deliberately just the honest record.
+ */
+export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
+  if (landed) {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.displayMessage = 'Guardian switched';
+      tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    });
+    return;
+  }
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Guardian switch discarded';
+    tx.error =
+      'The node discarded this guardian switch after submission; the previous guardian is still active. ' +
+      'Drift reconciliation repairs the stored endpoint automatically.';
+  });
+};
+
 export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
   console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
     id,

@@ -25,6 +25,8 @@ import {
   MISSING_REGISTRATION_BACKOFF_MS,
   MISSING_REGISTRATION_MAX_ATTEMPTS,
   MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
+  PENDING_ROTATION_RECHECK_BACKOFF_MS,
+  PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
   SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
@@ -77,10 +79,16 @@ jest.mock('./guardian-manager', () => ({
 // `startBackgroundTransactionProcessing` comes from the same dynamic import: it is
 // the off-extension driver for the row the hardening enqueues.
 const mockEnsureGuardianProcedureThresholds = jest.fn();
+// The W1 pending-rotation recheck: rows come from Dexie, verdicts from the
+// node read. Default: no pending rotations, so every unrelated test skips it.
+const mockListUnconfirmedSwitchRows = jest.fn(async (..._a: unknown[]) => [] as Array<{ id: string }>);
+const mockResolveUnconfirmedSwitch = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 jest.mock('lib/miden/transaction', () => ({
   ensureGuardianProcedureThresholds: (...args: unknown[]) => mockEnsureGuardianProcedureThresholds(...args),
-  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundTransactionProcessing(...args)
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackgroundTransactionProcessing(...args),
+  listUnconfirmedSwitchRows: (...args: unknown[]) => mockListUnconfirmedSwitchRows(...args),
+  resolveUnconfirmedSwitch: (...args: unknown[]) => mockResolveUnconfirmedSwitch(...args)
 }));
 
 // Platform gate for the off-extension driver above. Default: extension (the SW owns
@@ -159,9 +167,11 @@ jest.mock('lib/secure-hot-key/commitment', () => ({
 // `isGuardianUnreachableError` runs for real (the outage tests depend on its
 // actual classification); only the registration WRITE is stubbed.
 const mockFinalizeDirectGuardianSwitch = jest.fn();
+const mockReadDirectSwitchCommitState = jest.fn(async (..._a: unknown[]) => 'pending');
 jest.mock('lib/miden/guardian/direct-switch', () => ({
   ...jest.requireActual('lib/miden/guardian/direct-switch'),
-  finalizeDirectGuardianSwitch: (...args: unknown[]) => mockFinalizeDirectGuardianSwitch(...args)
+  finalizeDirectGuardianSwitch: (...args: unknown[]) => mockFinalizeDirectGuardianSwitch(...args),
+  readDirectSwitchCommitState: (...args: unknown[]) => mockReadDirectSwitchCommitState(...args)
 }));
 
 const mockGetAccount = jest.fn();
@@ -2172,6 +2182,92 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     sync.mockRejectedValue(unknownAccountError);
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+});
+
+describe('syncGuardianAccounts — pending-rotation recheck (the W1 exit)', () => {
+  const account = { publicKey: 'pending-pk', type: WalletType.Guardian, hotPublicKey: 'hot' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    storeState.accounts = [account] as never;
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'tx-w1' }]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockReadDirectSwitchCommitState.mockReset();
+  });
+
+  it('upgrades the row once the chain confirms the rotation', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('committed');
+
+    await syncGuardianAccounts();
+
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledWith(
+      'tx-w1',
+      expect.objectContaining({ label: 'pending-rotation-recheck' })
+    );
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('tx-w1', true);
+  });
+
+  it('demotes the row once the chain reports the rotation discarded', async () => {
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+
+    await syncGuardianAccounts();
+
+    expect(mockResolveUnconfirmedSwitch).toHaveBeenCalledWith('tx-w1', false);
+  });
+
+  it('a non-verdict spends one bounded recheck and re-asks on the flat cadence', async () => {
+    let now = 9_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+
+    // Inside the gap: no second read, and no resolution invented.
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+
+    now += PENDING_ROTATION_RECHECK_BACKOFF_MS;
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it('a read failure is refunded, not charged — the budget is spent on answers, not on outages', async () => {
+    let now = 9_500_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockReadDirectSwitchCommitState.mockRejectedValue(new Error('node unreachable'));
+
+    for (let i = 0; i < PENDING_ROTATION_RECHECK_MAX_ATTEMPTS + 3; i++) {
+      await syncGuardianAccounts();
+      now += PENDING_ROTATION_RECHECK_BACKOFF_MS;
+    }
+    // Still asking (refunds never spend the budget), and never unrepairable.
+    expect(mockReadDirectSwitchCommitState.mock.calls.length).toBeGreaterThan(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('pending-pk')).toBe(false);
+    nowSpy.mockRestore();
+  });
+
+  it('a spent budget surfaces through the unrepairable prompt instead of going silent', async () => {
+    let now = 10_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    mockReadDirectSwitchCommitState.mockResolvedValue('not-found');
+
+    for (let i = 0; i < PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; i++) {
+      await syncGuardianAccounts();
+      now += PENDING_ROTATION_RECHECK_BACKOFF_MS;
+    }
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+
+    await syncGuardianAccounts();
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(PENDING_ROTATION_RECHECK_MAX_ATTEMPTS);
+    expect(isGuardianUnrepairable('pending-pk')).toBe(true);
     nowSpy.mockRestore();
   });
 });
