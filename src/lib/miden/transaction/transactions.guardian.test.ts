@@ -6149,6 +6149,92 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
     jest.useRealTimers();
   });
 
+  // The counterpart to the test above, and the one that matters most: the escape
+  // must NOT fire once the co-signature is back, because everything after that
+  // point can reach the chain. A node-side transport failure at submit is worded
+  // exactly like a silent guardian — both end up matching the same substrings in
+  // `isGuardianUnreachableError` — so a classifier-only gate would build and
+  // submit a SECOND update_guardian while the first sat in the mempool.
+  it('does not rotate a second time when the failure comes after the co-signature', async () => {
+    // The whole assertion is a negative one, so a call left over from a sibling
+    // test in this describe would make it pass for the wrong reason in a full run
+    // while still passing in isolation.
+    mockCreateDirectSwitchRequest.mockClear();
+    const txId = 'switch-guardian-submit-failed';
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    // A perfectly healthy operator: it co-signs. The node is what fails, and it
+    // fails with a message the unreachability classifier accepts.
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({
+        proposal: { id: 'prop-1', nonce: 7, metadata: { chainAnchor: 'Y2hhaW4tYW5jaG9y' } }
+      })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([3]) })),
+      abandonCandidate: jest.fn(async () => {})
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    const result = makeResult();
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      // The submit itself fails, AFTER the guardian co-signed. Built inline
+      // rather than through `makeClientApi` because the shared fixture has no
+      // seam for a failing submit — and submit, specifically, is the boundary
+      // this test is about. "Failed to fetch" is the wording that makes the
+      // point: it is what a node-side transport failure looks like, and it is
+      // also what a silent guardian looks like.
+      client: {
+        transactions: {
+          executeRequest: jest.fn(async () => ({
+            id: result.executedTransaction().id(),
+            result,
+            prove: async () => ({
+              proof: { proved: true },
+              result,
+              submit: async () => {
+                throw new Error('Failed to fetch');
+              }
+            })
+          }))
+        }
+      }
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    ).catch(() => {});
+
+    // No second on-chain rotation was built or submitted.
+    expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+    expect(provider.setGuardianEndpoint).not.toHaveBeenCalled();
+  });
+
   // The same ceiling deliberately does NOT apply to a send. There the hang is a
   // stall rather than a trap — sends requeue and retry — so a 30s cap would only
   // add a way to fail a transaction on a slow-but-healthy operator that would

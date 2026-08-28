@@ -1669,9 +1669,16 @@ const OUTGOING_GUARDIAN_DEADLINE_MS = 30_000;
  * Reject once {@link OUTGOING_GUARDIAN_DEADLINE_MS} passes without the outgoing
  * guardian answering, with a message the unreachability classifier recognizes.
  *
- * Applied ONLY to the switch-guardian arms, because they are the only ones with
- * somewhere better to go: every other guardian operation needs the operator, so
- * failing it sooner buys nothing.
+ * Applied to the switch-guardian arms as a VERDICT — they are the only ones with
+ * somewhere better to go, since every other guardian operation needs the operator,
+ * so failing it sooner buys nothing — and to the post-failure `abandonCandidate`
+ * of EVERY type as a CLEANUP BOUND. The two uses read differently and must not be
+ * confused: a timeout on the former is what commits the caller to the direct path,
+ * whereas a timeout on the latter is swallowed by its own catch (abandonment is
+ * idempotent and best-effort, so a send is never failed by it). The cleanup is
+ * bounded regardless of type because it runs inside the FIFO loop's Web Lock,
+ * where an unbounded wait stops every account's transactions and disables the
+ * stuck-row reaper that would otherwise clean up after it.
  *
  * WHY a deadline is needed at all, when the WASM lock already has a watchdog.
  * The guardian transport carries no client-side deadline (`GuardianHttpClient`
@@ -1745,13 +1752,14 @@ const describeError = (error: unknown): string => {
  * pipeline + commit-wait + completion as the proposal path. Completion gets an
  * undefined MultisigService and registers on the NEW guardian directly.
  *
- * No `abandonCandidate` on entry, and — unlike the cold-co-sign arm — that is a
- * limitation rather than a judgement that there is nothing to retract.
+ * No `abandonCandidate` on entry, and — unlike the two arms that call it after a
+ * pushed proposal (cold co-sign and final co-sign) — that is a limitation rather
+ * than a judgement that there is nothing to retract.
  *
- * Two of the three ways to get here genuinely leave nothing behind: no proposal
- * ever reached the old guardian, or one did and that guardian is down anyway, in
- * which case a pending delta on it has no on-chain authority. The third case
- * exists only because the outgoing-guardian round trip is now DEADLINE-bounded:
+ * Most ways to get here genuinely leave nothing behind: no proposal ever reached
+ * the old guardian, or one did and that guardian is down anyway, in which case a
+ * pending delta on it has no on-chain authority. The remaining case
+ * exists only because the outgoing-guardian round trips are now DEADLINE-bounded:
  * `withOutgoingGuardianDeadline` rejects its caller at 30s but does not cancel
  * the request, so a merely SLOW-but-healthy operator can accept the proposal POST
  * after we have already given up on it. That leaves a real pending delta on a
@@ -2401,6 +2409,19 @@ const generateGuardianTransaction = async (
   }
 
   let result: TransactionResult;
+  // Did the outgoing guardian's co-signature come back? This is the exact
+  // boundary between "no chain write has been attempted" and "one may be in
+  // flight", and the direct-switch escape below is gated on it.
+  //
+  // It has to be a flag rather than a reading of the error, because the try
+  // spans both sides of that boundary: the co-sign is guardian HTTP, but
+  // everything after it is the leaf, which executes, proves, and SUBMITS. A
+  // submit-time transport failure ("failed to fetch", a timeout) is
+  // indistinguishable by message from the outgoing operator going silent —
+  // `isGuardianUnreachableError` falls through to a substring match on the
+  // message — so classifying the error alone would let a rotation that is
+  // already in the mempool trigger a SECOND, unilateral `update_guardian`.
+  let guardianCoSignReturned = false;
   try {
     // The LAST outgoing-guardian round trip, and until now the only unbounded
     // one — the three calls above it are deadline-bounded precisely because a
@@ -2423,6 +2444,9 @@ const generateGuardianTransaction = async (
             'co-signing the switch-guardian request with the outgoing guardian'
           )
         : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    // Past the guardian round trip. Everything below can reach the chain, so the
+    // direct-switch escape in the catch is closed from here on.
+    guardianCoSignReturned = true;
 
     // #784: the proposal carries the ChainAnchor of the reference block its
     // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
@@ -2551,19 +2575,30 @@ const generateGuardianTransaction = async (
         error: abandonError
       });
     }
-    // The FOURTH and last outgoing-guardian failure point, now behaving like the
+    // The FOURTH and last outgoing-guardian failure point, behaving like the
     // other three. A `switch-guardian` that reaches here because the operator is
     // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
     // rethrowing ends it Failed and leaves the user pointed at the very guardian
     // they were trying to escape — the exact dead end this feature exists to
-    // remove. Safe here for the same reason it is safe at the cold co-sign site:
-    // nothing has been submitted on this path yet (the proposal is only a delta
-    // on the guardian, and the direct switch submits its own transaction), so
-    // there is no co-signature the chain may be about to consume. The poison case
-    // above is deliberately excluded and still rethrows — an evicted pipeline is
-    // abandoned rather than stopped, and may yet submit.
+    // remove.
+    //
+    // `guardianCoSignReturned` is what makes it safe, and it is NOT redundant
+    // with the error classifier. Unlike the other three sites, this catch also
+    // covers the leaf — execute, prove, submit, apply — so a node-side transport
+    // failure at submit arrives here worded exactly like a silent guardian and
+    // classifies as unreachable. Diverting on the classifier alone would build
+    // and submit a second `update_guardian` while the first was in the mempool:
+    // at best a wasted on-chain write, at worst a row that ends Failed while the
+    // rotation landed, leaving the vault naming the old operator with no
+    // completion to fix it. Only a failure BEFORE the co-signature came back is
+    // provably pre-submit. Post-co-sign failures rethrow, which is what keeps
+    // the outer catch's `isApplyAfterSubmitError` reconcile path reachable.
+    //
+    // The poison case above is deliberately excluded and still rethrows — an
+    // evicted pipeline is abandoned rather than stopped, and may yet submit.
     if (
       transaction.type === 'switch-guardian' &&
+      !guardianCoSignReturned &&
       (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
     ) {
       await generateDirectSwitchGuardianTransaction(
