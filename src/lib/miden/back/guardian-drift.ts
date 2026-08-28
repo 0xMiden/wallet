@@ -367,7 +367,10 @@ export async function resolveGuardianDrift(
   try {
     storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
   } catch (error) {
-    console.warn('[GuardianDrift] could not read the account guardian pointer; skipping this window', error);
+    console.warn(
+      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; skipping this window`,
+      error
+    );
     return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
   }
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {

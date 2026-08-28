@@ -1516,11 +1516,34 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   // ...and the read failure must not escape into the sync loop, which iterates
   // every account: one account's storage hiccup would otherwise abort the tick
   // for all of them.
-  it('keeps syncing the remaining accounts when the pointer read throws', async () => {
-    mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
+  //
+  // Driven through `resolveGuardianEndpoint`, NOT `resolveChosenGuardianEndpoint`.
+  // The loop's own resolution at the top of each iteration is the call that
+  // escapes — it sits outside the per-account try — and the two are separate
+  // mocks here, so rejecting only the self-heal's resolver leaves the escaping
+  // path healthy and the test green either way. It also needs a SECOND account:
+  // with one, "the pass resolved" and "the remaining accounts were served" are
+  // the same assertion, and any abort is invisible.
+  it('keeps syncing the remaining accounts when one account\u2019s pointer read throws', async () => {
+    const healthy = {
+      publicKey: 'healthy-pk',
+      type: WalletType.Guardian,
+      hotPublicKey: 'hot',
+      guardianEndpoint: endpoint
+    };
+    storeState.accounts = [account, healthy] as never;
+    mockResolveGuardianEndpoint.mockImplementation(async (acc: { guardianEndpoint?: string; publicKey?: string }) => {
+      if (acc.publicKey === account.publicKey) throw new Error('storage unavailable');
+      return endpoint;
+    });
+    const sync = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync });
 
-    await runUntilPersistent();
-    await expect(syncGuardianAccounts()).resolves.not.toThrow();
+    await expect(syncGuardianAccounts()).resolves.toBeUndefined();
+
+    // The account AFTER the failing one still got its tick.
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('healthy-pk', zustandProvider);
+    expect(sync).toHaveBeenCalled();
   });
 
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {

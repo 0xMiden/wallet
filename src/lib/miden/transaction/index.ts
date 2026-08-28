@@ -2531,7 +2531,18 @@ const generateGuardianTransaction = async (
       throw error;
     }
     try {
-      await service.abandonCandidate(proposalResult.nonce);
+      // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
+      // This call reaches the same operator, over the same transport, that the
+      // failure above may have been its silence — so unbounded it does not delay
+      // the failure, it replaces it with a hang, and moves the wedge fifteen
+      // lines rather than closing it. Worse than the row itself: this runs inside
+      // the FIFO loop's Web Lock, so a hang here stops EVERY account's sends,
+      // claims and swaps, and takes `cancelStuckTransactions` (which lives inside
+      // the same loop) down with it, so the row is not even reaped.
+      await withOutgoingGuardianDeadline(
+        () => service.abandonCandidate(proposalResult.nonce),
+        'abandoning the guardian candidate after a failed submission'
+      );
     } catch (abandonError) {
       // Cleanup must never mask the transaction failure. The abandonment call
       // is idempotent, so a later recovery path can safely retry it.
@@ -2539,6 +2550,31 @@ const generateGuardianTransaction = async (
         nonce: proposalResult.nonce,
         error: abandonError
       });
+    }
+    // The FOURTH and last outgoing-guardian failure point, now behaving like the
+    // other three. A `switch-guardian` that reaches here because the operator is
+    // unreachable or cannot co-sign has no requeue and no user-facing Retry, so
+    // rethrowing ends it Failed and leaves the user pointed at the very guardian
+    // they were trying to escape — the exact dead end this feature exists to
+    // remove. Safe here for the same reason it is safe at the cold co-sign site:
+    // nothing has been submitted on this path yet (the proposal is only a delta
+    // on the guardian, and the direct switch submits its own transaction), so
+    // there is no co-signature the chain may be about to consume. The poison case
+    // above is deliberately excluded and still rethrows — an evicted pipeline is
+    // abandoned rather than stopped, and may yet submit.
+    if (
+      transaction.type === 'switch-guardian' &&
+      (isGuardianUnreachableError(error) || isGuardianAccountUnusable(error))
+    ) {
+      await generateDirectSwitchGuardianTransaction(
+        transaction as SwitchGuardianTransaction,
+        signCallback,
+        guardianProvider,
+        `outgoing guardian ${
+          isGuardianUnreachableError(error) ? 'unreachable' : 'cannot co-sign for this account'
+        } at the final co-sign, after the proposal was pushed: ${describeError(error)}`
+      );
+      return;
     }
     throw error;
   }

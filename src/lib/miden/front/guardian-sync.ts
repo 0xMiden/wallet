@@ -514,7 +514,10 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   try {
     endpoint = await resolveChosenGuardianEndpoint(account);
   } catch (error) {
-    console.warn('[GuardianSync] could not read the account guardian pointer; skipping self-heal', error);
+    console.warn(
+      `[GuardianSync] could not read the guardian pointer for ${account.publicKey}; skipping self-heal`,
+      error
+    );
     return;
   }
   if (!endpoint) return;
@@ -927,7 +930,22 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
   // Resolved for the same reason the detector above resolves: this has to compare
   // the operator the pass actually talked to, not the field that may or may not
   // name it.
-  return (await resolveGuardianEndpoint(current)) === endpoint;
+  //
+  // A failed read answers `false`, which is both the safe answer and the true
+  // one: this function's question is "can the pass substantiate that its verdict
+  // is about the CURRENT operator", and a pointer it could not read cannot
+  // substantiate anything. Swallowing it also matters structurally — one of the
+  // two call sites is inside the sync error handler, where a throw would escape
+  // the per-account catch entirely.
+  try {
+    return (await resolveGuardianEndpoint(current)) === endpoint;
+  } catch (resolveError) {
+    console.warn(
+      `[Guardian Sync] could not confirm the operator for ${accountPublicKey}; not recording this pass`,
+      resolveError
+    );
+    return false;
+  }
 }
 
 export function syncGuardianAccounts(): Promise<void> {
@@ -971,7 +989,22 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // itself, one door further along: an account resolving through the default
     // sees its operator change under a dev-settings endpoint override while the
     // raw field stays `undefined`, so no reset fires at all.
-    const endpoint = await resolveGuardianEndpoint(account);
+    // Per-account, because a rejection here would otherwise escape the `for` and
+    // reject the whole pass — and the pass's only caller discards it
+    // (`syncGuardianAccounts().catch(() => {})` in `useSyncTrigger`), so one
+    // account's storage hiccup would silently cost EVERY later account its tick,
+    // with nothing in the console to say so. The resolver propagates read
+    // failures by design (that is what lets the drift reconciler tell "named no
+    // operator" from "could not find out"), so the degradation has to be chosen
+    // here. `Vault.backfillGuardianEndpoints` isolates per account for the same
+    // reason.
+    let endpoint: string;
+    try {
+      endpoint = await resolveGuardianEndpoint(account);
+    } catch (resolveError) {
+      console.warn(`[Guardian Sync] could not resolve the guardian endpoint for ${account.publicKey}`, resolveError);
+      continue;
+    }
     const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
     if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
       console.warn(

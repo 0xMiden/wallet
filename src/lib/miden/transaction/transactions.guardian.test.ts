@@ -6073,11 +6073,10 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
   // The LAST outgoing-guardian round trip, and the one the three deadlines above
   // left open: a rotation that got past the service load, the proposal push and
   // the cold co-sign could still meet the same silent operator here and hang
-  // forever at `signing-proposal`. `switch-guardian` has no requeue and no Retry,
-  // so "forever" means a guardian the user can never rotate away from — a
-  // bounded failure they can act on is strictly better than a row that never
-  // settles.
-  it('bounds the final co-sign round trip so a silent operator cannot wedge the row', async () => {
+  // forever at `signing-proposal`. It now behaves like the other three — bounded,
+  // and routed to the direct path rather than left Failed on a type that has
+  // neither a requeue nor a user-facing Retry.
+  it('escapes a silent operator at the final co-sign instead of wedging or failing', async () => {
     jest.useFakeTimers();
     const txId = 'switch-guardian-wedged-cosign';
     txStore.push({
@@ -6088,20 +6087,28 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
     });
 
-    // Everything up to the final co-sign works; that one call never answers.
+    // Everything up to the final co-sign works; that one call never answers, and
+    // neither does the cleanup that follows it.
     const signAndCreateTransactionRequest = jest.fn(() => new Promise(() => {}));
+    const abandonCandidate = jest.fn(() => new Promise(() => {}));
     mockGetOrCreateMultisigService.mockResolvedValue({
       createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
       signAndCreateTransactionRequest,
-      abandonCandidate: jest.fn(async () => {})
+      abandonCandidate
     });
     mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+    mockCreateDirectSwitchRequest.mockResolvedValue({
+      request: { serialize: () => new Uint8Array([2]) },
+      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+    });
+    mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
+    const setGuardianEndpoint = jest.fn(async () => {});
     const provider = {
       getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
       getPublicKeyForCommitment: async () => 'pk',
       signWord: jest.fn(async () => 'sig'),
-      setGuardianEndpoint: jest.fn(async () => {})
+      setGuardianEndpoint
     };
     mockIsGuardianAccount.mockResolvedValue(true);
     mockGetMidenClient.mockResolvedValue({
@@ -6126,14 +6133,19 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       provider as never
     );
 
+    // One deadline for the co-sign, a second for the abandon that follows it —
+    // unbounded, that cleanup would move the wedge rather than close it.
+    await jest.advanceTimersByTimeAsync(30_000);
     await jest.advanceTimersByTimeAsync(30_000);
     await run;
 
     expect(signAndCreateTransactionRequest).toHaveBeenCalled();
-    // Terminal, not stuck mid-flight — and nothing was submitted, so the row is
-    // honestly Failed rather than left ambiguous.
+    expect(abandonCandidate).toHaveBeenCalledWith(7);
+    // The escape actually ran, and the rotation landed.
+    expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+    expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     const row = txStore.find(r => r.id === txId)!;
-    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.status).toBe(ITransactionStatus.Completed);
     jest.useRealTimers();
   });
 
