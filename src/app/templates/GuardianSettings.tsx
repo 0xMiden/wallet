@@ -1,4 +1,4 @@
-import React, { FC, useState, useSyncExternalStore } from 'react';
+import React, { FC, useEffect, useState, useSyncExternalStore } from 'react';
 
 import clsx from 'clsx';
 import { Trans, useTranslation } from 'react-i18next';
@@ -13,6 +13,7 @@ import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-
 import { Button } from 'components/Button';
 import {
   getGuardianLastSyncAt,
+  isGuardianLastSyncFresh,
   isGuardianSyncOutage,
   isGuardianUnrepairable,
   subscribeGuardianSyncOutage
@@ -78,6 +79,21 @@ const GuardianSettings: FC = () => {
     currentAccountPk ? getGuardianLastSyncAt(currentAccountPk) : undefined
   );
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  // Both the pill and the "Last sync" row are functions of ELAPSED time, and
+  // nothing else on this screen re-renders on the clock: the sync module notifies
+  // only on a completed sync or an observable flag change, and the other
+  // subscriptions here are primitives that do not change. So a screen left open
+  // kept rendering the string computed at the last notification — "3s ago",
+  // indefinitely — and the freshness check below would never re-evaluate. This
+  // interval is the clock the two of them read.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!currentEndpoint) return;
+    // 15s: fine enough that the pill flips within a fraction of the freshness
+    // window and the relative time never visibly lags, coarse enough to be free.
+    const timer = setInterval(() => setClockTick(tick => tick + 1), 15_000);
+    return () => clearInterval(timer);
+  }, [currentEndpoint]);
 
   const option = guardianOptionForEndpoint(currentEndpoint);
   const logoEntry = option ? GUARDIAN_LOGOS[option.id] : undefined;
@@ -113,7 +129,14 @@ const GuardianSettings: FC = () => {
         ? 'offline'
         : guardianUnrepairable
           ? 'unrepairable'
-          : guardianLastSyncAt === undefined
+          : // FRESHNESS, not existence. The stamp records a moment; this pill
+            // asserts a present state, and two reachable paths stop syncing
+            // without arming either fault flag — a sustained 429 (which clears
+            // the outage, because the server answered) and any sustained local
+            // error. Both leave the last stamp in place, so reading its mere
+            // existence as "online" made a permanently-stuck account read green
+            // for the life of the realm. See `GUARDIAN_SYNC_STAMP_FRESH_MS`.
+            !isGuardianLastSyncFresh(currentAccountPk ?? '')
             ? 'checking'
             : 'online';
   // Three states, one visual treatment: unreachable, answering-but-unusable, and
@@ -128,6 +151,12 @@ const GuardianSettings: FC = () => {
     // account's guardian, so rendering its stamp here would put a fresh
     // timestamp next to a fault pill and attribute one operator's success to
     // another: the same contradiction, one subsystem further along.
+    // A STALE stamp still renders its real age here, beside a "Checking" pill,
+    // and that is the intended reading rather than a contradiction: this row is
+    // history ("the last confirmed sync was 5 minutes ago") and the pill is the
+    // present ("we do not currently know"). Replacing the age with "Unknown"
+    // would throw away the most useful fact on the screen in exactly the state
+    // where the user is trying to work out how long something has been wrong.
     guardianLastSyncAt !== undefined && !guardianDrifted
       ? formatLastSync(guardianLastSyncAt, i18n?.resolvedLanguage ?? i18n?.language ?? 'en')
       : // Derived from the SAME status as the pill, so the two cannot disagree.

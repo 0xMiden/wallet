@@ -109,9 +109,17 @@ jest.mock('lib/miden/guardian', () => {
 // this device's account state describes the rotation it is about to register.
 const mockGetSignerDetails = jest.fn();
 const mockGetGuardianCommitmentFromAccount = jest.fn();
+// The operator the sync actually binds: the per-account field when set, otherwise
+// the legacy global key and then the network default. The rotation detector keys
+// on THIS rather than on the raw field, so the default has to be a stable value
+// here — a per-call one would look like a rotation on every tick.
+const resolveEndpointDefault = async (account: { guardianEndpoint?: string }) =>
+  account.guardianEndpoint ?? 'https://default.guardian.test';
+const mockResolveGuardianEndpoint = jest.fn(resolveEndpointDefault);
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetails(...args),
-  getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args)
+  getGuardianCommitmentFromAccount: (...args: unknown[]) => mockGetGuardianCommitmentFromAccount(...args),
+  resolveGuardianEndpoint: (account: { guardianEndpoint?: string }) => mockResolveGuardianEndpoint(account)
 }));
 
 // One unauthenticated GET /pubkey: does the operator we are about to register on
@@ -919,6 +927,9 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
     storeState.accounts = [];
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+    // `clearAllMocks` keeps implementations, so a test that overrides the
+    // resolver would otherwise decide every operator identity after it.
+    mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
   });
 
   const runSyncs = async (times: number) => {
@@ -1145,6 +1156,56 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       expect(mockGetOrCreateMultisigService).toHaveBeenCalled();
     });
 
+    // The operator the sync talks to is whatever `resolveGuardianEndpoint`
+    // returns, so the detector has to key on THAT and not on the raw field.
+    // Keying on the field was wrong in both directions.
+    it('does not fire on the unlock-time backfill, which stamps the endpoint already in use', async () => {
+      const pk = 'rotate-backfill';
+      // No per-account endpoint: this account resolves through the fallback.
+      storeState.accounts = [at(pk, undefined)] as never;
+      const sync = jest.fn().mockResolvedValue(undefined);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      await runSyncs(1);
+      const stamped = getGuardianLastSyncAt(pk);
+      expect(stamped).toEqual(expect.any(Number));
+
+      // The backfill writes the value the account was ALREADY resolving to.
+      // Nothing about the operator changed, so nothing may be dropped — keying on
+      // the raw field saw `'' !== 'https://…'`, called it a rotation, and threw
+      // away a valid sync stamp (flipping the pill Online → Checking) along with
+      // the 401 streak and the self-heal budget.
+      //
+      // The tick behind the backfill FAILS, so a dropped stamp cannot be masked
+      // by the same tick re-earning one: only the absence of a reset preserves it.
+      storeState.accounts = [at(pk, 'https://default.guardian.test')] as never;
+      sync.mockRejectedValue(new Error('Failed to fetch'));
+      await runSyncs(1);
+
+      expect(getGuardianLastSyncAt(pk)).toBe(stamped);
+    });
+
+    it('fires when the resolved default moves under an account with no endpoint of its own', async () => {
+      const pk = 'rotate-default';
+      storeState.accounts = [at(pk, undefined)] as never;
+      const sync = jest.fn().mockResolvedValue(undefined);
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      await runSyncs(1);
+      expect(getGuardianLastSyncAt(pk)).toEqual(expect.any(Number));
+
+      // A dev-settings endpoint override mutates the override cache in this realm
+      // with no reload, so the effective default changes on the very next tick
+      // while the account's own field stays `undefined`. Keying on the field, this
+      // was the F-137 defect itself surviving its own fix: no reset fired and the
+      // previous operator's entire verdict set carried over to one never contacted.
+      mockResolveGuardianEndpoint.mockResolvedValue('https://override.guardian.test');
+      sync.mockRejectedValue(new Error('Failed to fetch'));
+      await runSyncs(1);
+
+      expect(getGuardianLastSyncAt(pk)).toBeUndefined();
+    });
+
     it('notifies subscribers when the rotation clears something they can see', async () => {
       const pk = 'rotate-notify';
       storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
@@ -1324,6 +1385,7 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     mockCheckEndpointCommitment.mockResolvedValue('match');
     mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
     mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    mockResolveGuardianEndpoint.mockImplementation(resolveEndpointDefault);
   });
 
   // All four codes reach this branch: the operator uses them interchangeably for

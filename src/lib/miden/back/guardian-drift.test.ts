@@ -512,6 +512,66 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 
+  // The run's subject is the pair (account, STORED endpoint) — "this endpoint has
+  // been dark for N windows" — while the map is keyed by account alone. A run
+  // handed to a different endpoint accuses it on its first window, which is
+  // exactly the blip this rule exists to absorb. Reachable: a rotation whose
+  // endpoint write fails leaves the account drifted with a dead operator stored
+  // and accumulating windows, and rotating again then spends them on the new one,
+  // whose first window is plausibly silent while a self-hosted operator starts.
+  it('does not spend windows earned by one stored endpoint on the next one', async () => {
+    const dead = strandedVault();
+    await runWindows(justUnder, () => dead);
+    expect(dead.setGuardianSyncStatus).not.toHaveBeenCalled();
+
+    // Second rotation lands the endpoint write. Still drifted — nothing advances
+    // the commitment baseline — and the new operator is silent on its first window.
+    const rotated = makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://fresh.guardian',
+      guardianSyncStatus: 'in-sync'
+    });
+
+    expect(await runWindows(1, () => rotated)).toEqual({ status: 'in-sync', changed: false });
+    expect(rotated.setGuardianSyncStatus).not.toHaveBeenCalled();
+
+    // And the new endpoint earns its own full run rather than being let off: the
+    // reset re-arms the guard, it does not disable it.
+    expect(await runWindows(justUnder, () => rotated)).toEqual({
+      status: 'needs-user-input',
+      changed: true
+    });
+  });
+
+  // The cooldown is the milder half of the same key: it means "we probed this
+  // account's operators recently", so after a rotation it left the NEW endpoint
+  // unprobed — and the account on a stale status — for up to a full period.
+  it('probes a newly stored endpoint immediately rather than serving out the old cooldown', async () => {
+    const dead = strandedVault();
+    await runWindows(1, () => dead);
+    (checkEndpointCommitment as jest.Mock).mockClear();
+
+    const rotated = makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://fresh.guardian',
+      guardianSyncStatus: 'in-sync'
+    });
+    // Same instant as the window just run, so only the endpoint change — never
+    // the clock — can allow this probe.
+    const realNow = Date.now;
+    const at = realNow();
+    Date.now = () => at;
+    try {
+      await resolveGuardianDrift(rotated as never, 'pk');
+    } finally {
+      Date.now = realNow;
+    }
+
+    expect(checkEndpointCommitment).toHaveBeenCalledWith('https://fresh.guardian', 'customC');
+  });
+
   // The false-positive cost has to stay bounded: the moment the endpoint speaks
   // again the account resolves itself and the banner goes away untouched.
   it('self-clears when the briefly-down endpoint comes back and matches', async () => {

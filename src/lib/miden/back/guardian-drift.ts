@@ -86,16 +86,38 @@ const nextDriftProbeAt = new Map<string, number>();
  */
 const silentDriftWindows = new Map<string, number>();
 
+/**
+ * The stored endpoint each account's run above was accumulated against.
+ *
+ * Both maps are keyed by account, but their SUBJECT is a pair: the run means
+ * "this account, with THIS endpoint stored, has been dark for N windows". The
+ * rule is explicitly about duration — "a correct custom operator that is briefly
+ * down" must not be accused, and what separates it from a wrong one is only how
+ * long it stays silent — so a run inherited by a different endpoint can push that
+ * endpoint over the threshold on its FIRST window and accuse it with no evidence,
+ * which defeats the guard entirely.
+ *
+ * That is reachable: a rotation whose endpoint write fails leaves the account
+ * drifted with a dead operator stored, accumulating windows; rotating again then
+ * hands the accumulated run to the new endpoint, whose first window is plausibly
+ * silent while a self-hosted operator cold-starts. None of the existing clear
+ * paths cover it — they fire on a baseline match, a denial, an identification, or
+ * an uninformative round, and "the stored endpoint changed" is none of those.
+ */
+const driftProbeEndpoint = new Map<string, string>();
+
 /** Test hook: forget every cooldown so a suite's cases stay independent. */
 export function __resetGuardianDriftProbeCooldownForTest(): void {
   nextDriftProbeAt.clear();
   silentDriftWindows.clear();
+  driftProbeEndpoint.clear();
 }
 
 /** Leave the "drifted, stored endpoint silent" run — the account resolved or moved on. */
 function clearDriftProbeState(accountPublicKey: string): void {
   nextDriftProbeAt.delete(accountPublicKey);
   silentDriftWindows.delete(accountPublicKey);
+  driftProbeEndpoint.delete(accountPublicKey);
 }
 
 interface GuardianDriftVault {
@@ -191,6 +213,17 @@ export async function resolveGuardianDrift(
   // every built-in operator. Cleared above whenever the account is back in sync,
   // so a genuinely new drift is probed immediately rather than inheriting a
   // cooldown from the last one.
+  // Ahead of the cooldown check, which would otherwise `return` and never reach
+  // this — the same ordering the sync loop's rotation detector needs. A changed
+  // stored endpoint retires the run and the cooldown together: the run is about
+  // the old endpoint's silence, and the cooldown would leave the NEW endpoint
+  // unprobed (and the account on a stale status) for up to a full period.
+  const storedEndpoint = account.guardianEndpoint ?? '';
+  if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
+    clearDriftProbeState(accountPublicKey);
+    driftProbeEndpoint.set(accountPublicKey, storedEndpoint);
+  }
+
   const now = Date.now();
   const nextProbe = nextDriftProbeAt.get(accountPublicKey);
   if (nextProbe !== undefined && now < nextProbe) {

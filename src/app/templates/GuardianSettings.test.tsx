@@ -55,6 +55,10 @@ jest.mock('lib/store', () => ({
 // mounted page react — a `() => () => {}` stub could never show the pill moving.
 const mockIsGuardianSyncOutage = jest.fn((_pk: string) => false);
 const mockGetGuardianLastSyncAt = jest.fn((_pk: string): number | undefined => undefined);
+// Mirrors `GUARDIAN_SYNC_STAMP_FRESH_MS`. Not imported: the real module is mocked
+// wholesale here, and `requireActual` on it would pull the store and guardian
+// stack into a component test for one number.
+const MOCK_STAMP_FRESH_MS = 90_000;
 const syncListeners = new Set<() => void>();
 const mockIsGuardianUnrepairable = jest.fn((_pk: string) => false);
 const notifySyncListeners = () => {
@@ -64,6 +68,13 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   isGuardianSyncOutage: (pk: string) => mockIsGuardianSyncOutage(pk),
   isGuardianUnrepairable: (pk: string) => mockIsGuardianUnrepairable(pk),
   getGuardianLastSyncAt: (pk: string) => mockGetGuardianLastSyncAt(pk),
+  // Implements the REAL rule over the stamp mock rather than being a third
+  // independent knob: the pill's freshness and the row's timestamp must come from
+  // one value, which is the property the stale-stamp tests below check.
+  isGuardianLastSyncFresh: (pk: string) => {
+    const at = mockGetGuardianLastSyncAt(pk);
+    return at !== undefined && Date.now() - at <= MOCK_STAMP_FRESH_MS;
+  },
   subscribeGuardianSyncOutage: (listener: () => void) => {
     syncListeners.add(listener);
     return () => syncListeners.delete(listener);
@@ -205,6 +216,70 @@ it('renders the guardian last-sync stamp as a relative time once one lands', () 
   } finally {
     jest.useRealTimers();
   }
+});
+
+describe('a stale success stamp', () => {
+  // The stamp records a MOMENT and the pill asserts a PRESENT state. Reading its
+  // mere existence as "Online" was unbounded in the two paths that stop syncing
+  // without arming any fault flag — a sustained 429 (which clears the outage,
+  // because the server answered) and any sustained local error. Both leave the
+  // last stamp in place, so the pill read green for the life of the realm on an
+  // account that had not synced in an hour.
+  it('reads "Checking" rather than "Online", since it says nothing about now', () => {
+    jest.useFakeTimers().setSystemTime(WALLET_SYNCED_AT);
+    try {
+      mockGetGuardianLastSyncAt.mockReturnValue(WALLET_SYNCED_AT - (MOCK_STAMP_FRESH_MS + 1));
+      render(<GuardianSettings />);
+
+      expect(screen.getByText('guardianCheckingLabel')).toBeInTheDocument();
+      expect(screen.queryByText('online')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('still renders its real age beside that pill — the row is history, not a claim about now', () => {
+    jest.useFakeTimers().setSystemTime(WALLET_SYNCED_AT);
+    try {
+      mockGetGuardianLastSyncAt.mockReturnValue(WALLET_SYNCED_AT - 600_000);
+      render(<GuardianSettings />);
+
+      // "10m ago" — the most useful fact on the screen in exactly the state where
+      // the user is working out how long something has been wrong. Replacing it
+      // with "Unknown" would be the wrong reading of the pill/row consistency rule.
+      expect(screen.getByText(/^10\s?m(in\.?)? ago$/)).toBeInTheDocument();
+      expect(screen.queryByText('unknown')).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('is reached by the clock alone, with no sync notification to repaint the page', () => {
+    // Nothing else on this screen re-renders on time passing: the sync module
+    // notifies only on a completed sync or an observable flag change, and the
+    // other subscriptions are primitives. So a screen left open kept rendering
+    // the string computed at the last notification, and the freshness check would
+    // never re-evaluate. This is the interval that fixes both.
+    jest.useFakeTimers().setSystemTime(WALLET_SYNCED_AT);
+    try {
+      const syncedAt = WALLET_SYNCED_AT - 30_000;
+      mockGetGuardianLastSyncAt.mockReturnValue(syncedAt);
+      render(<GuardianSettings />);
+      expect(screen.getByText('online')).toBeInTheDocument();
+
+      // Cross the freshness window with no store change and no outage notification.
+      act(() => {
+        jest.advanceTimersByTime(MOCK_STAMP_FRESH_MS);
+      });
+
+      expect(screen.getByText('guardianCheckingLabel')).toBeInTheDocument();
+      expect(screen.queryByText('online')).not.toBeInTheDocument();
+      // And the row moved with the clock rather than freezing at "30s ago".
+      expect(screen.getByText(/^2\s?m(in\.?)? ago$/)).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 it('updates the pill in place when the outage arms under a mounted page', () => {

@@ -1,5 +1,9 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
-import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
+import {
+  getGuardianCommitmentFromAccount,
+  getSignerDetailsFromAccount,
+  resolveGuardianEndpoint
+} from 'lib/miden/guardian/account';
 import {
   finalizeDirectGuardianSwitch,
   isGuardianRegistrationPreflightError,
@@ -220,6 +224,46 @@ export function isGuardianSyncOutage(accountPublicKey: string): boolean {
 /** `Date.now()` of this account's last completed guardian sync, if any this session. */
 export function getGuardianLastSyncAt(accountPublicKey: string): number | undefined {
   return lastGuardianSyncAt.get(accountPublicKey);
+}
+
+/**
+ * How old a success stamp may be and still support a claim about NOW.
+ *
+ * The stamp records a moment; a status pill asserts a present state. Reading the
+ * stamp's mere existence as "online" conflated the two, and nothing in this
+ * module ever expires it — it is written on a completed sync and deleted only by
+ * a rotation. So an account that synced once and then stopped forever read a
+ * green "Online" forever, and two reachable paths do exactly that WITHOUT ever
+ * arming the outage or unrepairable flags that would otherwise contradict it:
+ *
+ *  - a sustained 429, which parks the account on `rateLimitedUntil`, CLEARS the
+ *    outage flag (the server answered), stamps nothing, and has no budget that
+ *    can exhaust into `markGuardianUnrepairable`;
+ *  - any sustained non-server error — a local WASM failure, a repeated
+ *    `WasmClientPoisonedError` (deliberately not "unreachable"), a service that
+ *    cannot be built from local storage — which resets the count and does
+ *    nothing else.
+ *
+ * On the extension a popup reopen resets the module, bounding it to one session;
+ * on mobile and desktop the realm is long-lived and it was genuinely unbounded.
+ *
+ * 90s is ~30 missed ticks: comfortably longer than any single sync round trip
+ * (`service.sync()` has no client deadline, so a healthy-but-slow account must
+ * not flap) and longer than both 429 cooldown floors, while still being a
+ * statement about the present rather than about the session.
+ */
+export const GUARDIAN_SYNC_STAMP_FRESH_MS = 90_000;
+
+/**
+ * Is this account's last completed sync recent enough to describe the present?
+ *
+ * Deliberately here rather than in the view: the freshness rule belongs with the
+ * stamp whose lifetime it defines, so a second consumer cannot pick a different
+ * one.
+ */
+export function isGuardianLastSyncFresh(accountPublicKey: string, now: number = Date.now()): boolean {
+  const at = lastGuardianSyncAt.get(accountPublicKey);
+  return at !== undefined && now - at <= GUARDIAN_SYNC_STAMP_FRESH_MS;
 }
 
 /**
@@ -854,7 +898,10 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
   const current = accounts.find(acc => acc.publicKey === accountPublicKey);
   // Gone (account removed mid-pass) counts as "not ours to write".
   if (!current) return false;
-  return (current.guardianEndpoint ?? '') === endpoint;
+  // Resolved for the same reason the detector above resolves: this has to compare
+  // the operator the pass actually talked to, not the field that may or may not
+  // name it.
+  return (await resolveGuardianEndpoint(current)) === endpoint;
 }
 
 export function syncGuardianAccounts(): Promise<void> {
@@ -885,7 +932,20 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     // operator, so it has to be observed before any of them is read or written —
     // ahead of the 429 cooldown in particular, which would otherwise `continue`
     // on the old operator's request and never reach this.
-    const endpoint = account.guardianEndpoint ?? '';
+    //
+    // RESOLVED, not `account.guardianEndpoint`. The operator the sync actually
+    // talks to is whatever `resolveGuardianEndpoint` returns, which falls back to
+    // the legacy global key and then to the effective network default — so the raw
+    // field is a different value from the operator identity this is tracking, and
+    // it was wrong in both directions. The false POSITIVE is the easy one to hit:
+    // the unlock-time backfill stamps the per-account endpoint an account was
+    // already resolving to, and `'' !== 'https://…'` then fired a "rotation" that
+    // threw away a valid sync stamp, the 401 streak and the self-heal budget for
+    // an operator that never changed. The false NEGATIVE is the F-137 defect
+    // itself, one door further along: an account resolving through the default
+    // sees its operator change under a dev-settings endpoint override while the
+    // raw field stays `undefined`, so no reset fires at all.
+    const endpoint = await resolveGuardianEndpoint(account);
     const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
     if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
       console.warn(
