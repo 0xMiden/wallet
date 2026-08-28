@@ -24,14 +24,46 @@ import path from 'path';
 const ROOT = path.resolve(__dirname, '../../../..');
 
 /**
- * Property reads of the three outcome flags. `.flag` also matches `?.flag`
- * (the optional chain still ends in `.flag`), and bracket access is caught by
- * the string-literal alternative.
+ * Every way a fenced field can be READ, not just the two that were obvious.
+ *
+ *  - `.flag` — also matches `?.flag` (the optional chain still ends in `.flag`).
+ *  - `['flag']` — bracket access, with optional whitespace inside the brackets.
+ *  - `{ flag }` / `{ flag: alias }` / `{ flag = default }` — DESTRUCTURING, which
+ *    the first version of this fence missed entirely. That was not a theoretical
+ *    hole: `const { commitUnconfirmed } = tx.extraInputs ?? {}` is one keystroke
+ *    from the form that WAS caught, and `complete.ts` already destructures
+ *    `tx.extraInputs` inside the function that writes these very flags. A fence
+ *    that catches `a.b` and not `const { b } = a` does not close the class.
+ *  - `({ flag }) => …` — a destructured PARAMETER, which is the same read one
+ *    call frame earlier and ends in `})` rather than `} =`. Matched only in
+ *    arrow-parameter position, not on a bare `})`, so an object literal passed
+ *    as an argument (`update(id, { commitUnconfirmed: true })` — a write, and
+ *    the writers are not what this fence governs) stays out of it.
+ *
+ * A regex scan can always be defeated by enough indirection (a variable-held
+ * property name, `Reflect.get`, a helper returning the whole `extraInputs`).
+ * The bar is the forms a person writes without trying to evade the fence.
  */
-const FLAG_READ =
-  /[.](commitUnconfirmed|registerFailed|endpointPersistFailed)\b|\[['"](commitUnconfirmed|registerFailed|endpointPersistFailed)['"]\]/g;
+const fieldRead = (names: string[]): RegExp => {
+  const alt = names.join('|');
+  return new RegExp(
+    // dot / optional-chain access
+    `[.](${alt})\\b` +
+      // bracket access with a string literal
+      `|\\[\\s*['"\`](${alt})['"\`]\\s*\\]` +
+      // destructuring binding `{ ... name ... } =` (including rename/default),
+      // or a destructured arrow parameter `({ ... name ... }) =>`, optionally
+      // type-annotated on either side
+      `|\\{[^{}]*\\b(${alt})\\b[^{}]*\\}\\s*(?:=(?!=)|(?::[^)=]+)?\\)\\s*(?::[^=]+)?=>)`,
+    'g'
+  );
+};
 
-const SYNC_STATUS_READ = /[.]guardianSyncStatus\b|\[['"]guardianSyncStatus['"]\]/g;
+const FLAG_NAMES = ['commitUnconfirmed', 'registerFailed', 'endpointPersistFailed'];
+const SYNC_STATUS_NAMES = ['guardianSyncStatus'];
+
+const FLAG_READ = fieldRead(FLAG_NAMES);
+const SYNC_STATUS_READ = fieldRead(SYNC_STATUS_NAMES);
 
 /**
  * The complete allowed-reader sets. Writers and plumbing that transports the
@@ -40,9 +72,7 @@ const SYNC_STATUS_READ = /[.]guardianSyncStatus\b|\[['"]guardianSyncStatus['"]\]
  */
 const FLAG_ALLOWED = new Set([
   // The single interpreter.
-  'src/lib/miden/guardian/rotation-verdict.ts',
-  // The single writer (declares, sets, persists the flags).
-  'src/lib/miden/transaction/complete.ts'
+  'src/lib/miden/guardian/rotation-verdict.ts'
 ]);
 
 const SYNC_STATUS_ALLOWED = new Set([
@@ -57,8 +87,6 @@ const SYNC_STATUS_ALLOWED = new Set([
   // Assembles GuardianFacts for the recovery dispatcher (facts in, routes
   // out) — a hand-off to the classifier, not a surface derivation.
   'src/lib/miden/front/guardian-sync.ts',
-  // The persistence write.
-  'src/lib/miden/back/vault.ts',
   // Transport plumbing: request/response payloads carried, never interpreted.
   'src/lib/miden/back/main.ts',
   'src/lib/intercom/in-process-request-handler.ts',
@@ -88,6 +116,8 @@ const stripComments = (source: string): string =>
     .replace(/^[ \t]*\/\/.*$/gm, '')
     .replace(/([^:'"])\/\/[^\n]*/g, '$1');
 
+const matchCount = (code: string, pattern: RegExp): number => [...stripComments(code).matchAll(pattern)].length;
+
 describe('guardian claim fence', () => {
   const files = sourceFiles(path.join(ROOT, 'src'));
 
@@ -103,7 +133,13 @@ describe('guardian claim fence', () => {
     return out.sort();
   };
 
-  it('rotation outcome flags are read only by the verdict module and their writer', () => {
+  // A fence that scanned nothing would pass both assertions below in silence. A
+  // narrowed extension filter or a new ignore is all it would take.
+  it('scans the source tree', () => {
+    expect(files.length).toBeGreaterThan(300);
+  });
+
+  it('rotation outcome flags are read only by the verdict module', () => {
     expect(offenders(FLAG_READ, FLAG_ALLOWED)).toEqual([]);
   });
 
@@ -111,11 +147,62 @@ describe('guardian claim fence', () => {
     expect(offenders(SYNC_STATUS_READ, SYNC_STATUS_ALLOWED)).toEqual([]);
   });
 
-  it('self-test: the fence actually fires on a raw read', () => {
-    const sample = stripComments(
-      `const lying = tx.extraInputs?.commitUnconfirmed === true;\n// .registerFailed in prose does not count\n`
+  /**
+   * An allowlist entry is a licence to read a fenced field, and a licence for a
+   * file that no longer reads one is a standing permit nobody is watching. Both
+   * lists had exactly that: `transaction/complete.ts` and `back/vault.ts` were
+   * listed with stated reasons long after their reads became object shorthand,
+   * pre-authorizing a future raw read in the two files most likely to grow one.
+   */
+  it.each([
+    ['flags', FLAG_ALLOWED, FLAG_READ],
+    ['guardianSyncStatus', SYNC_STATUS_ALLOWED, SYNC_STATUS_READ]
+  ])('every %s allowlist entry still needs its licence', (_label, allowed, pattern) => {
+    const unnecessary = [...allowed].filter(
+      rel => matchCount(fs.readFileSync(path.join(ROOT, rel), 'utf8'), pattern) === 0
     );
-    expect([...sample.matchAll(FLAG_READ)].map(m => m[0])).toEqual(['.commitUnconfirmed']);
-    expect([...stripComments('if (account.guardianSyncStatus) {}').matchAll(SYNC_STATUS_READ)].length).toBe(1);
+    expect(unnecessary).toEqual([]);
+  });
+
+  it('self-test: the fence fires on every form of raw read it claims to catch', () => {
+    const caught: Array<[string, string]> = [
+      ['dot access', 'const lying = tx.extraInputs.commitUnconfirmed === true;'],
+      ['optional chain', 'const lying = tx.extraInputs?.commitUnconfirmed === true;'],
+      ['bracket access', `const lying = tx.extraInputs['commitUnconfirmed'];`],
+      ['bracket access, padded', `const lying = tx.extraInputs[ 'commitUnconfirmed' ];`],
+      // The whole reason this list exists: each of these was GREEN before.
+      ['destructuring', 'const { commitUnconfirmed } = tx.extraInputs ?? {};'],
+      ['destructuring, renamed', 'const { commitUnconfirmed: unconfirmed } = tx.extraInputs ?? {};'],
+      ['destructuring, defaulted', 'const { registerFailed = false } = tx.extraInputs ?? {};'],
+      ['destructured parameter', 'const f = ({ endpointPersistFailed }) => true;'],
+      ['destructured parameter, typed', 'const f = ({ endpointPersistFailed }: Flags) => true;']
+    ];
+    for (const [label, code] of caught) {
+      expect(`${label}: ${matchCount(code, FLAG_READ)}`).toBe(`${label}: 1`);
+    }
+
+    // Prose about a field is not a read of it.
+    expect(matchCount('// .registerFailed in prose does not count\n', FLAG_READ)).toBe(0);
+    expect(matchCount('/* commitUnconfirmed, registerFailed */\n', FLAG_READ)).toBe(0);
+
+    expect(matchCount('if (account.guardianSyncStatus) {}', SYNC_STATUS_READ)).toBe(1);
+    expect(matchCount('const { guardianSyncStatus } = account;', SYNC_STATUS_READ)).toBe(1);
+
+    // An object literal argument is a WRITE, and writers are not fenced — the
+    // arrow-parameter branch must not widen into every `})`.
+    expect(matchCount('await update(id, { commitUnconfirmed: true });', FLAG_READ)).toBe(0);
+  });
+
+  it('self-test: `offenders` reports a real file, and the allowlist is what suppresses it', () => {
+    // The assertions above exercise the patterns in isolation; this exercises
+    // the WALK, the strip and the allowlist together, which is what actually
+    // guards the tree.
+    const withoutAllowlist = offenders(FLAG_READ, new Set());
+    expect(withoutAllowlist).not.toEqual([]);
+
+    // And the suppression is the allowlist doing its job, not an empty scan:
+    // licensing every reporter must silence exactly those reports.
+    const reported = new Set(withoutAllowlist.map(entry => entry.slice(0, entry.indexOf(' ('))));
+    expect(offenders(FLAG_READ, reported)).toEqual([]);
   });
 });

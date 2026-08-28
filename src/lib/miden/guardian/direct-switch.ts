@@ -32,7 +32,7 @@ import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
@@ -491,6 +491,31 @@ export const createDirectSwitchGuardianRequest = async (
 };
 
 /**
+ * The raw node-authoritative read behind `didDirectSwitchLand` — THROWS on
+ * failure instead of folding it into `undefined`, for callers that must tell
+ * "no verdict" apart from "could not look" (the pending-rotation recheck feeds
+ * a sync fuse with exactly that distinction). The timer-driven caller passes
+ * the sync ceiling plus a label, per the bounded-hold discipline (#777).
+ *
+ * `transactionId` is the ON-CHAIN hash, not a local Dexie row id: the read
+ * matches `tx.id().toHex()`, so a row id can only ever answer `'not-found'`.
+ */
+export const readDirectSwitchCommitState = async (
+  transactionId: string,
+  lockOptions?: Parameters<typeof withWasmClientLock>[1]
+) =>
+  withWasmClientLock(async hold => {
+    await midenClientProxy.syncState();
+    // `syncState()` is a long parking await, and an eviction hands the mutex to
+    // a successor while THIS callback keeps running — so the commit-state read
+    // below would be a second borrow of a client somebody else is already
+    // inside. The timer-driven caller (the pending-rotation recheck) makes that
+    // reachable on a schedule rather than once per rotation.
+    assertWasmHoldCurrent(hold, 'direct-switch commit-state read, after the state sync');
+    return midenClientProxy.getTransactionCommitState(transactionId);
+  }, lockOptions);
+
+/**
  * Ask the NODE whether a submitted direct rotation actually took effect.
  *
  * `true` = the node has the transaction committed, so the rotation landed.
@@ -503,10 +528,12 @@ export const createDirectSwitchGuardianRequest = async (
  * then has to decide whether to persist the new endpoint. Guessing is not
  * survivable in one of the two directions: persisting the endpoint for a rotation
  * that never landed points the vault at an operator with NO on-chain authority
- * over the account, and nothing detects it afterwards — the drift reconciler
- * compares the on-chain commitment against its own cached baseline, and in
- * exactly this case those two agree (both still name the old operator), so it
- * returns `in-sync` without ever looking at the stored endpoint. Post-commit
+ * over the account, and the drift reconciler does not detect it — it compares
+ * the on-chain commitment against its own cached baseline, and in exactly this
+ * case those two agree (both still name the old operator), so it returns
+ * `in-sync` without ever looking at the stored endpoint. That is why the
+ * pending-rotation recheck reverts the endpoint itself on a `discarded`
+ * verdict rather than leaving the repair to drift. Post-commit
  * registration also succeeds against the new operator, so every subsequent sync
  * is healthy and the account looks fine right up until a transaction needs a
  * co-signature the chain will not accept.
@@ -525,22 +552,6 @@ export const createDirectSwitchGuardianRequest = async (
  * opinion about, and `getTransactionCommitState` is the same authority
  * `verifySendLanded` uses for the equivalent double-send question.
  */
-/**
- * The raw node-authoritative read behind `didDirectSwitchLand` — THROWS on
- * failure instead of folding it into `undefined`, for callers that must tell
- * "no verdict" apart from "could not look" (the pending-rotation recheck feeds
- * a sync fuse with exactly that distinction). The timer-driven caller passes
- * the sync ceiling plus a label, per the bounded-hold discipline (#777).
- */
-export const readDirectSwitchCommitState = async (
-  transactionId: string,
-  lockOptions?: Parameters<typeof withWasmClientLock>[1]
-) =>
-  withWasmClientLock(async () => {
-    await midenClientProxy.syncState();
-    return midenClientProxy.getTransactionCommitState(transactionId);
-  }, lockOptions);
-
 export const didDirectSwitchLand = async (
   transactionId: string,
   lockOptions?: Parameters<typeof withWasmClientLock>[1]

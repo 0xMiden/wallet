@@ -33,6 +33,7 @@ import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { getAccountsWriteQueue } from './accounts-write-queue';
 import { midenClientProxy } from './miden-client-proxy';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage } from '../front/storage';
@@ -1203,8 +1204,19 @@ export class Vault {
    * last-write-wins resurrected the dead operator's endpoint with an in-sync
    * status (#786 review, F-220). The epoch closes that by construction: every
    * applied binding write bumps `guardianEpoch`, and a CAS-gated write whose
-   * `expectedEpoch` no longer matches returns `stale` without writing,
-   * regardless of realm, timing or probe duration.
+   * `expectedEpoch` no longer matches returns `stale` without writing, however
+   * long the probe between snapshot and write took.
+   *
+   * WHAT THE EPOCH DOES NOT DO, because the distinction matters at every call
+   * site: it is a guard against a STALE SNAPSHOT, not a substitute for
+   * serializing the read-modify-write. This method reads the accounts list,
+   * compares, then saves the whole list, with awaits in between — so two writers
+   * that both read epoch E both pass the CAS and the later save silently drops
+   * the earlier one, which is the very lost update the epoch is quoted for.
+   * `getAccountsWriteQueue` is what makes that impossible, and EVERY caller of
+   * this method (and of every other accounts-list writer, epoch-aware or not)
+   * has to be on it. Do not read the CAS as covering concurrency; it covers
+   * duration.
    *
    * `expectedEpoch: 'force'` is for the AUTHORITATIVE events — a rotation's
    * completion, a user-typed endpoint apply through the legacy setters — which
@@ -1529,10 +1541,25 @@ export class Vault {
           // (or drift repair) landing meanwhile turns this stamp `stale` and the
           // account simply retries next unlock — the same designed failure mode
           // as every other skip in this loop.
-          const stamp = await this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
-            guardianEndpoint: operator.endpoint,
-            guardianOperatorCommitment: onChainCommitment
-          });
+          //
+          // ON THE ACCOUNTS WRITE QUEUE, like every other read-modify-write of
+          // the accounts list. The epoch makes a write whose SNAPSHOT went stale
+          // refuse, but it cannot help two writes that both read the same epoch
+          // and then both save the whole array — and this backfill is fired
+          // detached from `unlock`, so it is the one binding writer that ran off
+          // the queue and could be interleaved by (or interleave with) a status,
+          // rename or hot-key write, erasing the binding AND the epoch bump that
+          // is supposed to invalidate stale repairs. Only the write is queued:
+          // the probes above take minutes and must not hold a concurrency-1
+          // queue. Safe to nest here because `unlock` fires this detached and
+          // never awaits it, so the enqueued write cannot block the task that
+          // started it.
+          const stamp = await getAccountsWriteQueue().add(() =>
+            this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
+              guardianEndpoint: operator.endpoint,
+              guardianOperatorCommitment: onChainCommitment
+            })
+          );
           if (stamp.outcome === 'stale') {
             console.warn('[Vault.backfillGuardianEndpoints] binding changed mid-backfill; skipping:', acc.publicKey);
           }

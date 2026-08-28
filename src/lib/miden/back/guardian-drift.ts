@@ -744,7 +744,13 @@ export async function applyUserGuardianEndpoint(
   // asks for one retry against the new state rather than binding a
   // stale-verified endpoint.
   const account = await vault.getAccount(accountPublicKey);
-  if (!account) return 'no-onchain-guardian';
+  // NOT `'no-onchain-guardian'`, whose copy reads "this account has no on-chain
+  // guardian to verify against yet" — a statement about the CHAIN, which this
+  // case has established nothing about. The vault record is simply gone or moved
+  // (a removed account, a frontend snapshot ahead of the backend), which is
+  // exactly what `'stale'` already means to the banner: the state moved under
+  // you, try again.
+  if (!account) return 'stale';
   const snapshotEpoch = account.guardianEpoch ?? 0;
 
   const onChain = await withWasmClientLock(async () => {

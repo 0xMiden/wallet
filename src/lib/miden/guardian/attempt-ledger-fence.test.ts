@@ -15,7 +15,18 @@ import path from 'path';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 
-const MODULE_MAPS = /(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*new (?:Map|Set)\s*</g;
+/**
+ * A module-scope keyed collection, in every form a person writes one.
+ *
+ * The first version of this pattern required `const`/`let` and a generic
+ * argument, so ALL of these slipped past it: `export const` (the natural form in
+ * a file that already exports eight consts), `new Map()` with the generic
+ * inferred, an annotation on the left (`const m: Map<string, number> = new Map()`),
+ * `var`, and the `Weak` variants. A fence that only recognises the exact
+ * declaration style already in the file is a rename detector, not a barrier.
+ */
+const MODULE_MAPS =
+  /(?:export\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*(?::[^=]+)?=\s*new (?:Map|Set|WeakMap|WeakSet)\b/g;
 
 const moduleMapNames = (relPath: string): string[] => {
   const source = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
@@ -55,5 +66,28 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
     expect(moduleMapNames('src/lib/miden/back/guardian-drift.ts')).toEqual(
       ['driftProbeEndpoint', 'nextDriftProbeAt'].sort()
     );
+  });
+
+  it('self-test: the pattern catches every declaration form, including the ones it used to miss', () => {
+    const declarations = [
+      'const plainGeneric = new Map<string, number>();',
+      'const inferred = new Map();',
+      'let mutable = new Map<string, number>();',
+      'var legacy = new Map<string, number>();',
+      'export const exported = new Map<string, number>();',
+      'const annotated: Map<string, number> = new Map();',
+      'const weak = new WeakMap<object, number>();',
+      'const set = new Set<string>();',
+      'export const exportedSet = new Set<string>();'
+    ];
+    for (const declaration of declarations) {
+      const matches = [...declaration.matchAll(new RegExp(`^${MODULE_MAPS.source}`, 'gm'))];
+      expect(`${declaration} → ${matches.length}`).toBe(`${declaration} → 1`);
+    }
+
+    // Indented declarations are function-local bookkeeping and stay invisible,
+    // which is the whole reason the pattern is anchored.
+    const indented = '  const localTally = new Map<string, number>();';
+    expect([...indented.matchAll(new RegExp(`^${MODULE_MAPS.source}`, 'gm'))]).toHaveLength(0);
   });
 });

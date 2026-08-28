@@ -17,13 +17,16 @@ import type { GuardianSyncStatus } from 'lib/shared/types';
  * pending rotation is NEVER routed `none-healthy` without a visible prompt.
  * A future state no mechanism claims fails CI, not the user.
  *
- * SHADOW-FIRST: the classifier currently *observes*. The sync loop builds the
- * facts it can assemble each tick, asks for a route, and logs when that route
- * disagrees with what the legacy predicates actually did
- * (`noteRecoveryDivergence`) — one release of divergence data before any
- * trigger moves. The single exception is `recheck-pending-rotation`: that
- * state had NO legacy owner (it is the W1 wedge itself), so its arm is live
- * from the start.
+ * SHADOW-ONLY: the classifier *observes*. The sync loop builds the facts each
+ * tick, asks for a route, and counts when that route disagrees with what the
+ * legacy predicates actually did (`noteRecoveryDivergence`) — one release of
+ * divergence data before any trigger moves. NOTHING here drives behaviour yet,
+ * including `recheck-pending-rotation`: that state had no legacy owner, so the
+ * sync loop owns it directly (`runPendingRotationRecheck`) and the classifier
+ * only agrees or disagrees with it. An earlier version of this comment claimed
+ * that arm was "live from the start"; it was not, and the claim hid the fact
+ * that two of the three budgets reaching the classifier were hardcoded
+ * constants, which is what made the divergence tally read low by construction.
  */
 
 /** Everything the dispatcher may reason from. Facts, not conclusions. */
@@ -38,9 +41,15 @@ export type GuardianFacts = {
    * A completed switch-guardian row whose commit was never confirmed
    * (`rotationVerdict` = 'submitted-unconfirmed'). The Dexie row IS the
    * durable intent: it survives realm churn and vault locks and already
-   * carries the transaction id and target endpoint.
+   * carries the on-chain hash and target endpoint.
+   *
+   * `rowId` is the LOCAL Dexie id, not the on-chain transaction hash — the two
+   * are different identifiers and conflating them cost this seam its whole
+   * exit path once already. The route carries the row id because settling the
+   * row is what the consumer does with it; whoever asks the NODE must read
+   * `transactionId` off the row itself.
    */
-  pendingRotation?: { txId: string };
+  pendingRotation?: { rowId: string };
   /** Seam-C budgets, so a spent budget routes to a prompt instead of a dead end. */
   budgets: {
     selfHeal: 'available' | 'spent';
@@ -59,7 +68,7 @@ export type GuardianUserPromptReason =
 export type RecoveryRoute =
   | { route: 'none-healthy' }
   /** Verify a submitted-unconfirmed rotation against the node (the W1 exit). */
-  | { route: 'recheck-pending-rotation'; txId: string }
+  | { route: 'recheck-pending-rotation'; rowId: string }
   | { route: 'legacy-mechanisms' }
   | { route: 'prompt'; reason: GuardianUserPromptReason };
 
@@ -70,7 +79,7 @@ export function classifyGuardianRecovery(facts: GuardianFacts): RecoveryRoute {
     if (facts.budgets.recheck === 'spent') {
       return { route: 'prompt', reason: 'rotation-unconfirmed-exhausted' };
     }
-    return { route: 'recheck-pending-rotation', txId: facts.pendingRotation.txId };
+    return { route: 'recheck-pending-rotation', rowId: facts.pendingRotation.rowId };
   }
 
   if (!facts.hasHotKey) return { route: 'none-healthy' };

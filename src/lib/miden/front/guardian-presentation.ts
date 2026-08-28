@@ -12,7 +12,7 @@ import type { GuardianSyncStatus } from 'lib/shared/types';
  * class recurs because nothing stopped surface N+1 from reading the raw fields
  * and inventing derivation N+1. This module is that stop: surfaces render what
  * `deriveGuardianPresentation` returns and nothing else, and a source-scan
- * fence (guardian-presentation-fence.test.ts) keeps raw reads from compiling
+ * fence (`guardian/guardian-claim-fence.test.ts`) keeps raw reads from compiling
  * back in elsewhere.
  *
  * Pure by design — the realm-local inputs (outage flag, unrepairable flag,

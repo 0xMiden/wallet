@@ -36,14 +36,35 @@ for (const syncStatus of STATUSES)
                   hasHotKey,
                   outage,
                   unrepairable,
-                  ...(pending ? { pendingRotation: { txId: 'tx-1' } } : {}),
+                  ...(pending ? { pendingRotation: { rowId: 'row-1' } } : {}),
                   budgets: { selfHeal, missingRegistration, recheck }
                 });
 
+const ROUTE_KINDS = ['none-healthy', 'recheck-pending-rotation', 'legacy-mechanisms', 'prompt'];
+
 describe('classifyGuardianRecovery — totality over the fact product', () => {
-  it(`covers all ${product.length} rows without throwing and returns a typed route for each`, () => {
-    const routes = product.map(classifyGuardianRecovery);
-    expect(routes).toHaveLength(product.length);
+  it(`covers all ${product.length} rows with a route of a known kind`, () => {
+    // `toHaveLength(product.length)` was the assertion here, which is true of
+    // any total function — including one that returns the same route for every
+    // input. Pin the kinds instead, so the enumeration actually says something.
+    const kinds = new Set(product.map(facts => classifyGuardianRecovery(facts).route));
+    expect([...kinds].sort()).toEqual(ROUTE_KINDS.sort());
+  });
+
+  /**
+   * `routeHasExit` is the oracle the no-dead-ends test below depends on, and it
+   * has no production caller — so nothing else would notice if it decayed into a
+   * constant, and the headline test would silently pass for every input. Pin it
+   * per variant.
+   */
+  it('routeHasExit: exactly none-healthy is a dead end', () => {
+    expect(routeHasExit({ route: 'none-healthy' })).toBe(false);
+    expect(routeHasExit({ route: 'legacy-mechanisms' })).toBe(true);
+    expect(routeHasExit({ route: 'recheck-pending-rotation', rowId: 'row-1' })).toBe(true);
+    expect(routeHasExit({ route: 'prompt', reason: 'outage' })).toBe(true);
+    expect(routeHasExit({ route: 'prompt', reason: 'needs-user-input' })).toBe(true);
+    expect(routeHasExit({ route: 'prompt', reason: 'unrepairable-manual' })).toBe(true);
+    expect(routeHasExit({ route: 'prompt', reason: 'rotation-unconfirmed-exhausted' })).toBe(true);
   });
 
   it('no dead ends: a blocking status or pending rotation always routes to an exit', () => {
@@ -57,6 +78,26 @@ describe('classifyGuardianRecovery — totality over the fact product', () => {
       return !routeHasExit(classifyGuardianRecovery(facts));
     });
     expect(violations).toEqual([]);
+  });
+
+  /**
+   * The `hasHotKey` dimension was enumerated and then excluded from every
+   * invariant, so deleting the classifier's hot-key guard outright survived the
+   * whole suite. These two cases are what make that arm load-bearing: a
+   * hot-key-less account routes `none-healthy` (its exit is the activation
+   * prompt elsewhere) UNLESS it carries a pending rotation, which outranks even
+   * that — the chain's answer is about the account, not about this device's key.
+   */
+  it('a hot-key-less account is routed none-healthy, but a pending rotation still outranks it', () => {
+    const noKey = product.filter(facts => !facts.hasHotKey && !facts.pendingRotation);
+    expect(noKey.length).toBeGreaterThan(0);
+    expect(new Set(noKey.map(facts => classifyGuardianRecovery(facts).route))).toEqual(new Set(['none-healthy']));
+
+    const noKeyPending = product.filter(facts => !facts.hasHotKey && facts.pendingRotation);
+    expect(noKeyPending.length).toBeGreaterThan(0);
+    expect(new Set(noKeyPending.map(facts => classifyGuardianRecovery(facts).route))).toEqual(
+      new Set(['recheck-pending-rotation', 'prompt'])
+    );
   });
 
   it('a spent repair budget is never silent: it prompts even when the unrepairable flag write was missed', () => {
@@ -76,7 +117,7 @@ describe('classifyGuardianRecovery — totality over the fact product', () => {
     const expected = pendingRows.map(facts =>
       facts.budgets.recheck === 'spent'
         ? { route: 'prompt', reason: 'rotation-unconfirmed-exhausted' }
-        : { route: 'recheck-pending-rotation', txId: 'tx-1' }
+        : { route: 'recheck-pending-rotation', rowId: 'row-1' }
     );
     expect(pendingRows.map(classifyGuardianRecovery)).toEqual(expected);
   });

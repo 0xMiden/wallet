@@ -1149,6 +1149,67 @@ export const updateBridgeClaimStatus = async (
 };
 
 /**
+ * Completed switch-guardian rows whose commit was never confirmed — the
+ * durable pending-rotation intents the recovery recheck works through. The
+ * Dexie row itself is the intent: it survives realm churn and vault locks and
+ * carries the on-chain transaction id and target endpoint, so no separate
+ * marker store exists to drift from it. Read through the verdict module, never
+ * the raw flags (the guardian claim fence).
+ */
+export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
+  const rows = await Repo.transactions.where({ accountId }).toArray();
+  return rows.filter((row): row is SwitchGuardianTransaction => rotationVerdict(row)?.kind === 'submitted-unconfirmed');
+};
+
+/**
+ * Settle a pending rotation once the node finally answered.
+ *
+ * `landed === true` upgrades the row to a confirmed rotation (the
+ * receipt/Activity copy follows via `rotationVerdict`).
+ *
+ * `landed === false` demotes it to Failed. That is only HALF the repair, and
+ * the caller has to finish it — which is why the endpoint to restore comes back
+ * rather than being left to a reconciler. The completion persisted the NEW
+ * endpoint before it knew the commit was unconfirmed (`complete.ts`, the
+ * anti-stranding write), so a discarded rotation leaves the vault naming an
+ * operator with no on-chain authority. Drift reconciliation cannot repair it:
+ * its cheap path returns `in-sync` the moment the stored commitment BASELINE
+ * equals the chain, and on a discarded rotation the baseline was never
+ * advanced, so baseline == chain == the old operator and the stored endpoint is
+ * never even read. An earlier version of this function told the user drift would
+ * fix it automatically; that sentence described the wedge, not an exit from it.
+ */
+export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<{ revertEndpointTo?: string }> => {
+  if (landed) {
+    await Repo.transactions.where({ id }).modify(tx => {
+      tx.displayMessage = 'Guardian switched';
+      tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    });
+    return {};
+  }
+  let revertEndpointTo: string | undefined;
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.status = ITransactionStatus.Failed;
+    tx.displayMessage = 'Guardian switch discarded';
+    // Plain prose, like every other `tx.error` (the field carries thrown-error
+    // text and is rendered verbatim on the failure card). What matters is that
+    // the sentence is TRUE: the previous version promised drift reconciliation
+    // would repair the stored endpoint, which it provably cannot.
+    tx.error =
+      'The node discarded this guardian switch after submission; the previous guardian is still active ' +
+      'and the wallet has been pointed back at it.';
+    // Cleared for the same reason the landed path clears it: the flag means
+    // "completed with no evidence either way", and the node has now answered.
+    // The row's terminal status carries the outcome from here.
+    tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    if (tx.type === 'switch-guardian') {
+      revertEndpointTo = tx.extraInputs?.previousGuardianEndpoint;
+    }
+  });
+  return { revertEndpointTo };
+};
+
+/**
  * A `bridged-send` (Epoch) row reaches Completed / 'Bridged to EVM' the instant
  * its P2IDE note commits — but the SDK submits the intent to the allocator AFTER
  * that, so a post-commit rejection (reclaim window, solver liquidity, quote
@@ -1158,44 +1219,6 @@ export const updateBridgeClaimStatus = async (
  * `updateTransactionStatus` rejects re-finalizing a Completed tx; the send
  * pipeline is already done with this row, so there is no race.
  */
-/**
- * Completed switch-guardian rows whose commit was never confirmed — the
- * durable pending-rotation intents the recovery recheck works through. The
- * Dexie row itself is the intent: it survives realm churn and vault locks and
- * carries the transaction id and target endpoint, so no separate marker store
- * exists to drift from it. Read through the verdict module, never the raw
- * flags (the guardian claim fence).
- */
-export const listUnconfirmedSwitchRows = async (accountId: string): Promise<SwitchGuardianTransaction[]> => {
-  const rows = await Repo.transactions.where({ accountId }).toArray();
-  return rows.filter((row): row is SwitchGuardianTransaction => rotationVerdict(row)?.kind === 'submitted-unconfirmed');
-};
-
-/**
- * Settle a pending rotation once the node finally answered. `landed === true`
- * upgrades the row to a confirmed rotation (the receipt/Activity copy follows
- * via `rotationVerdict`); `landed === false` demotes it to Failed after the
- * fact — the chain still names the OLD operator while the vault names the new
- * one, which is exactly the state guardian drift reconciliation repairs on its
- * next tick, so this write is deliberately just the honest record.
- */
-export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
-  if (landed) {
-    await Repo.transactions.where({ id }).modify(tx => {
-      tx.displayMessage = 'Guardian switched';
-      tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
-    });
-    return;
-  }
-  await Repo.transactions.where({ id }).modify(tx => {
-    tx.status = ITransactionStatus.Failed;
-    tx.displayMessage = 'Guardian switch discarded';
-    tx.error =
-      'The node discarded this guardian switch after submission; the previous guardian is still active. ' +
-      'Drift reconciliation repairs the stored endpoint automatically.';
-  });
-};
-
 export const markBridgedSendFailed = async (id: string, error: string, reclaimHeight?: number) => {
   console.error('[epoch] bridged-send intent rejected after the P2IDE note committed; demoting row to Failed', {
     id,

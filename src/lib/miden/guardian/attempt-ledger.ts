@@ -30,6 +30,13 @@ export type AttemptSubject = {
   accountPublicKey: string;
   endpoint?: string;
   guardianKey?: string;
+  /**
+   * A local transaction ROW id, for a budget spent per durable intent rather
+   * than per operator identity. Distinct from `guardianKey` on purpose: the
+   * pending-rotation recheck once put a Dexie row uuid in `guardianKey` and the
+   * confusion cost it a whole seam (F-001) — one field per kind of identity.
+   */
+  rowId?: string;
 };
 
 export type AttemptPolicy = {
@@ -68,6 +75,17 @@ export interface AttemptHandle {
   settle(outcome: AttemptSettle): void;
 }
 
+/**
+ * Subject identity, unambiguously encoded. A `|`-joined key collided across
+ * components — `{endpoint: 'b|c', guardianKey: 'd'}` and `{endpoint: 'b',
+ * guardianKey: 'c|d'}` produced the same string, as did `{pk}` and
+ * `{pk, endpoint: ''}`. The components are a public key, a URL and two ids;
+ * nothing in the type constrains them, and the assertion that used to carry
+ * this ("public keys carry no `|`") was about the one component that is safe.
+ */
+const subjectKey = (s: AttemptSubject): string =>
+  JSON.stringify([s.accountPublicKey, s.endpoint ?? null, s.guardianKey ?? null, s.rowId ?? null]);
+
 export interface AttemptLedger {
   /**
    * May an attempt run now? False while the budget is spent or the gap since
@@ -86,6 +104,22 @@ export interface AttemptLedger {
   /** Attempts charged so far — for log lines ("attempt 2/3"), never for gating. */
   attempts(subject: AttemptSubject): number;
   /**
+   * Is ANY subject of this account out of budget? The account-level question
+   * ("automatic repair for this account is exhausted") for callers that cannot
+   * reconstruct the narrow subject key — the recovery dispatcher assembles
+   * facts before the endpoint and on-chain guardian key are in hand, and
+   * hardcoding `'available'` there made the shadow blind to the one fact it
+   * exists to watch.
+   */
+  anySpentForAccount(accountPublicKey: string): boolean;
+  /**
+   * Forget ONE subject — the "this particular question is settled" reset. Use
+   * this rather than `clearForAccount` when the budget is keyed narrower than
+   * the account, or a sibling's resolution re-arms an exhausted subject that
+   * nothing has answered (the F-137 erasure shape, one level down).
+   */
+  clear(subject: AttemptSubject): void;
+  /**
    * Forget every subject of this account — the endpoint-change / successful-
    * sync reset. Evidence spent against one operator regime must not outlive
    * it (F-137's rule, owned here).
@@ -94,9 +128,7 @@ export interface AttemptLedger {
   clearAll(): void;
 }
 
-type AttemptState = { attempts: number; lastAttemptAt: number };
-
-const subjectKey = (s: AttemptSubject): string => `${s.accountPublicKey}|${s.endpoint ?? ''}|${s.guardianKey ?? ''}`;
+type AttemptState = { accountPublicKey: string; attempts: number; lastAttemptAt: number };
 
 export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
@@ -122,19 +154,42 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
     begin(subject, now = readClock()) {
       const key = subjectKey(subject);
       const attemptsAtBegin = state.get(key)?.attempts ?? 0;
-      state.set(key, { attempts: attemptsAtBegin, lastAttemptAt: now });
+      state.set(key, { accountPublicKey: subject.accountPublicKey, attempts: attemptsAtBegin, lastAttemptAt: now });
+      // Every mutation below reads the LIVE entry rather than the count captured
+      // at `begin`. With the captured count, two handles open on one subject
+      // each wrote `attemptsAtBegin ± 1`, so two real pushes charged one attempt
+      // and a late refund zeroed a sibling's charge. Single-flight per subject
+      // is the intended discipline, but a ledger that silently loses a charge
+      // when it is broken is not the place to enforce it by assumption.
+      let settled = false;
+      let charged = 0;
+      const write = (attempts: number, at: number): void => {
+        // A subject cleared underneath an open handle stays cleared: the clear
+        // is a statement that the question is settled, and re-creating the entry
+        // would resurrect evidence its owner just withdrew.
+        if (!state.has(key)) return;
+        state.set(key, { accountPublicKey: subject.accountPublicKey, attempts, lastAttemptAt: at });
+      };
+      const live = (): number => state.get(key)?.attempts ?? 0;
       return {
         chargeEarly() {
-          state.set(key, { attempts: attemptsAtBegin + 1, lastAttemptAt: now });
+          if (settled || charged > 0) return;
+          charged = 1;
+          write(live() + 1, now);
         },
         settle(outcome) {
+          if (settled) return;
+          settled = true;
+          // `charged` is what THIS handle already booked, so a charged settle
+          // after `chargeEarly` re-stamps without double-charging, and a refund
+          // takes back exactly this handle's charge and nothing else.
           const attempts =
             outcome === 'charged'
-              ? attemptsAtBegin + 1
+              ? live() + (1 - charged)
               : outcome === 'closed'
-                ? Math.max(policy.maxAttempts, attemptsAtBegin)
-                : attemptsAtBegin;
-          state.set(key, { attempts, lastAttemptAt: readClock() });
+                ? Math.max(policy.maxAttempts, live())
+                : live() - charged;
+          write(Math.max(attempts, 0), readClock());
         }
       };
     },
@@ -147,10 +202,20 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
       return state.get(subjectKey(subject))?.attempts ?? 0;
     },
 
+    anySpentForAccount(accountPublicKey) {
+      for (const entry of state.values()) {
+        if (entry.accountPublicKey === accountPublicKey && spent(entry)) return true;
+      }
+      return false;
+    },
+
+    clear(subject) {
+      state.delete(subjectKey(subject));
+    },
+
     clearForAccount(accountPublicKey) {
-      const prefix = `${accountPublicKey}|`;
-      for (const key of state.keys()) {
-        if (key.startsWith(prefix)) state.delete(key);
+      for (const [key, entry] of state) {
+        if (entry.accountPublicKey === accountPublicKey) state.delete(key);
       }
     },
 
@@ -178,12 +243,26 @@ export interface RateCooldown {
   clearAll(): void;
 }
 
-export function createRateCooldown(bounds: { floorMs: number; capMs: number }, clock: () => number): RateCooldown {
+export type RateCooldownBounds = { floorMs: number; capMs: number };
+
+/**
+ * `max(askedMs, floor)` clamped to `cap`. Exported so a caller that also wants
+ * to LOG the cooldown it just imposed reports the same number the cooldown
+ * actually used, instead of re-deriving the clamp beside it.
+ *
+ * A non-finite ask falls back to the floor: `Math.min(Math.max(NaN, floor), cap)`
+ * is `NaN`, and a `NaN` deadline reads as already expired — a malformed
+ * `Retry-After` would silently buy no cooldown at all, which is the one input
+ * this clamp exists to survive.
+ */
+export const cooldownFor = (bounds: RateCooldownBounds, askedMs: number | undefined): number =>
+  Math.min(Math.max(Number.isFinite(askedMs) ? Number(askedMs) : 0, bounds.floorMs), bounds.capMs);
+
+export function createRateCooldown(bounds: RateCooldownBounds, clock: () => number): RateCooldown {
   const until = new Map<string, number>();
   return {
     impose(key, askedMs) {
-      const cooldown = Math.min(Math.max(askedMs ?? 0, bounds.floorMs), bounds.capMs);
-      until.set(key, clock() + cooldown);
+      until.set(key, clock() + cooldownFor(bounds, askedMs));
     },
     isActive(key) {
       const deadline = until.get(key);

@@ -7,7 +7,8 @@ import {
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
   isGuardianRegistrationPreflightError,
-  isGuardianUnreachableError
+  isGuardianUnreachableError,
+  readDirectSwitchCommitState
 } from './direct-switch';
 
 // ---------------------------------------------------------------------------
@@ -24,19 +25,45 @@ import {
 
 // Mocked by the SAME specifier the source imports them under — a `lib/...`
 // path here would leave the real module in the graph.
-const mockWithWasmClientLock = jest.fn(<T>(fn: () => Promise<T>) => fn());
+// Models hold OWNERSHIP, not just pass-through: the commit-state read re-checks
+// it after the sync, so a lock mock with no hold would make that guard both
+// unreachable and a TypeError swallowed by the caller's catch.
+let currentWasmHold: object | null = null;
+// Set by the one test that needs the watchdog to land during the sync.
+let evictDuringSync = false;
+const mockWithWasmClientLock = jest.fn(<T>(fn: (hold: object) => Promise<T>) => {
+  const hold = {};
+  currentWasmHold = hold;
+  return Promise.resolve(fn(hold)).finally(() => {
+    if (currentWasmHold === hold) currentWasmHold = null;
+  });
+});
 const mockGetMidenClient = jest.fn();
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: () => mockGetMidenClient(),
-  withWasmClientLock: <T>(fn: () => Promise<T>) => mockWithWasmClientLock(fn)
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: () => mockGetMidenClient(),
+    getCurrentWasmLockHold: () => currentWasmHold,
+    // Re-implements the comparison against THIS mock's current hold — a no-op
+    // stub would make the eviction test below vacuously green.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && currentWasmHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    withWasmClientLock: <T>(fn: (hold: object) => Promise<T>) => mockWithWasmClientLock(fn)
+  };
+});
 
 const mockFreeChainAnchor = jest.fn();
 jest.mock('../sdk/chain-anchor', () => ({
   freeChainAnchor: (...args: unknown[]) => mockFreeChainAnchor(...args)
 }));
 
-const mockProxySyncState = jest.fn(async () => {});
+const mockProxySyncState = jest.fn(async () => {
+  if (evictDuringSync) currentWasmHold = null;
+});
 const mockProxyGetAccount = jest.fn();
 const mockProxyGetTransactionCommitState = jest.fn();
 jest.mock('../back/miden-client-proxy', () => ({
@@ -208,7 +235,15 @@ const sdkAccount = {
 beforeEach(() => {
   jest.clearAllMocks();
   walletSignerArgs.length = 0;
-  mockWithWasmClientLock.mockImplementation(<T>(fn: () => Promise<T>) => fn());
+  currentWasmHold = null;
+  evictDuringSync = false;
+  mockWithWasmClientLock.mockImplementation(<T>(fn: (hold: object) => Promise<T>) => {
+    const hold = {};
+    currentWasmHold = hold;
+    return Promise.resolve(fn(hold)).finally(() => {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    });
+  });
   mockGetMidenClient.mockResolvedValue({
     syncState: jest.fn(async () => {}),
     getAccount: jest.fn(async () => sdkAccount),
@@ -217,7 +252,9 @@ beforeEach(() => {
   mockCommitmentFromPublicKeyHex.mockImplementation(async (publicKeyHex: string) =>
     publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
   );
-  mockProxySyncState.mockResolvedValue(undefined);
+  mockProxySyncState.mockImplementation(async () => {
+    if (evictDuringSync) currentWasmHold = null;
+  });
   mockProxyGetAccount.mockResolvedValue(sdkAccount);
   mockGetSignerDetails.mockImplementation(async (_account: unknown, getCold: boolean) => ({
     commitment: getCold ? 'coldcommitment' : 'hotcommitment'
@@ -695,6 +732,19 @@ describe('didDirectSwitchLand', () => {
     mockProxyGetTransactionCommitState.mockResolvedValue(state);
 
     await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
+  });
+
+  // `syncState()` is a long parking await, so the watchdog can hand the mutex to
+  // a successor while this callback keeps running. The commit-state read that
+  // follows would then be a second borrow of somebody else's client — and the
+  // pending-rotation recheck drives this on a timer, so it is reachable on a
+  // schedule rather than once per rotation.
+  it('stops at the post-sync hold re-check when the sync is evicted, instead of reading a borrowed client', async () => {
+    evictDuringSync = true;
+    mockProxyGetTransactionCommitState.mockResolvedValue('committed');
+
+    await expect(readDirectSwitchCommitState('0xtx')).rejects.toThrow(WasmClientPoisonedError);
+    expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
   });
 
   it('returns no verdict when the read itself fails, rather than reporting "did not land"', async () => {

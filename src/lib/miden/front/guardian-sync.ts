@@ -6,7 +6,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from 'lib/miden/guardian/account';
-import { createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
+import { cooldownFor, createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
 import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
@@ -16,6 +16,7 @@ import {
 } from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
+import type { TransactionCommitState } from 'lib/miden/sdk/miden-client-interface';
 import { isGuardianCanonicalizationError } from 'lib/miden/sdk/sdk-error-code';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { isExtension } from 'lib/platform';
@@ -105,11 +106,18 @@ const consecutiveAuthFailures = new Map<string, number>();
  * only a successful sync resets). All of that is the AttemptLedger contract —
  * see `guardian/attempt-ledger.ts` for why it is encoded once.
  */
-const selfHealLedger = createAttemptLedger({
-  maxAttempts: SELF_HEAL_MAX_ATTEMPTS,
-  backoffMs: SELF_HEAL_COOLDOWN_MS,
-  curve: 'flat'
-});
+const selfHealLedger = createAttemptLedger(
+  {
+    maxAttempts: SELF_HEAL_MAX_ATTEMPTS,
+    backoffMs: SELF_HEAL_COOLDOWN_MS,
+    curve: 'flat'
+  },
+  // Monotonic, for the same reason the 429 cooldown is: a wall-clock gap
+  // survives a backward clock correction for the whole size of the correction,
+  // so one NTP step backwards would postpone every repair by that much. The
+  // breaker, the fuse and the rate cooldown all read this clock.
+  monotonicNowMs
+);
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -172,17 +180,23 @@ export const PENDING_ROTATION_RECHECK_BACKOFF_MS = 120_000;
 // node reads (~30 minutes at the flat gap) before the state is surfaced as
 // needing the user. Keyed by the ROW id — two pending rotations on one account
 // are separate questions to the chain.
-const pendingRotationRecheckLedger = createAttemptLedger({
-  maxAttempts: PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
-  backoffMs: PENDING_ROTATION_RECHECK_BACKOFF_MS,
-  curve: 'flat'
-});
+const pendingRotationRecheckLedger = createAttemptLedger(
+  {
+    maxAttempts: PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
+    backoffMs: PENDING_ROTATION_RECHECK_BACKOFF_MS,
+    curve: 'flat'
+  },
+  monotonicNowMs
+);
 
-const missingRegistrationLedger = createAttemptLedger({
-  maxAttempts: MISSING_REGISTRATION_MAX_ATTEMPTS,
-  backoffMs: MISSING_REGISTRATION_BACKOFF_MS,
-  curve: 'doubling'
-});
+const missingRegistrationLedger = createAttemptLedger(
+  {
+    maxAttempts: MISSING_REGISTRATION_MAX_ATTEMPTS,
+    backoffMs: MISSING_REGISTRATION_BACKOFF_MS,
+    curve: 'doubling'
+  },
+  monotonicNowMs
+);
 
 /**
  * `Date.now()` before which an account's sync is paused because the guardian
@@ -203,10 +217,12 @@ export const SYNC_RATE_LIMIT_MAX_COOLDOWN_MS = 120_000;
 // Monotonic deadlines, not wall-clock: the cap is 120s, but a wall-clock deadline survives
 // a backward clock correction for the whole size of that correction, so a stale 429 could
 // park an account for hours. Same clock the breaker and the fuse use.
-const guardianRateLimit = createRateCooldown(
-  { floorMs: SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, capMs: SYNC_RATE_LIMIT_MAX_COOLDOWN_MS },
-  monotonicNowMs
-);
+const GUARDIAN_RATE_LIMIT_BOUNDS = {
+  floorMs: SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
+  capMs: SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
+};
+
+const guardianRateLimit = createRateCooldown(GUARDIAN_RATE_LIMIT_BOUNDS, monotonicNowMs);
 
 // --- Guardian sync outage (server unreachable / 5xx) -------------------------
 //
@@ -557,21 +573,35 @@ export function __resetGuardianSyncOutageForTest(): void {
  * ledger bounds the reads; a spent budget surfaces through the unrepairable
  * prompt rather than going silent.
  *
+ * THREE IDENTIFIERS, deliberately not interchangeable: `row.id` is the local
+ * Dexie uuid the budget and the settle are keyed by, `row.transactionId` is the
+ * on-chain hash the NODE is asked about, and the guardian key is neither. The
+ * first version of this loop asked the node about `row.id`, which can only
+ * answer 'not-found' — so it never looked, spent its whole budget, and raised
+ * an unrepairable prompt that by design no successful sync clears.
+ *
  * Timer-driven WASM hold discipline (#777): bounded at the sync ceiling,
  * labeled, gated on and reporting into its own sync-fuse key.
  */
-async function runPendingRotationRecheck(account: WalletAccount): Promise<void> {
+async function runPendingRotationRecheck(account: WalletAccount): Promise<string | undefined> {
   try {
-    if (isSyncFused('pending-rotation-recheck')) return;
+    if (isSyncFused('pending-rotation-recheck')) return undefined;
     const { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } = await import('lib/miden/transaction');
     const rows = await listUnconfirmedSwitchRows(account.publicKey);
     if (rows.length === 0) {
-      // The question is settled (or never existed) — retire the prompt.
+      // The question is settled (or never existed) — retire the prompt, and the
+      // budgets with it. Rows can also leave this list by being deleted rather
+      // than resolved, and a row-keyed entry nothing will ever ask about again
+      // would otherwise sit in the ledger for the realm's lifetime.
+      pendingRotationRecheckLedger.clearForAccount(account.publicKey);
       if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
-      return;
+      return undefined;
     }
     for (const row of rows) {
-      const subject = { accountPublicKey: account.publicKey, guardianKey: row.id };
+      // `rowId`, not `guardianKey`: the budget is spent per durable INTENT, and
+      // the node read below is keyed on the on-chain hash, which is a different
+      // identifier again. Conflating the two is what made this whole exit inert.
+      const subject = { accountPublicKey: account.publicKey, rowId: row.id };
       if (!pendingRotationRecheckLedger.mayAttempt(subject)) {
         if (pendingRotationRecheckLedger.budgetSpent(subject) && !pendingRotationExhausted.has(account.publicKey)) {
           console.warn(
@@ -584,40 +614,101 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<void> 
         continue;
       }
       const attempt = pendingRotationRecheckLedger.begin(subject);
+      let state: TransactionCommitState;
       try {
-        const state = await readDirectSwitchCommitState(row.id, {
+        // The ON-CHAIN hash, not the Dexie row id. `row.id` is a local uuid;
+        // `getTransactionCommitState` matches `tx.id().toHex()`, so a row id
+        // could only ever answer 'not-found' — the recheck would burn its whole
+        // budget without ever looking, and then raise the exhausted prompt that
+        // no successful sync clears. A row with no captured hash is the
+        // `verifySendLanded` case: indeterminate, so refund rather than charge.
+        if (!row.transactionId) {
+          // CLOSED, not refunded: no future tick can give this row a hash (it is
+          // stamped once, by the completion that already ran), so retrying is
+          // provably futile — which is exactly what `'closed'` means. Closing
+          // surfaces the state for manual recovery on the next pass instead of
+          // spending 30 minutes of rechecks to reach a conclusion available now.
+          attempt.settle('closed');
+          console.warn(
+            `[Guardian Sync] pending rotation ${row.id} has no captured transaction id — the node can never be ` +
+              `asked about it, so the recheck is closed and the state surfaced for manual recovery`
+          );
+          continue;
+        }
+        state = await readDirectSwitchCommitState(row.transactionId, {
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'pending-rotation-recheck'
         });
         noteSyncSuccess('pending-rotation-recheck');
-        if (state === 'committed') {
-          await resolveUnconfirmedSwitch(row.id, true);
-          pendingRotationRecheckLedger.clearForAccount(account.publicKey);
-          if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
-          console.warn(`[Guardian Sync] pending rotation ${row.id} confirmed on chain; row upgraded`);
-        } else if (state === 'discarded') {
-          await resolveUnconfirmedSwitch(row.id, false);
-          pendingRotationRecheckLedger.clearForAccount(account.publicKey);
-          if (pendingRotationExhausted.delete(account.publicKey)) notifyOutageListeners();
-          console.warn(`[Guardian Sync] pending rotation ${row.id} was discarded by the node; row demoted`);
-        } else {
-          // 'pending' / 'not-found': no verdict either way — spend one recheck.
-          attempt.settle('charged');
-        }
       } catch (recheckError) {
-        if (isSyncWatchdogEviction(recheckError)) {
+        const evicted = isSyncWatchdogEviction(recheckError);
+        if (evicted) {
           noteSyncWatchdogEviction('pending-rotation-recheck');
         } else {
           noteNonEvictionSyncFailure('pending-rotation-recheck');
         }
         // Could not look — that is not a verdict, and not a spent attempt.
         attempt.settle('refunded');
+        // An eviction ABANDONS the hold rather than cancelling it: the corpse is
+        // still inside WASM and the mutex has already been handed to a
+        // successor. Taking a fresh hold for the next row would be a second
+        // borrow of a client somebody else is inside, so the whole pass stops
+        // here and the next tick starts from a clean client.
+        if (evicted) break;
+        continue;
+      }
+      // Settling the row is a Dexie write, and its failure is NOT the node
+      // failing to answer. Folded into the catch above, a storage hiccup
+      // refunded the attempt and reported a non-eviction sync failure — which
+      // withdraws the successful probe this pass actually made.
+      try {
+        if (state === 'committed' || state === 'discarded') {
+          const landed = state === 'committed';
+          const { revertEndpointTo } = await resolveUnconfirmedSwitch(row.id, landed);
+          // The other half of the demote. Completion had already pointed the
+          // vault at the new operator before it knew the commit was
+          // unconfirmed, so a discarded rotation leaves the account naming an
+          // operator with no on-chain authority — and drift reconciliation
+          // cannot see it (see `resolveUnconfirmedSwitch`).
+          if (revertEndpointTo !== undefined) {
+            await zustandProvider.setGuardianEndpoint?.(account.publicKey, revertEndpointTo);
+            clearGuardianServiceFor(account.publicKey);
+            console.warn(
+              `[Guardian Sync] pointed ${account.publicKey} back at ${revertEndpointTo} after the node discarded ` +
+                `its guardian switch`
+            );
+          } else if (!landed) {
+            console.error(
+              `[Guardian Sync] guardian switch ${row.id} was discarded but the row records no previous endpoint — ` +
+                `the account may still name an operator with no on-chain authority`
+            );
+          }
+          // Only THIS row's budget: the rows on one account are separate
+          // questions to the chain, and clearing the account re-armed an
+          // exhausted sibling that nothing had answered.
+          pendingRotationRecheckLedger.clear(subject);
+          console.warn(
+            `[Guardian Sync] pending rotation ${row.id} was ${state} on chain; ` +
+              `row ${landed ? 'upgraded' : 'demoted'}`
+          );
+        } else {
+          // 'pending' / 'not-found': no verdict either way — spend one recheck.
+          attempt.settle('charged');
+        }
+      } catch (settleError) {
+        // The look SUCCEEDED; only the bookkeeping failed. Leave the attempt on
+        // its begin stamp (so this does not re-run every 3s) without refunding
+        // against the node or touching the fuse, and let the next pass re-read
+        // and retry the write.
+        console.warn(`[Guardian Sync] could not settle pending rotation ${row.id} (will retry):`, settleError);
       }
     }
+    return rows[0]?.id;
   } catch (e) {
     // Best-effort: the recheck must never break the sync loop.
     console.warn(`[Guardian Sync] pending-rotation recheck failed for ${account.publicKey} (non-fatal):`, e);
   }
+  return undefined;
 }
 
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
@@ -671,7 +762,9 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     endpoint,
     guardianKey: onChainGuardian ?? 'no-guardian-key'
   };
-  const now = Date.now();
+  // The ledger's own clock — monotonic — so this explicit stamp cannot disagree
+  // with the one `settle` reads when it re-stamps from settle time.
+  const now = monotonicNowMs();
   if (!missingRegistrationLedger.mayAttempt(healSubject, now)) {
     // Budget spent on this triple. The operator keeps saying it has no record of
     // an account whose on-chain guardian it is, and this wallet has stopped
@@ -1144,6 +1237,15 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
     }
     syncedGuardianEndpoint.set(account.publicKey, endpoint);
 
+    // The W1 exit runs AHEAD of both gates below on purpose: it talks to the
+    // NODE, not the guardian endpoint, so neither a parked operator (the fuse)
+    // nor an operator that rate-limited us (the 429 cooldown) says anything
+    // about whether the chain confirmed a rotation. Behind the cooldown, an
+    // operator returning 429s silenced the one probe that can settle a pending
+    // rotation — the same mistake as putting it behind the fuse. It carries its
+    // own fuse key and its own per-row budget.
+    const pendingRotationRow = await runPendingRotationRecheck(account);
+
     // Serve the guardian's own cooldown before anything else: a rate-limited
     // account has nothing to gain from another request, and every one we skip is
     // budget the transaction path can use instead. Expiry is lazy, inside the
@@ -1180,32 +1282,38 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         console.warn(`[Guardian Sync] drift reconciliation failed for ${account.publicKey}:`, driftError);
       });
 
-    // The W1 exit runs AHEAD of the guardian fuse gate on purpose: it talks to
-    // the NODE, not the guardian endpoint, so a parked operator must not gate
-    // the one probe that can settle a pending rotation. It carries its own
-    // fuse key and budget.
-    await runPendingRotationRecheck(account);
-
     // SHADOW dispatcher (guardian-recovery-dispatcher.ts): classify this
     // account's facts and count disagreements with what the legacy predicates
-    // do. The only divergence the legacy surfaces cannot express is a spent
-    // repair budget that never raised the unrepairable flag — a dead end the
-    // totality test forbids — so that is what the shadow watches for. The
-    // trigger flip happens only after a release of this reading zero.
+    // do. The trigger flip happens only after a release of this reading zero,
+    // which is why every fact here has to be REAL: two of the three budgets
+    // were once hardcoded `'available'` and no `pendingRotation` was passed at
+    // all, so the tally could not observe the states it was counting and read
+    // low by construction.
     {
       const shadowRoute = classifyGuardianRecovery({
         syncStatus: account.guardianSyncStatus,
         hasHotKey: Boolean(account.hotPublicKey),
         outage: isGuardianSyncOutage(account.publicKey),
         unrepairable: isGuardianUnrepairable(account.publicKey),
+        // The row the recheck above already listed — no second Dexie read, and
+        // no chance of the two disagreeing about what is pending this tick.
+        ...(pendingRotationRow ? { pendingRotation: { rowId: pendingRotationRow } } : {}),
         budgets: {
           selfHeal: selfHealLedger.budgetSpent({ accountPublicKey: account.publicKey, endpoint })
             ? 'spent'
             : 'available',
-          missingRegistration: 'available',
-          recheck: 'available'
+          // Account-level, because the narrow subjects these two are keyed by
+          // (the on-chain guardian key; the row id) are not in hand here.
+          missingRegistration: missingRegistrationLedger.anySpentForAccount(account.publicKey) ? 'spent' : 'available',
+          recheck: pendingRotationRecheckLedger.anySpentForAccount(account.publicKey) ? 'spent' : 'available'
         }
       });
+      // A route that names the pending-rotation state specifically, while the
+      // only surface that state has is the generic unrepairable prompt. Counted
+      // because it is exactly the copy the flip would improve.
+      if (shadowRoute.route === 'prompt' && shadowRoute.reason === 'rotation-unconfirmed-exhausted') {
+        noteRecoveryDivergence('rotation-unconfirmed-shown-as-generic-unrepairable');
+      }
       if (
         shadowRoute.route === 'prompt' &&
         shadowRoute.reason === 'unrepairable-manual' &&
@@ -1321,10 +1429,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         consecutiveUnknownAccount.delete(account.publicKey);
         clearGuardianServerFailures(account.publicKey);
         const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
-        const cooldown = Math.min(
-          Math.max(askedMs, SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS),
-          SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
-        );
+        // One clamp, shared by the impose and the log line. Computed twice, the
+        // log was free to drift from the cooldown actually served — and the log
+        // is the only place this number is ever observed.
+        const cooldown = cooldownFor(GUARDIAN_RATE_LIMIT_BOUNDS, askedMs);
         guardianRateLimit.impose(account.publicKey, askedMs);
         console.warn(
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
