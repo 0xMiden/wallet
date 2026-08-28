@@ -19,6 +19,16 @@ export interface TransactionStepDef {
    */
   startStage: ITransactionStage;
   /**
+   * Stage that opens this step on a path that never reaches `startStage`. The
+   * offline guardian rotation is the case that needs it: it signs locally and so
+   * stamps `signing-locally` where the proposal path stamps `creating-proposal`,
+   * and without a fallback the step's start boundary is simply missing and the
+   * row renders no duration at all. Resolved AFTER `startStage`, so a row that
+   * carries both (a direct switch after a failed proposal attempt) still times
+   * from the earlier of the two.
+   */
+  fallbackStartStage?: ITransactionStage;
+  /**
    * Stages during which this is the in-progress step; drives the row's
    * checkmark/active/pending state (`getActiveStepIndex`).
    */
@@ -39,6 +49,7 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepGuardianApproved',
     defaultLabel: 'Guardian approved',
     startStage: 'creating-proposal',
+    fallbackStartStage: 'signing-locally',
     activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
   },
   {

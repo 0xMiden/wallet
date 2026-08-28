@@ -4,6 +4,7 @@ import {
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
@@ -558,12 +559,14 @@ export const initiateSwitchGuardianTransaction = async (
       // downstream would ever correct it (`TransactionSummaryBadge` renders
       // nothing for `switch-guardian`). Refuse instead, naming the rotation that
       // holds the account, so the caller can say what is actually running.
+      //
+      // An in-flight row with NO recorded endpoint is refused too. `type` says
+      // it is always present, so an empty one means a corrupt or truncated row —
+      // and "I cannot tell what that rotation targets" is not grounds for
+      // claiming it is this one.
       const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
-      if (inFlightEndpoint && !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
-        throw new Error(
-          `A guardian rotation to ${inFlightEndpoint} is already in progress for this account; ` +
-            'wait for it to finish before switching to a different guardian.'
-        );
+      if (!inFlightEndpoint || !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
+        throw new GuardianRotationInProgressError(inFlightEndpoint);
       }
       return inFlight.id;
     }

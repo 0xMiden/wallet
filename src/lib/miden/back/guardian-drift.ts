@@ -51,13 +51,30 @@ const DRIFT_PROBE_COOLDOWN_MS = 60_000;
  * lasting long enough; requiring informative windows means the device has to be
  * demonstrably able to reach the built-ins while this one endpoint stays dark.
  *
- * At {@link DRIFT_PROBE_COOLDOWN_MS} this is ~30 minutes of continuous, verified
- * silence. Erring long is nearly free here: the prompt is the only exit from the
- * stranded state, but it is not the only thing watching, and a false one is
- * self-clearing — the moment the endpoint answers `'match'` the account goes
- * back to `in-sync` and the banner disappears without the user doing anything.
+ * The value is bounded from BOTH sides, which is why it is small. The run lives
+ * in this module's memory and is only advanced by `checkGuardianDrift`, whose
+ * callers all need an unlocked vault and a UI-driven tick — so it accrues only
+ * while the wallet is open and unlocked, and a service-worker recycle, a browser
+ * restart or an extension update resets it to zero. Any threshold longer than a
+ * plausible single session is therefore not "cautious", it is unreachable: on the
+ * extension the popup closes, the worker idles out, and the prompt that is the
+ * ONLY exit for a stranded custom operator would never be shown at all. That is
+ * strictly worse than a false prompt, because a false prompt self-clears — the
+ * moment the endpoint answers `'match'` the account returns to `in-sync` and the
+ * banner disappears with no user action — whereas an unreachable one leaves the
+ * account silently broken forever.
+ *
+ * At {@link DRIFT_PROBE_COOLDOWN_MS} five windows is ~5 minutes of continuously
+ * open wallet during which the built-ins are demonstrably reachable and this one
+ * endpoint stays dark. That clears an operator restart or a redeploy, which is
+ * the blip this rule exists to absorb; a longer outage that resolves itself
+ * costs one dismissable prompt, and the run restarting across sessions only
+ * delays the prompt, never falsifies it.
+ *
+ * Exported for the tests, which must not hardcode the number — the boundary
+ * (accuse on the Nth window, not the N-1th) is the property under test.
  */
-const SILENT_DRIFT_WINDOWS_BEFORE_PROMPT = 30;
+export const SILENT_DRIFT_WINDOWS_BEFORE_PROMPT = 5;
 
 /** `Date.now()` before which an account's drift probes are skipped. */
 const nextDriftProbeAt = new Map<string, number>();
@@ -198,7 +215,23 @@ export async function resolveGuardianDrift(
   // writing `'resolving'` first would strand the account in a status with no
   // banner and no recovery path if we then bail. Returning before any write
   // leaves the account as it was and lets the next tick retry.
-  let storedEndpointAnswered = true;
+  // Three states, not a boolean, because the accusation below turns on WHICH of
+  // them holds and a boolean has to fold two of them together:
+  //
+  //  - `'denied'`  the stored endpoint answered and said it does NOT hold the
+  //                on-chain key. That denial is the evidence of drift, and it
+  //                stands on its own — an incomplete built-in round subtracts
+  //                nothing from it, so this accuses immediately.
+  //  - `'silent'`  an endpoint is stored but never answered. No evidence either
+  //                way on any single window, so this takes the duration rule.
+  //  - `'absent'`  no endpoint is stored at all. Nothing denied anything, so
+  //                this must not inherit `'denied'`'s immediacy — which is what
+  //                a boolean initialized to `true` gave it: a legacy record
+  //                whose backfill had not run yet was accused on the FIRST
+  //                window off an `'unavailable'` round, i.e. off our own probes
+  //                failing, when a complete round might have named a built-in
+  //                and repaired it silently.
+  let storedEndpointEvidence: 'denied' | 'silent' | 'absent' = 'absent';
   if (account.guardianEndpoint) {
     const storedEndpoint = account.guardianEndpoint;
     const stored = await checkEndpointCommitment(storedEndpoint, onChain);
@@ -236,6 +269,11 @@ export async function resolveGuardianDrift(
       // window can corroborate for real. The cooldown set above is deliberately
       // NOT cleared, so this costs one probe window per minute, not per tick.
       if (corroboration.outcome === 'unavailable') {
+        // The endpoint DID answer, so end any silent run first — the rule is
+        // "the endpoint spoke ⇒ the run is over", and applying it on some
+        // answering branches but not others would let a match mid-outage leave
+        // a partial run to be inherited later.
+        silentDriftWindows.delete(accountPublicKey);
         return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
       }
       // A built-in serves the on-chain commitment and it is not the endpoint on
@@ -259,7 +297,7 @@ export async function resolveGuardianDrift(
       clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
-    storedEndpointAnswered = stored !== 'unreachable';
+    storedEndpointEvidence = stored === 'unreachable' ? 'silent' : 'denied';
   }
 
   // The stored endpoint is not the on-chain guardian — either it said so, or it
@@ -281,23 +319,25 @@ export async function resolveGuardianDrift(
   // chain names. What must not follow from silence is the ACCUSATION — see the
   // `needs-user-input` guard below.
   //
-  // The `'resolving'` marker is likewise only written when the stored endpoint
-  // answered. Writing it on silence would strand the account in a status with no
-  // banner and no recovery path for the duration of an ordinary outage.
-  if (storedEndpointAnswered) {
+  // The `'resolving'` marker is likewise only written on a DENIAL. Writing it on
+  // silence — or on an account with no endpoint at all — would strand the
+  // account in a status with no banner and no recovery path for the duration of
+  // an ordinary outage, since both of those can end in "change nothing".
+  if (storedEndpointEvidence === 'denied') {
     // The endpoint spoke, so whatever silent run was accumulating has ended —
-    // and the accusation below no longer needs to wait for one.
+    // and the accusation below no longer needs to wait for one. Live via
+    // `applyUserGuardianEndpoint`, which repairs the account WITHOUT going
+    // through this function, so a stale run would otherwise survive the repair
+    // and be inherited by the account's next drift.
     silentDriftWindows.delete(accountPublicKey);
     await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
   }
-  // Only `'identified'` acts here, and `'unavailable'` is deliberately handled
-  // as `'none'` is — no repair, and the `needs-user-input` decision below is
-  // taken on the stored endpoint's answer alone. That is not the asymmetry it
-  // looks like: on this path the evidence of drift came from the stored endpoint
-  // DENYING that it holds the on-chain key, so the accusation never rested on
-  // the built-in probes, and an incomplete round changes nothing about it. In the
-  // `'match'` branch above the built-ins are the only second source there is, and
-  // what follows a `'none'` there is permanent.
+  // Only `'identified'` repairs. What `'unavailable'` means for the accusation
+  // depends on where the evidence of drift came from, which is why the three
+  // cases are split below rather than sharing one rule: on a DENIAL the stored
+  // endpoint itself supplied the evidence, so an incomplete built-in round
+  // subtracts nothing from it; with no denial the built-ins are the only source
+  // there is, and an incomplete round establishes nothing at all.
   const lookup = await identifyGuardianOperator(onChain);
   if (lookup.outcome === 'identified') {
     await vault.setGuardianEndpoint(accountPublicKey, lookup.operator.endpoint);
@@ -330,7 +370,13 @@ export async function resolveGuardianDrift(
   // wall-clock. `'unavailable'` contributes nothing: it means the round could
   // not establish that no built-in serves the key, and a device that cannot
   // reach the built-ins tells us nothing about why this one endpoint is silent.
-  if (!storedEndpointAnswered) {
+  //
+  // An `'absent'` account — no stored endpoint at all — shares the
+  // `'unavailable'` half of this and not the duration half. It genuinely does
+  // need the user, and a COMPLETE round that named no built-in is a real finding
+  // about it, so it is accused as soon as there is one. What it must not be
+  // accused on is our own probes failing.
+  if (storedEndpointEvidence !== 'denied') {
     const unchanged = { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
     if (lookup.outcome !== 'none') {
       // Reset, not pause. The verdict has to rest on an UNBROKEN run of windows
@@ -344,9 +390,15 @@ export async function resolveGuardianDrift(
       return unchanged;
     }
 
-    const windows = (silentDriftWindows.get(accountPublicKey) ?? 0) + 1;
-    silentDriftWindows.set(accountPublicKey, windows);
-    if (windows < SILENT_DRIFT_WINDOWS_BEFORE_PROMPT) return unchanged;
+    // A complete round found no built-in. For a SILENT endpoint that still is
+    // not evidence on its own — wait out the run. For an ABSENT one there is
+    // nothing to wait for: no endpoint means no operator this wallet can reach,
+    // and no duration will change that.
+    if (storedEndpointEvidence === 'silent') {
+      const windows = (silentDriftWindows.get(accountPublicKey) ?? 0) + 1;
+      silentDriftWindows.set(accountPublicKey, windows);
+      if (windows < SILENT_DRIFT_WINDOWS_BEFORE_PROMPT) return unchanged;
+    }
     // Already flagged: the run keeps counting, but re-writing the same status
     // every window would broadcast fresh account state to the popup once a
     // minute for as long as the account stays stranded.

@@ -332,10 +332,29 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   // Read once and decide everything from that one snapshot: the budget key, both
   // guards, and (via `finalizeDirectGuardianSwitch`, which re-syncs and re-reads
   // for the bytes it actually pushes) the write itself.
-  const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
-  if (!sdkAccount) return;
+  // Both reads happen INSIDE the one hold, and only plain strings come out.
+  // `getGuardianCommitmentFromAccount` and `getSignerDetailsFromAccount` reach
+  // into the WASM account handle, so performing them after the hold released
+  // raced any queued client operation for the single-threaded client — the
+  // `recursive use of an object` failure. `resolveGuardianDrift` already reads
+  // its commitment this way; this path was the outlier.
+  const snapshot = await withWasmClientLock(async () => {
+    const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+    if (!sdkAccount) return undefined;
+    return {
+      guardian: getGuardianCommitmentFromAccount(sdkAccount),
+      // Its own failure is still a distinct outcome from "no account": the
+      // hot-signer guard below refuses on an unread commitment, so it must be
+      // able to tell an absent value from an unreached one.
+      hot: await getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
+        console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
+        return undefined;
+      })
+    };
+  });
+  if (!snapshot) return;
 
-  const onChainGuardian = getGuardianCommitmentFromAccount(sdkAccount);
+  const onChainGuardian = snapshot.guardian;
   const healKey = `${account.publicKey}|${endpoint}|${onChainGuardian ?? 'no-guardian-key'}`;
   const now = Date.now();
   const prior = missingRegistrationState.get(healKey);
@@ -369,12 +388,15 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   // predating the guardian rotation is refused outright — leaving only the narrow
   // window where a copy is current for the guardian rotation yet stale for a
   // later hot-key rotation.
-  const onChainHot = await getSignerDetailsFromAccount(sdkAccount, false).catch(() => undefined);
+  const onChainHot = snapshot.hot;
   // A record with no hot key never reaches this function — the sync loop filters
   // those accounts out — so the ternary is here for the type, and it refuses on
   // that path too rather than reading an absent key as "no objection".
   const localHot = account.hotPublicKey
-    ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined)
+    ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
+        console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
+        return undefined;
+      })
     : undefined;
   if (!onChainHot || !localHot) {
     console.warn(
@@ -524,17 +546,39 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<vo
     // convention ([hot, cold] — see guardian/account.ts). If it no longer matches
     // this device's key, this device did not lose authorization to a stale
     // allowlist — it was rotated out, and there is nothing here to repair.
-    const onChainHot = await getSignerDetailsFromAccount(sdkAccount, false).catch(() => undefined);
-    if (account.hotPublicKey && onChainHot) {
-      const localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined);
-      if (localHot && !sameCommitment(localHot, onChainHot.commitment)) {
-        console.warn(
-          `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
-            `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
-            `the device that now owns the account.`
-        );
-        return;
-      }
+    // Fails CLOSED on an unread commitment, exactly like the missing-registration
+    // guard: a guard over write authority cannot treat "I could not tell" as
+    // permission. This path is the more dangerous of the two by its own comment
+    // above — and it used to skip the comparison entirely whenever either read
+    // came back empty, so a transient failure on either side bought the write.
+    // There is always another tick.
+    const onChainHot = await withWasmClientLock(async () =>
+      getSignerDetailsFromAccount(sdkAccount, false).catch(hotError => {
+        console.warn(`[Guardian Sync] could not read the on-chain hot signer for ${account.publicKey}:`, hotError);
+        return undefined;
+      })
+    );
+    const localHot = account.hotPublicKey
+      ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(localError => {
+          console.warn(`[Guardian Sync] could not derive this device's hot-key commitment:`, localError);
+          return undefined;
+        })
+      : undefined;
+    if (!onChainHot || !localHot) {
+      console.warn(
+        `[Guardian Sync] not self-healing ${account.publicKey}: could not read the hot-signer commitment on ` +
+          `${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so this device ` +
+          `cannot show it is still the account's signer.`
+      );
+      return;
+    }
+    if (!sameCommitment(localHot, onChainHot.commitment)) {
+      console.warn(
+        `[Guardian Sync] not self-healing ${account.publicKey}: this device's hot key is no longer the ` +
+          `account's on-chain signer (it was rotated to another device). Re-registering would revoke ` +
+          `the device that now owns the account.`
+      );
+      return;
     }
 
     await coldService.reRegisterCurrentStateOnGuardian();
@@ -608,7 +652,14 @@ async function runGuardianAccountsSync(): Promise<void> {
     await useWalletStore
       .getState()
       .checkGuardianDrift(account.publicKey)
-      .catch(() => {});
+      .catch(driftError => {
+        // Best-effort, but not silent. This is the only reconciler for a
+        // rotation that committed on chain and lost its endpoint write, and it
+        // reaches the network — so a failure here is exactly the kind that
+        // repeats every tick while the account looks fine on screen. Swallowed
+        // without a word, the one signal that recovery is not running was gone.
+        console.warn(`[Guardian Sync] drift reconciliation failed for ${account.publicKey}:`, driftError);
+      });
 
     try {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);

@@ -22,6 +22,7 @@ import {
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { GUARDIAN_ROTATION_IN_PROGRESS } from 'lib/miden/guardian/rotation-in-progress';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { isDelegateProofEnabled, isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
@@ -192,7 +193,23 @@ const RotateGuardianReview: FC = () => {
           startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        // The pre-check above reads the queue BEFORE `unlock`, so a row created
+        // during that window (a second mount, a second review URL) gets past it
+        // and is caught here instead. Same condition, so same localized copy —
+        // the error's own message is developer-facing English and must not reach
+        // the user.
+        //
+        // Matched on `name`, not `instanceof`: the class is the contract but the
+        // identity check is not survivable. This error is thrown across a module
+        // boundary that the intercom adapters may serialize, which drops the
+        // prototype and leaves a plain object carrying `name` — and an
+        // `instanceof` against a mocked or duplicated module binding throws
+        // "Right-hand side of 'instanceof' is not an object" from inside the very
+        // catch that exists to render an error.
+        const rotationInProgress = err instanceof Error && err.name === GUARDIAN_ROTATION_IN_PROGRESS;
+        setError(
+          rotationInProgress ? t('guardianSwitchAlreadyInProgress') : err instanceof Error ? err.message : String(err)
+        );
       } finally {
         submissionRef.current = false;
         setSubmitting(false);

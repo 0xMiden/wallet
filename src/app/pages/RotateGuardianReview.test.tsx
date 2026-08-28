@@ -628,6 +628,29 @@ it('refuses a second switch when one is already queued for the account', async (
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
 
+// The pre-check above reads the queue BEFORE `unlock`, so a row created during
+// that window slips past it and the refusal comes back from `initiate` instead.
+// It must read as the same condition: the initiator's own message is
+// developer-facing English, and putting it on screen — which is what the generic
+// arm of this catch does — ships untranslated copy that `yarn lint:i18n` cannot
+// see, since it is a runtime string rather than a literal in a component.
+it('localizes the in-progress refusal that comes back from the initiator', async () => {
+  mockHasHardwareProtector.mockResolvedValue(true);
+  mockGetUncompleted.mockResolvedValue([]);
+  const inProgress = new Error('A guardian rotation to https://other.guardian is already in progress');
+  inProgress.name = 'GuardianRotationInProgressError';
+  mockInitiateSwitch.mockRejectedValueOnce(inProgress);
+  render(<RotateGuardianReview />);
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  await waitFor(() => expect(confirm).toBeEnabled());
+
+  fireEvent.click(confirm);
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('guardianSwitchAlreadyInProgress'));
+  // The raw sentence must not reach the user.
+  expect(screen.queryByText(/already in progress for this account/)).toBeNull();
+});
+
 it('allows a retry after a hang, which created no row', async () => {
   // The queue check reads the DB rather than holding a latch precisely so this
   // works: a hung `unlock` never reached `initiate`, so nothing is queued and the

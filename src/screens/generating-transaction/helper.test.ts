@@ -27,6 +27,9 @@ describe('getActiveStepIndex', () => {
     ['syncing', 0],
     ['creating-proposal', 0],
     ['signing-proposal', 0],
+    // Offline rotation: hot+cold sign locally, so this replaces
+    // `signing-proposal` on that path and owns the same step.
+    ['signing-locally', 0],
     ['sending', 1],
     ['executing', 1],
     ['proving', 1],
@@ -61,6 +64,34 @@ describe('getStepDurationsMs', () => {
       complete: 1_800
     });
     expect(durations).toEqual([300, 500, 600, 300]);
+  });
+
+  // The offline rotation never stamps `creating-proposal` — it signs locally
+  // instead — so step 0 had no start boundary and rendered no duration at all on
+  // the one path where the user is most likely to be watching the clock.
+  it('times the first guardian step from `signing-locally` on the offline path', () => {
+    const durations = getStepDurationsMs(GUARDIAN_TRANSACTION_STEPS, {
+      'signing-locally': 200,
+      proving: 500,
+      submitting: 900,
+      'guardian-syncing': 1_200,
+      complete: 1_400
+    });
+    expect(durations).toEqual([300, 400, 300, 200]);
+  });
+
+  // Both stamps can exist on one row: a proposal attempt that failed and
+  // requeued into the direct path. The earlier stamp is the honest start.
+  it('prefers the proposal stamp when a row carries both', () => {
+    const durations = getStepDurationsMs(GUARDIAN_TRANSACTION_STEPS, {
+      'creating-proposal': 100,
+      'signing-locally': 400,
+      proving: 500,
+      submitting: 900,
+      'guardian-syncing': 1_200,
+      complete: 1_400
+    });
+    expect(durations[0]).toBe(400);
   });
 
   it('returns undefined for a step whose start or end stamp is missing (no fabricated value)', () => {
@@ -110,6 +141,7 @@ describe('getStageTitleKey', () => {
     ['syncing', 'transactionStageSyncing'],
     ['creating-proposal', 'transactionStageCreatingProposal'],
     ['signing-proposal', 'transactionStageSigningProposal'],
+    ['signing-locally', 'transactionStageSigningLocally'],
     ['proving', 'transactionStageProving'],
     ['submitting', 'transactionStageSubmitting'],
     ['guardian-syncing', 'transactionStageGuardianSyncing'],
@@ -144,6 +176,7 @@ describe('getStageDescriptionKey', () => {
     ['syncing', 'transactionStageSyncingDescription'],
     ['creating-proposal', 'transactionStageCreatingProposalDescription'],
     ['signing-proposal', 'transactionStageSigningProposalDescription'],
+    ['signing-locally', 'transactionStageSigningLocallyDescription'],
     ['executing', 'transactionStageExecutingDescription'],
     ['proving', 'transactionStageProvingDescription'],
     ['submitting', 'transactionStageSubmittingDescription'],

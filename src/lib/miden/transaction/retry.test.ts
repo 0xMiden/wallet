@@ -487,7 +487,11 @@ describe('requeueFailedTransaction', () => {
 describe('requeueFailedTransaction — cached requestBytes', () => {
   const bytes = () => new Uint8Array([1, 2, 3]);
 
-  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
+  // `signing-locally` belongs in this set for the same reason the rest do: the
+  // offline rotation signs hot+cold BEFORE it executes anything, so a row that
+  // failed there provably never submitted. Left out, it would fall to the
+  // conservative "may have submitted" side and keep stale bytes.
+  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally', 'executing', 'proving'] as const)(
     "drops a send's bytes when it failed pre-submit at %s",
     async stage => {
       const row = failedRow({ type: 'send', stage, requestBytes: bytes() });

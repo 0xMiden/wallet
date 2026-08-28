@@ -626,6 +626,35 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockRegisterBackoffMs).toHaveBeenCalledWith(rateLimited, 1);
   });
 
+  // The retry budget bounds REJECTIONS, and silence is not a rejection:
+  // `GuardianHttpClient` calls bare `fetch` with no `AbortSignal`, so an operator
+  // that accepts the connection and then says nothing produces no error to
+  // consume. This call sits PAST the on-chain commit, so an unbounded wait parks
+  // the row before its terminal status write — the rotation screen spins forever
+  // and `registerFailed`, whose self-heal is what finishes the registration
+  // later, is never recorded. The deadline turns silence into an attempt failure.
+  it('bounds a guardian that accepts the connection and then goes silent', async () => {
+    jest.useFakeTimers();
+    mockGuardianConfigure.mockImplementation(() => new Promise(() => {}));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const settled = finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+    // Each attempt is spent entirely on the deadline (the mocked backoff is 0),
+    // so the budget is 8 × 30s; advance well past it rather than to the exact
+    // boundary, since the assertion is "it ends", not "it ends at t".
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+
+    const error = await settled;
+    expect(error).toMatchObject({ message: expect.stringContaining('after direct switch') });
+    expect(mockGuardianConfigure).toHaveBeenCalledTimes(8);
+    jest.useRealTimers();
+  });
+
   it('gives up after the retry budget and reports the last error as the cause', async () => {
     const last = new Error('still down');
     mockGuardianConfigure.mockRejectedValue(last);

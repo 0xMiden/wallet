@@ -35,13 +35,26 @@ export const getStepDurationsMs = (
   stageTimestamps: Partial<Record<ITransactionStage, number>> | undefined
 ): (number | undefined)[] =>
   steps.map((step, index) => {
-    const start = stageTimestamps?.[step.startStage];
+    const start = stepStartStamp(step, stageTimestamps);
     const nextStep = steps[index + 1];
-    const endStage: ITransactionStage = nextStep ? nextStep.startStage : 'complete';
-    const end = stageTimestamps?.[endStage];
+    const end = nextStep ? stepStartStamp(nextStep, stageTimestamps) : stageTimestamps?.['complete'];
     if (start === undefined || end === undefined || end < start) return undefined;
     return end - start;
   });
+
+/**
+ * When does this step begin? `startStage` first, then `fallbackStartStage` for a
+ * path that stamps a different opening stage (see the field's docs). Used for
+ * both ends of a span, so the boundary a step's duration ENDS on is resolved the
+ * same way the next step's own start is — otherwise the two would disagree and a
+ * step could be timed against a stamp the following step does not use.
+ */
+const stepStartStamp = (
+  step: TransactionStepDef,
+  stageTimestamps: Partial<Record<ITransactionStage, number>> | undefined
+): number | undefined =>
+  stageTimestamps?.[step.startStage] ??
+  (step.fallbackStartStage === undefined ? undefined : stageTimestamps?.[step.fallbackStartStage]);
 
 export const getTransactionStepState = (
   index: number,

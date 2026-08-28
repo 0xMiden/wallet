@@ -567,6 +567,59 @@ describe('completeSwitchGuardianTransaction', () => {
     expect(row.extraInputs).toMatchObject({ registerFailed: false, endpointPersistFailed: false });
   });
 
+  // The terminal write itself can fail (Dexie quota, a closed database on
+  // teardown), and the retry in the catch is the row's last chance at a status.
+  // What it must not do is retry a DIFFERENT row: the two audit flags are the
+  // only record that a post-commit step did not land, and `GuardianSwitchSuccess`
+  // renders its "setup incomplete" warning off exactly them. A fallback that
+  // dropped them reported the worst outcome — committed rotation, dead operator
+  // still stored — as a clean switch.
+  it('carries the audit flags into the fallback status write when the first one fails', async () => {
+    const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
+    txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
+
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let modifyCalls = 0;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: unknown) => Promise<void>; first: () => Promise<unknown> };
+      return {
+        ...handle,
+        modify: async (fn: unknown) => {
+          modifyCalls += 1;
+          // #1 is the `registering-guardian` stage stamp; #2 is the Completed
+          // write this test wants to lose.
+          if (modifyCalls === 2) throw new Error('QuotaExceededError');
+          return handle.modify(fn);
+        }
+      };
+    });
+
+    // Both post-commit steps miss, so both flags are true and both must survive.
+    const multisigService = {
+      finalizeGuardianSwitch: jest.fn(async () => {
+        throw new Error('new guardian never answered');
+      })
+    };
+    const provider = {
+      ...makeGuardianProvider(true),
+      setGuardianEndpoint: jest.fn(async () => {
+        throw new Error('Wallet is locked');
+      })
+    };
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      await completeSwitchGuardianTransaction(tx, makeResult() as never, multisigService as never, provider as never);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+    }
+
+    const row = txStore.find(r => r.id === tx.id) as Record<string, unknown>;
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.extraInputs).toMatchObject({ endpointPersistFailed: true, registerFailed: true });
+  });
+
   it('completes the switch when evicting the cached guardian service throws', async () => {
     const tx = new SwitchGuardianTransaction('acc-1', 'https://new.guardian', false);
     txStore.push({ id: tx.id, status: ITransactionStatus.GeneratingTransaction });
@@ -5604,6 +5657,27 @@ describe('generateTransaction — direct switch audit marker', () => {
     const extra = markerExtraInputs(txId);
     expect(extra).toMatchObject({ switchedDirectly: true });
     expect(extra.directSwitchReason).toContain('at cold co-sign');
+  });
+
+  // The stage the user reads while this runs. NOT `signing-proposal`, whose copy
+  // says the guardian is signing — on this path no operator is contacted at all,
+  // and the reason the path is running is that one could not be reached. Sampled
+  // where the signing actually happens rather than off the finished row, whose
+  // stage is `complete` by the time the call returns.
+  it('stamps signing-locally while the hot and cold keys sign the direct switch', async () => {
+    const txId = 'switch-guardian-stage-signing-locally';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
+
+    let stageAtSigning: unknown;
+    mockCreateDirectSwitchRequest.mockImplementation(async () => {
+      stageAtSigning = txStore.find(r => r.id === txId)?.stage;
+      return { request: { serialize: () => new Uint8Array([2]) }, chainAnchorB64: 'Y2hhaW4tYW5jaG9y' };
+    });
+
+    await run(txId, provider);
+
+    expect(stageAtSigning).toBe('signing-locally');
   });
 
   it('leaves the marker on a row whose direct switch then fails', async () => {

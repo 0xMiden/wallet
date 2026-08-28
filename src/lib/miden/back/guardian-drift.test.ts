@@ -6,6 +6,7 @@ import {
 } from 'lib/miden/guardian/operator-map';
 
 import {
+  SILENT_DRIFT_WINDOWS_BEFORE_PROMPT,
   __resetGuardianDriftProbeCooldownForTest,
   applyUserGuardianEndpoint,
   resolveGuardianDrift
@@ -94,10 +95,14 @@ it('auto-resolves to the matching built-in operator on drift', async () => {
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
-  expect(vault.setGuardianSyncStatus).toHaveBeenNthCalledWith(1, 'pk', 'resolving');
   expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://g');
   expect(vault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'newC');
   expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
+  // No `resolving` on the way: this account stores no endpoint, so nothing has
+  // denied anything, and the built-in lookup below can still end in "change
+  // nothing" (an incomplete round). A `resolving` written first would then be
+  // left behind — a status with no banner and no recovery path.
+  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalledWith('pk', 'resolving');
 });
 
 it('writes the commitment baseline LAST — after status is finalized to in-sync — so a failed last write self-heals instead of sticking at resolving', async () => {
@@ -108,7 +113,7 @@ it('writes the commitment baseline LAST — after status is finalized to in-sync
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
 
-  expect(order).toEqual(['status:resolving', 'endpoint', 'status:in-sync', 'commitment']);
+  expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
 });
 
 it('self-heals a stranded account (commitment already advanced to on-chain, but status stuck at resolving) back to in-sync', async () => {
@@ -147,15 +152,36 @@ it('auto-resolves on first-ever check, when no baseline commitment is stored yet
   expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'in-sync');
 });
 
-it('flags needs-user-input when no built-in operator matches', async () => {
+// No stored endpoint AND a COMPLETE round that named no built-in: there is no
+// operator this wallet can reach and no duration that would change that, so this
+// one is asked immediately rather than waiting out the silent-drift run (which
+// exists to tell a briefly-down endpoint from a dead one — there is no endpoint
+// here to be down).
+it('flags needs-user-input immediately when nothing is stored and no built-in operator matches', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
 
-  expect(vault.setGuardianSyncStatus).toHaveBeenNthCalledWith(1, 'pk', 'resolving');
-  expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'needs-user-input');
+  expect(vault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
+  expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+});
+
+// The other half of that rule, and the one a boolean got wrong: an INCOMPLETE
+// round establishes nothing about an account with no stored endpoint either, so
+// it must not be accused on the strength of our own probes failing. A legacy
+// record whose endpoint backfill has not run yet is exactly this shape.
+it('says nothing when nothing is stored and the built-in round could not complete', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+  const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianSyncStatus: 'in-sync' });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+
+  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
   expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
@@ -393,6 +419,9 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
   // wrong reason.
   let elapsedWindows = 0;
 
+  /** One window short of the accusation — the longest run that must stay quiet. */
+  const justUnder = SILENT_DRIFT_WINDOWS_BEFORE_PROMPT - 1;
+
   /** Run `count` probe WINDOWS, stepping past the cooldown between each. */
   const runWindows = async (count: number, vault: () => ReturnType<typeof makeVault>) => {
     const realNow = Date.now;
@@ -419,13 +448,16 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
 
   it('says nothing for a long run of windows short of the threshold', async () => {
     const vault = strandedVault();
-    expect(await runWindows(29, () => vault)).toEqual({ status: 'in-sync', changed: false });
+    expect(await runWindows(justUnder, () => vault)).toEqual({ status: 'in-sync', changed: false });
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 
   it('asks the user once the silence has survived the full run', async () => {
     const vault = strandedVault();
-    expect(await runWindows(30, () => vault)).toEqual({ status: 'needs-user-input', changed: true });
+    expect(await runWindows(SILENT_DRIFT_WINDOWS_BEFORE_PROMPT, () => vault)).toEqual({
+      status: 'needs-user-input',
+      changed: true
+    });
     expect(vault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
     expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
   });
@@ -441,7 +473,10 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
       guardianSyncStatus: 'needs-user-input'
     });
 
-    expect(await runWindows(40, () => flagged)).toEqual({ status: 'needs-user-input', changed: false });
+    expect(await runWindows(SILENT_DRIFT_WINDOWS_BEFORE_PROMPT + 10, () => flagged)).toEqual({
+      status: 'needs-user-input',
+      changed: false
+    });
     expect(flagged.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 
@@ -453,7 +488,10 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
     const vault = strandedVault();
 
-    expect(await runWindows(60, () => vault)).toEqual({ status: 'in-sync', changed: false });
+    expect(await runWindows(SILENT_DRIFT_WINDOWS_BEFORE_PROMPT * 4, () => vault)).toEqual({
+      status: 'in-sync',
+      changed: false
+    });
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
   });
 
@@ -462,7 +500,7 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
   // endpoint.
   it('restarts the run when a window comes back uninformative', async () => {
     const vault = strandedVault();
-    await runWindows(29, () => vault);
+    await runWindows(justUnder, () => vault);
 
     (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
     await runWindows(1, () => vault);
@@ -478,7 +516,7 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
   // again the account resolves itself and the banner goes away untouched.
   it('self-clears when the briefly-down endpoint comes back and matches', async () => {
     const vault = strandedVault();
-    await runWindows(29, () => vault);
+    await runWindows(justUnder, () => vault);
 
     (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
     const recovered = makeVault({
@@ -492,10 +530,31 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     expect(recovered.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'customC');
   });
 
+  // The run tracks SILENCE, so an endpoint that answers ends it — even when the
+  // answer is a denial, which accuses on its own and never consults the run.
+  // `applyUserGuardianEndpoint` repairs an account without going through this
+  // function, so a run left behind here would be inherited by the account's next
+  // drift and shorten the wait for an accusation it did not earn.
+  it('drops the silent run once the stored endpoint answers at all', async () => {
+    const vault = strandedVault();
+    await runWindows(justUnder, () => vault);
+
+    // A denial: the endpoint answered and does not hold the on-chain key.
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+    const denied = strandedVault();
+    expect(await runWindows(1, () => denied)).toEqual({ status: 'needs-user-input', changed: true });
+
+    // Back to silence with the run cleared: a single window must not accuse.
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
+    const silentAgain = strandedVault();
+    expect(await runWindows(1, () => silentAgain)).toEqual({ status: 'in-sync', changed: false });
+    expect(silentAgain.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
   // A resolved account must not carry its old run into the next drift.
   it('forgets the run once the account is back in sync', async () => {
     const vault = strandedVault();
-    await runWindows(29, () => vault);
+    await runWindows(justUnder, () => vault);
 
     const inSync = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'customC', guardianSyncStatus: 'in-sync' });
     await resolveGuardianDrift(inSync as never, 'pk');

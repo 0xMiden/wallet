@@ -554,6 +554,13 @@ export const completeSwitchGuardianTransaction = async (
   // threw a second time and escaped this function entirely, leaving the row with
   // no terminal status at all.
   const resultFields = readTransactionResultFields(result);
+  // Declared OUT here, not in the try, because the fallback write in the catch
+  // needs them: they are the only record that a post-commit step did not land,
+  // and `GuardianSwitchSuccess` renders its "setup incomplete" warning off
+  // exactly these two. Scoped inside, the fallback wrote a row that claimed a
+  // clean switch on the two states the user most needs told about.
+  let endpointPersistFailed = false;
+  let registerFailed = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
 
@@ -603,7 +610,6 @@ export const completeSwitchGuardianTransaction = async (
     // Guardian accounts on different operators aren't clobbered. Backend
     // providers implement setGuardianEndpoint; the optional-call guard keeps a
     // frontend provider without it from throwing.
-    let endpointPersistFailed = false;
     try {
       await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
     } catch (persistError) {
@@ -615,7 +621,6 @@ export const completeSwitchGuardianTransaction = async (
       );
     }
 
-    let registerFailed = false;
     try {
       if (multisigService) {
         await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
@@ -654,14 +659,22 @@ export const completeSwitchGuardianTransaction = async (
     // reaching here means the status write itself failed — and answering that by
     // writing the OPPOSITE status would tell the user their rotation failed when
     // it succeeded, with no Retry available (`switch-guardian` is in no requeue
-    // set). Retry the honest status instead, without the optional result fields
-    // in case those were the problem, and leave the row alone if even that
-    // fails: the transaction page's own reaper is a better fallback than a lie.
+    // set). Retry the honest status instead, and leave the row alone if even
+    // that fails: the transaction page's own reaper is a better fallback than a
+    // lie.
+    //
+    // The retry carries the SAME payload as the primary write. An earlier
+    // version dropped `resultFields` here "in case those were the problem",
+    // which stopped being possible once the handle reads were hoisted above the
+    // try — `resultFields` is inert plain data by this point, so omitting it
+    // only cost the row its on-chain transaction id and the receipt's explorer
+    // link.
     console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      extraInputs: { ...tx.extraInputs }
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
+      ...resultFields
     }).catch(retryError => {
       console.error('Could not record the completed status for the guardian switch row either:', retryError);
     });

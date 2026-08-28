@@ -64,6 +64,10 @@ export type TransactionStage =
   | 'sending'
   | 'creating-proposal'
   | 'signing-proposal'
+  // Offline guardian rotation only: the direct switch signs hot+cold locally
+  // instead of asking an operator, so it stamps this where the proposal path
+  // stamps 'signing-proposal'.
+  | 'signing-locally'
   | 'executing'
   | 'proving'
   | 'submitting'
