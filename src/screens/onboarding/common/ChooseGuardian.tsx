@@ -194,7 +194,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   {isOffline ? (
                     <div
                       data-testid="guardian-offline-banner"
-                      className="flex h-8 w-full shrink-0 items-center justify-center bg-red-500 text-pure-white"
+                      className="flex h-8 w-full shrink-0 items-center justify-center bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300"
                     >
                       <span className="text-sm font-semibold">{t('guardianOfflineLabel')}</span>
                     </div>
@@ -239,6 +239,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             type="button"
             onClick={() => handleSelect(NO_GUARDIAN_ID)}
             data-testid="choose-no-guardian"
+            // Selection is otherwise conveyed by border colour alone. The
+            // title and subtitle already live inside this button, so they are
+            // the accessible name — no aria-label, unlike the provider cards
+            // whose operator name sits in a sibling node.
+            aria-pressed={selectedId === NO_GUARDIAN_ID}
             className={cn(
               'mt-4 flex flex-col items-start rounded-[20px] border-2 p-4 text-left transition-all duration-150 shrink-0',
               selectedId === NO_GUARDIAN_ID ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'

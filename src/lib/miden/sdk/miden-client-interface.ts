@@ -176,6 +176,14 @@ export type FungibleAssetDetails = {
 };
 
 /**
+ * What the local store knows about a submitted transaction's fate. Only
+ * `'committed'` and `'discarded'` are verdicts; see
+ * {@link MidenClient.getTransactionCommitState} for what each one licenses a
+ * caller to do.
+ */
+export type TransactionCommitState = 'committed' | 'discarded' | 'pending' | 'not-found';
+
+/**
  * One public-backfill op's outcome. The two "come back for more" signals are
  * mutually exclusive:
  *
@@ -1697,6 +1705,8 @@ export class MidenClientInterface {
    * Node-authoritative commit state of a specific transaction (by hex id).
    *
    *   - `'committed'` the tx is on chain (TransactionStatus has a block number).
+   *   - `'discarded'` the node REJECTED it. Unlike the two below, this is a
+   *                   verdict: the tx provably did not and will not land.
    *   - `'pending'`   the tx is locally known but not yet committed (still in
    *                   the mempool / awaiting a block) — it was submitted.
    *   - `'not-found'` no local record — INDETERMINATE. The tx may have landed on
@@ -1706,14 +1716,22 @@ export class MidenClientInterface {
    *
    * Used by the send/swap idempotent-retry guard (transaction/cancel.ts
    * `verifySendLanded`) so a Failed row whose original submit actually landed is
-   * never blindly resubmitted (double-send). Mirrors the note-state authority of
-   * `verifyConsumeLanded` but for the OUTPUT side, keyed on the tx id.
+   * never blindly resubmitted (double-send), and by the direct guardian switch's
+   * `didDirectSwitchLand` to decide whether a rotation whose commit wait expired
+   * may be finalized. Mirrors the note-state authority of `verifyConsumeLanded`
+   * but for the OUTPUT side, keyed on the tx id.
+   *
+   * `'discarded'` is read from the status itself rather than inferred from a
+   * missing block number, which a discarded record also has — collapsing the two
+   * reported the node's rejection as a tx still waiting for a block.
    */
-  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+  async getTransactionCommitState(txId: string): Promise<TransactionCommitState> {
     const transactions = await this.client.transactions.list();
     const record = transactions.find(tx => tx.id().toHex() === txId);
     if (!record) return 'not-found';
-    return record.transactionStatus().getBlockNum() !== undefined ? 'committed' : 'pending';
+    const status = record.transactionStatus();
+    if (status.isDiscarded()) return 'discarded';
+    return status.getBlockNum() !== undefined ? 'committed' : 'pending';
   }
 
   async waitForTransactionCommit(

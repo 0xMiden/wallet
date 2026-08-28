@@ -215,6 +215,10 @@ const PRE_SUBMIT_STAGES: ReadonlySet<ITransactionStage> = new Set<ITransactionSt
   'syncing',
   'creating-proposal',
   'signing-proposal',
+  // The direct switch's local hot+cold signing, which happens while the request
+  // is still being BUILT — strictly earlier than `signing-proposal`, so it
+  // belongs here for the same reason.
+  'signing-locally',
   'executing',
   'proving'
 ]);

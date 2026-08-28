@@ -1686,16 +1686,25 @@ const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): P
         reject(new Error(`${what} timed out after ${OUTGOING_GUARDIAN_DEADLINE_MS}ms — treating it as unreachable`)),
       OUTGOING_GUARDIAN_DEADLINE_MS
     );
-    run().then(
-      value => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      error => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
+    // `run()` is invoked here rather than taking a ready promise, so a SYNCHRONOUS
+    // throw from it has to be caught: uncaught, it would propagate out of the
+    // executor and leave the timer armed, keeping an MV3 service worker awake for
+    // 30s past a failure that already settled.
+    try {
+      run().then(
+        value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        error => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    } catch (syncError) {
+      clearTimeout(timer);
+      reject(syncError);
+    }
   });
 
 /**
@@ -1761,7 +1770,14 @@ const generateDirectSwitchGuardianTransaction = async (
   // completion reads. The two paths leave different states behind on a partial
   // failure, and the direct one acts on a VERDICT (the outgoing operator is
   // unreachable) that can be wrong — so a row that cannot say which path it took,
-  // or why, is not diagnosable after the fact. Nothing branches on these fields.
+  // or why, is not diagnosable after the fact.
+  //
+  // `switchedDirectly` began as pure audit but is now LOAD-BEARING:
+  // `reconcileStructuralApplyFailure` reads it to skip rebuilding a
+  // MultisigService from the outgoing guardian, which on this path is the
+  // operator the row exists because it could not reach. The in-memory assignment
+  // above is what that read consumes, so it stays correct even when the dexie
+  // write below fails. `directSwitchReason` remains diagnostic only.
   transaction.extraInputs = {
     ...transaction.extraInputs,
     switchedDirectly: true,
@@ -1777,13 +1793,12 @@ const generateDirectSwitchGuardianTransaction = async (
       console.warn('[Guardian] could not record the direct-switch marker on the row (non-fatal):', markError);
     });
 
-  // Hot + cold both sign at build time — surface that as the signing stage.
-  await setTransactionStage(transaction.id, 'signing-proposal');
-  const {
-    request: tr,
-    chainAnchorB64,
-    newGuardianPubkey
-  } = await createDirectSwitchGuardianRequest(
+  // Hot + cold both sign at build time, locally. NOT `signing-proposal`, whose
+  // copy tells the user their guardian is signing — on this path no operator is
+  // contacted at all, and the reason this path is running is that the outgoing
+  // one could not be reached.
+  await setTransactionStage(transaction.id, 'signing-locally');
+  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord
@@ -1831,11 +1846,14 @@ const generateDirectSwitchGuardianTransaction = async (
   // risks pointing the vault at an operator the chain never installed — a state
   // with no symptom and no self-repair (see `didDirectSwitchLand`).
   //
-  // So do not choose between them on a guess: ASK THE CHAIN. The rotation's
-  // whole effect is one on-chain commitment, and reading it costs a sync. Only
-  // when the chain cannot be read at all does this fall back to completing on no
-  // evidence — the lesser of the two harms, since that at least leaves a
-  // reachable operator and a row whose audit fields say what happened.
+  // So do not choose between them on a guess: ASK THE NODE whether it committed
+  // or discarded this transaction. Only when the node has no verdict — still
+  // pending, or no record at all — does this fall back to completing on no
+  // evidence, which is the lesser of the two harms: it at least leaves a
+  // reachable operator and a row whose audit fields say what happened. Note this
+  // asks about the TRANSACTION, not the account: `apply()` has already written
+  // the rotation into the local store, so an account read here would only ever
+  // confirm the wallet's own optimistic write (see `didDirectSwitchLand`).
   const id = result.executedTransaction().id().toHex();
   await setTransactionStage(transaction.id, 'confirming');
   let commitConfirmed = true;
@@ -1852,10 +1870,10 @@ const generateDirectSwitchGuardianTransaction = async (
   }
 
   if (!commitConfirmed) {
-    const landed = await didDirectSwitchLand(transaction.accountId, newGuardianPubkey);
+    const landed = await didDirectSwitchLand(id);
     if (landed === false) {
       throw new Error(
-        `Direct guardian switch ${id} did not land: the account's on-chain guardian is still not ${newGuardianPubkey}. ` +
+        `Direct guardian switch ${id} did not land: the node discarded it. ` +
           'Leaving the stored guardian endpoint untouched.'
       );
     }
@@ -1987,11 +2005,23 @@ const generateGuardianTransaction = async (
     }
     case 'switch-guardian': {
       const sgTx = transaction as SwitchGuardianTransaction;
+      // WHICH guardian an unreachability verdict here implicates depends on
+      // where in the block it failed, and this row's audit trail is the only
+      // record of it. The service load touches the OUTGOING operator alone. The
+      // proposal push does not: `createSwitchGuardianProposal` fetches the NEW
+      // guardian's pubkey FIRST (`guardian/index.ts`), so a typo'd or down NEW
+      // endpoint fails there — and reporting that as "outgoing guardian
+      // unreachable" blames the wrong operator on the one path whose entire job
+      // is saying which one is down. The two are not separable from out here
+      // (one rejection, either origin), so the message widens rather than
+      // guesses; the direct path then re-fails on the new endpoint and names it.
+      let unreachableSubject = 'outgoing guardian';
       try {
         service = await withOutgoingGuardianDeadline(
           () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
           'loading the outgoing guardian service'
         );
+        unreachableSubject = 'outgoing or new guardian';
         const { proposal } = await withGuardianConflictRetry(() =>
           withOutgoingGuardianDeadline(
             () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
@@ -2000,18 +2030,17 @@ const generateGuardianTransaction = async (
         );
         proposalResult = proposal;
       } catch (error) {
-        // The service load and the proposal push both round-trip through the
-        // OUTGOING guardian. When it is unreachable (down operator, DNS, proxy
-        // 5xx), fall back to the direct on-chain switch — the whole point of
+        // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
+        // fall back to the direct on-chain switch — the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.
         // Reachable-guardian errors (401/409/…) keep the normal handling.
         if (!isGuardianUnreachableError(error)) throw error;
-        console.warn('[Guardian] outgoing guardian unreachable — switching directly on-chain:', error);
+        console.warn(`[Guardian] ${unreachableSubject} unreachable — switching directly on-chain:`, error);
         await generateDirectSwitchGuardianTransaction(
           sgTx,
           signCallback,
           guardianProvider,
-          `outgoing guardian unreachable before the proposal was pushed: ${describeError(error)}`
+          `${unreachableSubject} unreachable before the proposal was pushed: ${describeError(error)}`
         );
         return;
       }

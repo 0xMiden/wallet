@@ -973,6 +973,14 @@
     "message": "您的 guardian 正在簽署此提案。",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "本機簽署",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "使用您的錢包金鑰簽署",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "提交交易",
     "englishSource": "Submitting transaction"
@@ -2433,13 +2441,16 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished."
+    "message": "設定尚未完成。",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+    "message": "切換已在鏈上確認，但此裝置無法儲存新 Guardian 的地址。錢包會自動檢查，並在需要時提示您重新輸入；這不會啟動另一次切換。如果沒有出現提示，請聯絡支援團隊。",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+    "message": "切換已在鏈上確認。使用新 Guardian 註冊您的帳戶尚未完成；錢包會自動重試有限次數。如果仍未完成，請聯絡支援團隊。",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
     "message": "從即日起，您的全新 Guardian 將共同簽署每筆交易——您舊有的 Guardian 將無法再為您共同簽署交易。",

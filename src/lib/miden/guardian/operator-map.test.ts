@@ -24,20 +24,29 @@ import {
   verifyEndpointMatchesCommitment
 } from './operator-map';
 
+const MOCK_DEFAULT_PUBKEYS: Record<string, string> = {
+  'https://guardian.openzeppelin.com': '0xAAA',
+  'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
+  'https://miden-guardian.lambdaclass.com': '0xCCC',
+  'https://guardian-testnet.kodax.com': '0xDDD',
+  // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
+  // network answers with a DIFFERENT key rather than with nothing.
+  'https://guardian-stg.openzeppelin.com': '0xEEE',
+  // The developer URL override, which is a selectable option in the onboarding
+  // picker but must never be probed as a built-in operator.
+  'https://dev-override.guardian.test': '0xFFF'
+};
+
+// What each endpoint's unauthenticated `GET /pubkey` answers. Mutable per case,
+// so a test can have two built-ins claim ONE commitment — a collision the map has
+// to decline rather than award to whichever answered first.
+let mockPubkeyByEndpoint: Record<string, string> = { ...MOCK_DEFAULT_PUBKEYS };
+
 jest.mock('@openzeppelin/guardian-client', () => ({
   GuardianHttpClient: class {
     constructor(public url: string) {}
     async getPubkey() {
-      const byUrl: Record<string, string> = {
-        'https://guardian.openzeppelin.com': '0xAAA',
-        'https://miden-guardian.dev.eu-north-3.gateway.fm': '0xBBB',
-        'https://miden-guardian.lambdaclass.com': '0xCCC',
-        'https://guardian-testnet.kodax.com': '0xDDD',
-        // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
-        // network answers with a DIFFERENT key rather than with nothing.
-        'https://guardian-stg.openzeppelin.com': '0xEEE'
-      };
-      return { commitment: byUrl[this.url] };
+      return { commitment: mockPubkeyByEndpoint[this.url] };
     }
   }
 }));
@@ -47,9 +56,13 @@ jest.mock('@openzeppelin/guardian-client', () => ({
 // effective network away from the build-baked one — the whole point of the
 // no-argument path below.
 let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+// The developer guardian-URL override. `getGuardianOptionsForNetwork` offers it as
+// a selectable provider; the built-in set this module probes must not include it.
+let mockGuardianUrlOverride = '';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockEffectiveNetwork
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveGuardianUrl: () => mockGuardianUrlOverride
 }));
 
 jest.mock('lib/miden/guardian/native-http', () => ({
@@ -58,6 +71,7 @@ jest.mock('lib/miden/guardian/native-http', () => ({
 
 afterEach(() => {
   jest.restoreAllMocks();
+  mockPubkeyByEndpoint = { ...MOCK_DEFAULT_PUBKEYS };
 });
 
 describe('normalizeHex', () => {
@@ -123,21 +137,129 @@ describe('the no-argument default', () => {
   it('identifies an operator against the effective network operator set', async () => {
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.DEVNET;
 
-    expect((await identifyGuardianOperator('0xEEE'))?.id).toBe('open-zeppelin');
+    expect(await identifyGuardianOperator('0xEEE')).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ id: 'open-zeppelin' })
+    });
     // The testnet operator's key is not reachable from devnet — a commitment
     // that only the build default's set holds must not resolve.
-    expect(await identifyGuardianOperator('aaa')).toBeUndefined();
+    expect(await identifyGuardianOperator('aaa')).toEqual({ outcome: 'none' });
   });
 });
 
 describe('identifyGuardianOperator', () => {
   it('identifies the operator whose pubkey matches the on-chain commitment', async () => {
-    const op = await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET); // unprefixed on-chain form
-    expect(op?.id).toBe('open-zeppelin');
+    const lookup = await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET); // unprefixed on-chain form
+    expect(lookup).toEqual({ outcome: 'identified', operator: expect.objectContaining({ id: 'open-zeppelin' }) });
   });
 
-  it('returns undefined when no operator matches (custom/rotated)', async () => {
-    expect(await identifyGuardianOperator('deadbeef', MIDEN_NETWORK_NAME.TESTNET)).toBeUndefined();
+  it('reports none when every built-in answered and none of them matches (custom/rotated)', async () => {
+    expect(await identifyGuardianOperator('deadbeef', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
+  });
+
+  // The distinction this type exists for. `resolveGuardianDrift` reads a `'none'`
+  // as "the guardian is a custom operator, so believe the endpoint the account
+  // already stores" and PERMANENTLY advances its commitment baseline on it. A
+  // round in which the built-ins simply did not answer proves nothing of the kind,
+  // and reporting it as `'none'` handed that permanence to anyone who could make
+  // the built-ins unreachable — a captive portal, an offline device, or a targeted
+  // outage.
+  it('reports unavailable when no built-in answered at all', async () => {
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementation(async () => {
+      throw new Error('network unreachable');
+    });
+
+    expect(await identifyGuardianOperator('deadbeef', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'unavailable'
+    });
+  });
+
+  // A partial round cannot rule out that the built-in which stayed silent is the
+  // one holding the key, so it is not a `'none'` either — otherwise suppressing a
+  // SINGLE operator would buy the same permanence as suppressing all four.
+  it('reports unavailable when one built-in did not answer, even though the others did', async () => {
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
+      throw new Error('network unreachable');
+    });
+
+    expect(await identifyGuardianOperator('deadbeef', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'unavailable'
+    });
+  });
+
+  // A match is complete evidence on its own: the operator served exactly this
+  // key, and nothing a silent sibling might have said could subtract from that.
+  // Requiring a complete round here too would strand every account whose guardian
+  // is a built-in for as long as any OTHER built-in is down.
+  it('still identifies a matching operator when a different built-in is unreachable', async () => {
+    jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
+      throw new Error('network unreachable');
+    });
+
+    // open-zeppelin (probed first) is the one that fails; gateway still answers.
+    expect(await identifyGuardianOperator('bbb', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ id: 'gateway' })
+    });
+  });
+
+  // Two built-ins claiming one guardian key cannot both be the operator the chain
+  // names, so one of them is misconfigured or answering for a host it does not
+  // own. The wallet cannot tell which, and this answer decides which endpoint an
+  // account is repaired TO — so it names neither, and says so as `'unavailable'`
+  // rather than as `'none'`, which a caller would read as licence to believe a
+  // stored endpoint instead.
+  it('names no operator when two built-ins serve the same commitment', async () => {
+    // kodax, probed LAST, claims the key open-zeppelin already served. Under
+    // arrival-order insertion the outcome depended on which reply landed first;
+    // now neither is named, in either order.
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
+
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+  });
+
+  it('declines the contested commitment without losing the ones only one operator claims', async () => {
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
+
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+    expect(await identifyGuardianOperator('bbb', MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ id: 'gateway' })
+    });
+  });
+
+  // A third claimant must not un-contest the key by overwriting the marker.
+  it('keeps a commitment contested when a third built-in claims it too', async () => {
+    mockPubkeyByEndpoint['https://miden-guardian.lambdaclass.com'] = '0xAAA';
+    mockPubkeyByEndpoint['https://guardian-testnet.kodax.com'] = '0xAAA';
+
+    expect(await identifyGuardianOperator('aaa', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'unavailable' });
+  });
+});
+
+// The corroboration source has to be wallet CODE. `getGuardianOptionsForNetwork`
+// appends the developer guardian-URL override — persisted, user-settable settings
+// state — and drift reconciliation lets a member of this set overwrite the
+// endpoint stored on an account, so a URL typed into dev settings must not appear
+// here.
+describe('the built-in set excludes the developer URL override', () => {
+  afterEach(() => {
+    mockGuardianUrlOverride = '';
+  });
+
+  it('does not probe the override endpoint', async () => {
+    mockGuardianUrlOverride = 'https://dev-override.guardian.test';
+
+    const map = await buildOperatorKeyMap(MIDEN_NETWORK_NAME.TESTNET);
+
+    expect(map.get('fff')).toBeUndefined();
+    expect(map.get('aaa')?.id).toBe('open-zeppelin');
+  });
+
+  it('does not let the override corroborate a commitment', async () => {
+    mockGuardianUrlOverride = 'https://dev-override.guardian.test';
+
+    expect(await identifyGuardianOperator('0xFFF', MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
   });
 });
 

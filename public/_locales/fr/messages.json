@@ -973,6 +973,14 @@
     "message": "Votre « guardian » correspond à la signature de la proposition.",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "Signature locale",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Signature avec les clés de votre portefeuille",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "Envoi de la transaction",
     "englishSource": "Submitting transaction"
@@ -2433,13 +2441,16 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished."
+    "message": "Configuration incomplète.",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+    "message": "Le changement est confirmé on-chain, mais cet appareil n’a pas pu enregistrer l’adresse du nouveau Guardian. Le portefeuille le vérifie automatiquement et vous invitera à la saisir à nouveau si nécessaire — cela ne lancera pas un autre changement. Si aucune invite n’apparaît, contactez l’assistance.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+    "message": "Le changement est confirmé on-chain. L’enregistrement de votre compte auprès du nouveau Guardian n’est pas encore terminé — le portefeuille réessaie automatiquement un nombre limité de fois. S’il n’est toujours pas terminé, contactez l’assistance.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
     "message": "Votre nouveau Guardian cosigne désormais chaque transaction — votre ancien Guardian ne peut plus cosigner de transactions pour votre compte.",

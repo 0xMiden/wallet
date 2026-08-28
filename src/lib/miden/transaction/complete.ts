@@ -513,6 +513,24 @@ export const completeUpdateProcedureThresholdTransaction = async (
   }
 };
 
+/**
+ * Extract the persistable fields of a {@link TransactionResult} without letting
+ * a WASM-handle failure propagate. Returns `undefined` when there is no result
+ * (the apply-after-submit reconcile path) or when the handle can no longer be
+ * read, so callers can spread it into a status payload unconditionally.
+ */
+const readTransactionResultFields = (
+  result: TransactionResult | undefined
+): { transactionId: string; resultBytes: Uint8Array } | undefined => {
+  if (!result) return undefined;
+  try {
+    return { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() };
+  } catch (error) {
+    console.warn('Could not read the transaction result for the guardian switch row (completing without it):', error);
+    return undefined;
+  }
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
@@ -522,6 +540,20 @@ export const completeSwitchGuardianTransaction = async (
   multisigService: MultisigService | undefined,
   guardianProvider: GuardianAccountProvider
 ) => {
+  // Read the WASM-backed result fields ONCE, up front, before anything that can
+  // select a terminal status depends on them.
+  //
+  // `executedTransaction()` and `serialize()` reach into a WASM handle that by
+  // now has been idle across the commit wait, an optional node-state read, and
+  // up to eight registration attempts with backoff — long enough for a #775
+  // poison eviction to have replaced the client and disposed the module
+  // underneath it. Read inline in the status payload, that throw landed INSIDE
+  // the post-commit section, where it selected the Failed path for a rotation
+  // that had already committed — the exact state the ordering below exists to
+  // prevent. Worse, the catch's own payload called `serialize()` again, so it
+  // threw a second time and escaped this function entirely, leaving the row with
+  // no terminal status at all.
+  const resultFields = readTransactionResultFields(result);
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
 
@@ -611,20 +643,27 @@ export const completeSwitchGuardianTransaction = async (
       // Preserve the audit fields (updateTransactionStatus Object.assigns the
       // whole extraInputs) and record which post-commit steps landed.
       extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed },
-      // `result` is absent on the apply-after-submit-failed reconcile path: the
-      // switch is already on chain, we just lack the local TransactionResult.
-      ...(result && {
-        transactionId: result.executedTransaction().id().toHex(),
-        resultBytes: result.serialize()
-      })
+      // Absent on the apply-after-submit-failed reconcile path (no local
+      // TransactionResult), and absent if reading the handle threw — the switch
+      // is on chain either way, so the row completes without them.
+      ...resultFields
     });
   } catch (error) {
-    console.error('Error completing switch guardian transaction:', error);
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to switch guardian',
+    // Past the commit, Failed is not an honest terminal status: the rotation IS
+    // on chain. Every step above records its own outcome instead of throwing, so
+    // reaching here means the status write itself failed — and answering that by
+    // writing the OPPOSITE status would tell the user their rotation failed when
+    // it succeeded, with no Retry available (`switch-guardian` is in no requeue
+    // set). Retry the honest status instead, without the optional result fields
+    // in case those were the problem, and leave the row alone if even that
+    // fails: the transaction page's own reaper is a better fallback than a lie.
+    console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
+    await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      displayMessage: 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      ...(result && { resultBytes: result.serialize() }),
-      error: error instanceof Error ? error.message : String(error)
+      extraInputs: { ...tx.extraInputs }
+    }).catch(retryError => {
+      console.error('Could not record the completed status for the guardian switch row either:', retryError);
     });
   }
 };

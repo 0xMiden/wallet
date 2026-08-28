@@ -68,6 +68,7 @@ export const getStageTitleKey = (stage?: ITransactionStage, type?: ITransactionT
   if (stage === 'syncing') return 'transactionStageSyncing';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposal';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposal';
+  if (stage === 'signing-locally') return 'transactionStageSigningLocally';
   if (stage === 'proving') return 'transactionStageProving';
   if (stage === 'submitting') return 'transactionStageSubmitting';
   if (stage === 'guardian-syncing') return 'transactionStageGuardianSyncing';
@@ -87,6 +88,7 @@ export const getStageDescriptionKey = (stage?: ITransactionStage): string => {
   if (stage === 'syncing') return 'transactionStageSyncingDescription';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposalDescription';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposalDescription';
+  if (stage === 'signing-locally') return 'transactionStageSigningLocallyDescription';
   if (stage === 'executing') return 'transactionStageExecutingDescription';
   if (stage === 'proving') return 'transactionStageProvingDescription';
   if (stage === 'submitting') return 'transactionStageSubmittingDescription';

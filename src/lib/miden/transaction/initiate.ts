@@ -7,6 +7,7 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
@@ -491,21 +492,28 @@ export const initiateBridgedReceiveTransaction = async (args: {
 };
 
 /**
+ * Do two rotation requests name the same operator? Trailing-slash tolerant via
+ * the same `sanitizeGuardianUrl` the wallet already uses for guardian-URL
+ * identity, so `https://g.example.com` and `https://g.example.com/` are one
+ * target rather than two.
+ */
+const sameGuardianEndpointTarget = (a: string, b: string): boolean => sanitizeGuardianUrl(a) === sanitizeGuardianUrl(b);
+
+/**
  * Queue a switch-guardian transaction for a Guardian account. The per-account
  * `guardianEndpoint` is NOT updated here — it's persisted only after the
  * on-chain proposal lands, in `completeSwitchGuardianTransaction`.
  *
- * Deduped against a rotation that is already in flight for this account, and the
- * existing row's id is returned instead of a second row being queued. Unlike the
- * value-moving types, a duplicate here is not merely wasteful: rotations are
+ * Deduped against a rotation that is already in flight for this account. Unlike
+ * the value-moving types, a duplicate here is not merely wasteful: rotations are
  * serialized per account (`withGuardianAccountLock`), so the second row starts
  * only AFTER the first has committed and persisted the new endpoint, and it then
  * performs a whole second on-chain `update_guardian` to the guardian the account
- * already has. Its post-commit registration also finds the account already
- * present on that operator, so the row lands `Completed` carrying a
- * `registerFailed` flag that describes nothing wrong. Returning the live id
- * instead sends the caller to the rotation that is actually running — the UI
- * navigates to `/generating-transaction/:txId` with whatever comes back.
+ * already has. Returning the live id instead sends the caller to the rotation
+ * that is actually running — the UI navigates to `/generating-transaction/:txId`
+ * with whatever comes back — but only when the in-flight row targets the SAME
+ * operator; a request for a different one is refused rather than silently
+ * redirected (see the check below).
  *
  * Completed and Failed rows are deliberately NOT deduped against: a finished
  * rotation must never block the next one, and a failed rotation is the case the
@@ -542,7 +550,23 @@ export const initiateSwitchGuardianTransaction = async (
       )
       .toArray();
     const inFlight = inFlightRows.find(row => compareAccountIds(row.accountId, accountId));
-    if (inFlight) return inFlight.id;
+    if (inFlight) {
+      // Returning the live id is right only for a genuine duplicate — the same
+      // rotation, asked for twice. When the in-flight row targets a DIFFERENT
+      // operator, handing back its id would navigate the user to a rotation to
+      // an endpoint they did not choose and report it as theirs, and nothing
+      // downstream would ever correct it (`TransactionSummaryBadge` renders
+      // nothing for `switch-guardian`). Refuse instead, naming the rotation that
+      // holds the account, so the caller can say what is actually running.
+      const inFlightEndpoint = inFlight.extraInputs?.newGuardianEndpoint;
+      if (inFlightEndpoint && !sameGuardianEndpointTarget(inFlightEndpoint, newGuardianEndpoint)) {
+        throw new Error(
+          `A guardian rotation to ${inFlightEndpoint} is already in progress for this account; ` +
+            'wait for it to finish before switching to a different guardian.'
+        );
+      }
+      return inFlight.id;
+    }
 
     const dbTransaction = new SwitchGuardianTransaction(
       accountId,

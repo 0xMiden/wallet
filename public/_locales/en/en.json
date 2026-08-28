@@ -194,6 +194,8 @@
   "transactionStageCreatingProposalDescription": "Building the transaction proposal for your guardian.",
   "transactionStageSigningProposal": "Signing with guardian",
   "transactionStageSigningProposalDescription": "Your guardian is signing the proposal.",
+  "transactionStageSigningLocally": "Signing locally",
+  "transactionStageSigningLocallyDescription": "Signing with your wallet keys",
   "transactionStageSubmitting": "Submitting transaction",
   "transactionStageSubmittingDescription": "Sending your signed transaction to the network.",
   "transactionStageGuardianSyncing": "Syncing with Guardian",

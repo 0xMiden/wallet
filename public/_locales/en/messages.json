@@ -973,6 +973,14 @@
     "message": "Your guardian is signing the proposal.",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "Signing locally",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Signing with your wallet keys",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "Submitting transaction",
     "englishSource": "Submitting transaction"

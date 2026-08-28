@@ -973,6 +973,14 @@
     "message": "Ваш представитель в Совете директоров (guardian) подписывает данное предложение.",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "Локальная подпись",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Подписание ключами вашего кошелька",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "Отправка транзакции",
     "englishSource": "Submitting transaction"
@@ -2433,13 +2441,16 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished."
+    "message": "Настройка не завершена.",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+    "message": "Смена подтверждена в блокчейне, но этому устройству не удалось сохранить адрес нового Guardian. Кошелёк проверяет это автоматически и при необходимости предложит ввести его снова — это не начнёт новую смену. Если подсказка не появится, обратитесь в службу поддержки.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+    "message": "Смена подтверждена в блокчейне. Регистрация вашей учётной записи у нового Guardian ещё не завершена — кошелёк автоматически повторяет попытку ограниченное число раз. Если она всё ещё не завершена, обратитесь в службу поддержки.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
     "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не может подписывать транзакции для вашего счёта.",

@@ -973,6 +973,14 @@
     "message": "guardian'ınız teklifi imzalamaktadır.",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "Yerel olarak imzalanıyor",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Cüzdan anahtarlarınızla imzalanıyor",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "İşlemi gönderme",
     "englishSource": "Submitting transaction"
@@ -2433,13 +2441,16 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished."
+    "message": "Kurulum tamamlanmadı.",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+    "message": "Değişiklik zincir üzerinde onaylandı, ancak bu cihaz yeni Guardian'ın adresini kaydedemedi. Cüzdan bunu otomatik olarak kontrol eder ve gerekirse adresi yeniden girmenizi ister; bu, başka bir değişiklik başlatmaz. İstem görünmezse destek ekibiyle iletişime geçin.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+    "message": "Değişiklik zincir üzerinde onaylandı. Hesabınızın yeni Guardian’a kaydı henüz tamamlanmadı; cüzdan sınırlı sayıda kez otomatik olarak yeniden dener. Hâlâ tamamlanmadıysa destek ekibiyle iletişime geçin.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
     "message": "Yeni Guardian’ınız bundan sonra her işlemi sizinle birlikte imzalayacaktır — eski Guardian’ınız artık hesabınız için işlemleri birlikte imzalayamaz.",
@@ -2538,7 +2549,7 @@
     "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
   },
   "connectivityGuardianCta": {
-    "message": "Guardian'e geçin",
+    "message": "Guardian’ı değiştir",
     "englishSource": "Switch Guardian"
   },
   "revealHotKey": {

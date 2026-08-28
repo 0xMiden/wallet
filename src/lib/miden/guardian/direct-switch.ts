@@ -20,7 +20,8 @@ import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
-import { assertGuardianKeyCommitment, getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from './account';
+import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
+import { withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
@@ -57,6 +58,17 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
  */
 
 const MAX_DIRECT_REGISTER_RETRIES = 8;
+
+/**
+ * Per-attempt ceiling on the `/configure` round-trip to the NEW guardian.
+ *
+ * Generous compared with the 5s read probes elsewhere, because this is a WRITE
+ * carrying the serialized account state and it runs once per rotation, not on a
+ * tick — expiring early costs a wasted attempt out of the budget. It only has to
+ * sit below "the user gives up", since its job is to stop a silent operator from
+ * parking the row forever rather than to hit a latency target.
+ */
+const DIRECT_REGISTER_TIMEOUT_MS = 30_000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -124,10 +136,22 @@ const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slic
 
 const ensureHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex : `0x${hex}`);
 
+/**
+ * Charset is validated as well as length because the only consumer is a
+ * SIGNATURE payload. `parseInt('zz', 16)` is `NaN`, which a `Uint8Array` store
+ * coerces to `0` — so a malformed nibble anywhere would silently substitute a
+ * zero byte and the request would carry a corrupt signature to the point of an
+ * opaque on-chain rejection, having spent a real write. Neither caller can
+ * produce non-hex today (both are vault/native `signWord` output), which is
+ * exactly why this must fail loudly if one ever starts to.
+ */
 const hexToBytes = (hex: string): Uint8Array => {
   const clean = stripHexPrefix(hex);
   if (clean.length % 2 !== 0) {
     throw new Error(`Invalid hex string length: ${clean.length}`);
+  }
+  if (clean.length > 0 && !/^[0-9a-fA-F]+$/.test(clean)) {
+    throw new Error('Invalid hex string: expected hex digits only');
   }
   const bytes = new Uint8Array(clean.length / 2);
   for (let i = 0; i < bytes.length; i++) {
@@ -185,18 +209,12 @@ const ecdsaSignatureAdviceEntry = (
  *
  * Only the NEW guardian is contacted (its `getPubkey` is unauthenticated), to
  * fetch the pubkey commitment the on-chain rotation installs.
- *
- * That commitment is also RETURNED, because it is the only local way to ask the
- * chain afterwards whether this rotation actually landed: the caller compares it
- * against the account's on-chain guardian commitment when the commit wait ends
- * without a verdict. Re-fetching it from the endpoint at that point would be a
- * second chance to get a different answer from a host that is already suspect.
  */
 export const createDirectSwitchGuardianRequest = async (
   walletAccount: WalletAccount,
   newGuardianEndpoint: string,
   signWord: SignWordFunction
-): Promise<{ request: TransactionRequest; chainAnchorB64: string; newGuardianPubkey: string }> => {
+): Promise<{ request: TransactionRequest; chainAnchorB64: string }> => {
   const { hotPublicKey, coldPublicKey } = walletAccount;
   if (!hotPublicKey || !coldPublicKey) {
     throw new Error(
@@ -305,7 +323,7 @@ export const createDirectSwitchGuardianRequest = async (
     });
     return rebuilt;
   });
-  return { request, chainAnchorB64: built.chainAnchorB64, newGuardianPubkey };
+  return { request, chainAnchorB64: built.chainAnchorB64 };
 };
 
 /**
@@ -318,16 +336,14 @@ export const createDirectSwitchGuardianRequest = async (
 const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && 'code' in err && err.code === 'account_already_exists';
 
-const normalizedCommitment = (hex: string): string => stripHexPrefix(hex).toLowerCase();
-
 /**
- * Ask the CHAIN whether a submitted direct rotation actually took effect.
+ * Ask the NODE whether a submitted direct rotation actually took effect.
  *
- * `true` = the account's on-chain guardian commitment is the new operator's, so
- * the rotation landed. `false` = it names something else, so it definitively did
- * NOT. `undefined` = no answer available (the sync or the account read failed, or
- * the account carries no guardian commitment at all) — which is not evidence in
- * either direction and must not be treated as one.
+ * `true` = the node has the transaction committed, so the rotation landed.
+ * `false` = the node DISCARDED it, so it definitively did not and never will.
+ * `undefined` = no verdict exists yet (still pending, no local record, or the
+ * read failed) — which is not evidence in either direction and must not be
+ * treated as one.
  *
  * This exists because the commit wait can end with no verdict, and the wallet
  * then has to decide whether to persist the new endpoint. Guessing is not
@@ -341,26 +357,37 @@ const normalizedCommitment = (hex: string): string => stripHexPrefix(hex).toLowe
  * is healthy and the account looks fine right up until a transaction needs a
  * co-signature the chain will not accept.
  *
- * Reading the commitment costs one sync and one local account read, and it
- * replaces that guess with a fact in the case that matters.
+ * WHY THE TRANSACTION AND NOT THE ACCOUNT. The obvious implementation — sync,
+ * re-read the account, compare its guardian commitment — cannot answer this
+ * question, and answers `true` almost unconditionally. The leaf pipeline calls
+ * `submittedTx.apply()` immediately after `submit()`, which persists the
+ * transaction's account delta into the LOCAL store; the rotation's whole effect
+ * is one storage slot, so the local account already names the new operator
+ * before this function runs. Guardian accounts are private storage mode, so
+ * there is no public account state to compare against either — the chain holds a
+ * commitment to the account, not its guardian slot. A commitment read would
+ * therefore be the wallet reading back its own optimistic write and reporting it
+ * as chain confirmation. The transaction RECORD is the thing the node has an
+ * opinion about, and `getTransactionCommitState` is the same authority
+ * `verifySendLanded` uses for the equivalent double-send question.
  */
-export const didDirectSwitchLand = async (
-  accountId: string,
-  newGuardianPubkey: string
-): Promise<boolean | undefined> => {
+export const didDirectSwitchLand = async (transactionId: string): Promise<boolean | undefined> => {
   try {
-    const onChain = await withWasmClientLock(async () => {
+    const state = await withWasmClientLock(async () => {
       await midenClientProxy.syncState();
-      const account = await midenClientProxy.getAccount(accountId);
-      return account ? getGuardianCommitmentFromAccount(account) : undefined;
+      return midenClientProxy.getTransactionCommitState(transactionId);
     });
-    if (!onChain) return undefined;
-    return normalizedCommitment(onChain) === normalizedCommitment(newGuardianPubkey);
+    if (state === 'committed') return true;
+    if (state === 'discarded') return false;
+    // 'pending' — submitted and still awaiting a block, so it may yet land — and
+    // 'not-found' — this client has no record, which the accessor documents as
+    // explicitly NOT evidence of not-landing — are both non-verdicts.
+    return undefined;
   } catch (error) {
     // A failure here is not a verdict — say so, rather than letting a broken read
     // masquerade as "did not land" and fail a rotation that may well have
     // committed.
-    console.warn('Could not read the on-chain guardian commitment to confirm the direct switch:', error);
+    console.warn('Could not read the node-side state of the direct switch transaction:', error);
     return undefined;
   }
 };
@@ -416,11 +443,25 @@ export const finalizeDirectGuardianSwitch = async (
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_DIRECT_REGISTER_RETRIES; attempt++) {
     try {
-      const response = await guardian.configure({
-        accountId: accountIdHex,
-        auth: { MidenEcdsa: { cosigner_commitments: signerCommitments } },
-        initialState: { data: stateBase64, accountId: accountIdHex }
-      });
+      // Bounded, for the same reason every call to the OUTGOING guardian is
+      // (`withOutgoingGuardianDeadline`): `GuardianHttpClient` calls bare `fetch`
+      // with no `AbortSignal`, so an operator that accepts the connection and
+      // then goes silent produces no error at all. The retry budget below bounds
+      // REJECTIONS and never advances on silence, and this call sits PAST the
+      // on-chain commit — so an unbounded wait here parks the row before its
+      // terminal status write, leaving the rotation screen spinning forever and
+      // never recording `registerFailed`, the very flag whose self-heal exists to
+      // finish this registration later. A deadline converts silence into an
+      // attempt failure the loop can consume.
+      const response = await withTimeout(
+        guardian.configure({
+          accountId: accountIdHex,
+          auth: { MidenEcdsa: { cosigner_commitments: signerCommitments } },
+          initialState: { data: stateBase64, accountId: accountIdHex }
+        }),
+        DIRECT_REGISTER_TIMEOUT_MS,
+        `New guardian ${newGuardianEndpoint} registration`
+      );
       // `!== true`, not `!response.success`: `fromServerConfigureResponse`
       // copies the field straight off `response.json()`, so a body of
       // `{"success":"false"}` is a truthy STRING and would read as a successful

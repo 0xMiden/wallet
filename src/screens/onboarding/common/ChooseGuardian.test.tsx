@@ -491,6 +491,10 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(banners[0]).toHaveTextContent('guardianOfflineLabel');
     // The banner sits inside the Gateway card (the button carrying its endpoint).
     expect(banners[0]!.closest('button')).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
+    // Same pairing as the GuardianSettings Offline pill: red-700 is 5.9:1 on
+    // red-50; red-300 exists only because the dark fill needs it
+    // (tailwind-colors.js), and a missing shade compiles to nothing.
+    expect(banners[0]).toHaveClass('text-red-700', 'dark:text-red-300');
   });
 
   it('renders no offline banner while pings are still checking or all online', () => {
@@ -572,5 +576,20 @@ describe('ChooseGuardian — no-guardian option', () => {
     fireEvent.click(screen.getByTestId('choose-no-guardian'));
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' });
+  });
+
+  it('exposes the no-guardian card as pressed when selected, since selection is otherwise colour-only', () => {
+    mockGetGuardianOptions.mockReturnValue(oneOption);
+    render(<ChooseGuardianScreen showNoGuardianOption />);
+
+    const noGuardian = screen.getByTestId('choose-no-guardian');
+    // Title + subtitle are children of this button, so they already name it.
+    // An aria-label would override that composed name for no gain.
+    expect(noGuardian).not.toHaveAttribute('aria-label');
+    expect(noGuardian).toHaveAccessibleName(/noGuardianOptionTitle/);
+    expect(noGuardian).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(noGuardian);
+    expect(noGuardian).toHaveAttribute('aria-pressed', 'true');
   });
 });

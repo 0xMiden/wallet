@@ -29,6 +29,13 @@ jest.mock('lib/miden/guardian/account', () => ({
   getGuardianCommitmentFromAccount: jest.fn()
 }));
 
+// `identifyGuardianOperator` answers a three-way lookup, because a caller
+// weighing it against an endpoint's self-report has to tell "every built-in
+// answered and none serves this key" from "the round could not establish that".
+const identified = (endpoint: string) => ({ outcome: 'identified', operator: { id: 'gateway', endpoint } });
+const noBuiltInServesIt = { outcome: 'none' };
+const corroborationUnavailable = { outcome: 'unavailable' };
+
 const makeVault = (acc: Record<string, unknown> | undefined) => ({
   getAccount: jest.fn(async () => acc),
   setGuardianEndpoint: jest.fn(),
@@ -82,7 +89,7 @@ it('stays in-sync (case/prefix-insensitive) when the baseline matches modulo 0x-
 
 it('auto-resolves to the matching built-in operator on drift', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
@@ -95,7 +102,7 @@ it('auto-resolves to the matching built-in operator on drift', async () => {
 
 it('writes the commitment baseline LAST — after status is finalized to in-sync — so a failed last write self-heals instead of sticking at resolving', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
   const order = trackWriteOrder(vault);
 
@@ -130,7 +137,7 @@ it('does not write anything when the baseline matches on-chain and status is alr
 
 it('auto-resolves on first-ever check, when no baseline commitment is stored yet', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://g' });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
   const vault = makeVault({ publicKey: 'pk' });
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
@@ -142,7 +149,7 @@ it('auto-resolves on first-ever check, when no baseline commitment is stored yet
 
 it('flags needs-user-input when no built-in operator matches', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC' });
 
   expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
@@ -156,7 +163,7 @@ it('flags needs-user-input when no built-in operator matches', async () => {
 it('affirms in-sync when the STORED endpoint matches on-chain and no built-in claims that commitment — a deliberate custom-URL switch must not flag needs-user-input', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -184,7 +191,7 @@ it('affirms in-sync when the STORED endpoint matches on-chain and no built-in cl
 it('prefers a built-in operator over a stored endpoint that self-certifies with the same commitment', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({ id: 'gateway', endpoint: 'https://real.guardian' });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://real.guardian'));
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -200,6 +207,86 @@ it('prefers a built-in operator over a stored endpoint that self-certifies with 
   expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
 });
 
+// Every built-in probe swallows its own failure, so a round where none of them
+// answered used to be indistinguishable from a round that answered "no built-in
+// serves this commitment" — and the second one advances the baseline, which
+// latches: from then on the cheap first branch answers `in-sync` with no probe at
+// all. So a captive network, an offline device, or an attacker who can drop
+// traffic to the built-ins was enough to make a stored endpoint's self-report
+// permanent, which is the exact state the corroboration exists to prevent.
+it('does not advance the baseline when the built-in corroboration could not run', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://hostile.guardian',
+    guardianSyncStatus: 'in-sync'
+  });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+
+  // Nothing at all is written: not the baseline that would latch the claim, and
+  // not a status either — affirming `in-sync` off an unverified self-report would
+  // let a hostile endpoint clear a warning the user has not resolved.
+  expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
+  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+});
+
+// The withheld baseline must not cost the user an accusation either: the account
+// keeps whatever status it had, so nothing new appears on screen.
+it('preserves a flagged status when a stored-endpoint match cannot be corroborated', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://custom.guardian',
+    guardianSyncStatus: 'needs-user-input'
+  });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: false });
+
+  expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+});
+
+// Not advancing the baseline is only tolerable because the next probe window
+// settles it — and only bounded because that window is a minute wide, not a tick.
+it('re-probes an uncorroborated match after the cooldown and settles once the built-ins answer', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+  const drifted = () =>
+    makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://custom.guardian',
+      guardianSyncStatus: 'in-sync'
+    });
+
+  await resolveGuardianDrift(drifted() as never, 'pk');
+  expect(identifyGuardianOperator).toHaveBeenCalledTimes(1);
+
+  // Inside the window the tick is free: no probe, no fan-out, no write.
+  await resolveGuardianDrift(drifted() as never, 'pk');
+  expect(checkEndpointCommitment).toHaveBeenCalledTimes(1);
+  expect(identifyGuardianOperator).toHaveBeenCalledTimes(1);
+
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+  const realNow = Date.now;
+  Date.now = () => realNow() + 61_000;
+  const settled = drifted();
+  try {
+    expect(await resolveGuardianDrift(settled as never, 'pk')).toEqual({ status: 'in-sync', changed: true });
+  } finally {
+    Date.now = realNow;
+  }
+  expect(settled.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'customC');
+});
+
 // The built-in's endpoint is a literal in wallet config; the stored one may have
 // been typed by a user. Comparing them verbatim would read a trailing slash or a
 // difference in host case as a different operator, rewrite the account's endpoint
@@ -207,10 +294,7 @@ it('prefers a built-in operator over a stored endpoint that self-certifies with 
 it('treats a stored endpoint differing from the built-in only in trailing slash and case as the same endpoint', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({
-    id: 'gateway',
-    endpoint: 'https://Guardian.Example.com'
-  });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://Guardian.Example.com'));
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -226,7 +310,7 @@ it('treats a stored endpoint differing from the built-in only in trailing slash 
 
 it('still flags needs-user-input when the stored endpoint does NOT match on-chain (genuine out-of-band switch)', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
   const vault = makeVault({
     publicKey: 'pk',
@@ -241,6 +325,27 @@ it('still flags needs-user-input when the stored endpoint does NOT match on-chai
   expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
+// An unavailable built-in round withholds the baseline on the `'match'` path, but
+// it must NOT soften this one. Here the stored endpoint itself denied holding the
+// on-chain key, so the drift is established without the built-ins having answered
+// anything — and the account genuinely needs a URL only the user can supply.
+it('still flags needs-user-input on a stored-endpoint mismatch when the built-in round could not complete', async () => {
+  (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+  (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+  const vault = makeVault({
+    publicKey: 'pk',
+    guardianOperatorCommitment: 'oldC',
+    guardianEndpoint: 'https://stale.guardian'
+  });
+
+  expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'needs-user-input', changed: true });
+
+  expect(vault.setGuardianSyncStatus).toHaveBeenNthCalledWith(1, 'pk', 'resolving');
+  expect(vault.setGuardianSyncStatus).toHaveBeenLastCalledWith('pk', 'needs-user-input');
+  expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
+});
+
 // An unanswered probe is not evidence of drift. Writing `needs-user-input` here
 // would accuse an endpoint that may be exactly right, and this path re-runs on
 // every ~3s sync tick — so a single outage would otherwise sit the user in front
@@ -248,7 +353,7 @@ it('still flags needs-user-input when the stored endpoint does NOT match on-chai
 it('changes nothing when the stored endpoint is silent and no built-in matches', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -265,6 +370,142 @@ it('changes nothing when the stored endpoint is silent and no built-in matches',
   expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
 });
 
+// The one state in the whole flow with no other exit: the chain names a CUSTOM
+// operator N, the vault names the dead operator O the rotation was fleeing, and
+// neither evidence source can say so — O is unreachable by definition on the
+// direct path, and the built-in lookup matches built-ins only, so a custom N
+// never matches. Withholding the accusation forever (correct on any single
+// window) therefore also withheld it from the account that genuinely needs it,
+// and the prompt is what reaches `applyUserGuardianEndpoint`, the verified
+// repair. Duration is the only thing that separates the two.
+describe('a sustained silent drift eventually asks the user, but a blip never does', () => {
+  const strandedVault = () =>
+    makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://dead.guardian',
+      guardianSyncStatus: 'in-sync'
+    });
+
+  // The clock is monotonic ACROSS calls, not per call: each window has to land
+  // past the cooldown the previous one set, or the probe is skipped and the
+  // window never happens — which would make every assertion below pass for the
+  // wrong reason.
+  let elapsedWindows = 0;
+
+  /** Run `count` probe WINDOWS, stepping past the cooldown between each. */
+  const runWindows = async (count: number, vault: () => ReturnType<typeof makeVault>) => {
+    const realNow = Date.now;
+    const base = realNow();
+    let last: { status: string; changed: boolean } = { status: 'in-sync', changed: false };
+    try {
+      for (let window = 0; window < count; window++) {
+        const at = base + elapsedWindows++ * 61_000;
+        Date.now = () => at;
+        last = await resolveGuardianDrift(vault() as never, 'pk');
+      }
+    } finally {
+      Date.now = realNow;
+    }
+    return last;
+  };
+
+  beforeEach(() => {
+    elapsedWindows = 0;
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+  });
+
+  it('says nothing for a long run of windows short of the threshold', async () => {
+    const vault = strandedVault();
+    expect(await runWindows(29, () => vault)).toEqual({ status: 'in-sync', changed: false });
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  it('asks the user once the silence has survived the full run', async () => {
+    const vault = strandedVault();
+    expect(await runWindows(30, () => vault)).toEqual({ status: 'needs-user-input', changed: true });
+    expect(vault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
+    expect(vault.setGuardianSyncStatus).toHaveBeenCalledWith('pk', 'needs-user-input');
+  });
+
+  // The status write is what broadcasts fresh account state to the popup. Once
+  // flagged, repeating it every window would do that once a minute for as long
+  // as the account stays stranded, and nothing about the account has changed.
+  it('does not re-write the flag on every window once it is set', async () => {
+    const flagged = makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://dead.guardian',
+      guardianSyncStatus: 'needs-user-input'
+    });
+
+    expect(await runWindows(40, () => flagged)).toEqual({ status: 'needs-user-input', changed: false });
+    expect(flagged.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  // An offline device, a captive network or an attacker suppressing one operator
+  // all report `'unavailable'`, and none of them says anything about why THIS
+  // endpoint is silent. Counting wall-clock instead of informative windows would
+  // let any of them buy the accusation by simply lasting long enough.
+  it('never accuses on windows where the built-in round could not complete', async () => {
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+    const vault = strandedVault();
+
+    expect(await runWindows(60, () => vault)).toEqual({ status: 'in-sync', changed: false });
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  // The run has to be UNBROKEN. A device that drops off the network for a while
+  // mid-outage must not have those windows count toward a verdict about the
+  // endpoint.
+  it('restarts the run when a window comes back uninformative', async () => {
+    const vault = strandedVault();
+    await runWindows(29, () => vault);
+
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(corroborationUnavailable);
+    await runWindows(1, () => vault);
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
+
+    // Were the count merely paused rather than reset, this single window would
+    // reach the threshold and accuse.
+    expect(await runWindows(1, () => vault)).toEqual({ status: 'in-sync', changed: false });
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  // The false-positive cost has to stay bounded: the moment the endpoint speaks
+  // again the account resolves itself and the banner goes away untouched.
+  it('self-clears when the briefly-down endpoint comes back and matches', async () => {
+    const vault = strandedVault();
+    await runWindows(29, () => vault);
+
+    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    const recovered = makeVault({
+      publicKey: 'pk',
+      guardianOperatorCommitment: 'oldC',
+      guardianEndpoint: 'https://dead.guardian',
+      guardianSyncStatus: 'in-sync'
+    });
+
+    expect(await runWindows(1, () => recovered)).toEqual({ status: 'in-sync', changed: true });
+    expect(recovered.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk', 'customC');
+  });
+
+  // A resolved account must not carry its old run into the next drift.
+  it('forgets the run once the account is back in sync', async () => {
+    const vault = strandedVault();
+    await runWindows(29, () => vault);
+
+    const inSync = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'customC', guardianSyncStatus: 'in-sync' });
+    await resolveGuardianDrift(inSync as never, 'pk');
+
+    const again = strandedVault();
+    expect(await runWindows(1, () => again)).toEqual({ status: 'in-sync', changed: false });
+    expect(again.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+});
+
 // The state that made this the difference between recoverable and not: a
 // rotation whose `update_guardian` COMMITTED but whose endpoint write did not
 // (`endpointPersistFailed`). The vault still names the previous operator, and on
@@ -275,10 +516,7 @@ it('changes nothing when the stored endpoint is silent and no built-in matches',
 it('names the on-chain operator even when the stored endpoint is silent', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue({
-    id: 'gateway',
-    endpoint: 'https://new.guardian'
-  });
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://new.guardian'));
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -302,7 +540,7 @@ it('names the on-chain operator even when the stored endpoint is silent', async 
 it('preserves an already-flagged status when the stored endpoint cannot be reached', async () => {
   (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
   (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
-  (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+  (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   const vault = makeVault({
     publicKey: 'pk',
     guardianOperatorCommitment: 'oldC',
@@ -334,7 +572,7 @@ describe('operator-probe cooldown', () => {
   beforeEach(() => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('customC');
     (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
-    (identifyGuardianOperator as jest.Mock).mockResolvedValue(undefined);
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(noBuiltInServesIt);
   });
 
   it('probes once and then reports the stored status without re-probing', async () => {

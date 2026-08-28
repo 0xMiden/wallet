@@ -49,6 +49,19 @@ describe('useGuardianAvailability', () => {
     });
   });
 
+  // `pingGuardianEndpoint` documents never-throws, but it calls
+  // `registerGuardianOrigin` OUTSIDE its own try — the rejection arm is what
+  // turns a hostile/malformed endpoint into 'offline' rather than an
+  // unhandled rejection per endpoint per round. Deleting that arm used to
+  // leave this file green because no test ever rejected the ping.
+  it('marks an endpoint offline when its ping rejects', async () => {
+    mockPing.mockRejectedValue(new Error('registerGuardianOrigin exploded'));
+    const { result } = renderHook(() => useGuardianAvailability(['https://hostile.example.com']));
+
+    await act(async () => undefined);
+    expect(result.current).toEqual({ 'https://hostile.example.com': 'offline' });
+  });
+
   // Unmount has to STOP the hook, and what is observable about that is also what
   // costs something: the 30s interval and the two foreground listeners outlive
   // the component unless the effect's cleanup tears them down, so a picker
@@ -81,17 +94,32 @@ describe('useGuardianAvailability', () => {
     }
   });
 
-  // The other half of teardown: a verdict for a ping that was already out when
-  // the screen closed still has to settle harmlessly — the round's promise chain
-  // must not throw or reject into an unhandled rejection.
+  // React 18 discards setState on an unmounted hook silently (the warning it
+  // used to print is gone), so the `generationRef` mismatch guard is
+  // unobservable: a verdict landing after unmount looks identical with the
+  // guard and without it. This test therefore does NOT claim to prove that
+  // guard. What it can observe is that the already-out promise chain itself
+  // must not reject into the runtime — an unhandled rejection per closed
+  // picker.
   it('absorbs a verdict that arrives after unmount', async () => {
-    const resolvers = deferredPings();
-    const endpoint = 'https://gone.example.com';
-    const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://gone.example.com';
+      const { unmount } = renderHook(() => useGuardianAvailability([endpoint]));
 
-    unmount();
+      unmount();
 
-    await expect(act(async () => resolvers.get(endpoint)!(true))).resolves.toBeUndefined();
+      await act(async () => resolvers.get(endpoint)!(true));
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   // Regression: the effect used to key on array IDENTITY, so a caller passing
@@ -136,21 +164,35 @@ describe('useGuardianAvailability', () => {
 
   it('re-probes immediately when the app returns to the foreground', async () => {
     jest.useFakeTimers();
+    const visibility = jest.spyOn(document, 'visibilityState', 'get');
     try {
       const endpoint = 'https://resumed.example.com';
       mockPing.mockResolvedValue(true);
+      visibility.mockReturnValue('visible');
       renderHook(() => useGuardianAvailability([endpoint]));
       await act(async () => undefined);
       expect(mockPing).toHaveBeenCalledTimes(1);
 
-      // A wallet spends most of its life backgrounded; verdicts from before the
-      // suspend describe a different moment.
+      // jsdom's visibilityState is already 'visible', so dispatching
+      // visibilitychange alone never proved the handler distinguished
+      // hidden→visible from visible→hidden. A change while still hidden is
+      // the tab going away — probing then costs the operator and cannot
+      // update a screen the user is not looking at.
+      visibility.mockReturnValue('hidden');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      // The resume: hidden → visible. This is the path that must re-probe.
+      visibility.mockReturnValue('visible');
       await act(async () => {
         document.dispatchEvent(new Event('visibilitychange'));
       });
 
       expect(mockPing).toHaveBeenCalledTimes(2);
     } finally {
+      visibility.mockRestore();
       jest.useRealTimers();
     }
   });

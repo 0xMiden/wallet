@@ -595,6 +595,13 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
       console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
     }
     const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(txId));
+    // `'discarded'` is deliberately NOT `'landed'`: the node rejected the tx, so
+    // its effect provably did not happen and calling it landed would assert the
+    // opposite. It joins `'not-found'` in the indeterminate bucket, which is the
+    // funds-safe answer here — `'unknown'` surfaces the row rather than
+    // auto-completing OR auto-resubmitting it. (Before the state read reported
+    // discards at all, a discarded tx had no block number and so read as
+    // `'pending'`, i.e. as `'landed'`.)
     return state === 'committed' || state === 'pending' ? 'landed' : 'unknown';
   } catch (error) {
     console.error('[verifySendLanded] error checking tx state for', tx.id, error);

@@ -306,8 +306,7 @@ describe('initiateSwitchGuardianTransaction', () => {
   // A second row is not merely redundant. Rotations are serialized per account,
   // so it runs only AFTER the first committed and persisted the new endpoint, and
   // then performs a whole second on-chain `update_guardian` to the guardian the
-  // account already has — whose registration then reports a `registerFailed` that
-  // describes nothing wrong.
+  // account already has.
   it.each([
     ['Queued', ITransactionStatus.Queued],
     ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction]
@@ -317,9 +316,39 @@ describe('initiateSwitchGuardianTransaction', () => {
     const row = txStore.find(r => r.id === first)!;
     row.status = status;
 
-    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://other.guardian', false, provider);
+    // The SAME target: this is one rotation asked for twice, which is the only
+    // case where handing back the live id is honest.
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
 
     expect(second).toBe(first);
+    expect(txStore).toHaveLength(1);
+  });
+
+  // Trailing-slash difference only — still the same operator, so still a duplicate.
+  it('treats a trailing-slash variant of the in-flight target as the same rotation', async () => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    txStore.find(r => r.id === first)!.status = ITransactionStatus.GeneratingTransaction;
+
+    const second = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian/', false, provider);
+
+    expect(second).toBe(first);
+    expect(txStore).toHaveLength(1);
+  });
+
+  // Returning the in-flight id here would navigate the user to a rotation toward
+  // an endpoint they did not choose and report it as the one they asked for —
+  // nothing downstream ever corrects that, since the in-progress screen renders
+  // no summary for `switch-guardian`.
+  it('refuses rather than redirecting when the in-flight rotation targets a different guardian', async () => {
+    const provider = makeGuardianProvider(true);
+    const first = await initiateSwitchGuardianTransaction('acc-1', 'https://new.guardian', false, provider);
+    txStore.find(r => r.id === first)!.status = ITransactionStatus.GeneratingTransaction;
+
+    await expect(initiateSwitchGuardianTransaction('acc-1', 'https://other.guardian', false, provider)).rejects.toThrow(
+      'A guardian rotation to https://new.guardian is already in progress'
+    );
+    // And it must not have queued a competing row on the way out.
     expect(txStore).toHaveLength(1);
   });
 
@@ -4127,7 +4156,9 @@ describe('generateTransaction — Guardian routing', () => {
       provider as never
     );
 
-    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('guardian-acc', `0x${'ab'.repeat(32)}`);
+    // Asked about the TRANSACTION, by its id — not about the account, whose local
+    // guardian slot `apply()` has already overwritten with this very rotation.
+    expect(mockDidDirectSwitchLand).toHaveBeenCalledWith('exec-tx-hash');
     // Neither half of completion may run: the vault must keep naming the guardian
     // that still holds the account.
     expect(setGuardianEndpoint).not.toHaveBeenCalled();
@@ -5531,6 +5562,32 @@ describe('generateTransaction — direct switch audit marker', () => {
     expect(extra).toMatchObject({ switchedDirectly: true });
     expect(extra.directSwitchReason).toContain('before the proposal was pushed');
     expect(extra.directSwitchReason).toContain('HTTP 503');
+    // The service load reaches ONLY the outgoing operator, so the attribution
+    // can be exact here — and must not widen, or the precise case loses its
+    // precision to the imprecise one.
+    expect(extra.directSwitchReason).toContain('outgoing guardian unreachable');
+    expect(extra.directSwitchReason).not.toContain('outgoing or new');
+  });
+
+  // `createSwitchGuardianProposal` fetches the NEW guardian's pubkey before it
+  // posts anything to the outgoing one, so a typo'd or down NEW endpoint fails
+  // inside this arm. Attributing that to the outgoing guardian blamed the wrong
+  // operator on the one path whose whole job is saying which one is down.
+  it('does not blame the outgoing guardian for a failure that may be the new endpoint', async () => {
+    const txId = 'switch-guardian-marker-proposal-push';
+    const provider = setup(txId);
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => {
+        throw new Error('Failed to fetch');
+      }),
+      abandonCandidate: jest.fn(async () => {})
+    });
+
+    await run(txId, provider);
+
+    const extra = markerExtraInputs(txId);
+    expect(extra).toMatchObject({ switchedDirectly: true });
+    expect(extra.directSwitchReason).toContain('outgoing or new guardian unreachable');
   });
 
   it('distinguishes the post-proposal cold-co-sign fallback in the recorded reason', async () => {

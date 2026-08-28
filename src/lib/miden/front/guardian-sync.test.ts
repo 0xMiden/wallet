@@ -873,6 +873,55 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
   });
 
+  // The guard above protects write AUTHORITY, so an unreadable commitment has to
+  // refuse exactly like a mismatched one. Both reads used to be caught to
+  // `undefined` and the comparison was gated on both being present, so a failure
+  // on either side SKIPPED the check and fell through to the push — a rotated-out
+  // device could then revoke the device that now owns the account, on the strength
+  // of a read error.
+  it('does not register when the on-chain hot-signer commitment cannot be read', async () => {
+    mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
+
+    await runUntilPersistent();
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  it('does not register when this device\u2019s own hot-key commitment cannot be derived', async () => {
+    mockCommitmentFromPublicKeyHex.mockRejectedValue(new Error('cannot derive commitment'));
+
+    await runUntilPersistent();
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // F-059's rule: a REFUSED guard check stamps the backoff clock without spending
+  // an attempt, so three transient read failures cannot burn the write budget the
+  // recovery needs. The refusal above is on that same path, so once the reads
+  // recover, the full budget is still there.
+  it('spends no attempt on a refusal, so the push still lands once the reads recover', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    mockGetSignerDetails.mockRejectedValue(new Error('signer slot unreadable'));
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    // A refusal DID stamp the clock, so the same instant buys nothing…
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    // …but the first backoff gap is the one an unspent budget gets, not a
+    // doubled one, and the attempt is still available.
+    nowSpy.mockReturnValue(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+
+    nowSpy.mockRestore();
+  });
+
   // The state this device would POST becomes the operator's authoritative copy of
   // a PRIVATE account — nothing on chain carries it, and the drift reconciler
   // compares only the guardian KEY commitment, so a stale push is undetectable

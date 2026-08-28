@@ -270,6 +270,11 @@ export interface IConsumeSwapSettleExtraInputs {
  *   - sending              : legacy broad SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
+ *   - signing-locally      : direct switch-guardian only, while the wallet's own
+ *                            hot+cold keys sign — no operator is contacted, which
+ *                            is why this cannot reuse `signing-proposal`: that
+ *                            stage's copy says the guardian is signing, and the
+ *                            direct path exists precisely because it is not
  *   - executing            : Guardian only, while executing the signed request
  *   - proving              : Guardian only, while proving the executed transaction
  *   - submitting           : Guardian only, while submitting the proven transaction
@@ -292,6 +297,7 @@ export const TRANSACTION_STAGES = [
   'sending',
   'creating-proposal',
   'signing-proposal',
+  'signing-locally',
   'executing',
   'proving',
   'submitting',

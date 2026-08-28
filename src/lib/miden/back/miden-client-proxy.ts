@@ -24,7 +24,11 @@ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import type { InputNoteDetails, RecoveryRangeResult } from 'lib/miden/sdk/miden-client-interface';
+import type {
+  InputNoteDetails,
+  RecoveryRangeResult,
+  TransactionCommitState
+} from 'lib/miden/sdk/miden-client-interface';
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
@@ -1184,7 +1188,7 @@ export const midenClientProxy = {
    * conservative answer — but it logs, instead of quietly reporting a state the
    * client never checked.
    */
-  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+  async getTransactionCommitState(txId: string): Promise<TransactionCommitState> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return (await getMidenClient()).getTransactionCommitState(txId);
     }
@@ -1192,7 +1196,7 @@ export const midenClientProxy = {
     if (resultB64 == null) {
       throw new Error('getTransactionCommitState: offscreen returned no result');
     }
-    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as 'committed' | 'pending' | 'not-found';
+    return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as TransactionCommitState;
   },
 
   /**

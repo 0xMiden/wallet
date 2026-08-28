@@ -79,6 +79,16 @@ const GUARDIAN_RECEIPT_KEYS = [
  * address did not change" bullet has to survive.
  */
 const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBlockBody'] as const;
+const CONNECTIVITY_GUARDIAN_KEYS = [
+  'connectivityGuardianTitle',
+  'connectivityGuardianBody',
+  'connectivityGuardianCta'
+] as const;
+const GUARDIAN_SETUP_WARNING_KEYS = [
+  'guardianSwitchSetupIncompleteTitle',
+  'guardianSwitchEndpointNotSavedBody',
+  'guardianSwitchRegistrationPendingBody'
+] as const;
 
 /**
  * Per-language wording that misdescribes the Guardian. Two families:
@@ -671,7 +681,7 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     // doesn't land.
     const body = message('guardianSwitchRegistrationPendingBody');
     expect(body).not.toMatch(/keeps retrying/i);
-    expect(body).toMatch(/limited number of times|a few times|automatically/i);
+    expect(body).toMatch(/limited number of times|a few times/i);
     expect(body).toMatch(/contact support/i);
   });
 
@@ -844,19 +854,24 @@ describe('Guardian explainer copy accuracy (#479)', () => {
       // "d’Guardian" elides before a consonant, which is ungrammatical; the
       // wallet's own "Changer de portefeuille" is the pattern.
       expect(cta('fr')).toBe('Changer de Guardian');
+      expect(cta('tr')).toBe('Guardian’ı değiştir');
       expect(cta('uk')).toBe('Змінити Guardian');
     });
 
-    it('keeps the corrected flat bundles in step with messages.json', () => {
+    it('ships and keeps the Guardian connectivity and setup warnings in sync in every locale', () => {
       // The flat bundle is what the UI renders; messages.json is what the
-      // generator reads. A correction in one only is either invisible or gets
-      // regenerated away.
-      for (const locale of ['de', 'pt', 'fr', 'uk']) {
+      // generator reads. The latter must have an englishSource equal to the
+      // current English so format-locales emits the real translation into the
+      // former rather than silently omitting it as stale.
+      for (const locale of LOCALES) {
+        const localeMessages = readMessages(locale);
         const flat: Record<string, string> = JSON.parse(
           fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
         );
-        for (const key of ['connectivityGuardianTitle', 'connectivityGuardianCta']) {
-          expect(flat[key]).toBe(readMessages(locale)[key]?.message);
+        for (const key of [...CONNECTIVITY_GUARDIAN_KEYS, ...GUARDIAN_SETUP_WARNING_KEYS]) {
+          expect(localeMessages[key]?.message).toBeTruthy();
+          expect(flat[key]).toBeTruthy();
+          expect(flat[key]).toBe(localeMessages[key]?.message);
         }
       }
     });

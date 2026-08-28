@@ -4,6 +4,7 @@ import type { WalletAccount } from 'lib/shared/types';
 
 import {
   createDirectSwitchGuardianRequest,
+  didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
   isGuardianUnreachableError
 } from './direct-switch';
@@ -36,10 +37,12 @@ jest.mock('../sdk/chain-anchor', () => ({
 
 const mockProxySyncState = jest.fn(async () => {});
 const mockProxyGetAccount = jest.fn();
+const mockProxyGetTransactionCommitState = jest.fn();
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
     syncState: () => mockProxySyncState(),
-    getAccount: (...args: unknown[]) => mockProxyGetAccount(...args)
+    getAccount: (...args: unknown[]) => mockProxyGetAccount(...args),
+    getTransactionCommitState: (...args: unknown[]) => mockProxyGetTransactionCommitState(...args)
   }
 }));
 
@@ -316,6 +319,28 @@ describe('createDirectSwitchGuardianRequest', () => {
     expect(signWord).toHaveBeenCalledWith('coldpk', '0xtxcommitment');
   });
 
+  // `parseInt('zz', 16)` is `NaN`, and a `Uint8Array` store coerces that to `0`.
+  // Without a charset check a malformed nibble anywhere in the signature would
+  // silently become a zero byte, and the rotation would spend a real on-chain
+  // write to earn an opaque authorization failure. Neither caller can emit
+  // non-hex today, which is the reason this has to fail loudly if one starts to
+  // rather than the reason not to check.
+  it('refuses a signature carrying non-hex rather than zero-filling it', async () => {
+    const bogus = jest.fn(async () => '0xzz');
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', bogus)
+    ).rejects.toThrow('Invalid hex string');
+  });
+
+  it('still refuses an odd-length signature', async () => {
+    const bogus = jest.fn(async () => '0xabc');
+
+    await expect(
+      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', bogus)
+    ).rejects.toThrow('Invalid hex string length');
+  });
+
   // Everything that decides whether the rotation is AUTHORIZED lives in the
   // advice map, and nothing downstream checks any of it: the transaction is
   // proved and submitted with whatever words are in there. One entry per
@@ -477,6 +502,65 @@ describe('createDirectSwitchGuardianRequest', () => {
     await expect(createDirectSwitchGuardianRequest(walletAccount(), 'https://g.test', signWord)).rejects.toThrow(
       'not found in local client'
     );
+  });
+});
+
+// The verdict this returns decides whether the vault gets repointed at the new
+// operator, and one of the two wrong answers is unrecoverable (see the function's
+// own docblock). So each arm is pinned separately, and the two non-verdicts are
+// asserted to be `undefined` rather than merely falsy — `false` here means "the
+// chain rejected it", which callers act on.
+describe('didDirectSwitchLand', () => {
+  it('reads the node-side state of the TRANSACTION, under the WASM lock, after a sync', async () => {
+    mockProxyGetTransactionCommitState.mockResolvedValue('committed');
+
+    await didDirectSwitchLand('0xtx');
+
+    expect(mockProxyGetTransactionCommitState).toHaveBeenCalledWith('0xtx');
+    // The sync has to precede the read or the client answers from a stale height,
+    // and both have to sit inside one lock hold.
+    expect(mockProxySyncState).toHaveBeenCalledTimes(1);
+    expect(mockWithWasmClientLock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['committed', true],
+    ['discarded', false]
+  ])('turns %s into a verdict', async (state, expected) => {
+    mockProxyGetTransactionCommitState.mockResolvedValue(state);
+
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBe(expected);
+  });
+
+  // `pending` is a tx that may still land, and `not-found` is a client with no
+  // record of it — neither is evidence it did NOT land, and reporting either as
+  // `false` would fail a rotation that may have committed.
+  it.each(['pending', 'not-found'])('returns no verdict for %s', async state => {
+    mockProxyGetTransactionCommitState.mockResolvedValue(state);
+
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
+  });
+
+  it('returns no verdict when the read itself fails, rather than reporting "did not land"', async () => {
+    mockProxyGetTransactionCommitState.mockRejectedValue(new Error('offscreen returned no result'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
+
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  // A sync that throws must not be silently read past either — the account state
+  // behind the read would be at an unknown height.
+  it('returns no verdict when the pre-read sync fails', async () => {
+    mockProxySyncState.mockRejectedValueOnce(new Error('rpc unreachable'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    await expect(didDirectSwitchLand('0xtx')).resolves.toBeUndefined();
+
+    expect(mockProxyGetTransactionCommitState).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

@@ -19,7 +19,9 @@ import { withWasmClientLock } from '../sdk/miden-client';
  * HTTP half, which is reached exactly when the baseline does NOT match on chain:
  * one probe of the stored endpoint plus a fan-out to every built-in operator,
  * whatever that first probe answers — a `'match'` has to be corroborated against
- * the built-ins, so it fans out too. That state is not transient — an account flagged
+ * the built-ins, so it fans out too, and a `'match'` the built-ins could not
+ * corroborate deliberately leaves the baseline where it was, so it fans out again
+ * next window. That state is not transient — an account flagged
  * `needs-user-input` stays flagged until the user acts — so at the ~3s cadence
  * this loop runs at, the fan-out would repeat indefinitely, and with a 5s
  * per-probe deadline the requests would overlap rather than queue. Nothing about
@@ -28,12 +30,55 @@ import { withWasmClientLock } from '../sdk/miden-client';
  */
 const DRIFT_PROBE_COOLDOWN_MS = 60_000;
 
+/**
+ * How many CONSECUTIVE informative probe windows must find an account drifted,
+ * its stored endpoint silent and no built-in serving the on-chain commitment
+ * before the user is asked to supply the URL.
+ *
+ * The two states this separates are indistinguishable on any single probe: a
+ * correct custom operator that is briefly down, and an account genuinely
+ * stranded by a rotation that committed on-chain but never got its endpoint
+ * persisted. Both show a silent stored endpoint and no built-in match. What
+ * differs is DURATION — a blip ends, a stranded account's stored endpoint is
+ * the old operator that was unreachable when the rotation started and stays
+ * unreachable forever.
+ *
+ * Counted in WINDOWS rather than wall-clock, and only windows that established
+ * something: a `'none'` from `identifyGuardianOperator` means a COMPLETE round
+ * of built-ins answered and none holds the key, whereas `'unavailable'` is an
+ * offline device, a captive network, or an operator an attacker is suppressing.
+ * Accumulating wall-clock would let any of those buy the accusation by simply
+ * lasting long enough; requiring informative windows means the device has to be
+ * demonstrably able to reach the built-ins while this one endpoint stays dark.
+ *
+ * At {@link DRIFT_PROBE_COOLDOWN_MS} this is ~30 minutes of continuous, verified
+ * silence. Erring long is nearly free here: the prompt is the only exit from the
+ * stranded state, but it is not the only thing watching, and a false one is
+ * self-clearing — the moment the endpoint answers `'match'` the account goes
+ * back to `in-sync` and the banner disappears without the user doing anything.
+ */
+const SILENT_DRIFT_WINDOWS_BEFORE_PROMPT = 30;
+
 /** `Date.now()` before which an account's drift probes are skipped. */
 const nextDriftProbeAt = new Map<string, number>();
+
+/**
+ * Consecutive informative probe windows that found an account drifted with a
+ * silent stored endpoint and no built-in match. Reset the moment the account
+ * leaves that state, so the count always describes an unbroken run.
+ */
+const silentDriftWindows = new Map<string, number>();
 
 /** Test hook: forget every cooldown so a suite's cases stay independent. */
 export function __resetGuardianDriftProbeCooldownForTest(): void {
   nextDriftProbeAt.clear();
+  silentDriftWindows.clear();
+}
+
+/** Leave the "drifted, stored endpoint silent" run — the account resolved or moved on. */
+function clearDriftProbeState(accountPublicKey: string): void {
+  nextDriftProbeAt.delete(accountPublicKey);
+  silentDriftWindows.delete(accountPublicKey);
 }
 
 interface GuardianDriftVault {
@@ -63,16 +108,23 @@ interface GuardianDriftVault {
  * answer is a self-report over an unauthenticated `GET /pubkey`, so a `'match'`
  * is CORROBORATED against the built-in operator list rather than believed: a
  * built-in that serves the same commitment overrides the stored endpoint and the
- * account is repaired to it, and only when no built-in serves it does the stored
- * endpoint's claim stand as a genuine custom operator. If the stored endpoint
+ * account is repaired to it, and only when a COMPLETE round of built-ins reports
+ * that none serves it does the stored endpoint's claim stand as a genuine custom
+ * operator. A round that could not complete corroborates nothing, and writes
+ * nothing — it leaves the account untouched for a later window to settle, rather
+ * than latching the self-report on the strength of our own probes failing. If the
+ * stored endpoint
  * answers with a different key, the built-ins are asked to name the new operator
  * (`identifyGuardianOperator`); on a match the new endpoint + status +
  * commitment are persisted and the account is back in sync, otherwise the
  * account is flagged `needs-user-input` for manual resolution. A stored
  * endpoint that cannot be reached at all is still followed by the built-in
  * lookup — a positive match there is evidence in its own right, and skipping it
- * made a committed-but-unpersisted rotation unrecoverable — but silence alone
- * never produces the `needs-user-input` accusation or the `'resolving'` marker.
+ * made a committed-but-unpersisted rotation unrecoverable. Silence on a single
+ * window never produces the `needs-user-input` accusation or the `'resolving'`
+ * marker; SUSTAINED silence eventually does, because an account stranded on a
+ * custom operator has no other exit (see
+ * {@link SILENT_DRIFT_WINDOWS_BEFORE_PROMPT}).
  *
  * The local baseline comparison runs on every call; the operator probes are
  * rate-limited per account by {@link DRIFT_PROBE_COOLDOWN_MS}, because the state
@@ -109,10 +161,10 @@ export async function resolveGuardianDrift(
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
     if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-      nextDriftProbeAt.delete(accountPublicKey);
+      clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
-    nextDriftProbeAt.delete(accountPublicKey);
+    clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: false };
   }
 
@@ -165,27 +217,46 @@ export async function resolveGuardianDrift(
       //
       // So the claim gets corroborated instead of believed. The built-ins report
       // themselves over the same unauthenticated endpoint, but the asymmetry is
-      // in WHO chose the URL: `GUARDIAN_OPTIONS` is wallet code, whereas the
-      // stored endpoint is mutable vault state that this very function writes.
-      // Trusting the built-in list is bounded by the wallet's own configuration;
-      // trusting whatever is in the vault is bounded by nothing.
-      const builtIn = await identifyGuardianOperator(onChain);
+      // in WHO chose the URL: `getBuiltInGuardianOptionsForNetwork` is wallet
+      // code, whereas the stored endpoint is mutable vault state that this very
+      // function writes. Deliberately NOT the onboarding picker's
+      // `getGuardianOptionsForNetwork`, which appends the developer URL override:
+      // that is persisted, user-settable state, so including it would seat the
+      // same category of value on both sides of the comparison. Trusting wallet
+      // code is bounded by the wallet's own configuration; trusting what is in
+      // the vault, or in settings, is bounded by nothing.
+      const corroboration = await identifyGuardianOperator(onChain);
+      // Corroboration that could not RUN is not corroboration that found
+      // nothing. Every built-in probe swallows its own failure, so a captive
+      // network, an offline device, a plain outage — or an attacker who can drop
+      // traffic to one operator — used to arrive here indistinguishable from
+      // "no built-in serves this commitment", and take the branch that latches
+      // the baseline forever. Change nothing at all instead: no write, no status,
+      // no baseline, so the account stays exactly as it was and the next probe
+      // window can corroborate for real. The cooldown set above is deliberately
+      // NOT cleared, so this costs one probe window per minute, not per tick.
+      if (corroboration.outcome === 'unavailable') {
+        return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+      }
       // A built-in serves the on-chain commitment and it is not the endpoint on
       // the account: the stored endpoint is lying or stale either way, so prefer
       // the built-in and repair the account to it.
-      if (builtIn && !sameGuardianEndpoint(builtIn.endpoint, storedEndpoint)) {
-        await vault.setGuardianEndpoint(accountPublicKey, builtIn.endpoint);
+      if (
+        corroboration.outcome === 'identified' &&
+        !sameGuardianEndpoint(corroboration.operator.endpoint, storedEndpoint)
+      ) {
+        await vault.setGuardianEndpoint(accountPublicKey, corroboration.operator.endpoint);
       }
       // Otherwise the stored endpoint stands. Either it IS the built-in that
-      // serves this commitment, or no built-in does — in which case its
-      // self-report is the only evidence in existence, this is a genuine custom
-      // operator, and it is exactly the trust level `applyUserGuardianEndpoint`
-      // already accepts for a URL the user typed. This is also what keeps a
-      // deliberate rotation to a custom operator from being flagged
-      // `needs-user-input` on the very next tick.
+      // serves this commitment, or a COMPLETE round of built-ins established
+      // that none does — in which case its self-report is the only evidence in
+      // existence, this is a genuine custom operator, and it is exactly the trust
+      // level `applyUserGuardianEndpoint` already accepts for a URL the user
+      // typed. This is also what keeps a deliberate rotation to a custom operator
+      // from being flagged `needs-user-input` on the very next tick.
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
       await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-      nextDriftProbeAt.delete(accountPublicKey);
+      clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
     storedEndpointAnswered = stored !== 'unreachable';
@@ -214,24 +285,75 @@ export async function resolveGuardianDrift(
   // answered. Writing it on silence would strand the account in a status with no
   // banner and no recovery path for the duration of an ordinary outage.
   if (storedEndpointAnswered) {
+    // The endpoint spoke, so whatever silent run was accumulating has ended —
+    // and the accusation below no longer needs to wait for one.
+    silentDriftWindows.delete(accountPublicKey);
     await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
   }
-  const operator = await identifyGuardianOperator(onChain);
-  if (operator) {
-    await vault.setGuardianEndpoint(accountPublicKey, operator.endpoint);
+  // Only `'identified'` acts here, and `'unavailable'` is deliberately handled
+  // as `'none'` is — no repair, and the `needs-user-input` decision below is
+  // taken on the stored endpoint's answer alone. That is not the asymmetry it
+  // looks like: on this path the evidence of drift came from the stored endpoint
+  // DENYING that it holds the on-chain key, so the accusation never rested on
+  // the built-in probes, and an incomplete round changes nothing about it. In the
+  // `'match'` branch above the built-ins are the only second source there is, and
+  // what follows a `'none'` there is permanent.
+  const lookup = await identifyGuardianOperator(onChain);
+  if (lookup.outcome === 'identified') {
+    await vault.setGuardianEndpoint(accountPublicKey, lookup.operator.endpoint);
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
     await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-    nextDriftProbeAt.delete(accountPublicKey);
+    clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: true };
   }
 
-  // No built-in matches. If the stored endpoint never answered, this is not
-  // evidence of drift: the account may be pointed at a perfectly correct custom
-  // operator that is briefly down, and `needs-user-input` puts a "re-enter your
-  // guardian URL" prompt in front of a user with nothing to fix. Leave the
-  // account as it was and retry after the cooldown.
+  // No built-in matches, and the stored endpoint never answered. On any single
+  // window this is not evidence of drift — the account may be pointed at a
+  // perfectly correct custom operator that is briefly down, and
+  // `needs-user-input` would put a "re-enter your guardian URL" prompt in front
+  // of a user with nothing to fix.
+  //
+  // But it is also exactly what a genuinely STRANDED account looks like, and
+  // withholding the accusation forever left that account with no exit at all:
+  // the chain names a CUSTOM operator N, the vault names the dead operator O the
+  // rotation was fleeing, and the two evidence sources both come up empty — O is
+  // unreachable by definition on the direct path, and `identifyGuardianOperator`
+  // matches built-ins only, so a custom N never matches. Nothing else reconciles
+  // this. The endpoint is not lost (it is on the Failed row in Activity as
+  // `extraInputs.newGuardianEndpoint`) and `applyUserGuardianEndpoint` is a
+  // verified repair for it, but the prompt that reaches that repair was never
+  // shown, so the user was never told there was anything to repair.
+  //
+  // Duration is the evidence that separates the two, so accuse only after the
+  // state has survived a long run of INFORMATIVE windows — see
+  // {@link SILENT_DRIFT_WINDOWS_BEFORE_PROMPT} for why windows and not
+  // wall-clock. `'unavailable'` contributes nothing: it means the round could
+  // not establish that no built-in serves the key, and a device that cannot
+  // reach the built-ins tells us nothing about why this one endpoint is silent.
   if (!storedEndpointAnswered) {
-    return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+    const unchanged = { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+    if (lookup.outcome !== 'none') {
+      // Reset, not pause. The verdict has to rest on an UNBROKEN run of windows
+      // that each established something, because a count that merely pauses
+      // would let a device which is offline half the time accuse this endpoint
+      // on the strength of windows spread across days with unknown states in
+      // between. A stranded account persists indefinitely and gets unlimited
+      // attempts to string a clean run together, so the cost of restarting is
+      // delay; the cost of not restarting is an accusation built out of gaps.
+      silentDriftWindows.delete(accountPublicKey);
+      return unchanged;
+    }
+
+    const windows = (silentDriftWindows.get(accountPublicKey) ?? 0) + 1;
+    silentDriftWindows.set(accountPublicKey, windows);
+    if (windows < SILENT_DRIFT_WINDOWS_BEFORE_PROMPT) return unchanged;
+    // Already flagged: the run keeps counting, but re-writing the same status
+    // every window would broadcast fresh account state to the popup once a
+    // minute for as long as the account stays stranded.
+    if (account.guardianSyncStatus === 'needs-user-input') return unchanged;
+
+    await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');
+    return { status: 'needs-user-input', changed: true };
   }
 
   await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');

@@ -244,13 +244,16 @@ describe('ConnectivityIssueBanner', () => {
   it('node outranks guardian (a dead node masks the guardian signal); guardian outranks prover', () => {
     guardianOutage.accounts.add('acct-1');
     setState({ node: true, prover: true });
-    render(<ConnectivityIssueBanner />);
+    const { rerender } = render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-node')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
 
     setState({ prover: true });
     guardianOutage.listeners.forEach(listener => listener());
-    render(<ConnectivityIssueBanner />);
+    rerender(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-node')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-prover')).not.toBeInTheDocument();
   });
 
   it('guardian dismiss is banner-local (no shared-category dismiss) and the banner clears with the flag', () => {

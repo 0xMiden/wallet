@@ -39,7 +39,7 @@ export const GUARDIAN_TRANSACTION_STEPS = [
     labelKey: 'transactionStepGuardianApproved',
     defaultLabel: 'Guardian approved',
     startStage: 'creating-proposal',
-    activeStages: ['syncing', 'creating-proposal', 'signing-proposal']
+    activeStages: ['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally']
   },
   {
     id: 'generating-proof',

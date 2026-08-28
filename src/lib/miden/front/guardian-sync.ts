@@ -349,28 +349,47 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   const attempts = prior?.attempts ?? 0;
   missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
 
-  // STOP if this device is no longer the account's on-chain hot signer — same
-  // arbiter, same reasoning as the cold re-register self-heal: `/configure` is
-  // account-wide, so a device that was rotated out would revoke the device that
-  // now owns the account.
+  // STOP unless this device is PROVABLY still the account's on-chain hot signer
+  // — same arbiter, same reasoning as the cold re-register self-heal:
+  // `/configure` is account-wide, so a device that was rotated out would revoke
+  // the device that now owns the account.
   //
-  // Weaker here than there, unavoidably: that path adopts the guardian's own
-  // copy of the state before reading the signer set, and this operator has no
-  // copy to adopt. So this reads whatever slot 0 says in THIS device's account,
-  // which cannot show a hot-key rotation performed elsewhere. The residual risk
-  // is bounded by the guardian-key guard below — a copy predating the guardian
-  // rotation is refused outright — leaving only the narrow window where a copy
-  // is current for the guardian rotation yet stale for a later hot-key rotation.
+  // Both commitments have to be read, and both reads can fail on their own. A
+  // guard over write authority cannot treat "I could not tell" as permission, so
+  // an unread commitment refuses exactly like a mismatched one — the same shape
+  // as the guardian-key guard below, which refuses `'unreachable'` for the same
+  // reason: this write needs positive evidence, and there is always another tick
+  // to get it from.
+  //
+  // Weaker here than in the 401 path, unavoidably: that path adopts the
+  // guardian's own copy of the state before reading the signer set, and this
+  // operator has no copy to adopt. So this reads whatever slot 0 says in THIS
+  // device's account, which cannot show a hot-key rotation performed elsewhere.
+  // The residual risk is bounded by the guardian-key guard below — a copy
+  // predating the guardian rotation is refused outright — leaving only the narrow
+  // window where a copy is current for the guardian rotation yet stale for a
+  // later hot-key rotation.
   const onChainHot = await getSignerDetailsFromAccount(sdkAccount, false).catch(() => undefined);
-  if (account.hotPublicKey && onChainHot) {
-    const localHot = await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined);
-    if (localHot && !sameCommitment(localHot, onChainHot.commitment)) {
-      console.warn(
-        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: this device's hot key is no longer ` +
-          `the account's on-chain signer (it was rotated to another device).`
-      );
-      return;
-    }
+  // A record with no hot key never reaches this function — the sync loop filters
+  // those accounts out — so the ternary is here for the type, and it refuses on
+  // that path too rather than reading an absent key as "no objection".
+  const localHot = account.hotPublicKey
+    ? await commitmentFromPublicKeyHex(account.hotPublicKey).catch(() => undefined)
+    : undefined;
+  if (!onChainHot || !localHot) {
+    console.warn(
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: could not read the hot-signer ` +
+        `commitment on ${!onChainHot && !localHot ? 'either side' : !onChainHot ? 'chain' : 'this device'}, so ` +
+        `this device cannot show it is still the account's signer.`
+    );
+    return;
+  }
+  if (!sameCommitment(localHot, onChainHot.commitment)) {
+    console.warn(
+      `[Guardian Sync] not registering ${account.publicKey} on ${endpoint}: this device's hot key is no longer ` +
+        `the account's on-chain signer (it was rotated to another device).`
+    );
+    return;
   }
 
   // STOP unless the local state DESCRIBES a rotation to this operator.

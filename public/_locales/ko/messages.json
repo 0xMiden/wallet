@@ -973,6 +973,14 @@
     "message": "귀하의 guardian가 제안서에 서명하고 있습니다.",
     "englishSource": "Your guardian is signing the proposal."
   },
+  "transactionStageSigningLocally": {
+    "message": "로컬 서명",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "지갑 키로 서명",
+    "englishSource": "Signing with your wallet keys"
+  },
   "transactionStageSubmitting": {
     "message": "거래 제출",
     "englishSource": "Submitting transaction"
@@ -2433,13 +2441,16 @@
     "englishSource": "What changes now"
   },
   "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished."
+    "message": "설정이 완료되지 않았습니다.",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
-    "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+    "message": "전환은 온체인에서 확인되었지만 이 기기에서 새 Guardian의 주소를 저장하지 못했습니다. 지갑이 이를 자동으로 확인하고 필요하면 다시 입력하라는 안내를 표시합니다. 이로 인해 다른 전환이 시작되지는 않습니다. 안내가 표시되지 않으면 지원팀에 문의하세요.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
   },
   "guardianSwitchRegistrationPendingBody": {
-    "message": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+    "message": "전환은 온체인에서 확인되었습니다. 새 Guardian에 계정을 등록하는 작업이 아직 완료되지 않았습니다. 지갑이 자동으로 제한된 횟수만 재시도합니다. 그래도 완료되지 않으면 지원팀에 문의하세요.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
   },
   "guardianSwitchSuccessInfo1": {
     "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 귀하의 계정 거래에 공동 서명할 수 없습니다.",
