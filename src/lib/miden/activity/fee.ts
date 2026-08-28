@@ -1,5 +1,7 @@
 import type { OutputNote, TransactionResult } from '@miden-sdk/miden-sdk';
 
+import { formatAmount } from 'lib/shared/format';
+
 /**
  * Tag carried by the TX_FEE note the kernel emits when a transaction pays a fee.
  *
@@ -68,4 +70,22 @@ export function feeFieldsFromResult(
   }
   const paid = feePaidFromResult(result);
   return paid ? { feeAmount: paid.amount, feeFaucetId: paid.faucetId } : {};
+}
+
+/**
+ * The fee, formatted for display, or `undefined` when the row recorded none.
+ *
+ * Absent for every row written before fees were charged and for every row on a
+ * zero-fee chain, so callers render the line conditionally rather than showing a
+ * blank or a zero that would imply the wallet failed to read it.
+ */
+export function feeTextFromTransaction(
+  transaction: { feeAmount?: bigint },
+  decimals: number | undefined,
+  symbol: string
+): string | undefined {
+  if (transaction.feeAmount === undefined) {
+    return undefined;
+  }
+  return `${formatAmount(transaction.feeAmount, decimals)} ${symbol}`;
 }

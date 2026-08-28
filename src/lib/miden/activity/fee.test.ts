@@ -1,4 +1,16 @@
-import { TX_FEE_NOTE_TAG, feeFieldsFromResult, feePaidFromResult, isFeeNote } from './fee';
+jest.mock('lib/shared/format', () => ({
+  // Formatting is another module's concern; this suite pins whether a fee yields
+  // text at all, not how the number is rendered.
+  formatAmount: (amount: bigint, decimals: number) => (Number(amount) / 10 ** decimals).toString()
+}));
+
+import {
+  TX_FEE_NOTE_TAG,
+  feeFieldsFromResult,
+  feePaidFromResult,
+  feeTextFromTransaction,
+  isFeeNote
+} from './fee';
 
 const asset = (amount: bigint, faucet: string) => ({
   amount: () => amount.toString(),
@@ -57,5 +69,18 @@ describe('feeFieldsFromResult', () => {
     // Spread into an update object, so it must add nothing rather than write
     // undefined keys over values another writer may have set.
     expect(feeFieldsFromResult(result([outputNote(0x0, [asset(1n, 'tkn')])]))).toEqual({});
+  });
+});
+
+describe('feeTextFromTransaction', () => {
+  it('formats the recorded fee for display', () => {
+    expect(feeTextFromTransaction({ feeAmount: 170000n, feeFaucetId: 'native' } as any, 6, 'MIDEN')).toBe(
+      '0.17 MIDEN'
+    );
+  });
+
+  it('renders nothing for a row that recorded no fee', () => {
+    // Rows written before fees existed, and every row on a zero-fee chain.
+    expect(feeTextFromTransaction({} as any, 6, 'MIDEN')).toBeUndefined();
   });
 });

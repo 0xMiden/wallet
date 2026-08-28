@@ -1,4 +1,6 @@
 import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
+import { feeTextFromTransaction } from 'lib/miden/activity/fee';
+import { MIDEN_METADATA } from 'lib/miden/metadata';
 
 import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
@@ -490,6 +492,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             tx.type === 'consume' && tx.status === ITransactionStatus.Completed
               ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
               : undefined,
+          // Present only on rows recorded since fees were charged, and only on chains
+          // that charge -- older rows simply render no fee line.
+          fee: feeTextFromTransaction(tx, MIDEN_METADATA.decimals, MIDEN_METADATA.symbol),
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -1266,6 +1271,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
+
+                 {entry.fee && (
+                   <DetailRow label={t('networkFee', { defaultValue: 'Network Fee' })}>
+                     <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
+                   </DetailRow>
+                 )}
 
                   {entry.externalTxId && (
                     <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
