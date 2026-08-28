@@ -300,15 +300,9 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
  * guardian that had never answered, which is precisely the unsubstantiated claim
  * `lastGuardianSyncAt`'s own docstring promises it does not make.
  *
- * Three pieces of state are deliberately NOT reset here:
+ * Two pieces of state are deliberately NOT reset here:
  *  - `missingRegistrationState` is already keyed by (account, endpoint, guardian
  *    key), so it never inherits in the first place.
- *  - `consecutiveUnknownAccount`, its persistence counter, is scoped to the
- *    operator but kept: the verdict it counts is "no record of this account",
- *    which is exactly what a rotation whose `/configure` did not land produces
- *    on the NEW operator. Dropping it would delay that repair by three ticks for
- *    no gain — the write behind it is separately gated on the new operator
- *    confirming the guardian key the local state names.
  *  - `hardeningChecked` describes the ACCOUNT's on-chain procedure thresholds,
  *    which a rotation does not change.
  */
@@ -327,6 +321,19 @@ function resetEndpointScopedSyncState(accountPublicKey: string): boolean {
   consecutiveAuthFailures.delete(accountPublicKey);
   selfHealState.delete(accountPublicKey);
   rateLimitedUntil.delete(accountPublicKey);
+  // The persistence counter goes too, and this is the subtle one. The verdict it
+  // counts — "no record of this account" — IS what a rotation with a lost
+  // `/configure` produces on the new operator, which is the argument for keeping
+  // it. But the threshold does not exist to establish that the account is
+  // unregistered; it exists to rule out a TRANSIENT verdict, since
+  // `data_unavailable` is a server-side condition that can blip. Two verdicts
+  // inherited from the outgoing operator plus one blip from the new one is a
+  // single blip authorizing a `/configure` that overwrites the new operator's
+  // authoritative copy of a private account's state. The guardian-key guard does
+  // not cover this: it proves WHO the operator is, not that its answer persists.
+  // The cost of clearing is three ticks (~9s) on a repair for a condition that,
+  // as the threshold's own docstring notes, has already been broken far longer.
+  consecutiveUnknownAccount.delete(accountPublicKey);
   // These three are the ones on screen, so the caller has to notify when any of
   // them actually changed — a notify on every tick would re-render the pill
   // forever.
@@ -824,6 +831,32 @@ let syncInFlight: Promise<void> | undefined;
  */
 let syncGeneration = 0;
 
+/**
+ * May this pass still record what it just learned about `endpoint`?
+ *
+ * Checked AFTER the long awaits, because everything before them was decided from
+ * a snapshot: the pass reads the account list once, then spends an unbounded
+ * amount of time in drift reconciliation and `service.sync()` (a guardian
+ * request with no client-side deadline). A user rotation committing during that
+ * window replaces the endpoint the pass is talking to, and the verdict in hand
+ * is then about an operator this account no longer uses — most visibly a
+ * SUCCESS, which would stamp `lastGuardianSyncAt` and report the new guardian as
+ * Online on the strength of the old one answering. The endpoint-change check at
+ * the top of the next iteration cleans that up, but a tick later, and the whole
+ * point of the stamp is that it never states something it cannot substantiate.
+ *
+ * Also re-checks the generation, which narrows the retired-pass window from a
+ * whole account's worth of writes to the individual awaits inside one.
+ */
+async function passMayRecord(generation: number, accountPublicKey: string, endpoint: string): Promise<boolean> {
+  if (generation !== syncGeneration) return false;
+  const accounts = await zustandProvider.getAccounts();
+  const current = accounts.find(acc => acc.publicKey === accountPublicKey);
+  // Gone (account removed mid-pass) counts as "not ours to write".
+  if (!current) return false;
+  return (current.guardianEndpoint ?? '') === endpoint;
+}
+
 export function syncGuardianAccounts(): Promise<void> {
   if (syncInFlight === undefined) {
     const generation = syncGeneration;
@@ -902,6 +935,10 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       const service = await getOrCreateMultisigService(account.publicKey, zustandProvider);
       await service.sync();
 
+      // The rotation that landed while this request was open makes the result
+      // above a statement about an operator this account no longer points at.
+      if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
+
       // Sync succeeded → the account is authorized; clear any accumulated
       // self-heal state so a future divergence starts its persistence count
       // fresh, and stand down the guardian-unreachable prompt.
@@ -933,6 +970,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         }
       }
     } catch (error) {
+      // Same rule as the success path, and it matters just as much here: a
+      // failure earned by the outgoing operator must not arm the outage banner,
+      // spend a repair budget, or start a 401 streak against the incoming one.
+      if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
+
       // An auth rejection (401) means the guardian's request-auth allowlist and
       // this account's hot signer disagree. Evict the cached hot service so the
       // next tick rebuilds against freshly-synced on-chain state. The guardian

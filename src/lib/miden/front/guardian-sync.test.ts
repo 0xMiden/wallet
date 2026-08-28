@@ -1063,6 +1063,68 @@ describe('syncGuardianAccounts — guardian-unreachable outage flag', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
+    // Everything a pass decides comes from one snapshot of the account list, and
+    // `service.sync()` is a guardian request with no client-side deadline. A
+    // rotation committing while that request is open makes the result a
+    // statement about an operator the account no longer points at — and a
+    // SUCCESS would stamp it, reporting the new guardian as Online because the
+    // old one answered.
+    it('does not record a result that a rotation landed during', async () => {
+      const pk = 'rotate-midflight';
+      storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
+
+      let releaseSync = (): void => {};
+      const syncGate = new Promise<void>(resolve => {
+        releaseSync = resolve;
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(() => syncGate) });
+
+      try {
+        const pass = syncGuardianAccounts();
+
+        // The user rotates while the request above is still open.
+        storeState.accounts = [at(pk, 'https://new.guardian.test')] as never;
+        releaseSync();
+        await pass;
+
+        // The old operator's success is not the new operator's.
+        expect(getGuardianLastSyncAt(pk)).toBeUndefined();
+      } finally {
+        releaseSync();
+      }
+    });
+
+    it('does not let a failure a rotation landed during arm the banner against the new operator', async () => {
+      const pk = 'rotate-midflight-fail';
+      storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
+      const sync = jest.fn().mockRejectedValue(new Error('Failed to fetch'));
+      mockGetOrCreateMultisigService.mockResolvedValue({ sync });
+
+      // One short of arming, all against the old operator.
+      await runSyncs(GUARDIAN_SYNC_OUTAGE_THRESHOLD - 1);
+      expect(isGuardianSyncOutage(pk)).toBe(false);
+
+      let releaseSync = (): void => {};
+      const syncGate = new Promise<void>((_, reject) => {
+        releaseSync = () => reject(new Error('Failed to fetch'));
+      });
+      sync.mockImplementation(() => syncGate);
+
+      try {
+        const pass = syncGuardianAccounts();
+        storeState.accounts = [at(pk, 'https://new.guardian.test')] as never;
+        releaseSync();
+        await pass;
+
+        // The failure that would have been the sixth belongs to the operator the
+        // account has left, so it must not arm the prompt telling the user to
+        // rotate away from the one it just arrived at.
+        expect(isGuardianSyncOutage(pk)).toBe(false);
+      } finally {
+        releaseSync();
+      }
+    });
+
     it('treats losing the endpoint as a rotation too', async () => {
       const pk = 'rotate-cleared';
       storeState.accounts = [at(pk, 'https://old.guardian.test')] as never;
@@ -1434,13 +1496,48 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await runUntilPersistent();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
 
-    // Same instant, so only the new key — not the backoff — can allow this push.
+    // Same instant throughout, so only the new key — never the backoff — can
+    // allow the second push.
     storeState.accounts = [{ ...account, guardianEndpoint: 'https://second.guardian.test' }] as never;
     mockGetGuardianCommitmentFromAccount.mockReturnValue('secondguardiankey');
-    await syncGuardianAccounts();
+    // The rotation resets the persistence counter, so the new operator has to
+    // produce the verdicts itself before its state is overwritten.
+    await runUntilPersistent();
 
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenNthCalledWith(
       2,
+      'unregistered-pk',
+      'https://second.guardian.test',
+      zustandProvider
+    );
+    nowSpy.mockRestore();
+  });
+
+  // The threshold does not exist to establish that the account is unregistered —
+  // it exists to rule out a TRANSIENT verdict, since `data_unavailable` is a
+  // server-side condition that can blip. Verdicts inherited across a rotation
+  // therefore let a single blip from the new operator authorize a `/configure`
+  // that overwrites its authoritative copy of a private account's state, and the
+  // guardian-key guard does not cover it: that proves WHO the operator is, not
+  // that its answer persists.
+  it('does not let verdicts earned by the previous operator authorize a push to the new one', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+    // Two verdicts short of the threshold from the outgoing operator.
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    storeState.accounts = [{ ...account, guardianEndpoint: 'https://second.guardian.test' }] as never;
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('secondguardiankey');
+
+    // One blip from the new operator must not be enough.
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+
+    // It earns the push on its own verdicts, at the same instant — so it is the
+    // counter being re-earned, not a cooldown elapsing.
+    for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1; i++) await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
       'unregistered-pk',
       'https://second.guardian.test',
       zustandProvider
