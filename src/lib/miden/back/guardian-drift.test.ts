@@ -6,11 +6,13 @@ import {
 } from 'lib/miden/guardian/operator-map';
 
 import {
+  SILENT_DRIFT_RUN_STORAGE_KEY,
   SILENT_DRIFT_WINDOWS_BEFORE_PROMPT,
   __resetGuardianDriftProbeCooldownForTest,
   applyUserGuardianEndpoint,
   resolveGuardianDrift
 } from './guardian-drift';
+import { fetchFromStorage, putToStorage } from '../front/storage';
 import { getMidenClient } from '../sdk/miden-client';
 
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
@@ -59,11 +61,12 @@ const trackWriteOrder = (vault: ReturnType<typeof makeVault>) => {
   return order;
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   jest.clearAllMocks();
-  // The operator probes are rate-limited per account by a module-level cooldown;
-  // clear it so each case starts able to probe.
-  __resetGuardianDriftProbeCooldownForTest();
+  // The operator probes are rate-limited per account by a module-level cooldown,
+  // and the silent-drift run is PERSISTED (it has to survive a realm restart), so
+  // clearing it is async and has to be awaited or it leaks into the next case.
+  await __resetGuardianDriftProbeCooldownForTest();
   (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: jest.fn(async () => ({})) });
 });
 
@@ -510,6 +513,73 @@ describe('a sustained silent drift eventually asks the user, but a blip never do
     // reach the threshold and accuse.
     expect(await runWindows(1, () => vault)).toEqual({ status: 'in-sync', changed: false });
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+
+  // The whole point of persisting the run. `syncGuardianAccounts` has exactly one
+  // driver (`useSyncTrigger`, a React hook), so on the extension windows advance
+  // only while the popup is open and the drift state lives in the worker the popup
+  // keeps alive. Five minutes of CONTINUOUSLY open popup is not a plausible
+  // session, so an in-memory run made this prompt — the only exit for a stranded
+  // custom operator — unreachable on that platform.
+  describe('the run survives the realm that accumulated it', () => {
+    /** Drop the module's memory, keep storage: what a popup close / worker recycle does. */
+    const realmRestart = async () => {
+      const runs = await fetchFromStorage<unknown>(SILENT_DRIFT_RUN_STORAGE_KEY);
+      await __resetGuardianDriftProbeCooldownForTest();
+      await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, runs);
+    };
+
+    it('reaches the prompt across several short sessions', async () => {
+      const vault = strandedVault();
+      for (let session = 0; session < justUnder; session++) {
+        await runWindows(1, () => vault);
+        await realmRestart();
+      }
+      expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+
+      // The window that completes the run lands in yet another fresh realm.
+      expect(await runWindows(1, () => vault)).toEqual({ status: 'needs-user-input', changed: true });
+    });
+
+    it('does not let realm churn buy the accusation faster than the cooldown', async () => {
+      // Same instant throughout: the in-memory cooldown is gone after each
+      // restart, so only the run's own record of when it last counted a window
+      // stands between a popup opened five times in ten seconds and an accusation.
+      const vault = strandedVault();
+      const realNow = Date.now;
+      const at = realNow();
+      Date.now = () => at;
+      try {
+        for (let session = 0; session < SILENT_DRIFT_WINDOWS_BEFORE_PROMPT + 3; session++) {
+          await resolveGuardianDrift(vault as never, 'pk');
+          await realmRestart();
+        }
+      } finally {
+        Date.now = realNow;
+      }
+
+      expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+    });
+
+    it('restarts rather than accumulating across a gap longer than the run allows', async () => {
+      const vault = strandedVault();
+      for (let session = 0; session < justUnder; session++) {
+        await runWindows(1, () => vault);
+        await realmRestart();
+      }
+
+      // A device that is offline half the time observed nothing during the gap, so
+      // the endpoint may well have been answering throughout it.
+      const realNow = Date.now;
+      const at = realNow() + 60 * 60_000;
+      Date.now = () => at;
+      try {
+        expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+      } finally {
+        Date.now = realNow;
+      }
+      expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+    });
   });
 
   // The run's subject is the pair (account, STORED endpoint) — "this endpoint has

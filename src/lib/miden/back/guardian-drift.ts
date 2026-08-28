@@ -8,6 +8,7 @@ import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianSyncStatus } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
+import { fetchFromStorage, putToStorage } from '../front/storage';
 import { withWasmClientLock } from '../sdk/miden-client';
 
 /**
@@ -64,12 +65,33 @@ const DRIFT_PROBE_COOLDOWN_MS = 60_000;
  * banner disappears with no user action — whereas an unreachable one leaves the
  * account silently broken forever.
  *
- * At {@link DRIFT_PROBE_COOLDOWN_MS} five windows is ~5 minutes of continuously
- * open wallet during which the built-ins are demonstrably reachable and this one
- * endpoint stays dark. That clears an operator restart or a redeploy, which is
- * the blip this rule exists to absorb; a longer outage that resolves itself
- * costs one dismissable prompt, and the run restarting across sessions only
- * delays the prompt, never falsifies it.
+ * At {@link DRIFT_PROBE_COOLDOWN_MS} five windows is ~5 minutes during which the
+ * built-ins are demonstrably reachable and this one endpoint stays dark. That
+ * clears an operator restart or a redeploy, which is the blip this rule exists
+ * to absorb; a longer outage that resolves itself costs one dismissable prompt.
+ *
+ * The run is PERSISTED ({@link SILENT_DRIFT_RUN_STORAGE_KEY}) rather than held in
+ * memory, because in memory the paragraph above was self-defeating on the
+ * extension. `syncGuardianAccounts` has exactly one driver — `useSyncTrigger`, a
+ * React hook — so windows advance only while a wallet UI realm is open, and the
+ * drift state lives in the worker the popup was keeping alive. Five minutes of
+ * CONTINUOUSLY open popup is not a plausible extension session, so the prompt
+ * this whole rule exists to gate was unreachable there: precisely the outcome the
+ * paragraph above calls "strictly worse than a false prompt". Mobile and desktop
+ * were unaffected (one long-lived realm), which is why it survived review.
+ *
+ * Persisting it does NOT weaken the unbroken-run requirement to "windows spread
+ * across days with unknown states in between", which is what the reset below
+ * refuses. The stored run carries the instant of its last counted window and
+ * generalises "unbroken" from ONE REALM SESSION to WALL-CLOCK CONTIGUITY: a
+ * window counts only if it is at least {@link DRIFT_PROBE_COOLDOWN_MS} after the
+ * previous one (so realm churn cannot buy five windows in ten seconds — the
+ * in-memory cooldown alone cannot enforce this, since a realm restart clears it)
+ * and at most {@link SILENT_DRIFT_RUN_MAX_GAP_MS} after it (so a device that is
+ * offline half the time restarts rather than accumulating across the gap). The
+ * realistic path is now the one that matters: a user whose guardian is dead sees
+ * the outage pill within seconds of opening the popup, opens it a few times while
+ * working out what is wrong, and each open contributes a window.
  *
  * Exported for the tests, which must not hardcode the number — the boundary
  * (accuse on the Nth window, not the N-1th) is the property under test.
@@ -80,11 +102,61 @@ export const SILENT_DRIFT_WINDOWS_BEFORE_PROMPT = 5;
 const nextDriftProbeAt = new Map<string, number>();
 
 /**
- * Consecutive informative probe windows that found an account drifted with a
- * silent stored endpoint and no built-in match. Reset the moment the account
- * leaves that state, so the count always describes an unbroken run.
+ * The longest gap between two counted windows that still leaves the run
+ * "unbroken". Beyond it the run restarts, because nothing was observed during
+ * the gap and the endpoint may well have been answering throughout it.
+ *
+ * Ten minutes is scaled to the behaviour this has to survive — a user reopening
+ * the popup a few times while investigating a guardian that has just gone dark —
+ * not to idle wallet time. A gap longer than that is a different investigation.
  */
-const silentDriftWindows = new Map<string, number>();
+const SILENT_DRIFT_RUN_MAX_GAP_MS = 10 * 60_000;
+
+/**
+ * Storage key for the persisted silent-drift runs; see the threshold's docstring.
+ *
+ * Exported for the tests, which have to be able to simulate the case this
+ * persistence exists for — the realm dying with the run half-accumulated — by
+ * dropping the module's memory while leaving storage intact.
+ */
+export const SILENT_DRIFT_RUN_STORAGE_KEY = 'guardian_silent_drift_run';
+
+/**
+ * One account's run of consecutive informative probe windows that found it
+ * drifted, its stored endpoint silent, and no built-in serving the on-chain key.
+ *
+ * `endpoint` and `lastAt` are what make the count meaningful: the run is a
+ * statement about a specific stored endpoint over a specific stretch of
+ * wall-clock, and a bare number inherits across both (see F-151 for the endpoint
+ * half, which was a live defect).
+ */
+interface SilentDriftRun {
+  endpoint: string;
+  windows: number;
+  lastAt: number;
+}
+
+async function readSilentDriftRuns(): Promise<Record<string, SilentDriftRun>> {
+  // Best-effort: this gates a prompt, so a storage read that fails must not take
+  // the drift check down with it — it just restarts the run.
+  try {
+    return (await fetchFromStorage<Record<string, SilentDriftRun>>(SILENT_DRIFT_RUN_STORAGE_KEY)) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeSilentDriftRun(accountPublicKey: string, run: SilentDriftRun | undefined): Promise<void> {
+  try {
+    const runs = await readSilentDriftRuns();
+    if (run) runs[accountPublicKey] = run;
+    else if (!(accountPublicKey in runs)) return;
+    else delete runs[accountPublicKey];
+    await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, runs);
+  } catch {
+    // See above.
+  }
+}
 
 /**
  * The stored endpoint each account's run above was accumulated against.
@@ -106,18 +178,22 @@ const silentDriftWindows = new Map<string, number>();
  */
 const driftProbeEndpoint = new Map<string, string>();
 
-/** Test hook: forget every cooldown so a suite's cases stay independent. */
-export function __resetGuardianDriftProbeCooldownForTest(): void {
+/** Test hook: forget every cooldown and run so a suite's cases stay independent. */
+export async function __resetGuardianDriftProbeCooldownForTest(): Promise<void> {
   nextDriftProbeAt.clear();
-  silentDriftWindows.clear();
   driftProbeEndpoint.clear();
+  try {
+    await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, {});
+  } catch {
+    // A suite with no storage provider has nothing to clear.
+  }
 }
 
 /** Leave the "drifted, stored endpoint silent" run — the account resolved or moved on. */
-function clearDriftProbeState(accountPublicKey: string): void {
+async function clearDriftProbeState(accountPublicKey: string): Promise<void> {
   nextDriftProbeAt.delete(accountPublicKey);
-  silentDriftWindows.delete(accountPublicKey);
   driftProbeEndpoint.delete(accountPublicKey);
+  await writeSilentDriftRun(accountPublicKey, undefined);
 }
 
 interface GuardianDriftVault {
@@ -200,10 +276,10 @@ export async function resolveGuardianDrift(
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
     if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-      clearDriftProbeState(accountPublicKey);
+      await clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
-    clearDriftProbeState(accountPublicKey);
+    await clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: false };
   }
 
@@ -220,7 +296,15 @@ export async function resolveGuardianDrift(
   // unprobed (and the account on a stale status) for up to a full period.
   const storedEndpoint = account.guardianEndpoint ?? '';
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
-    clearDriftProbeState(accountPublicKey);
+    // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
+    // inside it, so a changed endpoint already fails `continues` below and starts
+    // the new endpoint on its own window — whereas clearing the run from here
+    // would key that decision on an IN-MEMORY marker, which a realm restart
+    // clears. That made every fresh realm look like a rotation and wipe the very
+    // run the persistence exists to preserve: F-150's false positive, one level
+    // down. What this reset is for is probing the new endpoint at once instead of
+    // serving out the old one's cooldown.
+    nextDriftProbeAt.delete(accountPublicKey);
     driftProbeEndpoint.set(accountPublicKey, storedEndpoint);
   }
 
@@ -306,7 +390,7 @@ export async function resolveGuardianDrift(
         // "the endpoint spoke ⇒ the run is over", and applying it on some
         // answering branches but not others would let a match mid-outage leave
         // a partial run to be inherited later.
-        silentDriftWindows.delete(accountPublicKey);
+        await writeSilentDriftRun(accountPublicKey, undefined);
         return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
       }
       // A built-in serves the on-chain commitment and it is not the endpoint on
@@ -327,7 +411,7 @@ export async function resolveGuardianDrift(
       // from being flagged `needs-user-input` on the very next tick.
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
       await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-      clearDriftProbeState(accountPublicKey);
+      await clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
     storedEndpointEvidence = stored === 'unreachable' ? 'silent' : 'denied';
@@ -362,7 +446,7 @@ export async function resolveGuardianDrift(
     // `applyUserGuardianEndpoint`, which repairs the account WITHOUT going
     // through this function, so a stale run would otherwise survive the repair
     // and be inherited by the account's next drift.
-    silentDriftWindows.delete(accountPublicKey);
+    await writeSilentDriftRun(accountPublicKey, undefined);
     await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
   }
   // Only `'identified'` repairs. What `'unavailable'` means for the accusation
@@ -376,7 +460,7 @@ export async function resolveGuardianDrift(
     await vault.setGuardianEndpoint(accountPublicKey, lookup.operator.endpoint);
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
     await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-    clearDriftProbeState(accountPublicKey);
+    await clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: true };
   }
 
@@ -419,7 +503,7 @@ export async function resolveGuardianDrift(
       // between. A stranded account persists indefinitely and gets unlimited
       // attempts to string a clean run together, so the cost of restarting is
       // delay; the cost of not restarting is an accusation built out of gaps.
-      silentDriftWindows.delete(accountPublicKey);
+      await writeSilentDriftRun(accountPublicKey, undefined);
       return unchanged;
     }
 
@@ -428,8 +512,28 @@ export async function resolveGuardianDrift(
     // nothing to wait for: no endpoint means no operator this wallet can reach,
     // and no duration will change that.
     if (storedEndpointEvidence === 'silent') {
-      const windows = (silentDriftWindows.get(accountPublicKey) ?? 0) + 1;
-      silentDriftWindows.set(accountPublicKey, windows);
+      const previous = (await readSilentDriftRuns())[accountPublicKey];
+      // A window continues the run only if it is about the same endpoint and lands
+      // inside the contiguity band — no sooner than the cooldown (realm churn
+      // clears the in-memory one, so without this five popup opens in ten seconds
+      // would buy the accusation) and no later than the maximum gap.
+      const continues =
+        previous !== undefined &&
+        previous.endpoint === storedEndpoint &&
+        now - previous.lastAt >= DRIFT_PROBE_COOLDOWN_MS &&
+        now - previous.lastAt <= SILENT_DRIFT_RUN_MAX_GAP_MS;
+      // Too SOON is not a restart — the evidence stands, this observation simply
+      // adds nothing to it. Restarting here would let a fast tick after a realm
+      // restart erase a genuine run.
+      if (
+        previous !== undefined &&
+        previous.endpoint === storedEndpoint &&
+        now - previous.lastAt < DRIFT_PROBE_COOLDOWN_MS
+      )
+        return unchanged;
+
+      const windows = continues ? previous.windows + 1 : 1;
+      await writeSilentDriftRun(accountPublicKey, { endpoint: storedEndpoint, windows, lastAt: now });
       if (windows < SILENT_DRIFT_WINDOWS_BEFORE_PROMPT) return unchanged;
     }
     // Already flagged: the run keeps counting, but re-writing the same status
