@@ -129,7 +129,7 @@ export const isRequeueableTransaction = (tx: {
  * authorization rather than move value. Neither is requeueable (see
  * `REQUEUEABLE_TYPES`): the user re-initiates them from Settings.
  */
-const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key'];
+const STRUCTURAL_TYPES: ITransactionType[] = ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'];
 
 /**
  * Whether the UI should still offer Cancel on an in-flight row.

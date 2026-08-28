@@ -5,6 +5,7 @@
  * can't block the whole sync cycle.
  */
 
+import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { WalletType } from 'screens/onboarding/types';
 
 import { SELF_HEAL_AUTH_FAILURE_THRESHOLD, SELF_HEAL_COOLDOWN_MS, SELF_HEAL_MAX_ATTEMPTS } from './guardian-selfheal';
@@ -431,6 +432,32 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // rotated out without asking. What must not happen is the WRITE.
     expect(mockAdoptGuardianState).toHaveBeenCalled();
     expect(mockReRegister).not.toHaveBeenCalled();
+  });
+
+  it('does not re-register when the guardian state could not be read at all', async () => {
+    // Without the guardian's copy the comparison below runs against this device's
+    // own pre-rotation state, in which it is signer 0 by construction — so a
+    // swallowed read failure does not weaken the guard, it inverts it, passing
+    // exactly the rotated-out case the guard exists to catch.
+    mockAdoptGuardianState.mockRejectedValue(new Error('guardian unreachable'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    storeState.accounts = [
+      { publicKey: 'acct-unreadable', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    // Well past the attempt cap: a read this device never got through on is not a
+    // finding about the account, so it must not spend the bounded budget either.
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS + 2; i++) {
+      await syncGuardianAccounts();
+    }
+
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockGetSignerDetails).not.toHaveBeenCalled();
   });
 
   it('still re-registers when the on-chain hot signer is this device (0x/case differences aside)', async () => {
@@ -1056,6 +1083,42 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     await syncGuardianAccounts();
     await syncGuardianAccounts();
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+
+    nowSpy.mockRestore();
+  });
+
+  // The bounded budget exists because a `/configure` that throws may still have
+  // landed. A failure raised BEFORE that call carries no such doubt, and the only
+  // thing that refunds the budget — a successful registration — is precisely what
+  // an incomplete local read prevents, so charging it would let three flaky reads
+  // disable the repair for the rest of the session.
+  it('does not spend the registration budget on failures that never reached the operator', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(
+      new GuardianRegistrationPreflightError('account state read back incomplete')
+    );
+    let now = 1_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Well past the cap a spent budget would have hit.
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
+      now += MISSING_REGISTRATION_BACKOFF_MS;
+      await syncGuardianAccounts();
+    }
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 4);
+
+    // Still rate-limited, though — the refusal stamps the clock, so the 3s tick
+    // behind it does not re-read every time.
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 4);
+
+    // And once the read comes back complete, the repair still works.
+    mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
+    now += MISSING_REGISTRATION_BACKOFF_MS;
+    await syncGuardianAccounts();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 5);
 
     nowSpy.mockRestore();
   });

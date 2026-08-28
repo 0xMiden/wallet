@@ -1,6 +1,10 @@
 import { isGuardianAuthRejection, MultisigService } from 'lib/miden/guardian';
 import { getGuardianCommitmentFromAccount, getSignerDetailsFromAccount } from 'lib/miden/guardian/account';
-import { finalizeDirectGuardianSwitch, isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import {
+  finalizeDirectGuardianSwitch,
+  isGuardianRegistrationPreflightError,
+  isGuardianUnreachableError
+} from 'lib/miden/guardian/direct-switch';
 import { checkEndpointCommitment } from 'lib/miden/guardian/operator-map';
 import { guardianRetryAfterSec, isGuardianRateLimited } from 'lib/miden/guardian/serialize';
 import { isExtension } from 'lib/platform';
@@ -464,6 +468,21 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
     );
   } catch (e) {
+    if (isGuardianRegistrationPreflightError(e)) {
+      // Give the attempt back. This failure happened before any `/configure`,
+      // so the reason to count it — that the write may have landed — does not
+      // apply, and the budget is only refunded by a SUCCESSFUL registration,
+      // which a truncated local read is exactly what prevents. Same booking
+      // rule as the 401 self-heal's `refused-transiently`; the clock stamp above
+      // still stands, so this does not re-read on every 3s tick.
+      missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
+      console.warn(
+        `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
+          `not be read completely enough to authorize the operator (no attempt spent):`,
+        e
+      );
+      return;
+    }
     console.warn(
       `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} ` +
         `(attempt ${attempts + 1}/${MISSING_REGISTRATION_MAX_ATTEMPTS}):`,
@@ -527,10 +546,27 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // Deliberately NOT `MultisigService.sync()`: that wrapper's last-resort stage
     // re-registers local state on a lagging guardian, which is the exact push this
     // function has to decide about first.
+    // And if that read fails, STOP. Logging and carrying on would run the guard
+    // against this device's own pre-rotation copy — the state in which this
+    // device is still signer 0 no matter who actually holds the account — so the
+    // guard would pass by construction and the write would go through. That is
+    // not the guard degrading, it is the guard inverted: the one case it exists
+    // to catch is the one where the local copy is stale, which is the same case
+    // where this read failing leaves it stale. Refuse transiently instead; the
+    // heal is defensive, the budget is untouched, and there is another tick.
     const coldService = await MultisigService.buildColdMultisigService(staleAccount, account, zustandProvider.signWord);
-    await coldService.adoptGuardianStateOnce().catch(e => {
-      console.warn(`[Guardian Sync] could not read the guardian's state before self-healing ${account.publicKey}:`, e);
-    });
+    const adopted = await coldService
+      .adoptGuardianStateOnce()
+      .then(() => true)
+      .catch(e => {
+        console.warn(
+          `[Guardian Sync] not self-healing ${account.publicKey}: could not read the guardian's state, so this ` +
+            `device cannot tell whether it is still the account's signer:`,
+          e
+        );
+        return false;
+      });
+    if (!adopted) return 'refused-transiently';
 
     const sdkAccount = await withWasmClientLock(async () => midenClientProxy.getAccount(account.publicKey));
     if (!sdkAccount) return 'refused-transiently';

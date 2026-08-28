@@ -17,13 +17,13 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { assertGuardianKeyCommitment, getSignerDetailsFromAccount } from './account';
 import { withTimeout } from './discover';
 import { registerGuardianOrigin } from './native-http';
-import { normalizeHex } from './operator-map';
 import { guardianRegisterBackoffMs } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -426,6 +426,33 @@ export const didDirectSwitchLand = async (transactionId: string): Promise<boolea
  * account, derive the cosigner allowlist from that SAME fresh account (never a
  * cached set), then `configure` on the new guardian with retry/backoff.
  */
+/**
+ * Marks a failure that happened BEFORE any `/configure` was issued — a local
+ * read that came back truncated, an account the client does not have, a signer
+ * set this device is not in.
+ *
+ * The distinction is not cosmetic. `attemptMissingRegistrationSelfHeal` runs
+ * this function on a bounded budget of three attempts, reset only by a
+ * successful registration, and it books the attempt before the call because a
+ * `/configure` that throws may still have landed. A preflight failure touched
+ * no operator and proves nothing about the account, so charging it would let
+ * three flaky local reads permanently disable the repair — the same defect
+ * round 9 fixed on the sibling 401 self-heal, which this class exists to keep
+ * from reappearing through the other door.
+ */
+export const GUARDIAN_REGISTRATION_PREFLIGHT = 'GuardianRegistrationPreflightError';
+
+export class GuardianRegistrationPreflightError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = GUARDIAN_REGISTRATION_PREFLIGHT;
+  }
+}
+
+/** Name-based, so it survives module mocking and structured-clone boundaries. */
+export const isGuardianRegistrationPreflightError = (error: unknown): boolean =>
+  error instanceof Error && error.name === GUARDIAN_REGISTRATION_PREFLIGHT;
+
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
   newGuardianEndpoint: string,
@@ -433,7 +460,9 @@ export const finalizeDirectGuardianSwitch = async (
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
-    throw new Error(`Guardian account ${accountId} not found in provider (or missing hotPublicKey)`);
+    throw new GuardianRegistrationPreflightError(
+      `Guardian account ${accountId} not found in provider (or missing hotPublicKey)`
+    );
   }
   const hotPublicKey = walletAccount.hotPublicKey;
 
@@ -442,7 +471,7 @@ export const finalizeDirectGuardianSwitch = async (
       await midenClientProxy.syncState();
       const account = await midenClientProxy.getAccount(walletAccount.publicKey);
       if (!account) {
-        throw new Error(`Account ${accountId} is missing from local client`);
+        throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
       }
       const detected = AccountInspector.fromAccount(account);
       return {
@@ -475,18 +504,27 @@ export const finalizeDirectGuardianSwitch = async (
   // rotation itself has already committed, so the row completes with
   // `registerFailed` and the self-heal retries against a later, complete read.
   if (declaredSigners === 0 || detectedSigners !== declaredSigners) {
-    throw new Error(
+    throw new GuardianRegistrationPreflightError(
       `Refusing to register on the new guardian with an incomplete signer allowlist: storage declares ` +
         `${declaredSigners} signers, read ${detectedSigners} (truncated read)`
     );
   }
-  // And this device has to be IN the policy it is installing. The `/configure`
-  // call authenticates as the hot signer (`setSigner` below), so an allowlist
-  // that omits it would be a complete, well-formed set that locks out the only
-  // key able to talk to the operator afterwards — a read that is consistent and
-  // still wrong. Cheap to state, and it is the invariant the caller assumes.
-  if (!signerCommitments.some(commitment => normalizeHex(commitment) === normalizeHex(hotCommitment))) {
-    throw new Error(
+  // And THIS DEVICE has to be in the policy it is installing.
+  //
+  // Note what the comparison is between. Deriving the left-hand side from the
+  // same account read as the allowlist proves nothing — `hotCommitment` is that
+  // read's own slot 0, so it is a member by construction and the check is a
+  // tautology. The question is whether the WALLET RECORD's hot key, the key
+  // `setSigner` below authenticates the `/configure` with, is in the set: if
+  // another device rotated the hot key, this device's record is stale, the
+  // allowlist it just read belongs to that other device, and pushing it would
+  // hand the new operator a policy this device cannot then talk to. `/configure`
+  // is account-wide, so the mirror image is worse — the same guard in
+  // `attemptMissingRegistrationSelfHeal` exists to stop this device revoking the
+  // one that legitimately owns the account.
+  const deviceHotCommitment = await commitmentFromPublicKeyHex(hotPublicKey);
+  if (!signerCommitments.some(commitment => sameCommitment(commitment, deviceHotCommitment))) {
+    throw new GuardianRegistrationPreflightError(
       "Refusing to register on the new guardian with an allowlist that omits this device's hot signer commitment"
     );
   }

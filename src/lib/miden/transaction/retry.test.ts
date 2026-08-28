@@ -338,7 +338,7 @@ describe('isCancellableTransaction', () => {
   // be retried, and only replaces a rotation that DID land with a row claiming
   // it failed.
   it('withdraws Cancel from a structural op once it has been picked up', () => {
-    for (const type of ['switch-guardian', 'replace-hot-key'] as const) {
+    for (const type of ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const) {
       expect(isCancellableTransaction({ status: ITransactionStatus.Queued, type })).toBe(true);
       expect(isCancellableTransaction({ status: ITransactionStatus.GeneratingTransaction, type })).toBe(false);
     }

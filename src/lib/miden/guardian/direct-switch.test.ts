@@ -6,6 +6,7 @@ import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
   finalizeDirectGuardianSwitch,
+  isGuardianRegistrationPreflightError,
   isGuardianUnreachableError
 } from './direct-switch';
 
@@ -56,6 +57,18 @@ jest.mock('./account', () => ({
 }));
 
 jest.mock('./native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+
+// Only the key→commitment derivation is stubbed (it needs a real 33-byte secp256k1
+// key, which these fixtures are not); `sameCommitment` stays REAL so the
+// prefix/case normalization the allowlist check relies on is exercised rather
+// than assumed. The stub mirrors production's shape: one commitment per key, so
+// a different device's key derives a different commitment.
+jest.mock('lib/secure-hot-key/commitment', () => ({
+  ...jest.requireActual('lib/secure-hot-key/commitment'),
+  commitmentFromPublicKeyHex: jest.fn(async (publicKeyHex: string) =>
+    publicKeyHex === '0xhotpk' ? 'HOTCOMMITMENT' : `commitment-of-${publicKeyHex}`
+  )
+}));
 
 // Zero backoff so the retry loop runs at test speed — but through a spy, not a
 // constant. The schedule's own arithmetic is covered by `serialize`'s suite;
@@ -652,6 +665,54 @@ describe('finalizeDirectGuardianSwitch', () => {
       finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', provider() as any)
     ).rejects.toThrow('omits this device');
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the allowlist belongs to a device that rotated this one out', async () => {
+    // The list is internally consistent — slot 0 IS the account's current hot
+    // signer — so a check derived from the same read would pass it. What makes
+    // it wrong is that the hot key on THIS device's wallet record, the one that
+    // will sign `/configure`, is not the key in that list.
+    const staleDevice = {
+      getAccounts: jest.fn(async () => [{ ...walletAccount(), hotPublicKey: '0xrotated-out-pk' }]),
+      signWord: jest.fn(async () => '0xsig')
+    };
+
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      finalizeDirectGuardianSwitch('0xacct', 'https://new.guardian.test', staleDevice as any)
+    ).rejects.toThrow('omits this device');
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('marks failures that never reached the operator as preflight, so the caller can refund them', async () => {
+    mockedMultisigClient.AccountInspector.fromAccount.mockReturnValue({
+      numSigners: 2,
+      signerCommitments: ['0xhotcommitment']
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(true);
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a failed configure as preflight — that one may have landed', async () => {
+    mockGuardianConfigure.mockRejectedValue(new Error('Failed to fetch'));
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
   });
 
   it('retries a failing configure and succeeds once the guardian answers', async () => {
