@@ -234,15 +234,13 @@ describe('send-flow/types', () => {
           balance: 1,
           fiatPrice: 1,
           scaleIsKnown: true
-        },
-        feeType: UIFeeType.Public
+        }
       };
       const sparse: UIForm = {
         amount: '0',
         sendType: UITransactionType.Private,
         sharePrivately: false,
-        receiveType: UITransactionType.Public,
-        feeType: UIFeeType.Private
+        receiveType: UITransactionType.Public
       };
       expect(complete.recallBlocks).toBe('100');
       expect(sparse.recipientAddress).toBeUndefined();
