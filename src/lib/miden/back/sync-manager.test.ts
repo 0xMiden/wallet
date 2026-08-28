@@ -143,6 +143,12 @@ jest.mock('lib/settings/helpers', () => ({
   areBackgroundSettingsMirrored: () => mockAreBgMirrored()
 }));
 
+let mockBaseFee: number | null = 0;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+}));
+
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
@@ -214,6 +220,7 @@ function fakeNote({
 }
 
 beforeEach(() => {
+  mockBaseFee = 0;
   jest.clearAllMocks();
   mockIsExist.mockResolvedValue(true);
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
@@ -1174,6 +1181,23 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 });
 
 describe('doSync — native-note auto-consume', () => {
+  it('does not auto-consume a native note worth less than the fee to claim it', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'dust', faucetId: 'native-faucet', amount: '9999' }),
+      fakeNote({ id: 'worthit', faucetId: 'native-faucet', amount: '10001' })
+    ]);
+
+    await doSync();
+
+    const consumed = mockInitiateConsume.mock.calls.map(c => (c[1] as { id: string }).id);
+    expect(consumed).toEqual(['worthit']);
+  });
+
+
   it('auto-consumes native notes PER NOTE, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving

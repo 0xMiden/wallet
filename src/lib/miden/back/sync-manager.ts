@@ -1,4 +1,6 @@
 import browser from 'webextension-polyfill';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
@@ -543,7 +545,12 @@ async function runSync(force: boolean): Promise<void> {
         if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
+            // A note worth no more than its own fee costs the user money to collect.
+            // This pass is unattended, so the wallet must not do that on their behalf;
+            // `isWorthClaiming` fails open on an unknown fee.
+            const baseFee = await getVerificationBaseFee();
             nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
+              if (!isWorthClaiming(n.amountBaseUnits, baseFee)) return [];
               if (n.faucetId !== nativeFaucetId || n.swapOrder) return [];
               const type: ConsumableNote['type'] =
                 n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
