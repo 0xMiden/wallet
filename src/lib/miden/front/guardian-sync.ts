@@ -286,6 +286,58 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
 }
 
 /**
+ * The endpoint each account was last SYNCED against, so a rotation can be
+ * observed and the previous operator's verdicts dropped.
+ *
+ * Every signal in this module above this line is a statement about one OPERATOR
+ * — "answered 6 times in a row with a 5xx", "rejected our signer", "asked to be
+ * left alone for 30s", "completed a sync 20s ago" — and every one of them was
+ * keyed by ACCOUNT alone. A rotation changes the operator without touching any
+ * of them, so the new guardian inherited the old one's record on its first tick:
+ * a count left at 5 armed the outage on one blip, a 429 cooldown silenced an
+ * operator that never asked for it, and — the one the user actually sees — the
+ * old operator's success stamp made Guardian Settings read "Online" for a new
+ * guardian that had never answered, which is precisely the unsubstantiated claim
+ * `lastGuardianSyncAt`'s own docstring promises it does not make.
+ *
+ * Three pieces of state are deliberately NOT reset here:
+ *  - `missingRegistrationState` is already keyed by (account, endpoint, guardian
+ *    key), so it never inherits in the first place.
+ *  - `consecutiveUnknownAccount`, its persistence counter, is scoped to the
+ *    operator but kept: the verdict it counts is "no record of this account",
+ *    which is exactly what a rotation whose `/configure` did not land produces
+ *    on the NEW operator. Dropping it would delay that repair by three ticks for
+ *    no gain — the write behind it is separately gated on the new operator
+ *    confirming the guardian key the local state names.
+ *  - `hardeningChecked` describes the ACCOUNT's on-chain procedure thresholds,
+ *    which a rotation does not change.
+ */
+const syncedGuardianEndpoint = new Map<string, string>();
+
+/**
+ * Drop every verdict that was about the previous operator, and say whether
+ * anything a subscriber can see went with it.
+ */
+function resetEndpointScopedSyncState(accountPublicKey: string): boolean {
+  consecutiveServerFailures.delete(accountPublicKey);
+  // A 401 streak and a spent cold-re-register budget are both statements about
+  // one operator's allowlist. Keeping the budget would be the sharp one: with it
+  // spent, the new operator's very first 401 re-marks the account unrepairable
+  // on a verdict the old operator earned.
+  consecutiveAuthFailures.delete(accountPublicKey);
+  selfHealState.delete(accountPublicKey);
+  rateLimitedUntil.delete(accountPublicKey);
+  // These three are the ones on screen, so the caller has to notify when any of
+  // them actually changed — a notify on every tick would re-render the pill
+  // forever.
+  const observable =
+    outageAccounts.delete(accountPublicKey) ||
+    unrepairableAccounts.delete(accountPublicKey) ||
+    lastGuardianSyncAt.delete(accountPublicKey);
+  return observable;
+}
+
+/**
  * Test-only: reset every piece of this module's per-session sync state.
  *
  * EVERY piece, literally — a partial reset is worse than none, because the state
@@ -309,6 +361,14 @@ export function __resetGuardianSyncOutageForTest(): void {
   hardeningChecked.clear();
   missingRegistrationState.clear();
   lastGuardianSyncAt.clear();
+  syncedGuardianEndpoint.clear();
+  // Retire any pass still in flight. Clearing `syncInFlight` alone let a running
+  // pass outlive the reset and then write to the maps it had just emptied — and
+  // its unconditional `finally` cleared the marker belonging to whichever pass
+  // started afterwards, so the coalescing this module depends on was off for the
+  // rest of the file. The generation makes both conditional on still being the
+  // current pass.
+  syncGeneration += 1;
   notifyOutageListeners();
 }
 
@@ -514,8 +574,22 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
   // mid-flight — has still spent one, because `/configure` may have landed.
   missingRegistrationState.set(healKey, { attempts: attempts + 1, lastAttemptAt: now });
 
+  // ...and re-stamped from when the attempt SETTLED, which is a different time
+  // entirely. `finalizeDirectGuardianSwitch` can spend eight 30s `/configure`
+  // deadlines plus backoff — minutes — and measuring the next gap from before
+  // all of that made the cooldown inert in the one case it exists for: with the
+  // pre-attempt stamp, an attempt lasting longer than its own gap is already
+  // "due" the moment it returns, so all three attempts ran back-to-back with no
+  // pause at all against an operator that is merely slow. The docstring on
+  // `MISSING_REGISTRATION_BACKOFF_MS` promises ~3 minutes across three pushes;
+  // this is what makes that true.
+  const bookSettled = (spent: number): void => {
+    missingRegistrationState.set(healKey, { attempts: spent, lastAttemptAt: Date.now() });
+  };
+
   try {
     await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider);
+    bookSettled(attempts + 1);
     clearGuardianServiceFor(account.publicKey);
     console.warn(
       `[Guardian Sync] registered ${account.publicKey} on ${endpoint} after the operator reported no record of it`
@@ -526,9 +600,9 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       // so the reason to count it — that the write may have landed — does not
       // apply, and the budget is only refunded by a SUCCESSFUL registration,
       // which a truncated local read is exactly what prevents. Same booking
-      // rule as the 401 self-heal's `refused-transiently`; the clock stamp above
-      // still stands, so this does not re-read on every 3s tick.
-      missingRegistrationState.set(healKey, { attempts, lastAttemptAt: now });
+      // rule as the 401 self-heal's `refused-transiently`; the clock is stamped
+      // either way, so this does not re-read on every 3s tick.
+      bookSettled(attempts);
       console.warn(
         `[Guardian Sync] not registering ${account.publicKey} on ${endpoint} yet — the local account state could ` +
           `not be read completely enough to authorize the operator (no attempt spent):`,
@@ -536,6 +610,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
       );
       return;
     }
+    bookSettled(attempts + 1);
     console.warn(
       `[Guardian Sync] could not register ${account.publicKey} on ${endpoint} ` +
         `(attempt ${attempts + 1}/${MISSING_REGISTRATION_MAX_ATTEMPTS}):`,
@@ -738,20 +813,56 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
  */
 let syncInFlight: Promise<void> | undefined;
 
+/**
+ * Bumped whenever the module's state is reset out from under a running pass, so
+ * a retired pass can recognise itself as retired.
+ *
+ * Without it, `syncInFlight = undefined` retired the MARKER while leaving the
+ * pass running: the old pass kept writing to maps the reset had emptied, and its
+ * `finally` cleared the marker a NEWER pass had installed, disabling coalescing
+ * from then on. Both are now conditional on the generation the pass started in.
+ */
+let syncGeneration = 0;
+
 export function syncGuardianAccounts(): Promise<void> {
-  syncInFlight ??= runGuardianAccountsSync().finally(() => {
-    syncInFlight = undefined;
-  });
+  if (syncInFlight === undefined) {
+    const generation = syncGeneration;
+    syncInFlight = runGuardianAccountsSync(generation).finally(() => {
+      // Only the CURRENT pass owns the marker. A retired one clearing it would
+      // hand a concurrent successor's slot away.
+      if (generation === syncGeneration) syncInFlight = undefined;
+    });
+  }
   return syncInFlight;
 }
 
-async function runGuardianAccountsSync(): Promise<void> {
+async function runGuardianAccountsSync(generation: number): Promise<void> {
   const accounts = await zustandProvider.getAccounts();
   const guardianAccounts = accounts.filter(acc => acc.type === WalletType.Guardian && Boolean(acc.hotPublicKey));
 
   if (guardianAccounts.length === 0) return;
 
   for (const account of guardianAccounts) {
+    // Retired mid-pass: stop rather than re-populating state something else has
+    // deliberately cleared. Checked per account, which bounds how much a retired
+    // pass can write to the account it was already working on.
+    if (generation !== syncGeneration) return;
+
+    // A rotation makes every operator-scoped verdict below about the WRONG
+    // operator, so it has to be observed before any of them is read or written —
+    // ahead of the 429 cooldown in particular, which would otherwise `continue`
+    // on the old operator's request and never reach this.
+    const endpoint = account.guardianEndpoint ?? '';
+    const syncedAgainst = syncedGuardianEndpoint.get(account.publicKey);
+    if (syncedAgainst !== undefined && syncedAgainst !== endpoint) {
+      console.warn(
+        `[Guardian Sync] ${account.publicKey} now points at ${endpoint || '(none)'} rather than ` +
+          `${syncedAgainst || '(none)'} — dropping the previous operator's sync state`
+      );
+      if (resetEndpointScopedSyncState(account.publicKey)) notifyOutageListeners();
+    }
+    syncedGuardianEndpoint.set(account.publicKey, endpoint);
+
     // Serve the guardian's own cooldown before anything else: a rate-limited
     // account has nothing to gain from another request, and every one we skip is
     // budget the transaction path can use instead.
@@ -850,6 +961,13 @@ async function runGuardianAccountsSync(): Promise<void> {
           // local read failures disable the repair for good. `lastAttemptAt` is
           // stamped either way, so a refusal still respects the cooldown instead
           // of re-reading on every 3s tick.
+          //
+          // Stamped from when the attempt SETTLED, not from `now` above: a cold
+          // `/configure` carries its own retry deadlines and can outlast the 60s
+          // cooldown, and a pre-attempt stamp makes the next attempt due the
+          // instant this one returns — spending the whole budget back-to-back on
+          // an operator that is only slow. Same rule as the missing-registration
+          // path, deliberately.
           const outcome = await attemptColdReRegisterSelfHeal(account);
           const attempts =
             outcome === 'attempted'
@@ -859,7 +977,7 @@ async function runGuardianAccountsSync(): Promise<void> {
                 outcome === 'refused-permanently'
                 ? SELF_HEAL_MAX_ATTEMPTS
                 : (prev?.attempts ?? 0);
-          selfHealState.set(account.publicKey, { attempts, lastAttemptAt: now });
+          selfHealState.set(account.publicKey, { attempts, lastAttemptAt: Date.now() });
           // Budget spent (or closed): the 401 is now permanent as far as this
           // wallet is concerned, and nothing else would ever say so on screen.
           if (attempts >= SELF_HEAL_MAX_ATTEMPTS) {
