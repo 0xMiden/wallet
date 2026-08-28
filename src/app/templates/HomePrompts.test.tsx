@@ -15,6 +15,9 @@ const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
 
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string }) => (values?.amount === undefined ? key : `${key}:${values.amount}`)
@@ -203,6 +206,25 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+  });
+
+  it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
+    // Holding USDC is not the same as being funded: the fee comes out of the
+    // native balance, so this account cannot transact and needs the faucet.
+    mockBaseFee = 10000;
+    render(
+      <HomePrompts
+        account={account}
+        balances={[
+          { tokenId: 'token', balance: 5 },
+          { tokenId: 'MIDEN-ID', balance: 0 }
+        ] as TokenBalanceData[]}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
   });
 
   it('does not show the faucet while balances load or when the account has funds', () => {

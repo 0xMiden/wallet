@@ -1,3 +1,6 @@
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
@@ -180,7 +183,18 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     }
   }, [noteRecoveryProgress, t]);
 
-  const hasBalance = useMemo(() => balances.some(token => token.balance > 0), [balances]);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
+  // "Funded" has to mean "can transact". On a fee-charging chain that is the
+  // NATIVE balance specifically -- an account holding only other tokens cannot
+  // move them, so it still needs the faucet. `hasNoFeeAsset` fails open, so a
+  // zero-fee chain keeps the original any-token behaviour.
+  const hasBalance = useMemo(
+    () =>
+      balances.some(token => token.balance > 0) &&
+      !hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee),
+    [balances, nativeFaucetId, verificationBaseFee]
+  );
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
   const faucetIsTerminal =
     faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
