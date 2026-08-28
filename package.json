@@ -5,10 +5,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.16.0-rc.2",
+  "midenClientCliVersion": "0.16.0-rc.3",
   "midenClientCliGit": {
     "url": "https://github.com/0xMiden/miden-client",
-    "rev": "4872b090a3827474858f2ad30a395ca1af3b98c0"
+    "rev": "4fec7b2209e4a10b1ad1b7a00208ea851de555ca"
   },
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
