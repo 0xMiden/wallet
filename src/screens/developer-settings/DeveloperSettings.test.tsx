@@ -224,6 +224,31 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('discards the sync fuse on save, since every conclusion in it was about the OLD node', async () => {
+    // Mobile and desktop own the idle loop, and this is their only repoint affordance. A
+    // fused wallet pointed at a working RPC would otherwise probe once per 30 min — the
+    // repoint reads as "nothing happened", and the successful sync that puts the fuse out
+    // is exactly what the wallet stops giving itself the chance to observe (#777).
+    const {
+      __resetSyncFuseStateForTests,
+      isSyncFused,
+      noteSyncWatchdogEviction
+    } = require('lib/miden/front/sync-fuse');
+    const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('lib/miden/sync-backoff');
+    jest.spyOn(console, 'warn').mockImplementation();
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('idle-sync');
+    expect(isSyncFused('idle-sync')).toBe(true);
+
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(isSyncFused('idle-sync')).toBe(false);
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
   it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {
     mockIsExtension.value = true;
     mockWalletState.status = WalletStatus.Idle;

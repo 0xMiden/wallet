@@ -1,3 +1,4 @@
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -6,7 +7,8 @@ import {
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
-  TRANSACTION_ENGINE_RECOVERED_ERROR
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
 } from './constants';
 
 // The real native-prover error captured in #487.
@@ -63,6 +65,40 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(poisoned, 'proving', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
     expect(resolveTransactionErrorMessage(poisoned, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
     expect(resolveTransactionErrorMessage(poisoned, undefined, undefined)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('drops the hedge when the caller proved the abandonment landed BEFORE any write (#777)', () => {
+    // The hedge is honest only where a submit is possible. `cancel.ts` can prove it is
+    // not — a row still at a pre-write stage with no `processingStartedAt` was never
+    // picked up — and there the hedge is a falsehood that costs something real: it tells
+    // the user to go check their activity and wait, on a row whose Retry is safe. The
+    // extension reaches this on a routine non-critical `deadline-no-kill`.
+    for (const error of [new WasmClientPoisonedError('watchdog'), new OperationAbortedError('op-1', 'deadline')]) {
+      expect(resolveTransactionErrorMessage(error, 'syncing', false, true)).toBe(
+        TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+      );
+      // Absent or false, the hedge stands: the flag is opt-in, so no existing caller
+      // silently starts promising "nothing was submitted".
+      expect(resolveTransactionErrorMessage(error, 'syncing', false, false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(resolveTransactionErrorMessage(error, 'syncing', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    }
+    // And it never leaks onto an unrelated error, whose stage copy is already accurate.
+    expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'proving', false, true)).toBe(
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    );
+  });
+
+  it('hedges the same way for an offscreen DEADLINE kill, not just a watchdog eviction (#777)', () => {
+    // The other half of the same equivalence class. `cancel.ts` stamps
+    // `mayHaveSubmitted` for an abort exactly as it does for a poison, so the
+    // reassuring copy put "No funds moved — please try again" on the very row whose
+    // Retry then refuses with "may already have been submitted": two contradictory
+    // statements about the same money, from one error.
+    const aborted = new OperationAbortedError('op-1', 'offscreen deadline');
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
   it('still maps a generic delegated proving failure to the remote-prover message', () => {

@@ -49,6 +49,11 @@ const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
 const mockAccountsInsert = jest.fn(async (_options: any) => {});
 const mockKeystoreInsert = jest.fn(async (_id: any, _secretKey: any) => {});
+// vault.ts re-checks lock-hold ownership before pre-write WASM calls (#788
+// follow-up), so the lock mock has to hand its callback a hold and back
+// assertWasmHoldCurrent with the real comparison — a no-op would leave the
+// guards untestable, and no export at all would make them a TypeError.
+let currentWasmHold: object | null = null;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(async (_options?: any) => ({
     createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
@@ -63,7 +68,20 @@ jest.mock('../sdk/miden-client', () => ({
       keystore: { insert: mockKeystoreInsert }
     }
   })),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new Error(`operation abandoned ${where}`);
+  },
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = {};
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
   runWhenClientIdle: () => {}
 }));
 

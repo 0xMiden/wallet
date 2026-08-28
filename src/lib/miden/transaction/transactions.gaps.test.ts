@@ -24,6 +24,11 @@ import {
   waitForTransactionCompletion
 } from './index';
 
+// The lock's HOLD, owned for the duration of the callback: the guardian pipeline
+// re-checks ownership before proving and before submit (#777).
+// eslint-disable-next-line no-var
+var gapsHold: object | null = null;
+
 const _g = globalThis as any;
 _g.__txGapTest = {
   rows: [] as any[],
@@ -101,15 +106,38 @@ const mockSendPrivateNote = jest.fn(async () => {});
 // flag-off passthrough hits it (incl. the on-the-fly getMidenClient patches in
 // the verifyStuckTransactionsFromNode branch tests below).
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => ({
-    syncState: mockSyncState,
-    waitForTransactionCommit: mockWaitForCommit,
-    sendPrivateNote: mockSendPrivateNote
-  }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
-  withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
-}));
+jest.mock('../sdk/miden-client', () => {
+  // The real error class, so the code under test's poison classifiers see the
+  // same shape production throws.
+  const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: async () => ({
+      syncState: mockSyncState,
+      waitForTransactionCommit: mockWaitForCommit,
+      sendPrivateNote: mockSendPrivateNote
+    }),
+    // Hands out a hold and owns it for the duration: the guardian pipeline re-checks
+    // ownership before proving and before submit (#777).
+    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+      const hold = { mock: 'wasm-lock-hold' };
+      gapsHold = hold;
+      try {
+        return await fn(hold);
+      } finally {
+        if (gapsHold === hold) gapsHold = null;
+      }
+    },
+    getCurrentWasmLockHold: () => gapsHold,
+    // The shared post-await re-check (#788 follow-up). Re-implements the
+    // comparison against THIS mock's current hold — a no-op stub here would make
+    // the request-build eviction tests below vacuously green.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && gapsHold === hold) return;
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    withWasmLockWatchdogPaused: async <T>(fn: () => Promise<T>) => fn()
+  };
+});
 
 jest.mock('../activity/notes', () => ({
   importAllNotes: jest.fn(),
@@ -138,20 +166,41 @@ jest.mock('../helpers', () => ({
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 
+// The guardian request builders read the caller's Account (a borrow of the
+// shared client) — the eviction tests below assert they are never reached past
+// an eviction. Hoisted `var`s: the jest.mock factory runs before const/let inits.
+// eslint-disable-next-line no-var
+var mockGapsBuildSendRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array([1])
+}));
+// eslint-disable-next-line no-var
+var mockGapsBuildPswapRequest = jest.fn((): { serialize: () => Uint8Array } => ({
+  serialize: () => new Uint8Array([2])
+}));
 jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
-  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x }),
+  accountIdStringToSdk: (x: any) => ({ __accountIdStub: x, toString: () => `sdk-${x}` }),
+  accountRefToSdk: (ref: string) => ({ toString: () => `sdk-${ref}` }),
+  // Mirrors the real helper: strips the composite `<address>_<suffix>` form.
+  walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
-  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  buildSendTransactionRequest: (...args: unknown[]) => mockGapsBuildSendRequest(...(args as [])),
+  buildPswapCreateRequest: (...args: unknown[]) => mockGapsBuildPswapRequest(...(args as []))
 }));
 
 const mockTransactionResultDeserialize = jest.fn();
+// The swap request build spins up a TRANSIENT client inside the caller's hold —
+// the eviction tests below drive both sides of that create.
+// eslint-disable-next-line no-var
+var mockGapsCreateWasmWebClient = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...base,
     TransactionResult: { deserialize: (...args: unknown[]) => mockTransactionResultDeserialize(...args) },
-    TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) }
+    TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) },
+    WasmWebClient: { createClient: (...args: unknown[]) => mockGapsCreateWasmWebClient(...args) }
   };
 });
 
@@ -168,6 +217,8 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   txStore.length = 0;
+  // A hold leaked by an eviction test would flip another test's ownership checks.
+  gapsHold = null;
   _gh.__noteTypeForTest = 'private';
 });
 
@@ -668,6 +719,40 @@ describe('generateTransactionsLoop early returns', () => {
     expect(sign).not.toHaveBeenCalled();
   });
 
+  it('still picks up a queued transaction when the note-import pass throws (#777)', async () => {
+    // The whole pipeline funnels through this one loop, so aborting the lap on an
+    // import failure stops every send, swap and claim in the wallet — and an
+    // eviction abandons the import hold, so nothing about the queue changes and the
+    // next lap fails the same way. The dependent consume is the smaller loss: it is
+    // marked Failed with nothing submitted, the note stays claimable, and a later
+    // auto-consume re-initiates it.
+    //
+    // `initiatedAt` is current so neither reaper can be what moves the row: only
+    // the pickup can.
+    const { importAllNotes } = require('../activity/notes');
+    importAllNotes.mockRejectedValueOnce(new Error('import hold evicted'));
+    txStore.push({
+      id: 'queued-behind-a-bad-import',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([9])
+    });
+    const guardianProvider: any = { getGuardianClient: async () => null, getAccounts: async () => [] };
+
+    await generateTransactionsLoop(
+      jest.fn(async () => new Uint8Array()),
+      false,
+      guardianProvider
+    );
+
+    const row = txStore.find((t: any) => t.id === 'queued-behind-a-bad-import');
+    expect(row.status).not.toBe(ITransactionStatus.Queued);
+  });
+
   it('returns undefined when there are no queued or in-progress transactions', async () => {
     const guardianProvider: any = { getGuardianClient: async () => null };
     const result = await generateTransactionsLoop(jest.fn(), false, guardianProvider);
@@ -1039,6 +1124,51 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
     }
   });
 
+  it.each([
+    ['the pre-flight sync itself is killed', true, 1],
+    ['the consume is killed after pickup', false, 2]
+  ])(
+    're-syncs before adjudicating only when the sync was not what died — %s (#777)',
+    async (_label, killDuringSync, expectedSyncs) => {
+      // The adjudication normally opens with a fresh sync so the note state is
+      // current. When the thing that just died IS the pre-flight sync, that fresh
+      // sync is the worst possible next move: the SDK coalesces concurrent syncs
+      // onto one in-flight promise, and after a watchdog eviction the promise it
+      // abandoned is still the in-flight one — so the "fresh" sync re-attaches to a
+      // dead promise and parks the wallet's only WASM lock for another full
+      // ceiling. The committed stage is what distinguishes the two cases; the kill
+      // shape is not, which is why an evicted PROVE still gets its fresh sync.
+      const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+      const kill = () => new WasmClientPoisonedError('watchdog');
+      const syncState = jest.fn(async () => {
+        if (killDuringSync) throw kill();
+      });
+      const sdk = require('../sdk/miden-client');
+      const orig = sdk.getMidenClient;
+      sdk.getMidenClient = async () => ({
+        syncState,
+        consumeNoteId: jest.fn(async () => {
+          throw kill();
+        }),
+        getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+      });
+      const id = `nk-sync-${killDuringSync}`;
+      pushConsume(id);
+      try {
+        await generateTransactionsLoop(dummySign, false, stubProvider);
+      } finally {
+        sdk.getMidenClient = orig;
+      }
+
+      // 1 = the pre-flight sync only (the adjudication skipped its own);
+      // 2 = pre-flight plus the adjudication's.
+      expect(syncState).toHaveBeenCalledTimes(expectedSyncs);
+      // Either way the row is still adjudicated — skipping the sync must not skip
+      // the read.
+      expect(txStore.find(r => r.id === id)!.status).toBe(ITransactionStatus.Completed);
+    }
+  );
+
   it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
     // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
     pushConsume('nk-reclaim', { secondaryAccountId: 'acc-1' });
@@ -1324,5 +1454,215 @@ describe('generateTransaction execute + consume default switch arms', () => {
     } finally {
       sdk.getMidenClient = origGetClient;
     }
+  });
+});
+
+describe('guardian request-build holds stop at an eviction (#788 follow-up)', () => {
+  // An evicted hold ABANDONS the callback rather than cancelling it: the mutex
+  // belongs to a successor the instant the watchdog fires, so the build's next
+  // WASM call — including reads on an Account borrowed earlier — would be a
+  // second borrow of a client somebody else is inside. Every site driven here is
+  // provably pre-submit (nothing has even been proposed yet), so stopping is
+  // funds-safe by construction.
+  const provider = { getAccounts: async () => [{ publicKey: 'guardian-acc' }] };
+
+  const seedGuardianService = () => {
+    const guardianManager = require('lib/miden/front/guardian-manager');
+    guardianManager.isGuardianAccount.mockResolvedValueOnce(true);
+    const service = {
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-1' })),
+      signAndCreateTransactionRequest: jest.fn(),
+      sync: jest.fn(async () => {})
+    };
+    guardianManager.getOrCreateMultisigService.mockResolvedValueOnce(service);
+    return service;
+  };
+
+  const pushRecallableSendRow = () => {
+    txStore.push({
+      id: 'recallable-send-1',
+      type: 'send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: '1000',
+      noteType: 'private',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { recallBlocks: 10 }
+    });
+    return txStore[0];
+  };
+
+  const pushSwapRow = () => {
+    txStore.push({
+      id: 'swap-evict-1',
+      type: 'swap',
+      accountId: 'guardian-acc',
+      faucetId: 'faucet-offer',
+      amount: '5',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { requestedFaucetId: 'faucet-req', requestedAmount: '9' }
+    });
+    return txStore[0];
+  };
+
+  // Swap in a client whose reads the test controls; restore afterwards.
+  const withPatchedClient = async (client: Record<string, unknown>, run: () => Promise<void>) => {
+    const sdk = require('../sdk/miden-client');
+    const origGetClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({ syncState: jest.fn(async () => {}), ...client });
+    try {
+      await run();
+    } finally {
+      sdk.getMidenClient = origGetClient;
+    }
+  };
+
+  it('recallable send: stops before the account read when the hold is evicted during the height read', async () => {
+    const row = pushRecallableSendRow();
+    const service = seedGuardianService();
+    const getAccount = jest.fn();
+    await withPatchedClient(
+      {
+        getAccount,
+        client: {
+          getSyncHeight: () => {
+            gapsHold = null; // the watchdog fired while the height read parked
+            return 100;
+          }
+        }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(row.status).not.toBe(ITransactionStatus.Completed);
+    // Nothing may be persisted for retry off an abandoned build.
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('recallable send: stops before the request build when the hold is evicted during the account read', async () => {
+    const row = pushRecallableSendRow();
+    const service = seedGuardianService();
+    await withPatchedClient(
+      {
+        getAccount: jest.fn(async () => {
+          gapsHold = null;
+          return { kind: 'account' };
+        }),
+        client: { getSyncHeight: () => 100 }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    // The returned Account is a borrow of the client a successor now owns —
+    // the request build reads its vault, so it must never run.
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('Epoch bridged-send: does not fall back to the cached height when the hold is evicted during the fresh sync', async () => {
+    txStore.push({
+      id: 'bridged-evict-1',
+      type: 'bridged-send',
+      accountId: 'guardian-acc',
+      secondaryAccountId: 'solver',
+      faucetId: 'faucet-1',
+      amount: '1000',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      extraInputs: { provider: 'epoch', recallBlocks: 500 }
+    });
+    const row = txStore[0];
+    const service = seedGuardianService();
+    const plainHeightRead = jest.fn(() => 100);
+    const getAccount = jest.fn();
+    await withPatchedClient(
+      {
+        getAccount,
+        client: {
+          // The fresh sync parks, the watchdog evicts, and the parked call then
+          // fails — the fallback height read must NOT be taken unmutexed.
+          sync: jest.fn(async () => {
+            gapsHold = null;
+            throw new Error('node parked');
+          }),
+          getSyncHeight: plainHeightRead
+        }
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    expect(plainHeightRead).not.toHaveBeenCalled();
+    expect(getAccount).not.toHaveBeenCalled();
+    expect(mockGapsBuildSendRequest).not.toHaveBeenCalled();
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+  });
+
+  it('swap: never spins up the transient client when the hold is evicted during the account read', async () => {
+    const row = pushSwapRow();
+    seedGuardianService();
+    await withPatchedClient(
+      {
+        getAccount: jest.fn(async () => {
+          gapsHold = null;
+          return { kind: 'account' };
+        })
+      },
+      async () => {
+        await generateTransaction(row, jest.fn(), false, provider as any);
+      }
+    );
+    expect(mockGapsCreateWasmWebClient).not.toHaveBeenCalled();
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    expect(row.requestBytes).toBeUndefined();
+  });
+
+  it('swap: stops before the PSWAP build — but still terminates the transient client — on an eviction during its create', async () => {
+    const row = pushSwapRow();
+    const service = seedGuardianService();
+    const terminate = jest.fn();
+    const newPswapCreateTransactionRequest = jest.fn();
+    mockGapsCreateWasmWebClient.mockImplementationOnce(async () => {
+      gapsHold = null; // the create is the long parking await (genesis fetch)
+      return { newPswapCreateTransactionRequest, terminate };
+    });
+    await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    // The guard's throw must not leak the transient client's worker.
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+  });
+
+  it('swap: stops before touching the creator account when the hold is evicted during the PSWAP request build', async () => {
+    const row = pushSwapRow();
+    seedGuardianService();
+    const terminate = jest.fn();
+    mockGapsCreateWasmWebClient.mockImplementationOnce(async () => ({
+      newPswapCreateTransactionRequest: jest.fn(async () => {
+        gapsHold = null;
+        return { kind: 'pswap-request' };
+      }),
+      terminate
+    }));
+    await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    // buildPswapCreateRequest reads the creator Account — a borrow of the SHARED
+    // client, not the transient one — so it must never run past the eviction.
+    expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(row.requestBytes).toBeUndefined();
   });
 });

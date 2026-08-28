@@ -260,6 +260,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       break;
     }
 
+    // #788 follow-up: the Activity notice's Retry. Mobile/desktop own the
+    // import pass in this single realm, so the drain runs right here.
+    case WalletMessageType.RetryDeadletteredNotesRequest: {
+      const { requeued } = await Actions.retryDeadletteredNotes();
+      return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
+    }
+
     default:
       console.warn(`${label}: Unknown request type`, req?.type);
   }

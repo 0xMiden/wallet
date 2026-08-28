@@ -2,6 +2,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
@@ -483,6 +484,24 @@ export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: st
     }
     return outcome;
   });
+}
+
+/**
+ * The Activity notice's Retry (#788 follow-up): drain the note dead-letter
+ * store back onto the import queue, then kick one import pass so the user sees
+ * the outcome now rather than on the transaction loop's next lap. Runs in the
+ * realm that owns the pass — the SW switch and the in-process switch both
+ * dispatch here, so the two platforms cannot drift. The kick is
+ * fire-and-forget: the drain's result is the requeue count, and the pass's own
+ * failures already go through the queue's budgets and, if it comes to that,
+ * back to the dead-letter store.
+ */
+export async function retryDeadletteredNotes(): Promise<{ requeued: number }> {
+  const result = await drainNoteDeadletter();
+  if (result.requeued > 0) {
+    void importAllNotes().catch(e => console.warn('[retryDeadletteredNotes] kicked import pass failed', e));
+  }
+  return result;
 }
 
 export function swapHotKey(accountPublicKey: string, newHotPubKey: string) {

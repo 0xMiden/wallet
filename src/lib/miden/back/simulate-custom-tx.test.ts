@@ -12,10 +12,37 @@ const syncState = jest.fn(async () => undefined);
 const getInputNote = jest.fn(async (_id: string): Promise<unknown> => null);
 const executeRequest = jest.fn(async () => ({ result: { serialize: () => new Uint8Array([9, 9]) } }));
 const fakeClient = { transactions: { executeRequest } };
+const getMidenClient = jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote }));
+
+// The lock hands its callback a HOLD, and the dry run re-checks ownership at every
+// transition (#788 follow-up). Model both here: a hold-less pass-through would make
+// `assertWasmHoldCurrent` throw on the happy path, and a mock with no way to revoke
+// ownership could not exercise the eviction guards at all.
+let currentWasmHold: object | null = null;
+const revokeWasmHold = () => {
+  currentWasmHold = null;
+};
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  getMidenClient: jest.fn(async () => ({ client: fakeClient, importNoteBytes, syncState, getInputNote })),
-  withWasmClientLock: jest.fn((fn: any) => fn())
+  // Lazy closure, not shorthand: the hoisted require of the module under test
+  // runs this factory before the consts above are initialized.
+  getMidenClient: () => getMidenClient(),
+  getCurrentWasmLockHold: () => currentWasmHold,
+  // Re-implements the real comparison against the mock's current hold — a no-op
+  // here would make every eviction test below vacuously green.
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new Error(`operation abandoned ${where}`);
+  },
+  withWasmClientLock: jest.fn(async (fn: (hold: object) => Promise<unknown>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  })
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({
   accountIdStringToSdk: jest.fn((s: string) => ({ toString: () => `hex:${s}` }))
@@ -219,6 +246,133 @@ describe('simulateCustomTransaction', () => {
 
     expect(executeRequest).not.toHaveBeenCalled();
     expect(res).toEqual({ error: 'note not found' });
+  });
+
+  // #788 follow-up: a watchdog eviction hands the mutex to a successor without
+  // stopping this callback, so the abandoned dry run must stop at its next
+  // transition instead of borrowing a client somebody else is inside. Nothing
+  // here ever submits, so every transition is guardable; each test parks the
+  // eviction inside one await and asserts the flow went no further.
+  describe('abandons the dry run at the next transition after a lock eviction', () => {
+    const input = { address: 'mtst1abc', transactionRequest: 'reqB64', importNotes: ['noteA', 'noteB'] };
+
+    it('during the client build: nothing WASM runs at all', async () => {
+      getMidenClient.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return { client: fakeClient, importNoteBytes, syncState, getInputNote };
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned after the client build' });
+      expect(getInputNote).not.toHaveBeenCalled();
+      expect(quarantineNoteIds).not.toHaveBeenCalled();
+      expect(importNoteBytes).not.toHaveBeenCalled();
+      expect(syncState).not.toHaveBeenCalled();
+      expect(executeForSummary).not.toHaveBeenCalled();
+    });
+
+    it('during a provenance lookup: the loop stops before the next one, and the poison is not swallowed as "already held"', async () => {
+      getInputNote.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return null;
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned before the provenance lookup' });
+      expect(getInputNote).toHaveBeenCalledTimes(1);
+      expect(quarantineNoteIds).not.toHaveBeenCalled();
+      expect(importNoteBytes).not.toHaveBeenCalled();
+    });
+
+    it('during the quarantine write (a Dexie await the watchdog does not pause for): no note is imported', async () => {
+      (quarantineNoteIds as jest.Mock).mockImplementationOnce(async () => {
+        revokeWasmHold();
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned after the quarantine write' });
+      expect(importNoteBytes).not.toHaveBeenCalled();
+      expect(syncState).not.toHaveBeenCalled();
+    });
+
+    it('during a note import: the loop stops before the next import', async () => {
+      importNoteBytes.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return 'noteid';
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned before the note import' });
+      expect(importNoteBytes).toHaveBeenCalledTimes(1);
+      expect(syncState).not.toHaveBeenCalled();
+    });
+
+    it('during the sync: neither the id parse nor the execution runs', async () => {
+      syncState.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return undefined;
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned after the sync' });
+      expect(accountIdStringToSdk).not.toHaveBeenCalled();
+      expect(executeForSummary).not.toHaveBeenCalled();
+    });
+
+    it('during executeForSummary: the summary is not serialized, but the anchor is still freed', async () => {
+      const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
+      const free = jest.fn();
+      (executeForSummary as jest.Mock).mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return { summary: { serialize }, anchor: { __anchor: true, free } };
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned before the summary serialize' });
+      // `summary.serialize()` reads through the evicted client's RefCell, which
+      // is the double borrow the guard exists to prevent.
+      expect(serialize).not.toHaveBeenCalled();
+      // The anchor's release is NOT that: it deallocates the anchor's own box
+      // rather than calling through the client, and it is synchronous, so it
+      // cannot interleave with the successor. Skipping it would strand a partial
+      // blockchain on the WASM heap per abandoned confirm dialog — the exact
+      // leak #784 added this release to stop.
+      expect(free).toHaveBeenCalledTimes(1);
+    });
+
+    it('during an executeForSummary that ends already-authorized: the local fallback never executes', async () => {
+      (executeForSummary as jest.Mock).mockImplementationOnce(async () => {
+        revokeWasmHold();
+        throw Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' });
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned before the local execution fallback' });
+      expect(executeRequest).not.toHaveBeenCalled();
+    });
+
+    it('during the fallback executeRequest: its result is not serialized', async () => {
+      (executeForSummary as jest.Mock).mockRejectedValueOnce(
+        Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+      );
+      const serialize = jest.fn(() => new Uint8Array([9, 9]));
+      executeRequest.mockImplementationOnce(async () => {
+        revokeWasmHold();
+        return { result: { serialize } };
+      });
+
+      const res = await simulateCustomTransaction(input);
+
+      expect(res).toEqual({ error: 'operation abandoned before the result serialize' });
+      expect(serialize).not.toHaveBeenCalled();
+    });
   });
 
   it('times out and returns { error: "Simulation timed out" } when the locked work hangs', async () => {

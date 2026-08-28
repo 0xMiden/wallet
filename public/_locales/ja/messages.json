@@ -3334,6 +3334,27 @@
     "message": "同期を再試行",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "受信中のnotesは再試行が必要です",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "受信したnoteは再試行が必要です",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ を自動的にインポートできませんでした。",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note は自動的にインポートできませんでした。",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "明日",
     "englishSource": "Tomorrow"

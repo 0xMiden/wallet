@@ -12,6 +12,13 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// The dead-letter notice owns its own data (SWR over the note dead-letter
+// store) and has its own suite; a stub keeps this page test from pulling the
+// storage adapter into the graph while still pinning that the page mounts it.
+jest.mock('components/DeadletteredNotesNotice', () => ({
+  DeadletteredNotesNotice: () => <div data-testid="deadlettered-notes-notice-stub" />
+}));
+
 // The red-dot indicator and the pending-notes banner are driven by this hook;
 // each test controls its return value via the mocked implementation below.
 jest.mock('lib/miden/front/claimable-notes', () => ({

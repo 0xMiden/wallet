@@ -68,9 +68,34 @@ const mockClient = {
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// The options the sync hold is taken with. On the INLINE path (which is what jsdom
+// presents — no `chrome.offscreen`) the hold must carry the sync watchdog ceiling,
+// because there the timeout's rejection would release the mutex while the abandoned
+// `syncState` is still inside this realm's single-threaded client.
+const lockOptionsSeen: Array<unknown> = [];
+// The hold identity has to be modelled, not stubbed away: the note-read callback
+// re-checks `getCurrentWasmLockHold() === hold` after its client build, so a mock that
+// passes no hold would make every read look abandoned.
+let swLockHold: object | null = null;
+const evictSwLockHold = () => {
+  swLockHold = null;
+};
+// Overridable so a test can evict the hold from INSIDE the client build, which on the
+// inline path is the long await the read's liveness guard exists for.
+const mockGetMidenClient = jest.fn(async () => mockClient);
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async () => mockClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  getMidenClient: () => mockGetMidenClient(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    const hold = {};
+    swLockHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (swLockHold === hold) swLockHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => swLockHold,
   runWhenClientIdle: () => {}
 }));
 
@@ -149,9 +174,15 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
+  MAX_SYNC_BACKOFF_MS
+} from 'lib/miden/sync-backoff';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
 // Since slice 4 (issue #260) getConsumableNoteDtos returns plain DTOs (the live
@@ -265,7 +296,9 @@ describe('doSync', () => {
 
     await doSync();
 
-    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledWith('pk-1');
+    // The second argument is the sync's own `stillOurs` check, forwarded into the
+    // read so the reach-through past its internal await is guarded too.
+    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledWith('pk-1', expect.any(Function));
     expect(mockClient.getAccount).toHaveBeenCalledWith('pk-1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f1');
     expect(mockFetchTokenMetadata).toHaveBeenCalledWith('f2');
@@ -358,6 +391,278 @@ describe('doSync', () => {
     mockClient.syncState.mockRejectedValueOnce(new Error('wasm offline'));
     await doSync();
     expect(mockBroadcast).toHaveBeenCalled();
+  });
+
+  it('bounds the INLINE sync hold at the watchdog ceiling instead of racing a timeout (#777)', async () => {
+    // The 30s `withTimeout` only rejects the OUTER promise: the underlying sync keeps
+    // running, and the rejection propagating out of the lock callback releases the
+    // mutex. Harmless when the WASM is in the offscreen realm behind its own mutex;
+    // on the inline path it hands the mutex to the downstream read path below while
+    // the sync is still inside the client — a double borrow. So the inline path takes
+    // the eviction route: no JS timeout, and the hold bounded by the ceiling.
+    lockOptionsSeen.length = 0;
+    await doSync();
+
+    expect(lockOptionsSeen[0]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' });
+    // And so is the DOWNSTREAM read, which on this path is not the warm re-read it
+    // reads as: [Lock 1]'s eviction cleared the client slot, so this hold rebuilds
+    // and its genesis fetch goes to the node that just parked. Left on the default
+    // backstop it held this realm's only WASM mutex for 300s on top of [Lock 1]'s
+    // 120s — worse than the 30s timeout it replaced (#777).
+    expect(lockOptionsSeen[1]).toEqual({ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' });
+  });
+
+  it('skips the downstream note read for the lap whose INLINE sync hold was evicted (#777)', async () => {
+    // That eviction cleared the client slot, so this read would rebuild and send the new
+    // client's genesis fetch to the node the sync just gave up on: a second 120s of this
+    // realm's only WASM mutex and a second leaked client, for state that cannot have
+    // changed since the sync that failed to fetch it.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    lockOptionsSeen.length = 0;
+
+    await doSync();
+
+    // One hold taken, not two: the read never ran.
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' }]);
+    expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+
+    // Falsifier: an ORDINARY sync failure still reads. The client is intact there, so
+    // the cached state this read surfaces is worth having.
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    lockOptionsSeen.length = 0;
+    await doSync();
+    expect(lockOptionsSeen).toHaveLength(2);
+    jest.restoreAllMocks();
+  });
+
+  it('stops the note read before its WASM calls when the hold is evicted during the client build (#777)', async () => {
+    // On the inline path the client build IS the long await (a genesis fetch against a
+    // parked node). An abandoned callback resuming past it would make unmutexed inline
+    // WASM calls while a successor is inside the client — the double borrow the lock
+    // exists to prevent.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    // The read's own hold is the second one, so let the sync's build through and evict
+    // during the read's.
+    let builds = 0;
+    mockGetMidenClient.mockImplementation(async () => {
+      builds++;
+      if (builds === 2) evictSwLockHold();
+      return mockClient;
+    });
+
+    await doSync();
+
+    // The guard fired instead: no consumable-note read happened on the abandoned hold.
+    expect(mockClient.getConsumableNoteDtos).not.toHaveBeenCalled();
+    mockGetMidenClient.mockImplementation(async () => mockClient);
+    jest.restoreAllMocks();
+  });
+
+  it('skips the delivery sweep on the lap whose inline sync hold was evicted (#777)', async () => {
+    // The sweep's proxy calls take fresh holds of their own, so after an eviction cleared
+    // the client slot each of them rebuilds and sends the new client's genesis fetch to
+    // the node that just refused to answer. It is maintenance behind already-landed
+    // transactions: a lap later costs nothing, another park of the realm's only WASM
+    // mutex costs the whole wallet.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockSweepNoteDeliveries.mockClear();
+    mockClient.syncState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await doSync();
+    expect(mockSweepNoteDeliveries).not.toHaveBeenCalled();
+
+    // Falsifier: an ORDINARY sync failure still sweeps — the client is intact, so its
+    // holds are ordinary holds and the sweep is worth running.
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockRejectedValueOnce(new Error('rpc blip'));
+    await doSync();
+    expect(mockSweepNoteDeliveries).toHaveBeenCalledTimes(1);
+    jest.restoreAllMocks();
+  });
+
+  it('stops the note read at the FIRST WASM call after an eviction mid-read (#777)', async () => {
+    // The build is not the only parking await in this hold: the consumable-note read is
+    // itself a network round trip, and an eviction during it releases the mutex while
+    // this callback carries on to `getAccount`. One guard after the build covered the
+    // first of the read's calls and none of the rest.
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    mockClient.getConsumableNoteDtos.mockImplementationOnce(async () => {
+      evictSwLockHold();
+      return [];
+    });
+
+    await doSync();
+
+    expect(mockClient.getConsumableNoteDtos).toHaveBeenCalledTimes(1);
+    // The account read is more WASM on a hold that is no longer ours, so it must not run.
+    expect(mockClient.getAccount).not.toHaveBeenCalled();
+
+    // Falsifier: with the hold intact the same read goes on to the account.
+    mockClient.getConsumableNoteDtos.mockClear();
+    mockClient.getAccount.mockClear();
+    await doSync();
+    expect(mockClient.getAccount).toHaveBeenCalled();
+    jest.restoreAllMocks();
+  });
+
+  it('lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      // Every probe evicted: the shape the fuse exists for. Replacing the client
+      // cannot reach a sync the SDK has already coalesced onto a dead promise, so
+      // this realm would otherwise pay a poison-and-rebuild every window forever —
+      // and on the inline path leak the client each time.
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      let fakeNow = 5_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        await isolated();
+        // Past the breaker's own window each lap, so the only thing that can be
+        // holding the next probe back is the fuse.
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      const callsWhenFused = mockClient.syncState.mock.calls.length;
+      expect(callsWhenFused).toBe(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // The falsifier: a wait that clears the breaker's maximum window but not the
+      // fused one is refused. Without the fuse this probe goes through.
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsWhenFused);
+
+      // A non-eviction failure while LIT does not clear the evidence: it is no proof the
+      // parked sync recovered, and zeroing here meant one offline blip mid-fuse bought
+      // four fresh evictions to re-reach a conclusion nothing had contradicted. This is
+      // the leg that makes "only a success" true rather than decorative.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS;
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('Failed to fetch'));
+      await isolated();
+      const callsAfterBlip = mockClient.syncState.mock.calls.length;
+      expect(callsAfterBlip).toBe(1);
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsAfterBlip);
+
+      // Serve out the fused wait, then succeed: that is the one observation that
+      // clears the evidence.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS;
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockResolvedValue(undefined);
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(1);
+
+      // Fuse out: a single later eviction backs off on the BREAKER's short window
+      // again, not on half an hour.
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) {
+        await isolated();
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      const beforeShortWindow = mockClient.syncState.mock.calls.length;
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(beforeShortWindow + 1);
+
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+  });
+
+  it('never lights the fuse from FORCED probes, and a failed Retry cannot extend a lit one (#777)', async () => {
+    // The fuse measures what the AUTOMATIC cadence costs: one probe per 30 minutes until
+    // one succeeds. A user tap is neither part of that cadence nor throttled by it, so it
+    // must neither add evidence nor push the deadline — without the exemption three
+    // Retry taps against a parked node bought the wallet another half hour of silence
+    // each, which is the opposite of what pressing Retry asks for.
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+      let fakeNow = 9_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Twice the threshold in FORCED evictions: the fuse must stay dark.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2; i++) {
+        await isolated(true);
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // And they left no evidence BEHIND either, which the log alone cannot show: one
+      // automatic eviction after that burst must not be enough to light the fuse. If
+      // forced probes counted, the counter is already over the threshold here and this
+      // single automatic failure fuses the realm for half an hour.
+      await isolated();
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      const callsBeforeNextAuto = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeNextAuto + 1);
+
+      // Now light it the only way it can be lit — automatically — and record the
+      // deadline it published by finding the lap at which an automatic probe runs again.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        await isolated();
+        fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      }
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sync fuse lit'));
+
+      // A forced probe goes through the lit fuse (that is Retry's whole job) and FAILS.
+      // If that failure re-armed the fused window, the automatic probe due moments later
+      // would be turned away.
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 1_000;
+      await isolated(true);
+      fakeNow += 1_000;
+      const callsBeforeDueProbe = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeDueProbe + 1);
+
+      // …and it must not SHORTEN the fuse either, which is the direction that actually
+      // hurts: the breaker's arm is unconditional while the fuse's re-arm is not, so with
+      // both deadlines in one field two failed Retry taps replaced half an hour of
+      // enforced quiet with thirty seconds and put the automatic loop straight back into
+      // the park it had concluded to stay out of. The probe above lit the fuse afresh;
+      // two forced failures now, then a wait that clears any breaker window, must still
+      // find the automatic probe fused.
+      await isolated(true);
+      await isolated(true);
+      fakeNow += MAX_SYNC_BACKOFF_MS + 1_000;
+      const callsBeforeFusedProbe = mockClient.syncState.mock.calls.length;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(callsBeforeFusedProbe);
+
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
   });
 
   it('two back-to-back doSync calls only sync once', async () => {
@@ -714,6 +1019,69 @@ describe('doSync — syncState timeout + circuit breaker', () => {
     });
   });
 
+  it('failing forced probes re-arm the window but never escalate it (#777)', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      mockClient.syncState.mockReset();
+      mockClient.syncState.mockRejectedValue(new Error('node down'));
+      // Driving the monotonic clock (the deadline's clock) is what lets an
+      // automatic probe past the open window at the end; jitter pinned off so
+      // "advance past the window" is a fact rather than a coin flip.
+      let fakeNow = 1_000_000;
+      const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
+      const randSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+
+      const { doSync: isolated } = await import('./sync-manager');
+
+      // Three automatic failures open the first window: trip 1.
+      await isolated();
+      await isolated();
+      await isolated();
+
+      // Now the user taps Retry three times against the same down node. Each one
+      // probes straight through the open window and fails, reaching the same arm.
+      // The trip count must not move: escalation measures how long the node has
+      // been failing, not how many times the user asked, and letting taps count
+      // walked the user's own wallet from 30s to 240s of enforced silence.
+      // The taps are SPACED, which is what makes the re-arm observable: at one
+      // instant the re-armed deadline and the inherited one coincide, so a forced
+      // failure that never touched the deadline predicts exactly the same timings.
+      // Three taps 8s apart put the re-armed deadline 24s past the original.
+      for (let tap = 0; tap < 3; tap++) {
+        fakeNow += 8_000;
+        await isolated(true);
+      }
+
+      const openings = () =>
+        warnSpy.mock.calls.map(args => String(args[0])).filter(msg => msg.includes('circuit breaker open'));
+      expect(openings()).toEqual([expect.stringContaining('trip 1'), expect.stringContaining('trip 1')]);
+      expect(mockClient.syncState).toHaveBeenCalledTimes(6);
+
+      // Past the ORIGINAL deadline but inside the re-armed one: the automatic probe
+      // must be skipped, never reaching the node. This is the assertion the re-arm
+      // actually owns — without it the timer is through here and already escalating.
+      fakeNow += 11_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(6);
+      expect(openings()).toHaveLength(2);
+
+      // And the exemption must not become a way to STOP escalating: a forced
+      // failure does not spend the automatic streak, so the next automatic failure
+      // past the re-armed window is still the one that walks the curve.
+      fakeNow += 20_000;
+      await isolated();
+      expect(mockClient.syncState).toHaveBeenCalledTimes(7);
+      expect(openings()).toHaveLength(3);
+      expect(openings()[2]).toContain('trip 2');
+
+      warnSpy.mockRestore();
+      nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
+      randSpy.mockRestore();
+    });
+  });
+
   it('a successful forced probe closes the existing backoff window', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.spyOn(console, 'warn').mockImplementation();
@@ -765,6 +1133,11 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 
       let fakeNow = 1_000_000;
       const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+      // The backoff deadline is held on the MONOTONIC clock (#777 — a wall-clock
+      // deadline stepped backwards keeps the window open for the size of the
+      // step, and every attempt inside it is skipped), so driving this test's
+      // clock means driving `performance.now` too, not just `Date.now`.
+      const monotonicSpy = jest.spyOn(performance, 'now').mockImplementation(() => fakeNow);
       // Pin the jitter. `computeSyncBackoffMs` adds 0-20% of the base to
       // de-sync wallets, so the real backoff is 30_000-36_000ms — and the 35s
       // this test advances by lands INSIDE that range whenever Math.random()
@@ -794,6 +1167,7 @@ describe('doSync — syncState timeout + circuit breaker', () => {
       expect(mockClient.syncState).toHaveBeenCalledTimes(1);
 
       nowSpy.mockRestore();
+      monotonicSpy.mockRestore();
       randSpy.mockRestore();
     });
   });

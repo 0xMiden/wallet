@@ -3334,6 +3334,27 @@
     "message": "Повторити синхронізацію",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Вхідні запити «notes» потребують повторної спроби",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "Для вхідного запиту «note» потрібно повторити спробу",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ не вдалося імпортувати автоматично.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note не вдалося імпортувати автоматично.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Завтра",
     "englishSource": "Tomorrow"

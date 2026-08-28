@@ -71,7 +71,7 @@ test.describe('infra resilience — outgoing guardian offline during a switch', 
         // Prove the outage actually fired on old-guardian traffic — 0 hits
         // means the wallet never contacted A and the spec asserted nothing
         // about the fallback (a false green).
-        const hits = walletA.networkFaultHits();
+        const hits = await walletA.networkFaultHits();
         expect(
           hits,
           'the guardian-A outage must have refused at least one request — 0 hits means the fault never reached the rotation'

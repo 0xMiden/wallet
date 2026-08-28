@@ -17,6 +17,7 @@ import {
   midenClientProxy,
   reloadOffscreenEndpointOverrides
 } from 'lib/miden/back/miden-client-proxy';
+import { isOperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
   OFFSCREEN_OP_STARTED,
@@ -28,15 +29,24 @@ import {
 } from 'lib/miden/back/offscreen-codec';
 import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
-import { doSync } from 'lib/miden/back/sync-manager';
+import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
+import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
+import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+import { logger } from 'shared/logger';
 
 import { TRANSACTION_STAGES, type ITransactionStage } from '../db/types';
 import { NoteExportType } from '../sdk/constants';
-import { getMidenClient, resetMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getCurrentWasmLockHold,
+  getMidenClient,
+  resetMidenClient,
+  withWasmClientLock
+} from '../sdk/miden-client';
 import { MidenMessageType } from '../types';
 
 // frontStore is initialized lazily inside start() because with Vite's TLA stripping,
@@ -320,7 +330,18 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     default) owns the client that actually executes writes, syncs and talks to
       //     the node — resetMidenClient() cannot reach it. No-op when the flag is off,
       //     when chrome.offscreen is absent, or when no document is open.
+      //   - resetSyncBackoffForEndpointChange() drops the breaker window and the
+      //     watchdog-eviction fuse, both of which are findings about the OLD node. A
+      //     fused SW otherwise syncs once per 30 min against the new one, which reads
+      //     as "the repoint did nothing" and withholds the successful sync that is the
+      //     fuse's only exit condition (#777).
+      //   - clearSyncFuseForEndpointChange() drops the shared per-probe ledger, which
+      //     this realm now writes to as well: the note-import pass runs in the service
+      //     worker on the extension, so a fuse lit there would otherwise outlive the node
+      //     it was earned against with nothing in this realm able to clear it.
       await loadEndpointOverrides();
+      resetSyncBackoffForEndpointChange();
+      clearSyncFuseForEndpointChange();
       await resetMidenClient();
       await reloadOffscreenEndpointOverrides();
       return { type: WalletMessageType.ReloadEndpointOverridesResponse };
@@ -334,8 +355,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // pass-through to the same inline client under this lock, so the behavior is
       // byte-identical to before.
       try {
-        const noteId = await withWasmClientLock(async () => {
+        const noteId = await withWasmClientLock(async hold => {
           const id = await midenClientProxy.importNoteBytes(noteBytes);
+          // The import is a network round trip, and an eviction during it releases the
+          // mutex without stopping this callback — so the sync below would run with no
+          // mutex held, concurrently with whoever holds it now. Throwing instead takes
+          // the catch below, which queues the bytes: the note is preserved either way,
+          // and the queue's own pass re-imports it under a hold that is actually ours.
+          if (getCurrentWasmLockHold() !== hold) {
+            throw new WasmClientPoisonedError('watchdog', new Error('manual note import abandoned after the import'));
+          }
           await midenClientProxy.syncState();
           return id;
         });
@@ -344,15 +373,35 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         // Don't lose the note on a transient blip (resilience gap 1): queue the
         // bytes for the background import loop (wall-clock retry + dead-letter)
         // before surfacing the error, so a manual import isn't lost to one blip.
-        if (isLikelyNetworkError(e)) {
-          await queueNoteImport(req.noteBytes).catch(() => {});
+        // Both abandonment shapes count, not just a network blip. A watchdog eviction
+        // and an offscreen deadline kill say the same thing this queue exists for —
+        // "we do not know whether this landed" — and neither matches
+        // `isLikelyNetworkError`, whose tokens are transport text: the poison message
+        // is closed wallet-authored text. So an eviction took the not-transient path
+        // and dropped the bytes from the one mechanism built to preserve them, which
+        // for a private note can be the only copy of the funds it carries. Matches
+        // the queue's own classifier (`notes.ts`, `transient`).
+        if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+          // Logged rather than swallowed: the throw below reports the IMPORT
+          // failure, which says nothing about whether the background retry was
+          // actually armed. Losing both silently is what made this look like a
+          // blip the loop would clean up when nothing had been queued at all.
+          await queueNoteImport(req.noteBytes).catch(queueError =>
+            logger.error('[ImportNoteBytesRequest] failed to queue the note for background retry', queueError)
+          );
         }
         throw e;
       }
     }
+    case WalletMessageType.RetryDeadletteredNotesRequest: {
+      const { requeued } = await Actions.retryDeadletteredNotes();
+      return { type: WalletMessageType.RetryDeadletteredNotesResponse, requeued };
+    }
     case WalletMessageType.ExportNoteRequest: {
-      const exportedBytes = await withWasmClientLock(async () =>
-        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS)
+      const exportedBytes = await withWasmClientLock(async hold =>
+        midenClientProxy.exportNote(req.noteId, NoteExportType.DETAILS, () =>
+          assertWasmHoldCurrent(hold, 'inside the note export, before serializing the export')
+        )
       );
       const exportedB64 = Buffer.from(exportedBytes).toString('base64');
       return { type: WalletMessageType.ExportNoteResponse, noteBytes: exportedB64 };

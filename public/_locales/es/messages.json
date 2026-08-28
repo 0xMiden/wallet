@@ -3334,6 +3334,27 @@
     "message": "Volver a intentar la sincronización",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Los mensajes entrantes de notes deben reintentarse",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "Un «note» entrante requiere un nuevo intento",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ No se pudieron importar automáticamente.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note no se ha podido importar automáticamente.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Mañana",
     "englishSource": "Tomorrow"

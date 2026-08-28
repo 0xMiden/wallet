@@ -136,7 +136,7 @@ export function isGuardianCanonicalizationError(error: unknown): boolean {
  * Completed (or, for types whose caller awaits a `TransactionResult`, Failed) —
  * never left to be blindly re-queued into a second submit.
  *
- * Classification is by ERROR TEXT, not by a property name. web-sdk 0.16.0-rc.3
+ * Classification is by ERROR TEXT, not by a property name. web-sdk 0.16.0-rc.4
  * does not attach any code for this variant: `code_from_error` maps only the
  * account-tracking cases, and the literal string `ApplyTransactionAfterSubmitFailed`
  * exists in the SDK only as a Rust variant name inside the .wasm — it never reaches

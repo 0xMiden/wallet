@@ -25,7 +25,7 @@ import {
 /**
  * The verbatim `Display` text miden-client produces for
  * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
- * shipped `@miden-sdk/miden-sdk@0.16.0-rc.3` wasm. That SDK attaches NO code
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.4` wasm. That SDK attaches NO code
  * property for this variant, so this string is the ONLY signal the wallet's
  * classifier has. Building the fixture from the real message — instead of
  * hand-setting an `errorCode` the SDK never sets — is what makes these tests
@@ -1121,6 +1121,42 @@ describe('generateTransactionsLoop error paths', () => {
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
     // Terminal, and never returned to the queue.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('does NOT requeue an offscreen ABORT that lands alongside a stale locked auth reason (#777)', async () => {
+    // The sibling of the poison case above, and it arrives by a shorter route:
+    // `dispatchOffscreenWrite` re-tags whatever error it caught with `reason:'locked'`
+    // whenever the op's reverse-IPC sign reported locked, so a deadline abort reaches
+    // `isLockedError` directly rather than via the ambient reason. An abort is the same
+    // abandonment as an eviction — the offscreen pipeline keeps running and can still
+    // submit — so the defer branch's "strictly pre-submit" argument fails identically,
+    // and the requeue would clear `requestBytes` and rebuild the send with a fresh
+    // note serial. One send, two payments.
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw new OperationAbortedError('op-1', 'deadline');
+      return fn();
+    });
+    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
+
+    txStore.push({
+      id: 'tx-aborted-not-locked',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
     expect(txStore[0]!.nextEligibleAt).toBeUndefined();
 

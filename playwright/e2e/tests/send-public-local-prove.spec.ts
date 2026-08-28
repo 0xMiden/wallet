@@ -12,47 +12,25 @@ const SEND_AMOUNT = '500';
 const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
 
 /**
- * Local-prove repro spec.
- *
- * Reproduces the "stuck on syncing account" hang reported when delegate
- * proving is OFF on Chrome MV3:
- *
- *   [prove-timing] [generateTransaction:send:UUID] entered
- *   [prove-timing] [generateTransaction:send:UUID] about to acquire withWasmClientLock for syncState
- *   <~22s later>
- *   [SyncManager] syncState failed (1/3): Error: Sync timeout
- *
- * Delegated proving works fine — so the contention is specific to the
- * offscreen-doc / speculation paths added in PR #230.
+ * Local-prove guard spec: the one E2E path that exercises in-browser WASM
+ * proving (the offscreen-doc path) end-to-end.
  *
  * Toggling delegate proving off (storage key `delegate_proof_setting_key`)
  * is enough to flip the wallet onto the local-prove code path. Build flags
  * `MIDEN_USE_OFFSCREEN_PROVING` and `MIDEN_USE_SPECULATIVE_PROVING` default
  * to `'true'` on the Chrome extension build (see vite.background.config.ts
  * and vite.extension.config.ts) so no extra build env is needed.
+ *
+ * Requires `@miden-sdk/miden-sdk` >= 0.16.0-rc.4 (miden-processor 0.29.4).
+ * Earlier 0.16 SDKs trap ~2ms into a wasm local prove: `miden-processor`
+ * spawned the hasher-chiplet trace builder on a thread wasm32 cannot spawn,
+ * and the trapped `wasm-bindgen` future never settled, so the prove neither
+ * completed nor errored and held the offscreen WASM mutex until the write
+ * deadline reclaimed the realm (miden-vm#3722). 0.29.4 builds the trace
+ * serially when the spawn is refused. Delegated proving and the mobile
+ * native prover were never affected.
  */
-// QUARANTINED: local WASM proving cannot complete on the 0.16 SDK line, so this
-// spec can never pass here no matter how the timeouts are set.
-//
-// `miden-processor`'s `execute_and_build_trace_sync` overlaps hasher-chiplet trace
-// building onto a second thread via `std::thread::scope`, gated only on
-// `#[cfg(feature = "std")]`. wasm32 HAS `std` but cannot spawn threads, so the spawn
-// returns `Unsupported` and the wasm traps ~2ms into the prove. Because it traps
-// inside a `wasm-bindgen` future the JS promise is never rejected — it simply never
-// settles — so the prove neither completes nor errors and holds the offscreen WASM
-// mutex until the write deadline reclaims the realm. Arrived via miden-vm#3407
-// (miden-vm v0.28.0), reaching the SDK at @miden-sdk/miden-sdk 0.16.0-rc.2.
-//
-// Only the LOCAL prove path is affected. Delegated proving — the default on every
-// platform, and what every other e2e spec exercises — is unaffected, because that
-// proof is produced natively by the remote prover. Mobile is likewise unaffected: it
-// routes local proves to the native Rust prover (see `transaction/index.ts`).
-//
-// Un-skip once the SDK ships a `miden-processor` carrying the wasm gate; the fix is
-// to exclude wasm from the threaded path and fall back to the sequential
-// `execute_trace_inputs_sync` + `build_trace` that this function is already
-// documented as being equivalent to.
-test.describe.skip('Public Note Send — local proving (offscreen-doc path)', () => {
+test.describe('Public Note Send — local proving (offscreen-doc path)', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('wallet A sends tokens publicly to wallet B with local proving forced', async ({
@@ -131,9 +109,8 @@ test.describe.skip('Public Note Send — local proving (offscreen-doc path)', ()
       // funding CLAIM prove locally. That was never asserted — it is prologue — so
       // the spec spent its prologue on the very path it exists to test, and died
       // there without ever reaching the send. Narrowing it was worth doing on its
-      // own merits, though it does not rescue the spec on 0.16: local proving
-      // cannot complete in a browser on that line at all, which is what the
-      // quarantine at the top of this file is for.
+      // own merits: the prologue now proves via the delegated path and only
+      // the send under test runs the local prover.
       await walletA.setDelegateProofEnabled(false);
     });
 

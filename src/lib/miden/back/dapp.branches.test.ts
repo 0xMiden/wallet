@@ -9,6 +9,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -114,6 +115,12 @@ _g.__dappBranchMockGetAccount = jest.fn();
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await — a
+// hold-less pass-through would make those guards a TypeError on the happy path.
+// The assert re-implements the real comparison against this mock's hold so it is
+// never a vacuous no-op.
+let currentWasmHold: object | null = null;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
@@ -135,7 +142,20 @@ jest.mock('../sdk/miden-client', () => ({
     importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
     on: jest.fn()
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
@@ -147,7 +167,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

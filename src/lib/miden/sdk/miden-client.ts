@@ -133,6 +133,17 @@ const wasmClientMutex = new AsyncMutex();
 interface LockHolder {
   /** Set by recovery: the holder was evicted and the mutex already re-released. */
   killed: boolean;
+  /**
+   * This hold's operation, attached by the lock wrapper right after it starts.
+   *
+   * An eviction cannot free the client, because the abandoned operation is still
+   * holding it (see `replaceClientSingletons`) — but it does not have to leak it
+   * forever either. When this promise settles, that operation has stopped touching
+   * the client, so the poisoned instance can finally be reclaimed. Without it,
+   * every eviction leaked a whole WASM client, and the #777 path evicts on a
+   * two-minute ceiling for as long as a node stays parked.
+   */
+  running: Promise<unknown> | null;
   /** Depth of `withWasmLockWatchdogPaused` brackets currently open. */
   pauseCount: number;
   watchdogTimer: ReturnType<typeof setTimeout> | null;
@@ -162,6 +173,43 @@ interface LockHolder {
    * would restore exactly the unbounded loop `unpausedElapsedMs` prevents.
    */
   graceUsed: boolean;
+  /**
+   * The same one-shot mercy for the RELAXED ceiling. It has to exist separately
+   * because the two ledgers are separate: `graceUsed` credits
+   * `unpausedElapsedMs`, so it does nothing for a hold whose paused budget is the
+   * exhausted one. A hold that spent 29 of its 30 relaxed minutes answering a
+   * sign prompt would otherwise get 60 seconds for the prove that follows — and
+   * at exactly 30, a ceiling of literally zero, evicting it on the next
+   * macrotask. That eviction lands past `'syncing'`, where the pipeline records
+   * `markMayHaveSubmitted` permanently, so the cost of a slow user behind a slow
+   * prover is a send that can never be retried.
+   */
+  pausedGraceUsed: boolean;
+  /**
+   * The normal (unpaused) watchdog ceiling for THIS hold. Defaults to
+   * `WASM_LOCK_WATCHDOG_MS`; a caller whose operation has a tighter known
+   * bound (the sync holds, issue #777) passes a smaller one via
+   * `withWasmClientLock`'s options so a wedge is recovered on the operation's
+   * own budget instead of the 5-minute last resort. Holder-scoped so it
+   * survives pause brackets and yields, and never leaks to the next hold.
+   *
+   * Always within `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]`, so the
+   * rest of the watchdog arithmetic can treat it as a sane finite budget.
+   * `beginHold` is the only writer and clamps its argument through
+   * `resolveNormalCeilingMs`, which is what makes that an invariant rather than
+   * a convention every call site has to remember.
+   */
+  normalCeilingMs: number;
+  /**
+   * Who took this hold, for the eviction record. The watchdog fires rarely, in the
+   * field, on a device whose console nobody can read live — and by now a dozen
+   * sites take a bounded hold on this one mutex. Without a name, every eviction
+   * log described the SAME mechanism and none of them said which flow parked:
+   * `runningMs` and `normalCeilingMs` cannot separate an idle sync from a
+   * guardian round-trip or a claimable-notes read, all of which now ask for the
+   * same two-minute ceiling (#777). Optional, so an unlabelled hold still logs.
+   */
+  label: string | null;
   /** Rejects the race in `withWasmClientLock`, unblocking the caller. */
   abort: (err: Error) => void;
   aborted: Promise<never>;
@@ -217,6 +265,37 @@ let currentHolder: LockHolder | null = null;
  */
 export function getCurrentWasmLockHold(): WasmLockHold | null {
   return currentHolder;
+}
+
+/**
+ * The post-await ownership re-check the CLAUDE.md hold contract mandates, as
+ * one shared export (#788 follow-up): compare the hold captured at the start of
+ * a locked body against the live owner, and refuse to continue if the mutex has
+ * moved on. `where` names the transition for the forensic record — it travels
+ * on the error's `cause`, never its message, which stays closed wallet-authored
+ * text (see {@link WasmClientPoisonedError}).
+ *
+ * Call it between a parking await and the NEXT WASM call — including reads on
+ * objects returned earlier (an `Account`'s `vault()` is a borrow of the client
+ * it came from, not a stale snapshot). Throwing here is safe exactly where the
+ * contract says to check: provably pre-submit transitions. Never guard
+ * post-submit steps with it — completing beats aborting once a transaction may
+ * have been broadcast.
+ *
+ * `hold` is NON-NULLABLE, unlike the permissive {@link holdIsCurrent} that backs
+ * `yield`/`pause`. The two read `null` in opposite directions on purpose —
+ * "nobody told me, so trust the lock" is right for relaxing a watchdog and
+ * catastrophic for an abort check — and accepting `null` here made the wrong one
+ * reachable by accident: `assertWasmHoldCurrent(getCurrentWasmLockHold(), …)`
+ * typechecks and is tautologically true, so it fails OPEN in the one case the
+ * guard exists for. Requiring the captured hold makes that a compile error, the
+ * same reason `DispatchContext.hold` is non-nullable. The runtime null test
+ * stays behind the type as a backstop: an untyped or `as`-cast caller must not
+ * be able to reach the fails-open comparison when nothing holds the mutex.
+ */
+export function assertWasmHoldCurrent(hold: WasmLockHold, where: string): void {
+  if (hold != null && getCurrentWasmLockHold() === hold) return;
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
 }
 
 /**
@@ -326,8 +405,14 @@ export function __resetRecoveryCooldownForTests(): void {
   lastRecoveryAt = null;
 }
 
-/** Holders currently suspended inside a `yieldWasmClientLock` window. */
-let yieldedHolderCount = 0;
+/**
+ * Holders currently suspended inside a `yieldWasmClientLock` window.
+ *
+ * A SET rather than a count, because these are exactly the parties that retain a
+ * poisoned client besides the holder being evicted — and reclaiming the instance
+ * needs their promises, not their number (see `reclaimWhenIdle`).
+ */
+const yieldedHolders = new Set<LockHolder>();
 
 /**
  * Realm-local listeners run after recovery has replaced the client singletons
@@ -367,20 +452,79 @@ function notifyWasmClientPoisoned(): void {
  * between terminating it and merely marking it by whether anyone is still
  * legitimately using it (issue #775).
  *
- * A holder suspended inside `yieldWasmClientLock` — a send awaiting the
- * offscreen prove, while the 1 s sync holds the mutex and can be the one
- * evicted — is past the mutex and holds a direct client reference. `free()`ing
- * under it fails a transaction that may already have landed, so those cases
- * poison-in-place instead and accept the untermed instance. Nobody mid-yield,
- * and terminating is both safe and the tidier outcome.
+ * `evictedHolderKeepsReference` is the caller stating that some flow it just
+ * abandoned is still holding a direct client reference, so `free()` would pull
+ * the module out from under it. EVERY eviction is such a caller: an evicted
+ * operation is abandoned, not cancelled, and every write resolves its client
+ * INSIDE the hold — so the evicted flow is past the mutex, holding a reference,
+ * and by construction still inside a WASM call. `free()`ing there fails a
+ * transaction that may already have submitted.
+ *
+ * Keying that decision on the suspended-holder count alone was wrong, and wrong in
+ * the worst place: every yield call site in the app is an offscreen-prove path,
+ * which only the extension has. On mobile and desktop the count is therefore
+ * permanently zero, so every eviction took the `free()` branch — including a
+ * mobile write, which has no transport deadline and no JS deadline, and for
+ * which the watchdog is the ONLY bound. That is the one flow most likely to be
+ * mid-submit when the ceiling expires.
+ *
+ * Only a trap with NO holder at all can safely terminate immediately: the module
+ * is already aborted and nobody is using the instance.
+ *
+ * Marking is not the same as leaking, though it was at first. `reclaimAfter`
+ * settles when every flow still holding that instance has finished with it, and
+ * the poisoned instance is freed THEN. Without it every eviction leaked a whole
+ * WASM client (a method worker and its instance off mobile), and the #777 path
+ * evicts on a two-minute ceiling for as long as a node stays parked, so the leak
+ * was unbounded in the realm's lifetime. What it cannot recover is an operation
+ * that never settles at all — a fetch parked forever holds its client forever,
+ * which is why the fuse bounds how often that can happen.
+ *
+ * `reclaimAfter` has to cover EVERY retainer, not just the evicted flow, or the
+ * deferred free becomes a use-after-free. Poisoning detaches the instance so no
+ * NEW caller can be handed it, but a holder already suspended inside a yield is
+ * using that same instance and is not the operation being waited on — freeing on
+ * the evicted flow's settle alone would pull the module out from under a sibling
+ * that is still writing. `reclaimWhenIdle` builds the promise from all of them.
  */
-function replaceClientSingletons(): void {
-  if (yieldedHolderCount > 0) {
-    midenClientSingleton.poisonAllInstances();
+function replaceClientSingletons(evictedHolderKeepsReference: boolean, reclaimAfter?: Promise<unknown> | null): void {
+  if (evictedHolderKeepsReference || yieldedHolders.size > 0) {
+    const poisoned = midenClientSingleton.poisonAllInstances();
+    if (reclaimAfter && poisoned.length > 0) {
+      void reclaimAfter.then(() => {
+        console.warn('[miden-client] every flow holding the poisoned client has settled — reclaiming it');
+        midenClientSingleton.freeDetachedInstances(poisoned);
+      });
+    }
   } else {
     midenClientSingleton.disposeAllInstances();
   }
   notifyWasmClientPoisoned();
+}
+
+/**
+ * When every party still holding the about-to-be-poisoned client has finished
+ * with it — or `null` when that moment is not observable, in which case the
+ * instance stays marked rather than being freed under a live flow.
+ *
+ * The retainers are the flow being evicted plus every holder suspended mid-yield:
+ * both resolved the instance inside their hold and hold a direct reference, and
+ * poisoning only stops NEW callers from being handed it. A retainer whose
+ * operation promise is not attached yet (a hold evicted in the few synchronous
+ * statements before the lock wrapper attaches it) makes the whole set
+ * unobservable, so the answer is `null` rather than a partial wait.
+ *
+ * `allSettled`, not `all`: these promises usually REJECT (an evicted holder is
+ * rejected with `WasmClientPoisonedError`), and a rejection is just as good a
+ * signal that the flow has stopped touching the client.
+ */
+function reclaimWhenIdle(retainers: Iterable<LockHolder>): Promise<unknown> | null {
+  const running: Promise<unknown>[] = [];
+  for (const retainer of retainers) {
+    if (!retainer.running) return null;
+    running.push(retainer.running);
+  }
+  return running.length > 0 ? Promise.allSettled(running) : null;
 }
 
 function onRealmError(event: ErrorEvent): void {
@@ -409,7 +553,7 @@ function recoverFromTrap(cause: unknown): void {
   }
   if (currentHolder) {
     recoverFromWedgedHolder(currentHolder, 'realm-error', cause);
-  } else if (yieldedHolderCount > 0) {
+  } else if (yieldedHolders.size > 0) {
     // A holder is suspended mid-yield (e.g. awaiting an offscreen prove).
     // TERMINATING the client would pull it out from under that flow when it
     // reacquires — past its point-of-no-return that would falsely Fail a
@@ -426,14 +570,15 @@ function recoverFromTrap(cause: unknown): void {
       cause
     );
     lastRecoveryAt = monotonicNow();
-    replaceClientSingletons();
+    replaceClientSingletons(true, reclaimWhenIdle(yieldedHolders));
   } else {
-    // No holder to evict, but the trap still aborted the module instance —
-    // dispose so the next getMidenClient() constructs a fresh client instead
-    // of handing out the poisoned one.
+    // No holder to evict, and nobody suspended — the ONLY case that can safely
+    // terminate. The trap still aborted the module instance, so dispose and let
+    // the next getMidenClient() construct a fresh client rather than handing out
+    // the poisoned one.
     console.error('[miden-client] WASM trap with no lock holder — disposing client singletons:', cause);
     lastRecoveryAt = monotonicNow();
-    replaceClientSingletons();
+    replaceClientSingletons(false);
   }
 }
 
@@ -473,6 +618,32 @@ function ensureRealmErrorListener(): void {
  * from every transition (hold start, pause open/close, yield resume) without
  * leaking a timer or stacking two.
  */
+/**
+ * The relaxed ceiling this hold has left, with the same once-per-hold finishing
+ * slice the normal ceiling gets. Shared by the pause bracket and the yield,
+ * which are the same budget seen from two places: a yield banks its wall-clock
+ * into `pausedElapsedMs` on the way out, so a hold that alternates the two must
+ * not find the second one arming at zero.
+ */
+function pausedCeilingFor(holder: LockHolder): number {
+  const remaining = WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs;
+  // Strictly greater, which is a boundary hardening rather than a behaviour change:
+  // at `remaining === MIN` both operators hand back the same `MIN`, but `>=` did it
+  // WITHOUT consuming the grace, leaving the once-per-hold slice available to a
+  // later sub-`MIN` transition that would then refund the ledger to `PAUSED - MIN`
+  // all over again. Falling through spends the grace at the boundary instead.
+  if (remaining > WASM_LOCK_MIN_WATCHDOG_MS) return remaining;
+  if (!holder.pausedGraceUsed) {
+    // Credited to the ledger, not just to this timer, for the reason spelled out
+    // on `graceUsed` below: overriding only the timer leaves the ledger past the
+    // ceiling, so the next transition re-arms at `max(negative, 0)`.
+    holder.pausedGraceUsed = true;
+    holder.pausedElapsedMs = WASM_LOCK_PAUSED_WATCHDOG_MS - WASM_LOCK_MIN_WATCHDOG_MS;
+    return WASM_LOCK_MIN_WATCHDOG_MS;
+  }
+  return Math.max(remaining, 0);
+}
+
 function armWatchdogFor(holder: LockHolder): void {
   if (holder.watchdogTimer) clearTimeout(holder.watchdogTimer);
   let ceiling: number;
@@ -481,11 +652,19 @@ function armWatchdogFor(holder: LockHolder): void {
     // bracket: unpaused time already spent is not charged against it, but time
     // spent in earlier brackets is, or sequential brackets would each buy a
     // fresh 30 minutes and a bracket-looping flow would run forever unwatched.
-    ceiling = Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0);
+    ceiling = pausedCeilingFor(holder);
   } else {
     // Charge only time this hold spent RUNNING, so the normal ceiling bounds the
     // hold rather than the segment since the last transition.
-    const remaining = WASM_LOCK_WATCHDOG_MS - holder.unpausedElapsedMs;
+    const remaining = holder.normalCeilingMs - holder.unpausedElapsedMs;
+    // `>=` here, NOT the `>` that `pausedCeilingFor` uses, and the asymmetry is
+    // deliberate. On the paused ledger, `remaining === MIN` can only mean the budget
+    // is nearly spent, because `WASM_LOCK_PAUSED_WATCHDOG_MS` is many times `MIN`.
+    // Here it also describes a hold whose ENTIRE budget is `MIN` — the clamp floors
+    // a requested ceiling at exactly that — so a fresh hold arrives at this line
+    // with `remaining === MIN` and nothing spent. Falling through would burn its
+    // once-per-hold grace at hold start and leave the first bracket close with only
+    // the true remainder, evicting a healthy holder mid-sign.
     if (remaining >= WASM_LOCK_MIN_WATCHDOG_MS) {
       ceiling = remaining;
     } else if (!holder.graceUsed) {
@@ -504,7 +683,7 @@ function armWatchdogFor(holder: LockHolder): void {
       // submit. Writing the ledger back to "one slice left" makes the resume
       // re-arm on the unspent remainder of the grace instead.
       holder.graceUsed = true;
-      holder.unpausedElapsedMs = WASM_LOCK_WATCHDOG_MS - WASM_LOCK_MIN_WATCHDOG_MS;
+      holder.unpausedElapsedMs = holder.normalCeilingMs - WASM_LOCK_MIN_WATCHDOG_MS;
       ceiling = WASM_LOCK_MIN_WATCHDOG_MS;
     } else {
       ceiling = Math.max(remaining, 0);
@@ -546,13 +725,20 @@ function startPausedSegment(holder: LockHolder): void {
   if (holder.pausedSegmentStartedAt === null) holder.pausedSegmentStartedAt = monotonicNow();
 }
 
-function beginHold(): LockHolder {
+/**
+ * Open a hold. `requestedCeilingMs` is what the CALLER asked for, not a usable
+ * ceiling: it is clamped here, by construction, so `normalCeilingMs` cannot be
+ * out of range no matter which call site (or which future one) supplies it —
+ * see {@link resolveNormalCeilingMs} for what an unchecked value breaks.
+ */
+function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
   });
   const holder: LockHolder = {
     killed: false,
+    running: null,
     pauseCount: 0,
     watchdogTimer: null,
     unpausedElapsedMs: 0,
@@ -560,6 +746,9 @@ function beginHold(): LockHolder {
     pausedElapsedMs: 0,
     pausedSegmentStartedAt: null,
     graceUsed: false,
+    pausedGraceUsed: false,
+    normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
+    label: label ?? null,
     abort,
     aborted
   };
@@ -625,13 +814,20 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // marked, which decides whether some other flow kept a working reference.
   console.error('[miden-client] evicting wedged WASM lock holder:', {
     reason,
+    hold: holder.label ?? 'unlabelled',
     runningMs: Math.round(
       holder.unpausedElapsedMs + (holder.segmentStartedAt === null ? 0 : monotonicNow() - holder.segmentStartedAt)
     ),
     pauseDepth: holder.pauseCount,
     graceUsed: holder.graceUsed,
-    yieldedHolders: yieldedHolderCount,
-    mode: yieldedHolderCount > 0 ? 'poison-in-place' : 'free',
+    // Without this, a 2-minute sync-ceiling kill and a hold that had barely
+    // started on the 5-minute backstop produce indistinguishable records —
+    // `runningMs` alone cannot say which bound was in force (#777).
+    normalCeilingMs: holder.normalCeilingMs,
+    yieldedHolders: yieldedHolders.size,
+    // Always in-place for an eviction — the evicted flow keeps its reference, and
+    // the instance is reclaimed once that flow's own promise settles.
+    mode: 'poison-in-place',
     error
   });
   holder.abort(error);
@@ -639,12 +835,81 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
   // fails, so releasing the mutex alone would hand the next operation a dead
   // client. Replace it first (deliberately NOT via resetMidenClient(), which
   // takes this same lock and would deadlock), then release so the queue
-  // drains onto a freshly constructed client. Replacing rather than always
-  // disposing matters here too: the holder being evicted is not necessarily
-  // the only flow with a reference — the 1 s sync can be the wedged one while
-  // a send sits suspended mid-yield awaiting its prove.
-  replaceClientSingletons();
+  // drains onto a freshly constructed client. MARKING rather than freeing: the
+  // holder being evicted is abandoned, not cancelled, and it resolved its client
+  // inside the hold — so it is past the mutex, still holding that reference, and
+  // by construction still inside a WASM call. Freeing under it fails a
+  // transaction that may already have submitted — so the instance is freed later
+  // instead, when that flow's own promise settles.
+  // The evicted holder is the current mutex owner, so it is not itself yielded:
+  // every member of `yieldedHolders` is a sibling still using the same instance.
+  replaceClientSingletons(true, reclaimWhenIdle([holder, ...yieldedHolders]));
   wasmClientMutex.release();
+}
+
+/**
+ * Options for {@link withWasmClientLock}.
+ *
+ * `watchdogMs` tightens THIS hold's normal watchdog ceiling below
+ * `WASM_LOCK_WATCHDOG_MS` (issue #777) — for operations with a known bound (the
+ * sync holds) where waiting out the 5-minute last resort leaves the wallet
+ * lockless for far longer than the operation could legitimately run. Expiry is
+ * the ordinary #775 eviction: the holder is rejected with
+ * `WasmClientPoisonedError` and the client singletons are replaced, because the
+ * abandoned operation is not cancelled and may still be borrowing the WASM
+ * client — merely releasing the mutex would double-borrow it under the next
+ * holder. The paused/yielded ceilings are NOT affected: a pause bracket still
+ * relaxes to `WASM_LOCK_PAUSED_WATCHDOG_MS`.
+ *
+ * The value is CLAMPED, never trusted — see `resolveNormalCeilingMs`.
+ */
+export interface WasmClientLockOptions {
+  watchdogMs?: number;
+  /** Names this hold in the eviction record — see `LockHolder.label`. */
+  label?: string;
+}
+
+/**
+ * Resolve a caller's requested ceiling to a usable one: anything that is not a
+ * positive finite number is treated as no request at all, and a real request is
+ * clamped into `[WASM_LOCK_MIN_WATCHDOG_MS, WASM_LOCK_WATCHDOG_MS]`.
+ *
+ * The option only ever TIGHTENS the last-resort backstop, and this is what makes
+ * that true rather than merely documented. Three ways an unchecked value broke
+ * the #775 contract, all reachable the moment a ceiling is computed rather than
+ * written as a literal:
+ *   - Above the default it WIDENED the ceiling, so `withWasmClientLock` would
+ *     hand out longer unwatched holds than the backstop allows. That is the
+ *     pre-#775 wedge reached through the fix's own escape hatch, which is
+ *     exactly what `WASM_LOCK_PAUSED_WATCHDOG_MS` refuses to do by design.
+ *   - Below `WASM_LOCK_MIN_WATCHDOG_MS` it fell into `armWatchdogFor`'s
+ *     one-shot grace branch on the FIRST arm. The hold still got a 30 s timer,
+ *     so the mistake was invisible — but it had spent, before any pause bracket
+ *     existed, the finishing slice a post-sign submit needs, and banked a
+ *     `normalCeilingMs - 30_000` ledger that goes negative below the slice.
+ *   - `NaN` survived into that ledger and reached `setTimeout(fn, NaN)` at the
+ *     next transition, which fires on the next macrotask: an instant eviction
+ *     of a holder that had done nothing wrong, plus a client replacement.
+ *     `Infinity` coerces identically, so the value a caller would reach for to
+ *     switch the watchdog OFF is the one that fires it immediately.
+ *
+ * Zero and negative fall back to the DEFAULT rather than clamping up to the
+ * minimum: a non-positive ceiling cannot be a considered request to tighten, so
+ * the safe reading of it is a bug in the caller, and honouring it as "evict as
+ * soon as allowed" would tear down healthy holds at 30 s.
+ *
+ * One consequence of the lower bound worth stating: the once-per-hold finishing
+ * grace credits `normalCeilingMs - WASM_LOCK_MIN_WATCHDOG_MS` back to the
+ * ledger, so a hold clamped AT the minimum gets its whole budget back rather
+ * than a slice, and its total unpaused bound is `ceiling +
+ * WASM_LOCK_MIN_WATCHDOG_MS` — 60 s at the minimum, 150 s at the sync ceiling.
+ * Still once per hold, so still bounded, just less tight than the name suggests.
+ */
+function resolveNormalCeilingMs(requestedMs: number | undefined): number {
+  if (requestedMs === undefined || !Number.isFinite(requestedMs) || requestedMs <= 0) {
+    return WASM_LOCK_WATCHDOG_MS;
+  }
+  return Math.min(Math.max(requestedMs, WASM_LOCK_MIN_WATCHDOG_MS), WASM_LOCK_WATCHDOG_MS);
 }
 
 /**
@@ -656,11 +921,15 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  * distinguish this flow from an evicted corpse (issue #775) — a flow that
  * ignores the argument keeps the older, ownership-blind behaviour.
  */
-export async function withWasmClientLock<T>(operation: (hold: WasmLockHold) => Promise<T>): Promise<T> {
+export async function withWasmClientLock<T>(
+  operation: (hold: WasmLockHold) => Promise<T>,
+  options?: WasmClientLockOptions
+): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold();
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
+    holder.running = running;
     // The race ABANDONS `running` when recovery rejects `aborted`; if the corpse
     // later rejects with a trap-shaped error past the recovery cooldown, an
     // unhandled rejection would re-enter `onRealmRejection` and evict the
@@ -714,12 +983,18 @@ export function isWasmClientBusy(): boolean {
  * transaction between the guard and the read.
  */
 export async function tryWithWasmClientLock<T>(
-  operation: (hold: WasmLockHold) => Promise<T>
+  operation: (hold: WasmLockHold) => Promise<T>,
+  options?: WasmClientLockOptions
 ): Promise<{ ran: true; value: T } | { ran: false }> {
   if (!wasmClientMutex.tryAcquire()) return { ran: false };
-  const holder = beginHold();
+  // Takes a ceiling like the blocking form. The caller that skips when the lock is
+  // busy is the one that most needs one: the window it DOES win is the instant an
+  // eviction released the mutex, when the client slot is empty and its own read has
+  // to rebuild against the node that just parked (#777).
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
+    holder.running = running;
     // See withWasmClientLock: an abandoned corpse's late rejection must not
     // surface as an unhandled rejection and evict the successor.
     running.catch(() => {});
@@ -831,11 +1106,16 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
     clearTimeout(holder.watchdogTimer);
     holder.watchdogTimer = null;
   }
-  // Not running while yielded, so this time is charged against neither ceiling.
+  // Not RUNNING while yielded, so this time is charged against the normal ceiling
+  // no more than a pause is. It is still banked (below, on the way out) against
+  // the relaxed one: the ceiling is a bound on the HOLD, and letting each yield
+  // start a fresh 30 minutes is the same "sequential brackets buy unlimited
+  // unwatched time" loophole `pausedElapsedMs` exists to close for pauses.
   endUnpausedSegment(holder);
   endPausedSegment(holder);
+  const yieldStartedAt = monotonicNow();
   currentHolder = null;
-  yieldedHolderCount++;
+  yieldedHolders.add(holder);
   // The count must settle exactly once whether the yielded wait resolves or the
   // yield watchdog below gives up on it: a wait that never settles used to leave
   // the count elevated forever, permanently degrading every future recovery to
@@ -845,34 +1125,74 @@ export async function yieldWasmClientLock<T>(operation: () => Promise<T>, hold?:
   const settleYieldCount = (): void => {
     if (yieldCountSettled) return;
     yieldCountSettled = true;
-    yieldedHolderCount--;
+    yieldedHolders.delete(holder);
   };
   // A yielded wait is legitimately long (an offscreen prove) but must not be
   // UNWATCHED: the same relaxed ceiling a pause gets, minus paused time already
-  // spent. On fire the holder is evicted like any other wedge — except the
-  // client singletons are left alone, because the mutex is not held by this flow
-  // and nothing here says the module trapped (the external wait simply hung).
-  const yieldWatchdog = setTimeout(
-    () => {
-      if (holder.killed) return;
-      holder.killed = true;
-      lastRecoveryAt = monotonicNow();
-      settleYieldCount();
-      const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
-      console.error('[miden-client] evicting holder wedged while yielded:', {
-        pausedMs: Math.round(holder.pausedElapsedMs),
-        runningMs: Math.round(holder.unpausedElapsedMs),
-        error
-      });
-      holder.abort(error);
-    },
-    Math.max(WASM_LOCK_PAUSED_WATCHDOG_MS - holder.pausedElapsedMs, 0)
-  );
+  // spent. On fire the holder is evicted like any other wedge.
+  //
+  // The client is POISONED IN PLACE rather than terminated, exactly as a trap
+  // taken while a holder is mid-yield is (`recoverFromTrap`): the suspended flow
+  // still holds its reference, so freeing it would pull the module out from under
+  // a write that may already have submitted. But marking is not optional. Every
+  // corpse-detecting guard keys off `isDisposed` — `yieldLockUnlessDisposed`,
+  // `wrapSignWithWatchdogPause`, `Vault.spawn`'s re-resolve — and two of them can
+  // pass no hold, so `holdIsCurrent` cannot answer for them and they fall back to
+  // trusting whoever holds the mutex. Leaving the client unmarked here made this
+  // the one eviction path whose corpse reads HEALTHY: on its next yield it would
+  // release a SUCCESSOR's mutex, popping a waiter into a live WASM call, and its
+  // sign would pause the successor's watchdog. That is the pre-#775 wedge reached
+  // through the fix's own recovery path.
+  const yieldCeilingMs = pausedCeilingFor(holder);
+  const yieldWatchdog = setTimeout(() => {
+    if (holder.killed) return;
+    holder.killed = true;
+    lastRecoveryAt = monotonicNow();
+    const error = new WasmClientPoisonedError('watchdog', new Error('yielded WASM lock wait never settled'));
+    // Marking, not freeing: this holder is suspended mid-yield and keeps using
+    // the reference it already has. It is freed once every flow holding that
+    // instance has settled — this one included, so it needs no special case
+    // (it is still a member of `yieldedHolders` here; the set settles below).
+    // `currentHolder` is whoever legitimately took the mutex while this flow
+    // slept, and it resolved the SAME instance inside its own hold, so it
+    // retains it exactly as a yielded sibling does. Omitting it was safe only
+    // transitively (a yielded flow cannot settle while an owner holds the
+    // lock), and that stops being true the moment the owner is itself evicted:
+    // its abandoned callback keeps running while the mutex is already released.
+    const retainers = currentHolder ? [currentHolder, ...yieldedHolders] : [...yieldedHolders];
+    // Logged AFTER the census and as `retainers`, not as `yieldedHolders.size`: this
+    // holder is still a member of that set here (it settles below), so the raw count
+    // means something different than the identically-named field
+    // `recoverFromWedgedHolder` logs, where the evicted holder is the mutex owner and
+    // is NOT in the set. Reporting the census is unambiguous either way, and it is
+    // the number that decides when the instance can be reclaimed.
+    console.error('[miden-client] evicting holder wedged while yielded:', {
+      hold: holder.label ?? 'unlabelled',
+      // The OPEN yield included. Banked into `pausedElapsedMs` only when the yield
+      // settles (in the `finally` below), so the bare field reports every yield but
+      // the one that just expired — which on the common shape, a single yield that
+      // never returns, is a flat `pausedMs: 0` beside a 30-minute eviction. The one
+      // number the reader came for was the only one missing.
+      pausedMs: Math.round(holder.pausedElapsedMs + Math.max(0, monotonicNow() - yieldStartedAt)),
+      runningMs: Math.round(holder.unpausedElapsedMs),
+      // The ceiling that actually fired. It is computed from the pause ledger, so
+      // it is not derivable from the constants by a reader of the log.
+      ceilingMs: yieldCeilingMs,
+      pausedGraceUsed: holder.pausedGraceUsed,
+      retainers: retainers.length,
+      liveMutexOwner: currentHolder !== null,
+      error
+    });
+    replaceClientSingletons(true, reclaimWhenIdle(retainers));
+    settleYieldCount();
+    holder.abort(error);
+  }, yieldCeilingMs);
   wasmClientMutex.release();
   try {
     return await operation();
   } finally {
     clearTimeout(yieldWatchdog);
+    holder.pausedElapsedMs += Math.max(0, monotonicNow() - yieldStartedAt);
     await wasmClientMutex.acquire();
     settleYieldCount();
     if (!holder.killed) {
@@ -1043,18 +1363,38 @@ class MidenClientSingleton {
     // await it forever, and recovery could not clear it (issue #775).
     this.initializingPromiseWithOptions = null;
     if (this.instanceWithOptions) {
-      if (yieldedHolderCount > 0) {
-        // A holder suspended mid-yield may still be using this instance (the
-        // routine options-refresh dispose races the same suspended flows a
-        // trap recovery does — see poisonAllInstances). Mark instead of
-        // terminating, so its isDisposed guards fire without failing a write
-        // that may already have submitted.
-        this.instanceWithOptions.markPoisoned();
-      } else {
-        this.freeGuarded(this.instanceWithOptions);
-      }
+      this.detachOrFree(this.instanceWithOptions);
       this.instanceWithOptions = null;
     }
+  }
+
+  /**
+   * Retire an instance this singleton is dropping: free it outright when nobody
+   * else can still be holding it, otherwise mark it and free it once they are done.
+   *
+   * A holder suspended mid-yield resolved the instance INSIDE its hold and keeps a
+   * direct reference, so terminating here would pull the client out from under a
+   * flow that may already have submitted. Marking alone was the other half of the
+   * bug: the reference was dropped with nothing waiting to reclaim it, so a whole
+   * WASM client (and off mobile its method worker) leaked — and unlike a trap
+   * recovery this runs on the ROUTINE options refresh, i.e. once per
+   * `getMidenClient(options)` call that finds a populated slot.
+   */
+  private detachOrFree(instance: MidenClientInterface): void {
+    if (yieldedHolders.size === 0) {
+      this.freeGuarded(instance);
+      return;
+    }
+    instance.markPoisoned();
+    const reclaimAfter = reclaimWhenIdle(yieldedHolders);
+    // Unobservable (a retainer with no operation promise attached yet) leaves the
+    // instance marked rather than freed — the same fail-safe direction
+    // `replaceClientSingletons` takes.
+    if (!reclaimAfter) return;
+    void reclaimAfter.then(() => {
+      console.warn('[miden-client] every flow holding the detached client has settled — reclaiming it');
+      this.freeDetachedInstances([instance]);
+    });
   }
 
   /**
@@ -1088,7 +1428,12 @@ class MidenClientSingleton {
     bumpWasmClientGeneration();
     this.generation++;
     if (this.instance) {
-      this.freeGuarded(this.instance);
+      // Routed through the same retirement path as the with-options slot. An
+      // endpoint change takes the mutex, which a holder suspended mid-yield does
+      // NOT hold — so this reset could reach a straight `free()` while that flow
+      // still had the instance in hand, the one path left violating the
+      // never-free-under-a-retainer rule the poison paths were built around.
+      this.detachOrFree(this.instance);
       this.instance = null;
     }
     // Null unconditionally, not just inside the `this.instance` guard above: if a
@@ -1125,16 +1470,32 @@ class MidenClientSingleton {
    * worker lives until the realm goes away — the accepted cost of not failing a
    * flow that may already have submitted.
    */
-  poisonAllInstances(): void {
+  poisonAllInstances(): MidenClientInterface[] {
     bumpWasmClientGeneration();
     this.generation++;
     this.generationWithOptions++;
-    this.instance?.markPoisoned();
-    this.instanceWithOptions?.markPoisoned();
+    const poisoned = [this.instance, this.instanceWithOptions].filter(
+      (client): client is MidenClientInterface => client !== null
+    );
+    for (const client of poisoned) client.markPoisoned();
     this.instance = null;
     this.initializingPromise = null;
     this.instanceWithOptions = null;
     this.initializingPromiseWithOptions = null;
+    return poisoned;
+  }
+
+  /**
+   * Terminate instances that were poisoned earlier and are no longer installed.
+   *
+   * The deferred half of `poisonAllInstances`: marking keeps a flow that may
+   * already have submitted alive, and this is what stops that being a permanent
+   * leak once the flow has finished. Deliberately takes explicit instances rather
+   * than reading the slots — by the time this runs, a successor client is installed
+   * and must not be touched.
+   */
+  freeDetachedInstances(instances: MidenClientInterface[]): void {
+    for (const instance of instances) this.freeGuarded(instance);
   }
 }
 

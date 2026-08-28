@@ -7,7 +7,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { wasmClientGeneration } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
@@ -63,7 +63,22 @@ export interface GuardianAccountProvider {
  */
 export async function getOrCreateMultisigService(
   accountPublicKey: string,
-  provider: GuardianAccountProvider
+  provider: GuardianAccountProvider,
+  /**
+   * Bound the account read at the sync ceiling instead of the five-minute backstop.
+   *
+   * Passed by the ONE caller on a cadence — the idle loop's guardian sync — and by nobody
+   * else, which is the whole point of making it a parameter rather than a constant. On the
+   * #777 path this hold is not the warm cache read it looks like: every watchdog eviction
+   * bumps the client generation, which invalidates this cache, so the very next lap takes
+   * this hold with an empty client slot and sends a fresh genesis fetch to the node that
+   * just parked. Left on the backstop that is five minutes of frozen wallet per lap, and
+   * four laps to light the account's fuse. The ten transaction-pipeline callers keep the
+   * backstop: a user is waiting on those, and `reconcileStructuralApplyFailure` in
+   * particular runs after a structural change is already on chain, where giving up three
+   * minutes sooner risks stranding the account it exists to rescue.
+   */
+  boundAtSyncCeiling = false
 ): Promise<MultisigService> {
   // NOTE: no endpoint-only fast-path here. The cache hit is served by the inner
   // check below (after we resolve the account's current hotPublicKey), which
@@ -131,13 +146,19 @@ export async function getOrCreateMultisigService(
       guardianServiceCache.delete(accountPublicKey);
     }
 
-    // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
-      // Use the matched account's stored publicKey (the form the in-wallet path
-      // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      return { sdkAccount };
-    });
+    // Get the Account object from the Miden client. Always labelled; bounded only for the
+    // caller that runs on a cadence — see `boundAtSyncCeiling` above (#777).
+    const { sdkAccount } = await withWasmClientLock(
+      async () => {
+        // Use the matched account's stored publicKey (the form the in-wallet path
+        // uses) rather than the possibly-bare dApp-supplied id.
+        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+        return { sdkAccount };
+      },
+      boundAtSyncCeiling
+        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+        : { label: 'guardian-service-build' }
+    );
 
     if (!sdkAccount) {
       throw new Error('Account not found in local storage');

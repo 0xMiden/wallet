@@ -25,6 +25,7 @@ import type { InputNoteSummaryDto } from 'lib/miden/sdk/input-note-summary';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type {
+  AssertLive,
   InputNoteDetails,
   RecoveryRangeResult,
   TransactionCommitState
@@ -85,6 +86,20 @@ import type { NoteType } from '../types';
  * it cannot rely on a deadline to cut it off.
  */
 const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
+
+/**
+ * True when a proxy call would run its WASM in THIS realm rather than crossing to
+ * the offscreen document — the flag off, or no `chrome.offscreen` (Firefox).
+ *
+ * Callers need this to reason about what a JS-level timeout actually buys them. A
+ * timeout that rejects out of a `withWasmClientLock` callback RELEASES the mutex
+ * while the underlying call keeps running; that is harmless when the WASM lives in
+ * another realm behind its own mutex, and a double borrow of the single-threaded
+ * client when it does not.
+ */
+export function runsWasmInThisRealm(): boolean {
+  return !USE_OFFSCREEN_CLIENT || !isOffscreenAvailable();
+}
 
 /**
  * Per-op deadline (ms) for a pure read. A `getAccount` that hasn't returned in
@@ -962,6 +977,13 @@ export const midenClientProxy = {
    */
   async syncState(): Promise<void> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      // No ownership re-check across this await, unlike the frontend loop's own
+      // hold (`useSyncTrigger`) and every other lock-held flow: the proxy does not
+      // own the lock on this path (the caller does, above) and is not handed the
+      // hold, so it cannot ask the question. What covers it instead is the
+      // singleton's generation check — a poison bumps the generation, so a build
+      // that raced one is freed and handed back TERMINATED, and the call below
+      // throws from the SDK's own assert rather than running unmutexed.
       await (await getMidenClient()).syncState();
       return;
     }
@@ -1131,10 +1153,16 @@ export const midenClientProxy = {
    * `exportNote` already returns note bytes, so they ride the wire base64 and
    * are handed back verbatim (no live SDK object to re-hydrate; the caller wants
    * the raw bytes to ship over the intercom).
+   *
+   * `assertLive` is the caller's post-await ownership re-check, forwarded on the
+   * INLINE branch only. It cannot cross the wire, and it must not: on the
+   * offscreen branch the reach-through happens in the offscreen realm under the
+   * offscreen hold, and that dispatch injects its own check. The caller's hold is
+   * the wrong hold to ask about there.
    */
-  async exportNote(noteId: string, exportType: NoteExportType): Promise<Uint8Array> {
+  async exportNote(noteId: string, exportType: NoteExportType, assertLive?: AssertLive): Promise<Uint8Array> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).exportNote(noteId, exportType);
+      return (await getMidenClient()).exportNote(noteId, exportType, assertLive);
     }
     const resultB64 = await this.call('exportNote', [noteId, exportType], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) {
@@ -1159,10 +1187,16 @@ export const midenClientProxy = {
    * reached-through) this method CAN cross the boundary.
    *
    * Flag off: inline (caller owns the lock). Flag on: forward + JSON round-trip.
+   *
+   * `assertLive` is the caller's post-await ownership re-check, forwarded on the
+   * INLINE branch only. It cannot cross the wire, and it must not: on the
+   * offscreen branch the reach-through happens in the offscreen realm under the
+   * offscreen hold, and that dispatch injects its own check. The caller's hold is
+   * the wrong hold to ask about there.
    */
-  async getInputNoteDetails(query?: NoteQuery): Promise<InputNoteDetails[]> {
+  async getInputNoteDetails(query?: NoteQuery, assertLive?: AssertLive): Promise<InputNoteDetails[]> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).getInputNoteDetails(query);
+      return (await getMidenClient()).getInputNoteDetails(query, assertLive);
     }
     const resultB64 = await this.call('getInputNoteDetails', [query], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];
@@ -1218,10 +1252,16 @@ export const midenClientProxy = {
    *
    * Callers are flag-agnostic: they consume the DTO and apply their own per-note
    * skip rule (some skip on `!noteId`, the dApp handler on `!noteId || !nullifier`).
+   *
+   * `assertLive` is the caller's post-await ownership re-check, forwarded on the
+   * INLINE branch only. It cannot cross the wire, and it must not: on the
+   * offscreen branch the reach-through happens in the offscreen realm under the
+   * offscreen hold, and that dispatch injects its own check. The caller's hold is
+   * the wrong hold to ask about there.
    */
-  async getConsumableNotes(accountId: string): Promise<ConsumableNoteDto[]> {
+  async getConsumableNotes(accountId: string, assertLive?: AssertLive): Promise<ConsumableNoteDto[]> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return (await getMidenClient()).getConsumableNoteDtos(accountId);
+      return (await getMidenClient()).getConsumableNoteDtos(accountId, assertLive);
     }
     const resultB64 = await this.call('getConsumableNotes', [accountId], { deadlineMs: READ_DEADLINE_MS });
     if (resultB64 == null) return [];

@@ -3334,6 +3334,27 @@
     "message": "Retry sync",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Incoming notes need a retry",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "An incoming note needs a retry",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ couldn't be imported automatically.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note couldn't be imported automatically.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Tomorrow",
     "englishSource": "Tomorrow"

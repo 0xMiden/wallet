@@ -23,13 +23,42 @@ jest.mock('lib/miden/activity', () => ({
   startBackgroundTransactionProcessing: jest.fn(),
   waitForTransactionCompletion: jest.fn(async () => ({ txHash: '0xhash' }))
 }));
+// The lock hands its callback a HOLD, and the request build re-checks ownership
+// after the awaited note build (#788 follow-up). Model both here: a hold-less
+// pass-through would make `assertWasmHoldCurrent` throw on the happy path, and a
+// mock with no way to revoke ownership could not exercise the eviction guard.
+let currentWasmHold: object | null = null;
+const revokeWasmHold = () => {
+  currentWasmHold = null;
+};
+
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: (fn: () => unknown) => fn()
+  getCurrentWasmLockHold: () => currentWasmHold,
+  // Re-implements the real comparison against the mock's current hold — a no-op
+  // here would make the eviction test below vacuously green.
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new Error(`operation abandoned ${where}`);
+  },
+  withWasmClientLock: async (fn: (hold: object) => unknown) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
 
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
+
+const mockCreateB2AggNote = jest.fn((...args: unknown[]): unknown => {
+  void args;
+  return { note: true };
+});
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: { fromHex: (hex: string) => ({ hex }) },
@@ -39,7 +68,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   },
   EthAddress: { fromHex: (hex: string) => ({ hex }) },
   FungibleAsset: class {},
-  Note: { createB2AggNote: () => ({ note: true }) },
+  Note: { createB2AggNote: (...args: unknown[]) => mockCreateB2AggNote(...args) },
   NoteArray: class {},
   NoteAssets: class {},
   TransactionRequest: { deserialize: jest.fn() },
@@ -52,6 +81,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     }
   }
 }));
+
+import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { MIDEN_AGGLAYER_FAUCET_ID } from './constant';
 import { initiateB2AggBridge } from './index';
@@ -88,5 +119,31 @@ describe('initiateB2AggBridge', () => {
     expect(call[5]).toBe('agglayer');
     expect(call[6]).toEqual(new Uint8Array([1, 2, 3]));
     expect(call[7]).toBe(true);
+  });
+
+  // #788 follow-up: the awaited note build parks (the lazy SDK load), and an
+  // eviction during it hands the mutex to a successor without stopping this
+  // callback. Everything in the hold is write PREP — the request is only built
+  // and serialized, submission happens later in the pipeline — so aborting is
+  // always safe, and it must abort BEFORE a row is queued: a queued row would
+  // hand the abandoned request to the processor as a fresh write.
+  it('abandons the initiation when the WASM lock hold is evicted during the note build', async () => {
+    mockCreateB2AggNote.mockImplementationOnce(() => {
+      revokeWasmHold();
+      return { note: true };
+    });
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        destinationNetwork: 0
+      })
+    ).rejects.toThrow('operation abandoned before the bridge request build');
+
+    // Nothing past the guard ran: no request round-trip, no queued row.
+    expect(TransactionRequest.deserialize).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 });

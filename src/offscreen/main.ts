@@ -61,6 +61,7 @@ import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
   type WasmLockHold,
+  assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   onWasmClientPoisoned,
   withWasmClientLock,
@@ -71,7 +72,12 @@ import { MidenClientInterface, remoteProver, withDelegatedProveTimeout } from 'l
 import { recordProveMarker } from 'lib/miden/sdk/prove-telemetry';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { poisonReasonOf, wasmClientGeneration } from 'lib/miden/sdk/wasm-client-poison';
+import {
+  poisonReasonOf,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  wasmClientGeneration,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 
 const TAG = '[offscreen-prover]';
@@ -402,8 +408,8 @@ async function offscreenSignViaSW(publicKey: Uint8Array, signingInputs: Uint8Arr
 // nothing about. So the stamp reverses across the bus tagged with an op_id, and
 // the SW maps it back to the row via the stage callback it registered for that op.
 //
-// The op_id is PASSED IN, captured once per dispatch (see `dispatchContext`) —
-// deliberately not read from the ambient `currentOpId` at post time, which the
+// The op_id is PASSED IN, on the context `handleCall` threads into every
+// dispatch — deliberately not read from the ambient `currentOpId` at post time, which the
 // sign stub has to do because the SDK invokes it with no context of its own. A
 // stamp is not attribution-neutral: `stageStampFor` turns a 'submitting' stamp
 // into `markMayHaveSubmitted(txId)`, so an evicted dispatch that kept running
@@ -454,10 +460,20 @@ function postStageEvent(context: DispatchContext, stage: ITransactionStage): voi
 // State-across-reopen correctness rests on IndexedDB: `closeDocument()` discards
 // the WASM heap by design, and a reopened client re-attaches to the same store.
 
-/** method -> (client, ...decodedArgs) -> serialized result bytes (or null). Each
- * entry serializes its own result so the transport only base64-encodes bytes
- * (design §1.4 rule 1: pass `serialize()` bytes where the SDK exposes them). */
-type DispatchFn = (client: MidenClientInterface, ...args: any[]) => Promise<Uint8Array | null>;
+/** method -> (context, client, ...decodedArgs) -> serialized result bytes (or
+ * null). Each entry serializes its own result so the transport only base64-encodes
+ * bytes (design §1.4 rule 1: pass `serialize()` bytes where the SDK exposes them).
+ * The context is a REQUIRED first parameter, threaded by `handleCall` (#788
+ * F-234): every dispatch holds its own identity without opting in, so the
+ * post-await hold re-checks can never be lost to a forgotten opt-in — the
+ * publish/consume dance this replaces reached only the three dispatches that
+ * remembered to take it. An entry with no post-await WASM touch names the
+ * parameter `_context`. */
+type DispatchFn = (
+  context: DispatchContext,
+  client: MidenClientInterface,
+  ...args: any[]
+) => Promise<Uint8Array | null>;
 
 /**
  * One dispatch's own identity: the op it serves and the WASM lock hold it runs
@@ -472,39 +488,26 @@ type DispatchFn = (client: MidenClientInterface, ...args: any[]) => Promise<Uint
  */
 type DispatchContext = {
   readonly op_id: string;
-  readonly hold: WasmLockHold | null;
+  /**
+   * Non-nullable on purpose. `handleCall` is the only producer and builds it
+   * from the hold `withWasmClientLock` handed that callback, so there is no
+   * legitimate null — and `assertWasmHoldCurrent` FAILS CLOSED on one, unlike
+   * the permissive `holdIsCurrent`. A nullable field would turn a future
+   * producer's omission into every guarded dispatch abandoning itself at
+   * runtime; this makes it a compile error instead.
+   */
+  readonly hold: WasmLockHold;
   /** Set by `handleCall` when the dispatch settles; see `postStageEvent`. */
   settled: boolean;
 };
 
-/**
- * The context of the dispatch currently being STARTED. Published by `handleCall`
- * immediately before it invokes the dispatch, with no await in between, so a
- * dispatch that takes it in its own first synchronous statement provably gets
- * its OWN identity.
- */
-let startingDispatch: DispatchContext | null = null;
-
-/**
- * Take the identity of the dispatch being started. MUST be called from a
- * dispatch's first synchronous statement — see {@link startingDispatch}. Cleared
- * on read so a later (invalid) call cannot pick up somebody else's identity.
- */
-function dispatchContext(): DispatchContext {
-  const context = startingDispatch;
-  startingDispatch = null;
-  if (!context) {
-    // Only reachable if a dispatch reads this after an await, or outside
-    // `handleCall` entirely. Fail loud rather than guess an identity: guessing is
-    // exactly the bug this replaces.
-    throw new Error('offscreen dispatch: no dispatch context (read it in the first statement of the dispatch)');
-  }
-  return context;
-}
-
 const DISPATCH: Record<string, DispatchFn> = {
-  getAccount: async (client, accountId: string) => {
+  getAccount: async (context, client, accountId: string) => {
     const account = await client.getAccount(accountId);
+    // The Account is a borrow of the shared client's RefCell, not a snapshot — if
+    // the read parked long enough for the watchdog to hand the mutex on, the
+    // serialize below would be a second borrow alongside the successor (#788).
+    assertWasmHoldCurrent(context.hold, 'in offscreen getAccount before serializing the account');
     // `Account` exposes serialize()/deserialize() (verified in the SDK types),
     // so we ship the full object as bytes and the SW re-hydrates it.
     return account ? (account.serialize() as Uint8Array) : null;
@@ -520,7 +523,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // is the whole point once the flag is on: the offscreen client owns the canonical
   // synced state, so these reads no longer go stale against the dormant SW client.
 
-  syncState: async client => {
+  syncState: async (_context, client) => {
     // Run the sync; every SW-side caller discards the returned `SyncSummary`,
     // so return null. Nothing to serialize here means nothing to re-hydrate on
     // the SW — serializing a result no one reads would be pure waste.
@@ -528,18 +531,28 @@ const DISPATCH: Record<string, DispatchFn> = {
     return null;
   },
 
-  exportNote: async (client, noteId: string, exportType) => {
+  exportNote: async (context, client, noteId: string, exportType) => {
     // `exportNote` already returns serialized note bytes — ship them verbatim;
     // the SW hands them straight to the intercom without re-hydrating.
-    return await client.exportNote(noteId, exportType);
+    // The serialize happens INSIDE the interface method, on a live borrow of the
+    // shared client, so the re-check has to go in with it — same shape as
+    // `getAccount` above, just one call frame deeper (#788).
+    return await client.exportNote(noteId, exportType, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen exportNote before serializing the export')
+    );
   },
 
-  getInputNoteDetails: async (client, query) => {
+  getInputNoteDetails: async (context, client, query) => {
     // Plain-DTO result (§1.4 rule "a"): the interface method already reduces
     // each `InputNoteRecord` to a JSON-safe DTO, so JSON-encode it to bytes.
     // `?? undefined` maps a JSON-`null` arg (an `undefined` query round-tripped
     // through encodeArg) back to the SDK's optional-query shape.
-    const details = await client.getInputNoteDetails(query ?? undefined);
+    // That reduction reaches through every listed record — each a borrow of the
+    // shared client — so it is refused once the hold is stale, the same as the
+    // reductions this table does inline (#788).
+    const details = await client.getInputNoteDetails(query ?? undefined, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteDetails before reducing the records')
+    );
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
@@ -550,7 +563,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // landed" — and the retry proceeds on that. So on the flag-on path, which is
   // the default in the service worker, the guard could never fire and a Failed
   // row whose submit had actually landed was resubmitted.
-  getTransactionCommitState: async (client, txId: string) => {
+  getTransactionCommitState: async (_context, client, txId: string) => {
     const state = await client.getTransactionCommitState(txId);
     return new TextEncoder().encode(JSON.stringify(state));
   },
@@ -563,8 +576,13 @@ const DISPATCH: Record<string, DispatchFn> = {
   // carrying every field each caller reads (the live `InputNoteRecord` — with no
   // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
   // itself cross the boundary; the reduced DTO can).
-  getConsumableNotes: async (client, accountId: string) => {
-    const dtos = await client.getConsumableNoteDtos(accountId);
+  getConsumableNotes: async (context, client, accountId: string) => {
+    // The reducer's records come from a transient client, but the sync height
+    // the gate compares them against is a SECOND call on the shared client after
+    // the listing's await — so that call needs the hold to still be ours (#788).
+    const dtos = await client.getConsumableNoteDtos(accountId, () =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes before reading the sync height')
+    );
     return new TextEncoder().encode(JSON.stringify(dtos));
   },
 
@@ -578,24 +596,45 @@ const DISPATCH: Record<string, DispatchFn> = {
   // The reclaim-baseline sync height (guardian recallable-send). `fresh` forces a
   // network sync first and returns the just-synced block; otherwise the last-synced
   // height. The number crosses as JSON.
-  getSyncHeight: async (client, fresh: boolean) => {
-    const height = fresh ? (await client.client.sync()).blockNum() : await client.client.getSyncHeight();
+  getSyncHeight: async (context, client, fresh: boolean) => {
+    let height: number;
+    if (fresh) {
+      const summary = await client.client.sync();
+      // The summary is a live borrow of the client the sync ran on — reading its
+      // block number after an eviction would double-borrow alongside the
+      // successor, so re-check before touching it (#788). The non-fresh branch
+      // needs no guard: its await already yields the plain number.
+      assertWasmHoldCurrent(context.hold, 'in offscreen getSyncHeight before reading the synced block number');
+      height = summary.blockNum();
+    } else {
+      height = await client.client.getSyncHeight();
+    }
     return new TextEncoder().encode(JSON.stringify(height));
   },
 
   // A PSWAP order's lineage, reduced in-realm to a plain JSON DTO (the live
   // `PswapLineageRecord` has no serializer and callers reach through its methods).
   // Returns null (→ resultB64 null) when the client isn't tracking the order.
-  getPswapLineage: async (client, orderId: string) => {
-    const dto = reducePswapLineage(await client.client.pswap.lineage(orderId));
+  getPswapLineage: async (context, client, orderId: string) => {
+    const record = await client.client.pswap.lineage(orderId);
+    // The record is live — the reduction reaches through its WASM methods, each a
+    // borrow of the shared client — so an eviction during the lineage read must
+    // stop the dispatch before the first touch (#788).
+    assertWasmHoldCurrent(context.hold, 'in offscreen getPswapLineage before reducing the record');
+    const dto = reducePswapLineage(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
   },
 
   // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
   // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
   // distinct from a found record whose `noteType` is undefined (the JSON `{}`).
-  getInputNoteSummary: async (client, noteId: string) => {
-    const dto = reduceInputNoteSummary(await client.getInputNote(noteId));
+  getInputNoteSummary: async (context, client, noteId: string) => {
+    const record = await client.getInputNote(noteId);
+    // Same shape as the lineage read above: the record's `metadata()`
+    // reach-through is a borrow of the shared client, refused once the hold is
+    // stale (#788).
+    assertWasmHoldCurrent(context.hold, 'in offscreen getInputNoteSummary before reducing the record');
+    const dto = reduceInputNoteSummary(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
   },
 
@@ -604,37 +643,53 @@ const DISPATCH: Record<string, DispatchFn> = {
   // `SerializedInputNoteDetail` (assets / processing-state string / nullifier string)
   // via the SAME shared loop the SW-inline (flag-off) path runs, so only the plain JSON
   // DTO array crosses. A not-found / un-reducible note is skipped inside the loop.
-  getSerializedInputNoteDetails: async (client, noteIds: string[]) => {
-    const details = await collectInputNoteDetails(noteId => client.getInputNote(noteId), noteIds);
+  getSerializedInputNoteDetails: async (context, client, noteIds: string[]) => {
+    // The liveness question here is PER-ITERATION (the loop rule): each lap makes
+    // two WASM borrows — the fetch, and the reduction of the record it returned —
+    // and an eviction can land inside any lap's await. The shared loop swallows
+    // per-note throws (a not-found note is a skip), so a thrown re-check cannot
+    // stop the loop itself — but thrown from INSIDE the fetch callback it keeps
+    // the loop off WASM entirely: the pre-fetch check refuses the next
+    // iteration's fetch once the hold is stale, and the post-await check refuses
+    // the just-fetched record's reduction. A corpse thus degrades to skipping
+    // every remaining note — a partial result its already-rejected caller never
+    // sees — instead of double-borrowing alongside the successor (#788).
+    const details = await collectInputNoteDetails(async noteId => {
+      assertWasmHoldCurrent(context.hold, 'in offscreen getSerializedInputNoteDetails before a note read');
+      const record = await client.getInputNote(noteId);
+      assertWasmHoldCurrent(context.hold, 'in offscreen getSerializedInputNoteDetails before a note reduction');
+      return record;
+    }, noteIds);
     return new TextEncoder().encode(JSON.stringify(details));
   },
 
   // Import serialized note bytes into THIS (offscreen) client's store — a store
   // WRITE so the offscreen realm (which syncs + consumes) can see the note. Ships the
   // imported note id / details-commitment string back as UTF-8 bytes.
-  importNoteBytes: async (client, noteBytes: Uint8Array) => {
+  importNoteBytes: async (_context, client, noteBytes: Uint8Array) => {
     const id = await client.importNoteBytes(noteBytes);
     return new TextEncoder().encode(id);
   },
 
   // Pending-note recovery chunks (guardian seed recovery). Each is a short op
   // so the SW can interleave syncs/reads between chunks and report progress.
-  drainPrivateNoteTransport: async client => {
+  drainPrivateNoteTransport: async (_context, client) => {
     await client.drainPrivateNoteTransport();
     return null;
   },
 
-  importRecoveryNoteBytes: async (client, encodedProposalNotes: string[]) => {
+  importRecoveryNoteBytes: async (_context, client, encodedProposalNotes: string[]) => {
     const result = await client.importRecoveryNoteBytes(encodedProposalNotes.map(b64ToBytes));
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  resolveRecoveryScanRange: async (client, createdAtSeconds: number) => {
+  resolveRecoveryScanRange: async (_context, client, createdAtSeconds: number) => {
     const result = await client.resolveRecoveryScanRange(createdAtSeconds);
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
   recoverPublicNotesRange: async (
+    _context,
     client,
     accountId: string,
     blockFrom: number,
@@ -656,7 +711,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
   // A transport relay — no prove / sign — so a void result (nothing to
   // re-hydrate); the SW-side caller only awaits it.
-  sendPrivateNote: async (client, noteBytes: Uint8Array, to: string) => {
+  sendPrivateNote: async (_context, client, noteBytes: Uint8Array, to: string) => {
     const note = (sdk as any).Note.deserialize(noteBytes);
     await client.sendPrivateNote(note, to);
     return null;
@@ -666,14 +721,14 @@ const DISPATCH: Record<string, DispatchFn> = {
   // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
   // THIS realm's store, so the id lookup and the `expected_height` hint derivation
   // only resolve here. No note bytes to carry — the sweep has only the row.
-  relayPrivateNoteById: async (client, noteId: string, to: string) => {
+  relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
     await client.relayPrivateNoteById(noteId, to);
     return null;
   },
 
   // Delivery receipt read for the sweep. Same store-ownership argument; returns the
   // boolean as UTF-8 bytes because the op channel carries bytes, not values.
-  isOutputNoteConsumed: async (client, noteId: string) => {
+  isOutputNoteConsumed: async (_context, client, noteId: string) => {
     const consumed = await client.isOutputNoteConsumed(noteId);
     return new TextEncoder().encode(consumed ? 'true' : 'false');
   },
@@ -691,10 +746,16 @@ const DISPATCH: Record<string, DispatchFn> = {
   // reverse-IPC stub. Only the final serialized `TransactionResult` crosses back;
   // the intermediate handles stay opaque in-realm (design §6.2).
   consumeNoteId: async (
+    _context,
     client,
     dto: { accountId: string; noteId: string; noteIds: string[]; delegateTransaction?: boolean }
   ) => {
     const result = await client.consumeNoteId(dto as unknown as ConsumeTransaction);
+    // Deliberately NO hold re-check before the serialize (#788): `consumeNoteId`
+    // proves AND submits inside that one opaque call, so control returning here
+    // means the consume may already be broadcast. Completing beats aborting past
+    // a possible submit — refusing to serialize would abandon the applied result
+    // of a write the network may have accepted.
     return result.serialize() as Uint8Array;
   },
 
@@ -709,6 +770,7 @@ const DISPATCH: Record<string, DispatchFn> = {
   // matches exactly what `MidenClientInterface` reads on the SW-inline (flag-off)
   // path.
   sendTransaction: async (
+    context,
     client,
     dto: {
       accountId: string;
@@ -720,10 +782,9 @@ const DISPATCH: Record<string, DispatchFn> = {
       extraInputs: { recallBlocks?: number };
     }
   ) => {
-    // Bound to THIS op before any await, so a stamp fired late (an evicted
-    // dispatch still running) carries its own op_id rather than the successor's
-    // — see `postStageEvent` (issue #775).
-    const context = dispatchContext();
+    // `context` arrived bound to THIS op (threaded by `handleCall` before any
+    // await), so a stamp fired late (an evicted dispatch still running) carries
+    // its own op_id rather than the successor's — see `postStageEvent` (#775).
     const tx = { ...dto, amount: BigInt(dto.amount) } as unknown as SendTransaction;
     // The per-step stage stamps (PR #524) are the ONE piece of this write the
     // caller still needs mid-flight, so they reverse to the SW as they happen
@@ -736,10 +797,14 @@ const DISPATCH: Record<string, DispatchFn> = {
     // guard), so `shouldUseOffscreenProver()` returns false and the prove runs on
     // THIS doc's pooled WASM; that choice moves the prove, not the stamping.
     const result = await client.sendTransaction(tx, stage => postStageEvent(context, stage));
+    // Deliberately NO hold re-check before the serialize (#788): the staged
+    // pipeline inside `sendTransaction` has submitted (and applied) by the time
+    // it returns, so the send may be broadcast — completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
   swapTransaction: async (
+    _context,
     client,
     dto: {
       accountId: string;
@@ -758,6 +823,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     } as unknown as SwapTransaction;
     const result = await client.swapTransaction(tx);
+    // Deliberately NO hold re-check (#788): `swapTransaction` is the SDK's
+    // all-in-one `transactions.submit` — execute, prove and submit in a single
+    // opaque call — so when it returns the PSWAP note may already be on the
+    // network. Post-submit, completing beats aborting.
     return result.serialize() as Uint8Array;
   },
 
@@ -765,8 +834,19 @@ const DISPATCH: Record<string, DispatchFn> = {
   // SDK signature — `requestBytes` crossed as raw bytes, not JSON. `?? undefined`
   // maps a JSON-`null` delegate arg (an `undefined` round-tripped through
   // encodeArg) back to the SDK's optional-boolean shape.
-  newTransaction: async (client, accountId: string, requestBytes: Uint8Array, delegateTransaction?: boolean) => {
+  newTransaction: async (
+    _context,
+    client,
+    accountId: string,
+    requestBytes: Uint8Array,
+    delegateTransaction?: boolean
+  ) => {
     const result = await client.newTransaction(accountId, requestBytes, delegateTransaction ?? undefined);
+    // Deliberately NO hold re-check (#788): `newTransaction` stages
+    // execute → prove → submit internally, but by the time it RETURNS it has
+    // submitted and applied — its pre-submit seams live inside
+    // `MidenClientInterface`, not here. The request may be broadcast, so the
+    // serialize completes rather than aborts.
     return result.serialize() as Uint8Array;
   },
 
@@ -801,13 +881,13 @@ const DISPATCH: Record<string, DispatchFn> = {
   // `encodeArg` maps an absent anchor to JSON `null`, never `undefined`. Every
   // branch below selects on truthiness, which covers both — and the older tests
   // that build a 3-arg envelope by hand.
-  guardianPipeline: async (client, ...args: GuardianPipelineArgs) => {
+  guardianPipeline: async (context, client, ...args: GuardianPipelineArgs) => {
     const [accountId, trBytes, delegateTransaction, chainAnchorB64] = args;
-    // This op's own id and lock hold, taken before any await so both are
-    // provably ours (issue #775). The hold is what keeps a pause from silencing
-    // the watchdog of whichever holder took the lock after an eviction; the id
-    // is what keeps a late 'submitting' stamp off the successor's row.
-    const context = dispatchContext();
+    // This op's own id and lock hold, threaded in by `handleCall` before any
+    // await so both are provably ours (issue #775). The hold is what keeps a pause from
+    // silencing the watchdog of whichever holder took the lock after an
+    // eviction; the id is what keeps a late 'submitting' stamp off the
+    // successor's row.
     const { hold } = context;
     recordProveTiming(`guardianPipeline entered delegateTransaction=${delegateTransaction}`);
     const tr = (sdk as any).TransactionRequest.deserialize(trBytes);
@@ -846,6 +926,14 @@ const DISPATCH: Record<string, DispatchFn> = {
       freeChainAnchor(anchor, message => recordProveTiming(`guardianPipeline ${message}`));
     }
     recordProveTiming('guardianPipeline executeRequest returned; proving');
+    // `executeRequest` is a network round trip on the NORMAL ceiling (the pause
+    // brackets below cover proving, not this), so a node that accepts and never
+    // answers is evicted here — and an eviction abandons this callback rather than
+    // stopping it, so what resumes would prove and submit with no mutex held,
+    // alongside the successor that legitimately holds it. Checked at each of the two
+    // points that are still provably PRE-SUBMIT, so the throw cannot cost a write
+    // that already reached the network.
+    assertWasmHoldCurrent(hold, 'in the guardian pipeline before proving');
     postStageEvent(context, 'proving');
     let provenTx;
     if (!delegateTransaction) {
@@ -884,6 +972,13 @@ const DISPATCH: Record<string, DispatchFn> = {
           'Delegated guardian prove'
         );
       } catch (proveError) {
+        // Same rule as the inline pipeline: the delegated prove was this hold's
+        // longest parking await, and the fallback is a WASM call on `executedTx`,
+        // itself a borrow of the client's RefCell. An eviction while the delegated
+        // prove was parked leaves this catch running on an abandoned callback, so
+        // ownership is re-checked BEFORE the re-prove, not only after it. Still
+        // pre-submit — nothing has been broadcast.
+        assertWasmHoldCurrent(hold, 'in the guardian pipeline before the local prove fallback');
         console.warn(`${TAG} delegated guardian prove failed; retrying with local prover`, proveError);
         recordProveTiming(`guardianPipeline delegated prove FAILED (${String(proveError)}); re-proving locally`);
         provenTx = await withWasmLockWatchdogPaused(
@@ -893,6 +988,10 @@ const DISPATCH: Record<string, DispatchFn> = {
       }
     }
     recordProveTiming('guardianPipeline prove returned; submitting');
+    // The prove is the longest await in the pipeline — delegated over the network or
+    // local under a relaxed ceiling — so the same question has to be asked again.
+    // Still pre-submit: nothing has been broadcast at this point.
+    assertWasmHoldCurrent(hold, 'in the guardian pipeline before submit');
     postStageEvent(context, 'submitting');
     const submittedTx = await provenTx.submit();
     recordProveTiming('guardianPipeline submit returned; applying');
@@ -924,36 +1023,116 @@ const DISPATCH: Record<string, DispatchFn> = {
   // `transactions.list` fully returns before the sleep, so the RefCell borrow is
   // clean at the yield boundary). A void result: the SW-side caller only awaits it,
   // so nothing serializes back.
-  waitForTransactionCommit: async (client, transactionId: string) => {
+  waitForTransactionCommit: async (context, client, transactionId: string) => {
+    // Mutable: the client this loop polls can be REPLACED under it (see the
+    // `isDisposed` branch below), and every later lap must use the replacement.
+    let polling = client;
     // Capture THIS op's reassert BEFORE the first yield (follow-up #2). While a
     // sleep yields the mutex, an interloper op runs and clears/overwrites the module
     // global `currentOpId`; re-asserting after each yield restores the invariant that
     // the sign stub reads this op's id. Local capture makes it immune to the
     // interloper also overwriting `reassertCurrentOpId`.
     const reassertOpId = reassertCurrentOpId;
-    // This op's own lock hold, taken before the first yield so it is provably
-    // ours (issue #775). Without it, a yield performed after this op had been
-    // evicted would release whichever holder owns the mutex NOW — popping a
+    // This op's own lock hold, threaded in by `handleCall` before the first yield
+    // so it is provably ours (issue #775). Without it, a yield performed after this op had
+    // been evicted would release whichever holder owns the mutex NOW — popping a
     // waiter into a concurrent WASM call alongside that live holder, then
     // leaving the mutex owned by nobody when this loop reacquired. The loop is
     // not cancelled by the eviction, so it would do that on every poll.
-    const context = dispatchContext();
     const { hold } = context;
     const timeout = 60_000;
     const interval = 5_000;
     const start = Date.now();
     for (;;) {
+      // Stop if this loop can no longer poll safely. Two ways in: this dispatch was
+      // evicted (which rejects the SW-side caller but does NOT stop the loop, and once
+      // the hold is stale the yield below no longer touches the mutex — so each
+      // remaining lap ran two WASM calls with NO mutex held, alongside the successor
+      // that legitimately holds it, which is the "recursive use of an object" crash
+      // the mutex exists to prevent), or the client was poisoned under us by a trap
+      // in another flow, where the next call would fail anyway.
+      //
+      // THROWS rather than returning: the committed path returns `null`, so bailing
+      // with `null` would report a commit that never happened. For the evicted case
+      // that is unobservable (the caller has already been rejected), but the poisoned
+      // case can fire while this dispatch is still live and awaited — and a guardian
+      // leaf reads a false commit as licence to run its structural completion.
+      //
+      // And it throws a POISON error specifically, which the dispatch serializes with
+      // its reason and the SW rebuilds. That matters because the tx a plain `Error`
+      // reaches gets written Failed like any ordinary failure, when what actually
+      // happened is that this confirmation was ABANDONED — the submit may well have
+      // landed. `isWasmClientPoisonedError` is what every kill classifier reads to
+      // tell those apart.
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (at the loop top)');
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      // Ahead of the rebuild below: a poll already past its deadline has no business
+      // building a client it will never use, least of all in the realm where that
+      // build's own genesis fetch goes to the node that parked us.
       if (Date.now() - start >= timeout) {
         throw new Error(`Transaction confirmation timed out after ${timeout}ms`);
+      }
+      // A poisoned client while the hold is still OURS is a different situation, and
+      // it is recoverable: an interloper op that took the mutex during one of our
+      // sleeps was evicted, so the singleton was replaced under us while the realm
+      // stayed healthy. Bailing here abandoned a structural guardian op — whose
+      // rotation may already be on chain — over somebody else's eviction. Rebuild and
+      // keep polling: the applied record lives in this realm's store either way, and
+      // the poison hook has already dropped the slot so this returns a fresh client.
+      if (polling.isDisposed) {
+        console.warn(`${TAG} confirmation poll's client was replaced under it; rebuilding and continuing`);
+        try {
+          polling = await getOrCreateClient();
+        } catch (e) {
+          // Kept in the POISON family rather than surfacing as a plain error. The
+          // submit behind this confirmation may well have landed, and a plain error
+          // is written Failed like any ordinary failure — which for a structural
+          // guardian op means skipping a completion step for a rotation that is on
+          // chain. What happened here is still an abandonment, so it is reported as
+          // one; the cause carries why the rebuild failed.
+          throw new WasmClientPoisonedError('watchdog', e instanceof Error ? e : new Error(String(e)));
+        }
+        // The rebuild is an await like any other, so the hold can go stale across it —
+        // and the first WASM call below would then run with no mutex held. Same guard,
+        // same reason, as the one after the sync.
+        if (getCurrentWasmLockHold() !== context.hold) {
+          console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the rebuild)');
+          throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+        }
       }
       try {
         // Chain-only sync (matches the SDK): confirmation needs on-chain state only,
         // and skipping NTL keeps polling alive when note transport is unavailable.
-        await client.client.syncChain();
-      } catch {
-        /* transient sync failure — keep polling, exactly as the SDK waitFor does */
+        await polling.client.syncChain();
+      } catch (e) {
+        // Kept non-fatal, exactly as the SDK's own waitFor is — but no longer
+        // silent. A sync that fails EVERY lap makes the poll run blind: it lists
+        // transactions against state that never advances, so the only outcome
+        // left is the timeout, reported as "confirmation timed out" with nothing
+        // anywhere saying the chain was never read.
+        console.warn(`${TAG} confirmation poll sync failed for ${transactionId}; continuing to poll:`, e);
       }
-      const txs = await client.client.transactions.list({ ids: [transactionId] });
+      // Re-checked after the sync: an eviction landing during that await (whose own
+      // failure is swallowed just above) would otherwise let this second WASM call
+      // run unmutexed, which is the whole hazard the loop-top guard exists for.
+      if (getCurrentWasmLockHold() !== context.hold) {
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the sync)');
+        throw new WasmClientPoisonedError('watchdog', new Error(`confirmation poll abandoned for ${transactionId}`));
+      }
+      const txs = await polling.client.transactions.list({ ids: [transactionId] });
+      // The list is an await of its own, and the records it returns are borrows
+      // of the shared client — a status read after an eviction landing inside the
+      // list would double-borrow alongside the successor, and a COMMITTED answer
+      // read that way would report a commit on somebody else's watch. A read-only
+      // poll, so the never-guard-post-submit rule does not apply (#788).
+      if (getCurrentWasmLockHold() !== context.hold) {
+        // Narrate like the loop's other bail-outs; the shared re-check below
+        // does the throwing — same poison classification, same cause shape.
+        console.warn('[offscreen] abandoning a confirmation poll whose lock hold is gone (after the list)');
+      }
+      assertWasmHoldCurrent(context.hold, 'in the offscreen commit-wait before reading the transaction status');
       const status = txs?.[0]?.transactionStatus?.();
       if (status?.isCommitted()) return null;
       if (status?.isDiscarded()) {
@@ -1157,6 +1336,15 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
     // RefCell ("recursive use of an object" crash). The IPC layer already
     // supports >1 in-flight op; this is where they queue. Slice 4's concurrent
     // routes inherit this serialization for free.
+    // A pure-sync dispatch takes the sync ceiling (#777), like every other hold whose
+    // whole job is a sync. The service worker's 30s `withTimeout` bounds ITS OWN
+    // promise, not this hold: the offscreen call keeps running, so a node that accepts
+    // SyncChainMmr and never answers held THIS realm's mutex — the one every send and
+    // claim queues behind — until the five-minute last resort, with the SW having
+    // discarded the answer four and a half minutes earlier. Only the sync gets it: the
+    // writes are legitimately long (they sign and prove) and have their own deadlines.
+    const lockOptions =
+      msg.method === 'syncState' ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'offscreen-sync' } : undefined;
     const resultBytes = await withWasmClientLock(async hold => {
       // Resolved INSIDE the lock, deliberately. Reading the slot before queueing
       // would pin this op to the client that was current when it arrived — and
@@ -1166,6 +1354,19 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       // ambient op_id below: what matters is the state at EXECUTION start.
       recordProveTiming(`call '${msg.method}' won WASM mutex; getting client`);
       const client = await getOrCreateClient();
+      // The client build is a parking await inside the hold — its eager genesis fetch
+      // goes to the very node a `syncState` dispatch is now bounded against (above),
+      // so an eviction here is reachable rather than theoretical. An eviction abandons
+      // this callback instead of stopping it, and what resumes would not merely call
+      // WASM unmutexed: the assignments below are AMBIENT, so a corpse would overwrite
+      // the successor's `currentOpId` and `reassertCurrentOpId`, routing the
+      // successor's mid-execute sign to the corpse's callbacks and deadline, and then
+      // clear the id on its own way out. Same guard, same reason, as the confirmation
+      // poll's — placed before the first ambient write, not just before the dispatch.
+      if (getCurrentWasmLockHold() !== hold) {
+        console.warn(`${TAG} abandoning call '${msg.method}' whose lock hold is gone (after the client build)`);
+        throw new WasmClientPoisonedError('watchdog', new Error(`offscreen call abandoned for ${msg.op_id}`));
+      }
       // Stash the ambient op_id for the duration of the WASM op so the reverse-IPC
       // sign stub (invoked mid-execute) can tag its request with this op (design
       // §2.4). Scoped tightly to the locked section: the mutex serializes ops, so
@@ -1187,13 +1388,14 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       const started: OffscreenOpStarted = { target: SW_TARGET, type: OFFSCREEN_OP_STARTED, op_id: msg.op_id };
       void Promise.resolve(chrome.runtime.sendMessage(started)).catch(() => {});
       recordProveTiming(`call '${msg.method}' client ready; dispatching`);
-      // Published for the dispatch to take in its first statement — the only
-      // point at which "the op that owns this hold" is knowable (issue #775).
-      // No await between here and the call, so what it takes is provably ours.
+      // The dispatch's own identity, built from the hold the lock handed THIS
+      // callback — the only point at which "the op that owns this hold" is
+      // knowable (issue #775) — and threaded in as the dispatch's first
+      // parameter (#788), so every dispatch can re-check ownership after its
+      // parking awaits without opting in.
       const context: DispatchContext = { op_id: msg.op_id, hold, settled: false };
-      startingDispatch = context;
       try {
-        return await dispatch(client, ...args);
+        return await dispatch(context, client, ...args);
       } finally {
         // Closes the window for late stage stamps: whatever the dispatch does
         // after this point, its stamps are about a step the SW has already been
@@ -1206,7 +1408,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
         if (currentOpId === msg.op_id) currentOpId = null;
         recordProveTiming(`call '${msg.method}' dispatch settled; releasing WASM mutex`);
       }
-    });
+    }, lockOptions);
     sendResponse({
       ok: true,
       op_id: msg.op_id,

@@ -158,10 +158,13 @@ export interface NetworkFaultControls {
    */
   guardianFaultHits(): number;
   /**
-   * How many requests the armed NETWORK policy set has faulted since it was
-   * armed (summed across policies). The network-seam counterpart of
-   * `guardianFaultHits` — an op that "survived" an outage with zero hits proves
-   * the fault never reached it (a false green). Reset by `armNetwork`/`clear`.
+   * How many requests the armed NETWORK policies have faulted since they were
+   * armed, summed across the set. Same purpose as `guardianFaultHits`, and it
+   * matters most for the `hang` mode: a spec that arms a hang and then asserts
+   * something did NOT happen passes identically when the fault never matched a
+   * single request, so without this the strongest-looking assertion in the suite
+   * is also the one most able to go green for the wrong reason. Reset by
+   * `armNetwork`/`clear`.
    * Only counts route-seam targets; fetch-layer targets (node/prover/transport)
    * are counted in their own realms (see fetch-faults.ts).
    */
@@ -339,7 +342,7 @@ export function installNetworkFaults(
       return guardianHits;
     },
     networkFaultHits() {
-      return networkHits.reduce((sum, n) => sum + n, 0);
+      return networkHits.reduce((total, hits) => total + hits, 0);
     },
     clear() {
       networkPolicies = [];

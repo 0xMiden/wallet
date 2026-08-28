@@ -7,6 +7,7 @@ import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { TabPicker } from 'components/TabPicker';
+import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import {
   applyEndpointOverride,
@@ -129,6 +130,12 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const handleSave = async () => {
     setSaving(true);
     await applyEndpointOverride(form);
+    // Every fuse conclusion was earned against the node this just stopped pointing at.
+    // Mobile and desktop are exactly the realms that own the idle loop, so a fused
+    // wallet repointed at a working RPC would otherwise probe once per 30 min — and the
+    // successful sync that puts the fuse out is the thing it stops giving itself the
+    // chance to observe (#777).
+    clearSyncFuseForEndpointChange();
     // On the extension, the service worker is a separate JS realm with its own
     // module-level override cache and a create-once Miden client singleton, so
     // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate
