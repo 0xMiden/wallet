@@ -2592,6 +2592,9 @@
     "message": "You can't send to your own address",
     "englishSource": "You can't send to your own address"
   },
+  "insufficientFeeAsset": {
+    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"

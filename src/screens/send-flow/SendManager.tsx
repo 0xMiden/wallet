@@ -9,6 +9,9 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -460,6 +463,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   useEffect(() => {
     if (!preselectedTokenId || !balanceData) return;
     const match = balanceData.find(t => t.tokenId === preselectedTokenId);
@@ -484,6 +489,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!amount) return;
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
+    } else if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+      // The fee is taken from this account's own vault, so with no native
+      // asset the transaction cannot succeed however small the amount.
+      setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
     } else if (token && parseFloat(amount) > token.balance) {
       setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
     } else {
@@ -682,6 +691,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
+      } else if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+        // The fee is taken from this account's own vault, so with no native
+        // asset the transaction cannot succeed however small the amount.
+        setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       } else if (token && amount > token.balance) {
         setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
       } else {
