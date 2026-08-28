@@ -120,7 +120,17 @@ const GuardianSettings: FC = () => {
   // `resolving` is deliberately NOT a fault here: it is the marker the reconciler
   // writes at the START of a round that normally ends `in-sync`, so treating it
   // as one would flash "Needs attention" through every ordinary reconciliation.
+  //
+  // But it is not "Online" either, and that was the gap. `assertGuardianInSync`
+  // rejects on ANY status other than `in-sync` — `resolving` included — so while
+  // the reconciler is mid-round every send is refused with "guardian out of
+  // sync". With a fresh sync stamp the freshness arm below then reported a green
+  // "Online" for exactly that window: the pill claiming the guardian is usable
+  // while the wallet was refusing to use it, which is the one failure this pill
+  // exists to prevent. "Checking" is the honest reading and keeps the intent
+  // above intact — it is not an accusation, it just declines to certify.
   const guardianDrifted = guardianSyncStatus === 'needs-user-input';
+  const guardianResolving = guardianSyncStatus === 'resolving';
   const guardianStatus: 'not-connected' | 'drifted' | 'offline' | 'unrepairable' | 'checking' | 'online' = !hasHotKey
     ? 'not-connected'
     : guardianDrifted
@@ -136,7 +146,7 @@ const GuardianSettings: FC = () => {
             // error. Both leave the last stamp in place, so reading its mere
             // existence as "online" made a permanently-stuck account read green
             // for the life of the realm. See `GUARDIAN_SYNC_STAMP_FRESH_MS`.
-            !isGuardianLastSyncFresh(currentAccountPk ?? '')
+            guardianResolving || !isGuardianLastSyncFresh(currentAccountPk ?? '')
             ? 'checking'
             : 'online';
   // Three states, one visual treatment: unreachable, answering-but-unusable, and

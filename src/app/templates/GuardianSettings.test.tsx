@@ -449,7 +449,24 @@ describe('drift', () => {
 
     render(<GuardianSettings />);
 
-    expect(screen.getByRole('status')).toHaveTextContent('online');
+    expect(screen.getByRole('status')).not.toHaveTextContent('guardianNeedsAttentionLabel');
+  });
+
+  // ...but it is not Online either, and a fresh stamp used to make it read that
+  // way. `assertGuardianInSync` refuses every transaction on any status other
+  // than `in-sync`, `resolving` included — so a green pill during that window
+  // told the user the guardian was usable while the wallet was refusing to use
+  // it. "Checking" declines to certify without accusing, which is what this
+  // state actually is.
+  it('does not claim Online while a reconciliation is still blocking transactions', () => {
+    mockGuardianSyncStatus = 'resolving';
+    mockGetGuardianLastSyncAt.mockReturnValue(Date.now() - 2_000);
+
+    render(<GuardianSettings />);
+
+    const pill = screen.getByRole('status');
+    expect(pill).toHaveTextContent('guardianCheckingLabel');
+    expect(pill).not.toHaveTextContent('online');
   });
 });
 

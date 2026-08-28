@@ -2437,6 +2437,19 @@ const generateGuardianTransaction = async (
     // that would otherwise have completed. The asymmetry is the point: the
     // deadline buys an escape hatch for the type that has none, and buys the
     // other types nothing but a new way to fail.
+    //
+    // KNOWN IMPRECISION: this call is not purely a guardian round trip.
+    // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the
+    // request under `withWasmClientLock`, so a contended local lock — an AutoSync
+    // tick, someone else's local prove — can burn the 30s even though the
+    // operator answered promptly, and the escape then attributes local
+    // contention to the guardian. Accepted rather than papered over: the
+    // consequence is that a rotation the user explicitly asked for completes
+    // unilaterally instead of coordinated, which is the same end state by a
+    // worse-attributed route, and it costs a leftover pending delta on a healthy
+    // operator (best-effort abandoned below). Splitting the two halves would mean
+    // widening the MultisigService API at the very end of a long review, and the
+    // failure it would prevent is cosmetic next to the wedge the deadline closes.
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(

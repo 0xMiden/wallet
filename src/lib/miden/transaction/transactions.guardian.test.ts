@@ -6171,11 +6171,12 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
 
     // A perfectly healthy operator: it co-signs. The node is what fails, and it
     // fails with a message the unreachability classifier accepts.
+    const coSign = jest.fn(async () => ({ serialize: () => new Uint8Array([3]) }));
     mockGetOrCreateMultisigService.mockResolvedValue({
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: { id: 'prop-1', nonce: 7, metadata: { chainAnchor: 'Y2hhaW4tYW5jaG9y' } }
       })),
-      signAndCreateTransactionRequest: jest.fn(async () => ({ serialize: () => new Uint8Array([3]) })),
+      signAndCreateTransactionRequest: coSign,
       abandonCandidate: jest.fn(async () => {})
     });
     mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
@@ -6229,6 +6230,12 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       false,
       provider as never
     ).catch(() => {});
+
+    // Positive first: without these the negatives below would also hold if the
+    // run had died before ever reaching the co-sign, which is the opposite
+    // scenario and one where refusing to rotate proves nothing.
+    expect(coSign).toHaveBeenCalled();
+    expect(txStore.find(t => t.id === txId)?.status).toBe(ITransactionStatus.Failed);
 
     // No second on-chain rotation was built or submitted.
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
