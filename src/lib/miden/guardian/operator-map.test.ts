@@ -350,22 +350,22 @@ describe('checkEndpointCommitment', () => {
 });
 
 describe('verifyEndpointMatchesCommitment', () => {
-  it('returns true when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe(true);
+  it('returns match when the endpoint pubkey commitment matches (normalized)', async () => {
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', '0xaaa')).toBe('match');
   });
 
-  it('returns false when the endpoint pubkey commitment does not match', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe(false);
+  it('returns mismatch when the endpoint pubkey commitment does not match', async () => {
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'bbb')).toBe('mismatch');
   });
 
   // Boolean by design for callers about to WRITE the endpoint: unreachable and
   // mismatched are the same answer there — do not persist the unconfirmed.
-  it('returns false when the endpoint fetch throws', async () => {
+  it('returns unreachable, NOT mismatch, when the endpoint fetch throws', async () => {
     jest.spyOn(GuardianHttpClient.prototype, 'getPubkey').mockImplementationOnce(async () => {
       throw new Error('network unreachable');
     });
 
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe(false);
+    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', 'aaa')).toBe('unreachable');
   });
 
   // This is one-shot and user-initiated, so it gets a far longer budget than the
@@ -382,7 +382,7 @@ describe('verifyEndpointMatchesCommitment', () => {
     const verdict = verifyEndpointMatchesCommitment('https://slow.self-hosted.test', 'aaa');
     await jest.advanceTimersByTimeAsync(12_000);
 
-    expect(await verdict).toBe(true);
+    expect(await verdict).toBe('match');
     jest.useRealTimers();
   });
 
@@ -393,7 +393,7 @@ describe('verifyEndpointMatchesCommitment', () => {
     const verdict = verifyEndpointMatchesCommitment('https://hung.self-hosted.test', 'aaa');
     await jest.advanceTimersByTimeAsync(20_000);
 
-    expect(await verdict).toBe(false);
+    expect(await verdict).toBe('unreachable');
     jest.useRealTimers();
   });
 });

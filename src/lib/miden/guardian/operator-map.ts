@@ -272,12 +272,9 @@ const USER_ENDPOINT_CHECK_TIMEOUT_MS = 20_000;
  * could not be confirmed. Callers that instead have to choose between "leave it
  * alone" and "flag the user" want `checkEndpointCommitment`.
  */
-export async function verifyEndpointMatchesCommitment(endpoint: string, onChainCommitment: string): Promise<boolean> {
-  try {
-    const commitment = await fetchOperatorCommitment(endpoint, USER_ENDPOINT_CHECK_TIMEOUT_MS);
-    if (!commitment) return false;
-    return normalizeHex(commitment) === normalizeHex(onChainCommitment);
-  } catch {
-    return false;
-  }
+export async function verifyEndpointMatchesCommitment(
+  endpoint: string,
+  onChainCommitment: string
+): Promise<EndpointCommitmentCheck> {
+  return checkEndpointCommitment(endpoint, onChainCommitment, USER_ENDPOINT_CHECK_TIMEOUT_MS);
 }

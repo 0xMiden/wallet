@@ -37,7 +37,7 @@ jest.mock('lib/miden/back/actions', () => ({
   setGuardianOperatorCommitment: jest.fn().mockResolvedValue(undefined),
   setGuardianSyncStatus: jest.fn().mockResolvedValue(undefined),
   checkGuardianDrift: jest.fn().mockResolvedValue('in-sync'),
-  applyUserGuardianEndpoint: jest.fn().mockResolvedValue(true),
+  applyUserGuardianEndpoint: jest.fn().mockResolvedValue('applied'),
   getPublicKeyForCommitment: jest.fn().mockResolvedValue('pub-key'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
   getAllDAppSessions: jest.fn().mockResolvedValue([]),
@@ -502,7 +502,7 @@ describe('DesktopIntercomAdapter', () => {
           accountPublicKey: 'acc',
           guardianEndpoint: 'https://guardian.example'
         } as any)
-      ).toEqual({ type: WalletMessageType.ApplyUserGuardianEndpointResponse, applied: true });
+      ).toEqual({ type: WalletMessageType.ApplyUserGuardianEndpointResponse, outcome: 'applied' });
 
       expect(
         await adapter.request({

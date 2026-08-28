@@ -417,7 +417,7 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
-      return res.applied;
+      return res.outcome;
     },
 
     startGuardianRecovery: async accountPublicKey => {

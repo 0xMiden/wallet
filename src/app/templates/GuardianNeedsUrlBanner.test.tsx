@@ -71,13 +71,38 @@ describe('GuardianNeedsUrlBanner', () => {
     await waitFor(() => expect(mockApply).toHaveBeenCalledWith('pk1', 'https://mine.example.com'));
   });
 
-  it('shows a mismatch error when the endpoint fails on-chain verification', async () => {
-    mockApply.mockResolvedValueOnce(false);
+  it('shows a mismatch error when the endpoint denies the on-chain commitment', async () => {
+    mockApply.mockResolvedValueOnce('mismatch');
     render(<GuardianNeedsUrlBanner />);
     fireEvent.change(getUrlInput(), { target: { value: 'https://wrong.example.com' } });
     fireEvent.click(getSubmitButton());
 
     await waitFor(() => expect(screen.getByText('guardianUrlMismatch')).toBeInTheDocument());
+  });
+
+  // The accusation is only earned when the operator ANSWERED and denied the
+  // commitment. An operator that never answered — cold-starting, self-hosted,
+  // briefly down — looks identical to a correct URL, and this banner is the only
+  // prompt that can repair the account, so telling that user they named the
+  // wrong operator sends them away from their one exit.
+  it('does not accuse the URL when the operator simply never answered', async () => {
+    mockApply.mockResolvedValueOnce('unreachable');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlUnreachable')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
+  });
+
+  it('says so plainly when the account has no on-chain guardian to verify against', async () => {
+    mockApply.mockResolvedValueOnce('no-onchain-guardian');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlNoOnChainGuardian')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
   });
 
   it('surfaces a thrown error message from the apply action', async () => {

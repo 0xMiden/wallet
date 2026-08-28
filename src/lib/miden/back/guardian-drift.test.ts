@@ -893,10 +893,10 @@ it('returns in-sync without writes when the on-chain account has no guardian com
 describe('applyUserGuardianEndpoint', () => {
   it('persists a user URL only when it matches the on-chain commitment', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(true);
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
 
-    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe(true);
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('applied');
 
     expect(verifyEndpointMatchesCommitment).toHaveBeenCalledWith('https://mine', 'cc');
     expect(vault.setGuardianEndpoint).toHaveBeenCalledWith('pk', 'https://mine');
@@ -906,21 +906,21 @@ describe('applyUserGuardianEndpoint', () => {
 
   it('writes the commitment baseline LAST — after status is finalized to in-sync — matching resolveGuardianDrift ordering', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(true);
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
     const order = trackWriteOrder(vault);
 
-    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe(true);
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('applied');
 
     expect(order).toEqual(['endpoint', 'status:in-sync', 'commitment']);
   });
 
   it('rejects a user URL that does not match on-chain', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue(false);
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = makeVault({ publicKey: 'pk' });
 
-    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://wrong')).toBe(false);
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://wrong')).toBe('mismatch');
 
     expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
     expect(vault.setGuardianOperatorCommitment).not.toHaveBeenCalled();
@@ -931,7 +931,7 @@ describe('applyUserGuardianEndpoint', () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue(undefined);
     const vault = makeVault({ publicKey: 'pk' });
 
-    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe(false);
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('no-onchain-guardian');
 
     expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
     expect(vault.setGuardianEndpoint).not.toHaveBeenCalled();
@@ -941,7 +941,7 @@ describe('applyUserGuardianEndpoint', () => {
     (getMidenClient as jest.Mock).mockResolvedValueOnce({ getAccount: jest.fn(async () => undefined) });
     const vault = makeVault({ publicKey: 'pk' });
 
-    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe(false);
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('no-onchain-guardian');
 
     expect(getGuardianCommitmentFromAccount).not.toHaveBeenCalled();
     expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();

@@ -50,9 +50,19 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
     setSubmitting(true);
     setError(null);
     try {
-      const applied = await applyUserGuardianEndpoint(account.publicKey, sanitized);
-      if (!applied) {
+      // Only `'mismatch'` is evidence against the URL the user just typed. An
+      // operator that never answered — cold-starting, self-hosted, briefly down
+      // — is indistinguishable from a correct URL, and telling that user they
+      // named the wrong operator sends them away from the one prompt that can
+      // repair this account. `'no-onchain-guardian'` is not about the URL at
+      // all: the account has no guardian commitment to check anything against.
+      const outcome = await applyUserGuardianEndpoint(account.publicKey, sanitized);
+      if (outcome === 'mismatch') {
         setError(t('guardianUrlMismatch'));
+      } else if (outcome === 'unreachable') {
+        setError(t('guardianUrlUnreachable'));
+      } else if (outcome === 'no-onchain-guardian') {
+        setError(t('guardianUrlNoOnChainGuardian'));
       }
     } catch (e) {
       // Shape-based, then localized — same reasoning as RotateGuardianReview's

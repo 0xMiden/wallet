@@ -5,7 +5,7 @@ import {
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
-import type { GuardianSyncStatus } from 'lib/shared/types';
+import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front/storage';
@@ -674,8 +674,19 @@ export async function resolveGuardianDrift(
  * account is left with the correct endpoint/status and a stale commitment,
  * which the next `resolveGuardianDrift` tick idempotently repairs, instead
  * of stuck stranded at `needs-user-input` with a commitment that already
- * matches on-chain. On a mismatch, or when there's no on-chain guardian
- * commitment to check against, persists nothing and returns `false`.
+ * matches on-chain. Anything other than `'applied'` persists nothing.
+ *
+ * The outcome is four states rather than a boolean because the banner that
+ * calls this ACCUSES the user's typed URL on failure, and only ONE of those
+ * states is evidence against it. `'mismatch'` means the operator answered and
+ * declared a different commitment — that is a real mismatch. `'unreachable'`
+ * means it never answered, or answered without a commitment, which says
+ * nothing about whether the URL is right: a cold-starting self-hosted operator
+ * looks exactly like this, and telling that user they typed the wrong operator
+ * sends them away from the only prompt that can repair the account.
+ * `checkEndpointCommitment` in `operator-map.ts` already made this distinction
+ * for the drift reconciler and carries the same reasoning in its comment; this
+ * path collapsed it back into a boolean and re-acquired the bug.
  *
  * The WASM account read is lock-guarded; the endpoint verification HTTP call
  * runs outside the lock.
@@ -684,20 +695,20 @@ export async function applyUserGuardianEndpoint(
   vault: GuardianDriftVault,
   accountPublicKey: string,
   endpoint: string
-): Promise<boolean> {
+): Promise<ApplyUserEndpointOutcome> {
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
   });
-  if (!onChain) return false;
+  if (!onChain) return 'no-onchain-guardian';
 
-  const matches = await verifyEndpointMatchesCommitment(endpoint, onChain);
-  if (!matches) return false;
+  const verdict = await verifyEndpointMatchesCommitment(endpoint, onChain);
+  if (verdict !== 'match') return verdict;
 
   await vault.setGuardianEndpoint(accountPublicKey, endpoint);
   await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
   await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
-  return true;
+  return 'applied';
 }
 
 function normalizedEqual(a: string, b: string): boolean {
