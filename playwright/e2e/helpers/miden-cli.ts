@@ -263,6 +263,9 @@ export class MidenCli {
    */
   private funderIds: string[] = [];
   private nativeFaucetId?: string;
+  /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
+  private chainChargesFees = false;
+  private readonly fundedForFees = new Set<string>();
 
   private static funderDir(): string {
     return (
@@ -396,6 +399,38 @@ export class MidenCli {
   }
 
   /**
+   * Sends an account enough of the native asset to pay its own transaction fees.
+   *
+   * Idempotent per account and a no-op on a chain that charges nothing. The note is left for the
+   * recipient to claim: this client holds no key for a wallet living in the extension, and the
+   * claim is exactly the transaction the funding makes payable.
+   */
+  async fundAccountForFees(accountId: string): Promise<void> {
+    if (!this.chainChargesFees || this.fundedForFees.has(accountId)) {
+      return;
+    }
+    const funders = await this.importFunders();
+    const funder = funders[0];
+    if (funder === undefined || !this.nativeFaucetId) {
+      throw new Error(
+        `This chain charges a transaction fee, so ${accountId} must hold the native asset before ` +
+          `it can transact, but no genesis funder is available to send it any.`
+      );
+    }
+    await this.sync();
+    const sent = await this.run(
+      `transfer --sender ${funder} --target ${accountId} ` +
+        `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
+      { timeoutMs: 180_000 }
+    );
+    if (sent.exitCode !== 0) {
+      throw new Error(`Could not send ${accountId} its fee funding from ${funder}: ${sent.stderr}`);
+    }
+    this.fundedForFees.add(accountId);
+    await this.sync();
+  }
+
+  /**
    * Whether an account's vault holds a non-zero balance of the native fee asset.
    *
    * Used to confirm funding actually landed rather than trusting a consume that had nothing to do.
@@ -463,6 +498,9 @@ export class MidenCli {
       if (!MidenCli.isUnfundedFeeError(lastErr)) {
         throw new Error(`Failed to create faucet: ${lastErr}`);
       }
+      // Remember this for every later account: once one deployment has failed this way, the chain
+      // is known to charge, and recipients have to be funded before they can transact at all.
+      this.chainChargesFees = true;
       // The chain charges a fee and this account has nothing to pay it with. Create it without
       // deploying, fund it from a genesis funder, and let the consumption of that funding note be
       // its first transaction — note credit lands in the vault before `pay_fee` withdraws from it,
@@ -505,6 +543,13 @@ export class MidenCli {
     if (!faucetId) {
       throw new Error('mint: faucetId required');
     }
+
+    // The recipient's own claim of this note is a transaction, and on a fee-charging chain
+    // `pay_fee` withdraws the NATIVE asset -- which a token note does not credit. So a wallet that
+    // is only ever sent tokens can never claim them. Send it the fee asset too; its claim picks up
+    // both notes and the credit lands before the fee is taken, so that first transaction pays for
+    // itself. No-op where the chain charges nothing.
+    await this.fundAccountForFees(targetAccountId);
 
     let mintArgs = `mint --target ${targetAccountId} --asset ${amount}::${faucetId} --note-type ${noteType} --force`;
 
