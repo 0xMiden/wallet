@@ -6069,4 +6069,134 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
     expect(row.status).toBe(ITransactionStatus.Completed);
     jest.useRealTimers();
   });
+
+  // The LAST outgoing-guardian round trip, and the one the three deadlines above
+  // left open: a rotation that got past the service load, the proposal push and
+  // the cold co-sign could still meet the same silent operator here and hang
+  // forever at `signing-proposal`. `switch-guardian` has no requeue and no Retry,
+  // so "forever" means a guardian the user can never rotate away from — a
+  // bounded failure they can act on is strictly better than a row that never
+  // settles.
+  it('bounds the final co-sign round trip so a silent operator cannot wedge the row', async () => {
+    jest.useFakeTimers();
+    const txId = 'switch-guardian-wedged-cosign';
+    txStore.push({
+      id: txId,
+      type: 'switch-guardian',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+    });
+
+    // Everything up to the final co-sign works; that one call never answers.
+    const signAndCreateTransactionRequest = jest.fn(() => new Promise(() => {}));
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSwitchGuardianProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      signAndCreateTransactionRequest,
+      abandonCandidate: jest.fn(async () => {})
+    });
+    mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const run = generateTransaction(
+      {
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    await run;
+
+    expect(signAndCreateTransactionRequest).toHaveBeenCalled();
+    // Terminal, not stuck mid-flight — and nothing was submitted, so the row is
+    // honestly Failed rather than left ambiguous.
+    const row = txStore.find(r => r.id === txId)!;
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    jest.useRealTimers();
+  });
+
+  // The same ceiling deliberately does NOT apply to a send. There the hang is a
+  // stall rather than a trap — sends requeue and retry — so a 30s cap would only
+  // add a way to fail a transaction on a slow-but-healthy operator that would
+  // have completed.
+  it('leaves a send free to outlast the switch-guardian ceiling', async () => {
+    jest.useFakeTimers();
+    const txId = 'send-slow-cosign';
+    txStore.push({
+      id: txId,
+      type: 'send',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued
+    });
+
+    let releaseCoSign: () => void = () => {};
+    const signAndCreateTransactionRequest = jest.fn(
+      () => new Promise(resolve => (releaseCoSign = () => resolve({ serialize: () => new Uint8Array([3]) })))
+    );
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      createSendProposal: jest.fn(async () => ({ proposal: { id: 'prop-1', nonce: 7 } })),
+      signAndCreateTransactionRequest,
+      abandonCandidate: jest.fn(async () => {})
+    });
+
+    const provider = {
+      getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+      getPublicKeyForCommitment: async () => 'pk',
+      signWord: jest.fn(async () => 'sig'),
+      setGuardianEndpoint: jest.fn(async () => {})
+    };
+    mockIsGuardianAccount.mockResolvedValue(true);
+    mockGetMidenClient.mockResolvedValue({
+      syncState: jest.fn(async () => {}),
+      getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+      waitForTransactionCommit: jest.fn(async () => {}),
+      client: makeClientApi(makeResult())
+    });
+
+    const run = generateTransaction(
+      {
+        id: txId,
+        type: 'send',
+        accountId: 'guardian-acc',
+        amount: '1',
+        faucetId: 'faucet',
+        secondaryAccountId: 'recipient',
+        delegateTransaction: false
+      } as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      provider as never
+    );
+
+    // Well past the switch-guardian ceiling: the send must still be waiting, not
+    // failed by a deadline that does not apply to it.
+    await jest.advanceTimersByTimeAsync(90_000);
+    expect(txStore.find(r => r.id === txId)!.status).not.toBe(ITransactionStatus.Failed);
+
+    releaseCoSign();
+    await run;
+    jest.useRealTimers();
+  });
 });

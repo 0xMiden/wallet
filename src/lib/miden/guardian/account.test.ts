@@ -14,6 +14,7 @@ import {
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
   insertGuardianAccountMonotonically,
+  resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
 
@@ -521,6 +522,51 @@ describe('resolveGuardianEndpoint', () => {
     mockFetchFromStorage.mockResolvedValueOnce(undefined);
     const endpoint = await resolveGuardianEndpoint({} as never);
     expect(endpoint).toBe('https://default.guardian.test');
+  });
+
+  it('propagates a failed storage read rather than answering with the default', async () => {
+    // The default arm must be reachable ONLY by a proven-empty pointer. If a read
+    // failure resolved to the default instead, every caller would be handed a
+    // guessed operator dressed as the account's own choice.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveGuardianEndpoint({} as never)).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('resolveChosenGuardianEndpoint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('prefers the per-account guardianEndpoint without reading storage', async () => {
+    const endpoint = await resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' });
+    expect(endpoint).toBe('https://per-account.guardian');
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the legacy global key, the only pointer a pre-per-account account has', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBe('https://global.guardian');
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['an empty string', '']
+  ])('returns undefined rather than the network default when the global key is %s', async (_label, stored) => {
+    // The distinguishing property against `resolveGuardianEndpoint`: callers that
+    // POST private account state, or that accuse an account of naming no
+    // operator, must be able to tell "chose nothing" from "was given a guess".
+    mockFetchFromStorage.mockResolvedValueOnce(stored);
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBeUndefined();
+  });
+
+  it('propagates a failed storage read instead of reporting no chosen endpoint', async () => {
+    // `undefined` is a VERDICT here ("named no operator"). A swallowed read error
+    // would forge that verdict out of a transient failure, which is what lets the
+    // drift reconciler accuse a healthy account.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveChosenGuardianEndpoint({})).rejects.toThrow('storage unavailable');
   });
 });
 

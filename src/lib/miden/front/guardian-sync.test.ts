@@ -1499,6 +1499,30 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(account.publicKey, endpoint, expect.anything());
   });
 
+  // An unreadable pointer gets the SAME refusal as no pointer at all. This call
+  // POSTs the device's serialized private account state, so "we could not read
+  // which operator the account chose" is the one condition under which it must
+  // not guess — and the resolver deliberately propagates that failure rather than
+  // flattening it into the `undefined` that means "chose nothing".
+  it('does not register when the account\u2019s guardian pointer cannot be read', async () => {
+    mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
+
+    await runUntilPersistent();
+    await syncGuardianAccounts();
+
+    expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+  });
+
+  // ...and the read failure must not escape into the sync loop, which iterates
+  // every account: one account's storage hiccup would otherwise abort the tick
+  // for all of them.
+  it('keeps syncing the remaining accounts when the pointer read throws', async () => {
+    mockResolveChosenGuardianEndpoint.mockRejectedValue(new Error('storage unavailable'));
+
+    await runUntilPersistent();
+    await expect(syncGuardianAccounts()).resolves.not.toThrow();
+  });
+
   it('does not register once this device is no longer the account\u2019s on-chain hot signer', async () => {
     // Rotated out to another device. `/configure` is account-wide, so pushing a
     // registration here would revoke the device that now owns the account.

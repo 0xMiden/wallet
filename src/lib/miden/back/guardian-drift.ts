@@ -155,6 +155,18 @@ async function readSilentDriftRuns(): Promise<Record<string, SilentDriftRun>> {
  * frontend's in-flight coalescing is module-local to each realm, so two passes
  * genuinely can overlap here. The cost of losing a window is that a stranded
  * account never reaches the run length its only prompt is gated on.
+ *
+ * DELIBERATELY UNTESTED, which is worth stating rather than leaving as an
+ * apparent oversight. The lost update needs the read to suspend between the read
+ * and the write, and nothing in the suite can arrange that: the storage stub
+ * settles without a scheduling gap, so an unserialized read-modify-write is
+ * accidentally atomic under jest and every test written against it passes with
+ * this serialization removed. Driving the write directly does not help — the
+ * atomicity is in the stub, not the caller — and the module's `fetchFromStorage`
+ * import cannot be spied on to insert the gap. A real test needs a storage double
+ * with controllable scheduling, which is a harness change well beyond this
+ * module. Production storage (chrome.storage) is genuinely async, so the race is
+ * real where it counts and unreachable only where it would be observed.
  */
 let silentDriftWriteChain: Promise<void> = Promise.resolve();
 
@@ -339,10 +351,25 @@ export async function resolveGuardianDrift(
   // complete built-in round before accusing.
   // One definition of "the pointer this account chose", shared with the
   // missing-registration self-heal — the other caller that must not be handed a
-  // guessed default. It swallows a failed storage read for the same reason
-  // `readSilentDriftRuns` does: this gates an accusation, so a storage hiccup
-  // must not take the drift check down with it.
-  const storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
+  // guessed default.
+  //
+  // A read failure SKIPS this window rather than degrading to `''`. The two are
+  // not interchangeable here: `''` is the value that means "this account named no
+  // operator", which is the `'absent'` evidence this function accuses on, so
+  // swallowing the error would let a storage hiccup manufacture the accusation
+  // instead of merely failing to check for it. Skipping costs one probe window
+  // and self-corrects on the next tick; accusing writes `needs-user-input`, which
+  // blocks every send through `assertGuardianInSync` and does not self-correct.
+  // Note the cooldown is deliberately NOT armed on this path — an unread pointer
+  // is not a completed probe, and charging it a cooldown would stretch a
+  // transient failure into a multi-minute blind spot.
+  let storedEndpoint: string;
+  try {
+    storedEndpoint = (await resolveChosenGuardianEndpoint(account)) ?? '';
+  } catch (error) {
+    console.warn('[GuardianDrift] could not read the account guardian pointer; skipping this window', error);
+    return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
+  }
   if (driftProbeEndpoint.get(accountPublicKey) !== storedEndpoint) {
     // Only the COOLDOWN, deliberately. The run is scoped by the endpoint recorded
     // inside it, so a changed endpoint already fails `continues` below and starts

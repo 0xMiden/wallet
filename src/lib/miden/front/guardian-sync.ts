@@ -503,7 +503,20 @@ function clearMissingRegistrationState(accountPublicKey: string): void {
  * sync loop and the drift reconciler; this was the last one.
  */
 async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promise<void> {
-  const endpoint = await resolveChosenGuardianEndpoint(account);
+  // A pointer we could not READ gets the same refusal as no pointer at all, and
+  // for the stronger of the two reasons: this function POSTs the device's
+  // serialized private account state, so the one thing it must never do is
+  // proceed on a guess about which operator is entitled to it. Returning without
+  // stamping the attempt budget also keeps a storage hiccup from consuming one of
+  // the account's few self-heal attempts — the next tick retries from where it
+  // left off rather than a step further along.
+  let endpoint: string | undefined;
+  try {
+    endpoint = await resolveChosenGuardianEndpoint(account);
+  } catch (error) {
+    console.warn('[GuardianSync] could not read the account guardian pointer; skipping self-heal', error);
+    return;
+  }
   if (!endpoint) return;
 
   // Read once and decide everything from that one snapshot: the budget key, both

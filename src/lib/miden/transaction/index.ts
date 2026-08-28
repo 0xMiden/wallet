@@ -2402,7 +2402,27 @@ const generateGuardianTransaction = async (
 
   let result: TransactionResult;
   try {
-    const tr = await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+    // The LAST outgoing-guardian round trip, and until now the only unbounded
+    // one — the three calls above it are deadline-bounded precisely because a
+    // silent operator wedges the row at `signing-proposal`, and this call reaches
+    // the same operator over the same connection. A rotation that survived the
+    // bounded calls could still hang here forever, which is the one outcome
+    // `switch-guardian` cannot absorb: it has no requeue and no Retry, so a hung
+    // row is a guardian the user can never rotate away from.
+    //
+    // Bounded for `switch-guardian` ONLY, deliberately. For a send the same hang
+    // is a stall, not a trap — sends requeue and retry — and imposing a 30s
+    // ceiling there would fail transactions on a merely slow-but-healthy operator
+    // that would otherwise have completed. The asymmetry is the point: the
+    // deadline buys an escape hatch for the type that has none, and buys the
+    // other types nothing but a new way to fail.
+    const tr =
+      transaction.type === 'switch-guardian'
+        ? await withOutgoingGuardianDeadline(
+            () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes),
+            'co-signing the switch-guardian request with the outgoing guardian'
+          )
+        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
 
     // #784: the proposal carries the ChainAnchor of the reference block its
     // signed summary was built at (`metadata.chainAnchor`, base64). The leaf

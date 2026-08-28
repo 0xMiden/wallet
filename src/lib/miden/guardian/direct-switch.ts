@@ -145,6 +145,16 @@ export const isGuardianAccountReleased = (err: unknown): boolean => {
  * because every call site that cares treats them identically: the coordinated
  * path is unavailable and the direct on-chain path needs nothing the operator
  * could have supplied.
+ *
+ * Both arms read `code` and ONLY `code`, which is a deliberate narrowing rather
+ * than an oversight. A response whose body is not the operator's JSON error
+ * envelope — a proxy's HTML 404, a gateway's bare 409 — arrives with `code`
+ * undefined and is classified neither unknown nor released, so it does NOT reach
+ * the direct path. Matching on status instead would widen the trigger for a
+ * unilateral on-chain rotation to include any intermediary that happens to answer
+ * 404 or 409 for an unrelated reason, and this escape hatch is one whose false
+ * positives rotate a live guardian away. The narrow reading fails safe: the
+ * coordinated path errors visibly and the user can still rotate deliberately.
  */
 export const isGuardianAccountUnusable = (err: unknown): boolean =>
   isGuardianAccountUnknown(err) || isGuardianAccountReleased(err);

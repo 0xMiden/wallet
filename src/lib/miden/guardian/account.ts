@@ -52,15 +52,21 @@ export async function resolveGuardianEndpoint(account: WalletAccount): Promise<s
  * global key as its ONLY pointer, because the unlock backfill leaves that
  * account's field empty rather than stamping a guess.
  *
- * Best-effort on the storage read: every caller is on a path where a failed read
- * must degrade to the field rather than throw out of the surrounding check.
+ * A failed storage read PROPAGATES, deliberately. Swallowing it here reads as
+ * tidiness and is a lie in two directions at once: `undefined` would then mean
+ * both "this account named no operator" and "we could not find out", and the two
+ * demand opposite handling — the first is a verdict a caller may act on, the
+ * second is a caller that must do nothing this window. It would also silently
+ * change `resolveGuardianEndpoint` for every one of its other callers, turning a
+ * read failure into the network default: a guess, returned as though it were the
+ * account's own pointer. Callers that want best-effort must say so at their own
+ * call site, where they can choose the right degradation.
  */
 export async function resolveChosenGuardianEndpoint(account: {
   guardianEndpoint?: string;
 }): Promise<string | undefined> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
-  const legacy = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY).catch(() => undefined);
-  return legacy || undefined;
+  return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || undefined;
 }
 
 /**
