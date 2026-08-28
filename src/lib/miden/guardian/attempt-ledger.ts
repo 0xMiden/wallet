@@ -204,6 +204,13 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
         if (!current) return;
         state.set(key, {
           accountPublicKey: subject.accountPublicKey,
+          // CARRIED FORWARD, not re-derived and not dropped. This rebuilds the
+          // whole entry, so a field it forgets is erased by the first charge or
+          // settle — and an erased `endpoint` makes the narrowed
+          // `anySpentForAccount` skip the very entries that ARE spent, which
+          // reads as "budget available" forever: the same blindness as
+          // hardcoding the fact, arrived at from the other side.
+          endpoint: current.endpoint,
           attempts,
           lastAttemptAt: at,
           // Never un-set: a close is permanent, so a sibling handle settling

@@ -2511,3 +2511,118 @@ describe('syncGuardianAccounts — pending-rotation recheck (the W1 exit)', () =
     clock.restore();
   });
 });
+
+/**
+ * The eviction seam.
+ *
+ * An evicted operation is ABANDONED, NOT CANCELLED: the mutex is handed to a
+ * successor the instant the watchdog fires, while the abandoned call is still
+ * inside WASM holding a borrow. So every hold this pass would take next is a
+ * second borrow of somebody else's client, and the rule is that the whole pass
+ * stops — not just the arm that noticed.
+ *
+ * Every one of these guards was previously deletable with the suite still green:
+ * nothing threw `WasmClientPoisonedError` from any of the four calls that can
+ * actually produce one, so the breaks were unexercised. Each test below deletes
+ * one guard's reason for existing and asserts the pass notices.
+ */
+describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => {
+  const first = { publicKey: 'evict-pk-1', type: WalletType.Guardian, hotPublicKey: 'hot-1' };
+  const second = { publicKey: 'evict-pk-2', type: WalletType.Guardian, hotPublicKey: 'hot-2' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    storeState.accounts = [first, second] as never;
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    mockGetOrCreateMultisigService.mockReset();
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    mockListUnconfirmedSwitchRows.mockResolvedValue([]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockResolveUnconfirmedSwitch.mockResolvedValue({});
+    mockReadDirectSwitchCommitState.mockReset();
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+  });
+
+  // The recheck's own row loop. Row two must never be read: the abandoned call
+  // from row one still holds a borrow of the client row two would take.
+  it('stops reading rows after the node read is evicted', async () => {
+    storeState.accounts = [first] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-a', transactionId: '0xa' },
+      { id: 'row-b', transactionId: '0xb' }
+    ]);
+    mockReadDirectSwitchCommitState.mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(mockReadDirectSwitchCommitState).toHaveBeenCalledTimes(1);
+  });
+
+  // …and the account loop. Breaking only the row loop left drift, the guardian
+  // round trip and the self-heal still to run on the same abandoned client.
+  it('does not touch the next account after the recheck is evicted', async () => {
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);
+    mockReadDirectSwitchCommitState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // The rollback takes a hold of ITS OWN, so its eviction arrives in a different
+  // catch from the node read's — one that first shipped without classifying it.
+  it('stops the pass when the endpoint rollback is evicted', async () => {
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  // The node read SUCCEEDED before the rollback evicted, so `probeSucceeded` was
+  // set — and booking that success would withdraw the very fuse evidence the
+  // eviction just created, on the key that is supposed to stop us re-parking.
+  it('does not book a fuse success for a pass whose rollback evicted', async () => {
+    storeState.accounts = [first] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused('pending-rotation-recheck')).toBe(true);
+  });
+
+  // Drift's catch is deliberately swallowing — a drift failure must not break
+  // the loop — which is exactly why an eviction had to be pulled back out of it.
+  it('does not touch the next account after drift is evicted', async () => {
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    expect(storeState.checkGuardianDrift).toHaveBeenCalledTimes(1);
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+});

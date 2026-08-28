@@ -883,14 +883,17 @@ export async function revertGuardianEndpointAfterDiscard(
   // read that came back empty is as likely to be a cold local client as a real
   // absence. Leave it pending rather than rebinding on no evidence.
   if (!onChain) return 'stale';
-  // `checkEndpointCommitment` on the TICK timeout, not `verifyEndpointMatchesCommitment`
-  // — the two differ in nothing but that. The 20 s ceiling is for a URL a user
-  // just submitted, which fires once and has no successor to defer to; this
-  // caller is the ~3 s recheck, and paying 20 s per row per pass to a dead
-  // endpoint stalls the whole guardian tick behind it. The verdict is the same
-  // three-way answer either way, and a timeout reads `'unreachable'` → `'stale'`,
-  // so a slow-but-alive operator costs a pass, not the rollback.
-  const authority = await checkEndpointCommitment(account.guardianEndpoint, onChain);
+  // THE LONG TIMEOUT, deliberately, even though this runs off a repeating tick.
+  //
+  // The tick's usual 5 s default is right for a probe whose only cost of being
+  // wrong is one wasted lap. This probe's is not: a timeout reads `'unreachable'`
+  // → `'stale'`, the caller CHARGES a stale against the row's finite budget, and
+  // fifteen of those declare the account unrepairable to the user. An operator
+  // that answers in eight seconds is perfectly healthy and would be condemned by
+  // the shorter ceiling. The cost of the long one is bounded from the other end
+  // instead — by the caller's per-row cooldown and its per-pass row cap — which
+  // is the bound that can be raised without turning slowness into a verdict.
+  const authority = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
   if (authority === 'match') return 'superseded';
   if (authority !== 'mismatch') return 'stale';
 

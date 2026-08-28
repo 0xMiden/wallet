@@ -150,6 +150,52 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
     expect(ledger.mayAttempt(SUBJECT)).toBe(true);
     expect(ledger.attempts(otherAccount)).toBe(1);
   });
+
+  // The account-level question, and the reason it takes an endpoint. Its caller
+  // is the shadow classifier, which knows the account and the operator but not
+  // the on-chain guardian key the subject is also keyed by — so it cannot ask
+  // `budgetSpent` and has to ask this instead.
+  describe('anySpentForAccount', () => {
+    const spendIt = (
+      ledger: ReturnType<typeof createAttemptLedger>,
+      subject: AttemptSubject,
+      tick: (ms: number) => void
+    ) => {
+      for (let i = 0; i < 3; i++) {
+        ledger.begin(subject).settle('charged');
+        tick(60_000);
+      }
+    };
+
+    it('answers for the account once any of its subjects is spent', () => {
+      const { ledger, tick } = make();
+      expect(ledger.anySpentForAccount('pk')).toBe(false);
+      spendIt(ledger, SUBJECT, tick);
+      expect(ledger.anySpentForAccount('pk')).toBe(true);
+      expect(ledger.anySpentForAccount('pk2')).toBe(false);
+    });
+
+    // THE ENDPOINT HAS TO SURVIVE THE SETTLE. `begin` stamps it, but every
+    // charge and settle rewrites the whole entry, and a rewrite that forgot the
+    // field left the narrowed query unable to see the spent budgets it was
+    // added to find — reporting "available" forever, which is exactly the
+    // hardcoded-`'available'` blindness this fact exists to replace.
+    it('still finds a spent budget by endpoint after the attempt settled', () => {
+      const { ledger, tick } = make();
+      spendIt(ledger, SUBJECT, tick);
+
+      expect(ledger.anySpentForAccount('pk', SUBJECT.endpoint)).toBe(true);
+    });
+
+    // The narrowing's whole point: a budget spent against the operator the
+    // account has just rotated AWAY from says nothing about the new one.
+    it('does not inherit a spent budget across a rotation to another operator', () => {
+      const { ledger, tick } = make();
+      spendIt(ledger, SUBJECT, tick);
+
+      expect(ledger.anySpentForAccount('pk', 'https://newly-rotated.example')).toBe(false);
+    });
+  });
 });
 
 describe('createAttemptLedger — doubling curve (the registration-push shape)', () => {

@@ -181,6 +181,17 @@ export const MISSING_REGISTRATION_BACKOFF_MS = 60_000;
 export const PENDING_ROTATION_RECHECK_MAX_ATTEMPTS = 15;
 /** Gap between rechecks of one pending rotation. */
 export const PENDING_ROTATION_RECHECK_BACKOFF_MS = 120_000;
+/**
+ * Rows this pass will actually take to the node, per account.
+ *
+ * Not a budget — the per-row budget above is — but a bound on how much ONE tick
+ * can cost. Every probed row is a full chain sync, plus an operator round trip
+ * when the rotation turns out discarded, and they run serially ahead of the
+ * guardian sync every remaining account is still waiting for. Two keeps the
+ * common case (one pending rotation, occasionally two) whole while refusing to
+ * let an account with a dozen stale rows turn a 3 s tick into minutes.
+ */
+export const PENDING_ROTATION_ROWS_PER_PASS = 2;
 
 // The W1 exit's budget: a submitted-unconfirmed rotation gets a bounded run of
 // node reads (~30 minutes at the flat gap) before the state is surfaced as
@@ -651,7 +662,20 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
     // A rollback landed, so the endpoint this pass resolved before calling us is
     // no longer what the account names.
     let bindingChanged = false;
+    // Rows that actually reached the node this pass. Each one costs a full chain
+    // sync (`readDirectSwitchCommitState` syncs before it looks) and, on a
+    // discarded rotation, an operator round trip on top — all serialized, all
+    // ahead of the guardian sync this pass still owes every remaining account.
+    // Unbounded, an account carrying a dozen stale rotations turned one tick
+    // into minutes of chain syncs. The rows this skips are not dropped: they
+    // keep their place in the list and their budget, and the next pass starts
+    // where the cooldown lets it.
+    let probed = 0;
     for (const row of rows) {
+      if (probed >= PENDING_ROTATION_ROWS_PER_PASS) {
+        unsettled.push(row.id);
+        continue;
+      }
       // `rowId`, not `guardianKey`: the budget is spent per durable INTENT, and
       // the node read below is keyed on the on-chain hash, which is a different
       // identifier again. Conflating the two is what made this whole exit inert.
@@ -685,12 +709,15 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
           // surfaces the state for manual recovery on the next pass instead of
           // spending 30 minutes of rechecks to reach a conclusion available now.
           attempt.settle('closed');
+          unsettled.push(row.id);
           console.warn(
-            `[Guardian Sync] pending rotation ${row.id} has no captured transaction id — the node can never be ` +
-              `asked about it, so the recheck is closed and the state surfaced for manual recovery`
+            `[Guardian Sync] ${account.publicKey} has a pending rotation (${row.id}) with no captured transaction ` +
+              `id — the node can never be asked about it, so the recheck is closed; the row stays pending and the ` +
+              `next pass surfaces it for manual recovery`
           );
           continue;
         }
+        probed += 1;
         state = await readDirectSwitchCommitState(row.transactionId, {
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'pending-rotation-recheck'
@@ -841,6 +868,11 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
         // the read had already set `probeSucceeded`, the pass then withdrew the
         // fuse evidence the eviction had just created.
         if (isWasmClientPoisonedError(settleError)) {
+          // Reported to the fuse as well, on the same key and by the same rule
+          // as the read arm above: a watchdog eviction is the evidence that this
+          // node parked our client, and evidence the fuse never hears cannot
+          // accumulate to the threshold that stops us re-parking every pass.
+          if (isSyncWatchdogEviction(settleError)) noteSyncWatchdogEviction('pending-rotation-recheck');
           probeEvicted = true;
           evicted = true;
           break;
@@ -852,7 +884,15 @@ async function runPendingRotationRecheck(account: WalletAccount): Promise<Pendin
     // shadow classifier tells it a rotation is outstanding after the chain
     // answered — the same "fact that is not a fact" that made two hardcoded
     // budgets bias the divergence tally the trigger flip reads.
-    return { pendingRowId: unsettled[0], evicted, bindingChanged };
+    //
+    // An EXHAUSTED row wins the slot over a merely-unsettled one. The classifier
+    // gets one row and asks the budget about that row, so with `[fresh,
+    // exhausted]` — an order Dexie is free to produce, since the list is not
+    // chronological — it would read "budget available" while the account is
+    // sitting behind the generic unrepairable prompt, and the divergence this
+    // shadow exists to count is exactly that pairing.
+    const exhausted = unsettled.find(id => pendingRotationExhaustedOwner.has(id));
+    return { pendingRowId: exhausted ?? unsettled[0], evicted, bindingChanged };
   } catch (e) {
     // Best-effort: the recheck must never break the sync loop.
     console.warn(`[Guardian Sync] pending-rotation recheck failed for ${account.publicKey} (non-fatal):`, e);

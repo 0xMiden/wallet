@@ -1090,7 +1090,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('rolls the binding back when the chain says the bound endpoint has no authority', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1107,7 +1107,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('supersedes when the bound endpoint does answer for the on-chain commitment', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('match');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1127,7 +1127,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     );
 
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
-    expect(checkEndpointCommitment).not.toHaveBeenCalled();
+    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
   });
 
   // `'stale'`, not `'superseded'`, and the difference is the caller's one
@@ -1149,7 +1149,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('matches the discarded target across trailing-slash and host-case spellings', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://New.Example.com/', 2);
 
     expect(
@@ -1173,7 +1173,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it("reports 'stale' when the operator could not be reached to prove the mismatch", async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('unreachable');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
@@ -1187,7 +1187,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it("reports 'stale' when the epoch moved between the read and the write", async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new', 4);
     vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
 
@@ -1199,7 +1199,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('treats a missing epoch as 0 rather than refusing the rollback', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (checkEndpointCommitment as jest.Mock).mockResolvedValue('mismatch');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
     const vault = boundTo('https://new');
 
     await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');

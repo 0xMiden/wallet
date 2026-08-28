@@ -62,15 +62,39 @@ const isKeyedStore = (declaration: ts.VariableDeclaration): boolean => {
     // whichever way it was initialised.
     if (init.properties.length === 0) return true;
     const annotation = declaration.type?.getText() ?? '';
-    return annotation.startsWith('Record<') || /^\{\s*\[/.test(annotation);
+    if (annotation.startsWith('Record<') || /^\{\s*\[/.test(annotation)) return true;
+    // A literal WRAPPING stores is still a store — `{ attempts: new Map(), nextAt:
+    // new Map() }` is the textbook hand-rolled budget, and reading only the
+    // outer initializer waved it through. Grouping the maps in an object is the
+    // most natural way to write one, not an evasion.
+    return init.properties.some(
+      property =>
+        ts.isPropertyAssignment(property) &&
+        ts.isNewExpression(property.initializer) &&
+        KEYED_CONSTRUCTORS.has(property.initializer.expression.getText().split('.').pop() ?? '')
+    );
   }
   return false;
 };
 
-const isMutableCounter = (declaration: ts.VariableDeclaration, flags: ts.NodeFlags): boolean =>
-  (flags & ts.NodeFlags.Const) === 0 &&
-  declaration.initializer !== undefined &&
-  ts.isNumericLiteral(declaration.initializer);
+/**
+ * A reassignable numeric — the one-variable form of a budget ("attempts so far").
+ *
+ * Any numeric-looking initializer, not just a literal: `let n = 0` and
+ * `let n = Number(0)` are the same counter, and requiring the literal meant the
+ * second walked through. A `let` with a numeric ANNOTATION counts even when the
+ * initializer is deferred.
+ */
+const isMutableCounter = (declaration: ts.VariableDeclaration, flags: ts.NodeFlags): boolean => {
+  if ((flags & ts.NodeFlags.Const) !== 0) return false;
+  if (declaration.type?.getText() === 'number') return true;
+  const init = declaration.initializer;
+  if (!init) return false;
+  if (ts.isNumericLiteral(init)) return true;
+  // `Number(...)`, `parseInt(...)`, `Date.now()`, `performance.now()` — the
+  // shapes a counter or a deadline stamp is actually written with.
+  return ts.isCallExpression(init) && /(^|\.)(Number|parseInt|parseFloat|now)$/.test(init.expression.getText());
+};
 
 /** Every module-scope store or counter in one file, by name. */
 const moduleStateNames = (relPath: string): string[] => {
@@ -200,7 +224,14 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
       'const fnValued: Map<string, (n: number) => number> = new Map();',
       'const nullProto = Object.create(null);',
       // A mutable scalar tally is a budget with one key.
-      'let attemptsThisSession = 0;'
+      'let attemptsThisSession = 0;',
+      // Both verified green against the AST version's FIRST cut: an object
+      // literal is the most natural way to group the two maps a budget needs,
+      // and a counter does not have to be initialised with a bare literal.
+      'const bespokeBudget = { attempts: new Map<string, number>(), nextAt: new Map<string, number>() };',
+      'let coercedTally = Number(0);',
+      'let deadlineStamp = Date.now();',
+      'let declaredLater: number;'
     ];
     try {
       for (const declaration of caught) {

@@ -165,7 +165,14 @@ const sourceFiles = (dir: string): string[] =>
       : [];
   });
 
-const matchCount = (code: string, names: FieldSet): number => fieldReads(parse(code), names).length;
+// `fileName` is not optional decoration: the licence check below feeds this real
+// production `.ts` files, and defaulting them to the `.tsx` probe name parses
+// them as JSX — the same fail-open that unfenced five modules. Here it fails the
+// other way (a mangled file reports zero reads, so a live licence looks
+// unnecessary), which is loud rather than dangerous, but it points at the wrong
+// fix.
+const matchCount = (code: string, names: FieldSet, fileName?: string): number =>
+  fieldReads(parse(code, fileName), names).length;
 
 describe('guardian claim fence', () => {
   const files = sourceFiles(path.join(ROOT, 'src'));
@@ -240,7 +247,7 @@ describe('guardian claim fence', () => {
     ['guardianSyncStatus', SYNC_STATUS_ALLOWED, SYNC_STATUS_NAMES]
   ])('every %s allowlist entry still needs its licence', (_label, allowed, names) => {
     const unnecessary = [...allowed].filter(
-      rel => matchCount(fs.readFileSync(path.join(ROOT, rel), 'utf8'), names) === 0
+      rel => matchCount(fs.readFileSync(path.join(ROOT, rel), 'utf8'), names, rel) === 0
     );
     expect(unnecessary).toEqual([]);
   });
