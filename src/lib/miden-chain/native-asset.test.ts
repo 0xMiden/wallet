@@ -59,7 +59,9 @@ import {
   getNativeAssetMetadataSync,
   onNativeAssetChanged,
   primeNativeAssetId,
-  resetNativeAssetCache
+  resetNativeAssetCache,
+  getVerificationBaseFee,
+  getVerificationBaseFeeSync
 } from './native-asset';
 
 beforeEach(async () => {
@@ -87,6 +89,42 @@ beforeEach(async () => {
 });
 
 describe('native-asset module', () => {
+  it('reads the verification base fee from the same block-header fetch as the faucet id', async () => {
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 10000
+    };
+
+    await getNativeAssetId();
+    // The fee must come out of the header the faucet-id discovery already fetched.
+    // A second RPC round-trip here would be a regression, not an implementation detail.
+    await expect(getVerificationBaseFee()).resolves.toBe(10000);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+  });
+
+  it('reports an undiscovered base fee as null rather than zero', async () => {
+    // Zero is a real value on a chain that charges nothing, so it cannot double as
+    // "not known yet" — a caller reserving a fee must be able to tell them apart.
+    expect(getVerificationBaseFeeSync()).toBeNull();
+
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 0
+    };
+    await getVerificationBaseFee();
+
+    expect(getVerificationBaseFeeSync()).toBe(0);
+  });
+
+  it('rehydrates a zero base fee from storage instead of rediscovering it', async () => {
+    // The existing hydrate pattern tests truthiness, which silently drops a real 0.
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'bech32-native-acc';
+    _g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet'] = 0;
+
+    await expect(getVerificationBaseFee()).resolves.toBe(0);
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(0);
+  });
+
   it('discovers ID via RPC on cache miss and caches to storage', async () => {
     _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
 

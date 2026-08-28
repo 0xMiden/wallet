@@ -28,6 +28,12 @@ function idCacheKey(): string {
 function metaCacheKey(): string {
   return `native_asset_meta:v4:${cacheScope()}`;
 }
+// A separate key, deliberately not a `v4` bump: the faucet id cached under the
+// existing key is still correct, and invalidating it to add a second field would
+// cost every client a rediscovery for nothing.
+function feeCacheKey(): string {
+  return `native_asset_fee:v1:${cacheScope()}`;
+}
 
 export type NativeAssetChainMetadata = {
   symbol: string;
@@ -36,6 +42,10 @@ export type NativeAssetChainMetadata = {
 
 let memCache: string | null = null;
 let metaMemCache: NativeAssetChainMetadata | null = null;
+// `null` means not yet discovered. It cannot be conflated with `0`, which is a
+// real value: testnet charges no fee, and a caller reserving a fee has to tell
+// "nothing to reserve" apart from "I don't know yet".
+let feeMemCache: number | null = null;
 let hydrated = false;
 let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
@@ -79,15 +89,22 @@ async function hydrateFromStorage(): Promise<void> {
   const idKey = idCacheKey();
   const metaKey = metaCacheKey();
   try {
-    const [storedId, storedMeta] = await Promise.all([
+    const feeKey = feeCacheKey();
+    const [storedId, storedMeta, storedFee] = await Promise.all([
       fetchFromStorage<string>(idKey),
-      fetchFromStorage<NativeAssetChainMetadata>(metaKey)
+      fetchFromStorage<NativeAssetChainMetadata>(metaKey),
+      fetchFromStorage<number>(feeKey)
     ]);
     // Only publish if the effective endpoint hasn't switched since we read —
     // same guard as discover(). A hydrate parked across a network switch must
     // not seed the old node's faucet id into the shared in-memory cache.
     if (idKey === idCacheKey() && storedId && !memCache) memCache = storedId;
     if (metaKey === metaCacheKey() && storedMeta && !metaMemCache) metaMemCache = storedMeta;
+    // Tested with `typeof`, not truthiness: a stored `0` is a real zero-fee chain
+    // and the truthiness form used above would drop it and force a rediscovery.
+    if (feeKey === feeCacheKey() && typeof storedFee === 'number' && feeMemCache === null) {
+      feeMemCache = storedFee;
+    }
   } catch (err) {
     console.warn('native-asset storage read failed', err);
   }
@@ -102,6 +119,21 @@ async function discover(): Promise<string> {
   const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
   const accountId = header.feeFaucetId();
   const bech32 = getBech32AddressFromAccountId(accountId);
+  // Off the same header — the fee is a fee-parameters field alongside the faucet
+  // id, so asking for it separately would be a second round-trip for nothing.
+  //
+  // Read defensively: discovering the faucet id is this function's job, and the
+  // fee is a passenger. An SDK build without the accessor must degrade to "fee
+  // unknown" (null), never take faucet-id discovery down with it.
+  let baseFee: number | null = null;
+  try {
+    const read = header.verificationBaseFee?.();
+    if (typeof read === 'number') {
+      baseFee = read;
+    }
+  } catch (err) {
+    console.warn('native-asset verification base fee read failed', err);
+  }
   // Only publish to the in-memory cache / listeners if the effective endpoint
   // hasn't switched since we queried. Otherwise a slow discovery against the
   // OLD node could resolve after a network switch and clobber `memCache` with
@@ -111,10 +143,16 @@ async function discover(): Promise<string> {
   // key, and the caller that requested under the old node still gets its value.
   if (idCacheKey() === cacheKey) {
     memCache = bech32;
+    if (baseFee !== null) {
+      feeMemCache = baseFee;
+    }
     emit(bech32);
   }
   try {
     await putToStorage(cacheKey, bech32);
+    if (baseFee !== null) {
+      await putToStorage(feeCacheKey(), baseFee);
+    }
   } catch (err) {
     console.warn('native-asset storage write failed', err);
   }
@@ -158,6 +196,41 @@ async function discoverMetadata(id: string): Promise<NativeAssetChainMetadata | 
 export function getNativeAssetIdSync(): string | null {
   invalidateOnEndpointChange();
   return memCache;
+}
+
+/**
+ * Returns the chain's per-transaction verification base fee, or `null` if it has
+ * not been discovered yet.
+ *
+ * `null` and `0` mean different things and must not be collapsed: `0` is a chain
+ * that charges nothing (testnet), while `null` is "not known yet". A caller
+ * reserving a fee or filtering dust has to distinguish them — treating `null` as
+ * `0` would reserve nothing on a chain that does charge.
+ */
+export function getVerificationBaseFeeSync(): number | null {
+  invalidateOnEndpointChange();
+  return feeMemCache;
+}
+
+/**
+ * Resolves the chain's verification base fee, discovering it if needed.
+ *
+ * Shares the faucet id's discovery: both come off one block header, so this adds
+ * no RPC round-trip. Deliberately no TTL — the node clones fee parameters from
+ * the previous header for each new block, so the fee has exactly the volatility
+ * of the fee faucet id, which is already cached for the scope's lifetime.
+ */
+export async function getVerificationBaseFee(): Promise<number | null> {
+  const cached = getVerificationBaseFeeSync();
+  if (cached !== null) {
+    return cached;
+  }
+  await hydrateFromStorage();
+  if (feeMemCache !== null) {
+    return feeMemCache;
+  }
+  await getNativeAssetId();
+  return feeMemCache;
 }
 
 /**
@@ -263,12 +336,17 @@ export function onNativeAssetChanged(fn: (id: string) => void): () => void {
 export async function resetNativeAssetCache(): Promise<void> {
   memCache = null;
   metaMemCache = null;
+  feeMemCache = null;
   hydrated = false;
   inflight = null;
   metaInflight = null;
   cachedForScope = null;
   try {
-    await Promise.all([putToStorage(idCacheKey(), null), putToStorage(metaCacheKey(), null)]);
+    await Promise.all([
+      putToStorage(idCacheKey(), null),
+      putToStorage(metaCacheKey(), null),
+      putToStorage(feeCacheKey(), null)
+    ]);
   } catch {
     // best-effort — storage may already be cleared
   }
