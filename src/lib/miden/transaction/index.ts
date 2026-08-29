@@ -2055,9 +2055,14 @@ const generateGuardianTransaction = async (
             client.terminate();
           }
         });
-        transaction.requestBytes = requestBytes;
+        // Annotate BEFORE persisting: the fee auth arg carries a fresh salt, and
+        // `prepareCustomExecution` re-derives the commitment from whatever bytes it is given,
+        // so proposal creation and execution must see the identical request. Idempotent, so a
+        // request that already commits an auth arg is returned untouched.
+        const swapBytes = await ensureFeeAuthOnRequestBytes(requestBytes);
+        transaction.requestBytes = swapBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = requestBytes;
+          t.requestBytes = swapBytes;
         });
       }
       proposalResult = await withGuardianConflictRetry(() =>
