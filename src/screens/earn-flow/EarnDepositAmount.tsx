@@ -72,6 +72,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           confirmTitle={t('confirm')}
           showNetworkPill={false}
           showBalanceHelper={!hasAmount}
+          // Say WHY Continue is dead. Without this the user sees a positive,
+          // in-balance amount and a disabled button with no explanation — the
+          // send and swap flows both name the same condition. `SelectAmount`
+          // translates the key itself, so pass the key rather than the text.
+          error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
           footerClassName="pt-4 pb-6"
           onAmountChange={setAmount}
           onSelectToken={() => undefined}
