@@ -90,21 +90,24 @@ const Explore: FC = () => {
     // explicit guard also protects native-asset swap notes whose per-order
     // auto-consume setting is off: they remain available for manual settlement
     // without being picked up by the wallet-wide native-note auto-consumer.
-    const candidates = claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
+    // `isBeingClaimed` is filtered HERE, not at the enqueue below, because the value
+    // check that follows has to measure the set that will actually be claimed. A note
+    // already covered by an in-flight consume row stays visible in `claimableNotes`
+    // during chain-sync lag, so counting it inflated the total: a lone newly-arrived
+    // dust note rode in on the in-flight batch's value and was claimed alone for a full
+    // fee. `NativeNoteAutoConsumeManager` has always filtered in this order.
+    const candidates = claimableNotes.filter(
+      note => note!.faucetId === midenFaucetId && !note!.swapOrder && !note!.isBeingClaimed
+    );
     // A claim worth no more than its own fee costs the user money, and this consumer
     // runs without asking. Measured on the BATCH TOTAL because these are claimed as one
     // transaction paying one fee -- per note, a backlog of individually-marginal notes
     // was refused in full.
     //
-    // `verificationBaseFee` is null until discovery lands and `isWorthClaiming` fails
-    // open on null, so this consumer -- unlike the other two, which await the fee
-    // inline -- could run its first pass against an unknown fee. It is gated on the fee
-    // having resolved for that reason: the faucet id resolves from cache strictly
-    // earlier than a fee that may still need an RPC round trip, and an unattended pass
-    // must not spend on a value it does not have yet.
-    if (verificationBaseFee === null) {
-      return [];
-    }
+    // Fails open on an unknown fee, matching `isWorthClaiming`'s contract and the other
+    // two consumers. An earlier revision returned early on `null` instead, which against
+    // an SDK build whose header has no `verificationBaseFee` accessor -- where the fee is
+    // latched null forever -- disabled this consumer permanently.
     if (!isWorthClaiming(totalClaimableAmount(candidates.map(note => note!.amount)), verificationBaseFee)) {
       return [];
     }
@@ -120,7 +123,9 @@ const Explore: FC = () => {
       return;
     }
 
-    const notesToClaim = midenNotes!.filter(note => !note.isBeingClaimed);
+    // Already filtered for `isBeingClaimed` in the memo above, where the value check
+    // needs the same set. Re-filtering here would let the two diverge again.
+    const notesToClaim = midenNotes;
     if (notesToClaim.length === 0) {
       return;
     }

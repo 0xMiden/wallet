@@ -265,6 +265,50 @@ describe('native-asset module', () => {
     expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
   });
 
+  it('asks for the base fee once against a node quoting an implausible one', async () => {
+    // An out-of-range value is DISCARDED (a reserve is a multiple of it, so an absurd
+    // one would zero the spendable balance and exclude every note from the claim floor,
+    // per endpoint, with no TTL) — but the probe still latches, because a node that
+    // answered with a number has a working accessor. Left unlatched it cost a
+    // block-header fetch on every call, which on mobile is once per 3s tick forever.
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 4294967295
+    };
+
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+    // Never persisted, so it cannot outlive the session either. (The harness reports an
+    // absent key as null; a write would have put the number here.)
+    expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet']).toBeNull();
+  });
+
+  it('does not re-probe per caller when the fee accessor THROWS', async () => {
+    // A throwing accessor is transient, so unlike the two cases above it must not latch
+    // — but retrying it on every caller is the same per-call block-header fetch. It
+    // takes a cooldown instead. This path does not go through the discovery catch
+    // (discovery itself succeeded), which is why the cooldown is armed in `discover`.
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => {
+        throw new Error('accessor blew up');
+      }
+    };
+
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+  });
+
   it('drops a discovered base fee when the endpoint changes', async () => {
     // The fee belongs to the node that quoted it. Left behind, the sync getter serves
     // the previous chain's value while the faucet id has already gone null -- so a

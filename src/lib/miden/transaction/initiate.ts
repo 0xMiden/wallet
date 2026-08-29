@@ -1,4 +1,4 @@
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import {
   getOrCreateMultisigService,
   isGuardianAccount,
@@ -173,16 +173,13 @@ export const initiateConsumeNotesTransaction = async (
   // isolation to be SAFE, not merely for it to happen.
   //
   // Auto-consume admits a batch when the notes are worth one fee TOGETHER. Isolation
-  // then turns that one transaction into N, each paying its own fee -- so notes that
-  // only ever justified a shared claim would be claimed separately at a loss, on the
-  // wallet's initiative. With the fee in hand, a note that cannot pay for a transaction
-  // of its own is dropped from this enqueue instead: the healthy notes still get
-  // unblocked (which is the point of isolating), the wallet never spends more than it
-  // collects, and the note stays claimable for a manual Claim or for a later pass where
-  // it has company worth batching with.
+  // then turns that one transaction into N, each paying its own fee -- so a note that
+  // only ever justified a shared claim must not be isolated, or the wallet spends more
+  // than it collects on its own initiative. With the fee in hand, such a note stays
+  // batched instead (see the isolation branch for why batched, not dropped).
   //
-  // `null`/omitted keeps every isolated note, which is right for a manual retry: the
-  // user asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
+  // `null`/omitted isolates every candidate, which is right for a manual retry: the user
+  // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
   verificationBaseFee?: number | null
 ): Promise<string> => {
   if (notes.length === 0) {
@@ -267,25 +264,45 @@ export const initiateConsumeNotesTransaction = async (
       const failedBatchRow = sameAccount.find(
         tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
       );
-      if (isolateNotesWithFailedBatch && failedBatchRow) {
-        // A row of its own means a fee of its own, so the note has to be worth one on
-        // its own — the batch total that admitted it says nothing about that. Dropped
-        // rather than left in the batch: leaving it is the poison-note stall isolation
-        // exists to end, and claiming it alone spends more than it collects.
-        if (isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
-          isolate.push(note);
-        } else {
-          // Named as the blocker, like every other path that declines to queue a note.
-          // The early return below hands `blockingId` back as this call's row id, and
-          // EVERY existing skip (dedup, backoff) sets it before `continue` — so a drop
-          // that left it unset was the one way out of this loop that could return a null
-          // id typed as a string. This row is also the honest answer: its failure is why
-          // the note is being isolated, hence why it is not being queued.
-          blockingId = blockingId ?? failedBatchRow.id;
-        }
+      // A row of its own means a FEE of its own, so only a note that can pay for a
+      // transaction by itself may be isolated. Auto-consume admits a batch on what its
+      // notes are worth TOGETHER, which says nothing about any one of them.
+      //
+      // A note that cannot fund its own transaction therefore STAYS IN THE BATCH, and
+      // that is the whole answer for it: batched is the only way it can ever be claimed,
+      // so removing it from batches means the wallet never claims it at all. Twenty
+      // notes at 20x the base fee are each below the floor and together worth 400x — an
+      // earlier revision of this dropped every one of them, permanently, because the
+      // failed-batch row that made them isolation candidates is never pruned.
+      //
+      // The residual is that such a note can fail a batch again and cost its mates
+      // another lap of the #215 backoff. That is bounded (the backoff doubles and the
+      // batch total is re-checked each pass) and strictly better than stranding real
+      // value forever, whereas isolating it would pay a fee larger than it collects.
+      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
+        isolate.push(note);
       } else {
         queueable.push(note);
       }
+    }
+
+    // Isolation must not leave behind a batch that cannot pay for its own transaction.
+    // The caller measured the FULL set against one fee; pulling the worthy notes out
+    // into rows of their own leaves a remainder that was never measured on its own, and
+    // a remainder of one below-floor note is simply that note claimed alone at a loss --
+    // exactly what excluding it from isolation was meant to avoid.
+    //
+    // So when the remainder cannot stand by itself, nothing is isolated this pass: the
+    // whole set goes out as one batch for one fee, which is what the caller verified.
+    // The poison note keeps its mates for one more lap of the #215 backoff, and no note
+    // is either claimed at a loss or stranded.
+    if (
+      isolate.length > 0 &&
+      queueable.length > 0 &&
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? null)
+    ) {
+      queueable.push(...isolate);
+      isolate.length = 0;
     }
 
     if (queueable.length === 0 && isolate.length === 0) {

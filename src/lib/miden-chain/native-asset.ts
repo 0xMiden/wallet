@@ -55,6 +55,13 @@ let feeInflight: Promise<number | null> | null = null;
 // must not re-fetch a header on every call against a node whose SDK build has no
 // `verificationBaseFee` accessor, but must still retry after a read that threw.
 let feeProbedScope: string | null = null;
+// Earliest time a fee probe may be retried after one FAILED (threw) rather than
+// answered. Unlike `feeProbedScope` this is a cooldown, not a latch: a throwing
+// accessor or a dropped RPC is transient and must be retried, but retrying it on every
+// caller means one block-header fetch per `getVerificationBaseFee()` — once per 3s tick
+// on mobile, and on the sync critical path in the service worker.
+let feeProbeRetryAfterMs = 0;
+const FEE_PROBE_RETRY_COOLDOWN_MS = 60_000;
 
 /**
  * Ceiling on a base fee the wallet will act on, in the native asset's smallest unit.
@@ -98,6 +105,8 @@ function invalidateOnEndpointChange(): void {
     // charging one reserves nothing, and the reverse disables sending.
     feeMemCache = null;
     feeProbedScope = null;
+    // A cooldown earned against the previous node says nothing about this one.
+    feeProbeRetryAfterMs = 0;
     hydrated = false;
     inflight = null;
     metaInflight = null;
@@ -182,11 +191,14 @@ async function discover(): Promise<string> {
       baseFee = read;
     } else if (typeof read === 'number') {
       // Out of range. Caching it would be worse than not knowing: the send reserve is a
-      // multiple of this number, so one absurd header permanently zeroes the spendable
-      // balance and the claim floor excludes every real note, for this endpoint, with no
-      // TTL to heal it. Treat it as unread so a later block can supply a sane value.
+      // multiple of this number, so one absurd header would zero the spendable balance
+      // and exclude every real note from the claim floor, for this endpoint, with no TTL
+      // to heal it. So the value is discarded -- but the probe still LATCHES, because a
+      // node that answered with a number is a node whose accessor works: this is a
+      // decisive answer about the chain, not a transient failure. Left unlatched it cost
+      // a block-header fetch on every single `getVerificationBaseFee()` call, which on
+      // mobile is once per 3s tick, forever.
       console.warn('native-asset verification base fee out of plausible range, ignoring', read);
-      feeReadThrew = true;
     }
   } catch (err) {
     console.warn('native-asset verification base fee read failed', err);
@@ -204,12 +216,17 @@ async function discover(): Promise<string> {
     if (baseFee !== null) {
       feeMemCache = baseFee;
     }
-    // Records that a header was actually read for this scope AND yielded a usable
-    // answer -- including the legitimate answer "this chain reports no fee", which is
-    // what stops the forced discovery in `getVerificationBaseFee` from re-fetching a
-    // header on every call against an SDK build with no accessor. A read that threw or
-    // returned an implausible value deliberately does NOT latch, so it is retried.
-    if (!feeReadThrew) {
+    // Records that a header was actually read for this scope AND the accessor answered
+    // -- including the legitimate answer "this chain reports no fee", which is what stops
+    // the forced discovery in `getVerificationBaseFee` from re-fetching a header on every
+    // call against an SDK build with no accessor.
+    //
+    // Only a THROWING accessor stays unlatched, and it takes the cooldown instead: this
+    // path does not go through that function's catch (discovery itself succeeded), so
+    // without arming it here a throwing accessor would re-fetch a header per caller.
+    if (feeReadThrew) {
+      feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
+    } else {
       feeProbedScope = probedScope;
     }
     emit(bech32);
@@ -310,6 +327,10 @@ export async function getVerificationBaseFee(): Promise<number | null> {
   if (feeProbedScope === cacheScope()) {
     return feeMemCache;
   }
+  // A probe that threw is retried, but not once per caller — see the cooldown's own note.
+  if (Date.now() < feeProbeRetryAfterMs) {
+    return feeMemCache;
+  }
   if (feeInflight) {
     return feeInflight;
   }
@@ -319,9 +340,11 @@ export async function getVerificationBaseFee(): Promise<number | null> {
       await discover();
       return feeMemCache;
     } catch (err) {
-      // Left unprobed so a transient RPC failure is retried, unlike a header that
-      // simply carried no fee.
+      // Left unlatched so a transient RPC failure is retried, unlike a header that
+      // simply carried no fee — but behind a cooldown, so the retry is not one
+      // block-header fetch per caller until the node comes back.
       console.warn('native-asset fee discovery failed', err);
+      feeProbeRetryAfterMs = Date.now() + FEE_PROBE_RETRY_COOLDOWN_MS;
       return null;
     } finally {
       if (feeInflight === pending) feeInflight = null;

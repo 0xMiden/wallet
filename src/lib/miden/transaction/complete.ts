@@ -40,7 +40,11 @@ import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNotes = executedTx.outputNotes().notes();
+  // Fee note excluded, like the other two paths that walk output notes: the loop below
+  // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
+  // the requesting site, so a fee note reaching it would be sent to the user's
+  // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
+  const { userNotes: outputNotes } = partitionFeeNote(executedTx.outputNotes().notes(), getNativeAssetIdSync());
 
   // Every private note this transaction produced. Collected first so the relays
   // below are a flat sequence: the commit wait then happens ONCE, after them,

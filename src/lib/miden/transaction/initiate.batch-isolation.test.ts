@@ -141,15 +141,11 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
     expect(queued[0]!.noteIds).toEqual(['a', 'b']);
   });
 
-  it('drops a note that cannot pay for a transaction of its own', async () => {
-    // Isolation turns one transaction into N, each paying a full fee. Auto-consume
-    // admits a batch on what the notes are worth TOGETHER, so isolating blindly would
-    // claim notes separately at a loss on the wallet's own initiative. `poor` is worth
-    // less than one transaction alone and is dropped; `rich` gets its row.
-    //
-    // Dropped, not left in the batch: leaving it is the poison-note stall isolation
-    // exists to end. It stays claimable for a manual Claim, or for a later pass where
-    // it has company worth batching with.
+  it('does not isolate when doing so would strand a remainder below the floor', async () => {
+    // `rich` can fund a transaction alone, `poor` cannot. Isolating `rich` would leave
+    // `poor` as a one-note "batch" -- i.e. claimed alone at a loss, the very thing
+    // excluding it from isolation was meant to avoid. So neither is isolated: the pair
+    // goes out as ONE batch for one fee, which is what the caller measured.
     const BASE_FEE = 10000;
     await failedBatch(['poor', 'rich']);
 
@@ -163,34 +159,59 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
     );
 
     const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
-    expect(queued.flatMap(row => row.noteIds ?? [])).toEqual(['rich']);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds!.sort()).toEqual(['poor', 'rich']);
   });
 
-  it('returns an existing row id when EVERY note is dropped, never a null id', async () => {
-    // The return is typed `string` and produced by a non-null assertion on `blockingId`.
-    // Every other path that declines to queue a note sets it before continuing; a drop
-    // that skipped it was the one exit from the loop that could hand back `null` as a
-    // string. The failed batch row is the truthful answer — its failure is the reason.
+  it('isolates the worthy notes when the remainder can still stand alone', async () => {
+    // Both `a` and `b` can fund a transaction of their own, and so can the remainder
+    // `c`+`d` (new arrivals, no failure history). Isolation is safe and happens.
     const BASE_FEE = 10000;
-    // A real SHARED row (two note ids) is what makes `poor` an isolation candidate; the
-    // enqueue then offers only `poor`, which cannot pay for a transaction of its own.
-    const failed = await failedBatch(['poor', 'gone']);
+    const rich = String(BASE_FEE * 500);
+    await failedBatch(['a', 'b']);
 
-    const id = await initiateConsumeNotesTransaction(
+    await initiateConsumeNotesTransaction(
       ACCOUNT,
-      [note('poor', String(BASE_FEE * 5))],
+      [note('a', rich), note('b', rich), note('c', rich), note('d', rich)],
       false,
       false,
       true,
       BASE_FEE
     );
 
-    expect(id).toBe(failed.id);
     const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
-    expect(queued).toHaveLength(0);
+    const single = queued.filter(row => row.noteIds?.length === 1);
+    const batched = queued.filter(row => (row.noteIds?.length ?? 0) > 1);
+    expect(single.flatMap(row => row.noteIds ?? []).sort()).toEqual(['a', 'b']);
+    expect(batched).toHaveLength(1);
+    expect(batched[0]!.noteIds!.sort()).toEqual(['c', 'd']);
   });
 
-  it('keeps every isolated note when no fee is supplied', async () => {
+  it('never strands a below-floor note, however many batches it has lost', async () => {
+    // The regression this rule exists to prevent. The failed-batch row that makes a note
+    // an isolation candidate is NEVER pruned, so a rule that removed below-floor notes
+    // from batches removed them from every future enqueue, for the wallet's lifetime.
+    // Twenty notes at 20x the base fee are each below the 30x floor and together worth
+    // 400x -- real money, claimable for one fee, and previously dropped forever.
+    const BASE_FEE = 10000;
+    const ids = Array.from({ length: 20 }, (_unused, index) => `n${index}`);
+    await failedBatch(ids);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      ids.map(id => note(id, String(BASE_FEE * 20))),
+      false,
+      false,
+      true,
+      BASE_FEE
+    );
+
+    const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]!.noteIds).toHaveLength(20);
+  });
+
+  it('isolates every candidate when no fee is supplied', async () => {
     // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
     // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
     await failedBatch(['poor', 'rich']);
@@ -198,6 +219,7 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
     await initiateConsumeNotesTransaction(ACCOUNT, [note('poor', '1'), note('rich', '5000000')], false, false, true);
 
     const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(2);
     expect(queued.flatMap(row => row.noteIds ?? []).sort()).toEqual(['poor', 'rich']);
   });
 

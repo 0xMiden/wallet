@@ -33,6 +33,7 @@ import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../s
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { getUncompletedTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { ConsumableNote, NoteTypeEnum } from '../types';
@@ -549,13 +550,27 @@ async function runSync(force: boolean): Promise<void> {
         if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
+            // Notes already covered by an uncompleted consume row are excluded BEFORE
+            // the value check, because the enqueue below drops exactly those at its
+            // dedup gate -- so counting them measured a set larger than the one that
+            // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or
+            // two, which makes this the steady state rather than an edge case: a lone
+            // newly-arrived dust note rode in on the in-flight batch's value and was
+            // then claimed by itself for a full fee.
+            const notesBeingClaimed = new Set(
+              (await getUncompletedTransactions(accountPubKey))
+                .filter(tx => tx.type === 'consume')
+                .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
+            );
             // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
             // returns a cached value instantly but falls through to an RPC round trip
             // while the fee is still unknown -- which against a parked node is every
             // lap, for the full timeout, on the sync critical path. Nothing downstream
             // needs the fee unless there is something to claim, and the overwhelmingly
             // common case is nothing to claim.
-            const candidates = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
+            const candidates = parsedNotes.filter(
+              n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
+            );
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
             // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
