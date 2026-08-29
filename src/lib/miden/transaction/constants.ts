@@ -27,17 +27,25 @@ export const PROVER_PROCEDURE_MISMATCH_ERROR =
 export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by user';
 
 /**
- * The account could not pay this transaction's fee.
+ * The request reached the kernel without the fee conversion info `fee::pay_fee`
+ * needs, so the fee could not be charged at all.
  *
- * Since protocol 0.16 the fee is withdrawn from the acting account's own vault
- * inside the auth procedure, so this is a precondition rather than a transient
- * fault: retrying changes nothing until the account holds more of the fee asset.
- * The kernel reports it two ways -- a vault-shortfall assertion, and a hashed
- * error code for a missing conversion-info commitment -- and neither is
- * intelligible raw.
+ * NOT a balance problem, and the distinction matters: this says nothing about
+ * what the account holds, so telling the user to "receive some MIDEN" sends them
+ * to top up an account that is very likely already funded, and topping it up
+ * changes nothing. A genuine shortfall arrives as a vault assertion and gets
+ * `TRANSACTION_VAULT_SHORTFALL_ERROR` instead.
+ *
+ * What it actually means is that whoever BUILT the request did not commit
+ * conversion info into its auth args. On a multisig account the client cannot
+ * inject that -- the auth-arg slot belongs to the multisig -- so the request has
+ * to carry it, and a request built elsewhere (a dApp's, or one persisted before
+ * the wallet handled fees) may not. See `ensureCustomProposalFeeAuth`. Retrying
+ * the same row cannot fix it, so the copy does not invite one.
  */
-export const TRANSACTION_FEE_UNPAYABLE_ERROR =
-  'Not enough MIDEN to pay the network fee. Receive some MIDEN and try again';
+export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
+  'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +
+  'the problem — update the wallet if an update is available, and report this if it keeps happening.';
 
 export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and was cancelled';
 
@@ -181,15 +189,17 @@ export const TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR =
  * the committed row rather than the stage alone.
  */
 /**
- * Recognises the two shapes the kernel uses to report an unpayable fee.
+ * The kernel's report that a request carried no fee conversion info.
  *
  * The numeric code is `error_code_from_msg("paying a non-zero fee requires
  * conversion info committed via the auth args")` from miden-standards -- it is a
- * stable hash of that message, so matching it is matching the message.
+ * stable hash of that message, so matching it is matching the message. Note what
+ * the message says: "requires conversion info", not "insufficient balance". Only
+ * reachable when the fee is NON-ZERO, which is why a zero-fee chain never sees it.
  */
 export const ERR_FEE_CONVERSION_INFO_MISSING_CODE = '14712559985122731094';
 
-export function isFeeUnpayableError(raw: string): boolean {
+export function isFeeConversionInfoMissingError(raw: string): boolean {
   return raw.includes(ERR_FEE_CONVERSION_INFO_MISSING_CODE);
 }
 
@@ -264,15 +274,15 @@ function classifyTransactionError(
   if (stage != null && PROVING_STAGES.includes(stage) && /timeout/i.test(raw)) {
     return delegateTransaction ? REMOTE_PROVER_TIMEOUT_ERROR : LOCAL_PROVER_FAILED_ERROR;
   }
-  // A fee failure is deterministic: the account cannot cover its own fee, so the
-  // same transaction will fail identically until the balance changes. Naming it
-  // stops the UI offering a Retry that cannot succeed. Only the hashed
-  // conversion-info code gets this treatment — it is unambiguously about the fee.
-  if (isFeeUnpayableError(raw)) {
-    return TRANSACTION_FEE_UNPAYABLE_ERROR;
+  // Deterministic: the request itself is missing the conversion-info commitment,
+  // so the same bytes will fail identically no matter how the balance moves.
+  // Naming it stops the UI offering a Retry that cannot succeed — and stops it
+  // blaming a balance that is not involved.
+  if (isFeeConversionInfoMissingError(raw)) {
+    return TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR;
   }
-  // Checked AFTER the fee code, since a fee failure is the more specific reading of
-  // an assertion this one deliberately declines to attribute.
+  // Checked AFTER the conversion-info code, since that one is the more specific
+  // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
     return TRANSACTION_VAULT_SHORTFALL_ERROR;
   }

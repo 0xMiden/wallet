@@ -4,7 +4,7 @@ import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
-  TRANSACTION_FEE_UNPAYABLE_ERROR,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
@@ -136,7 +136,7 @@ describe('fee failures', () => {
     // -- talking them out of the resync that actually fixes it.
     const message = resolveTransactionErrorMessage(vaultShortfall);
     expect(message).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
-    expect(message).not.toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+    expect(message).not.toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
   });
 
   it('still replaces that raw assertion with something a user can act on', () => {
@@ -150,9 +150,19 @@ describe('fee failures', () => {
 
   it('names a missing fee conversion info abort rather than its numeric error code', () => {
     // ERR_FEE_CONVERSION_INFO_MISSING surfaces only as a hashed code, which tells
-    // the user nothing and tells support even less. Unlike the assertion above this
-    // one IS unambiguously about the fee, so it keeps the fee-specific message.
+    // the user nothing and tells support even less.
     const err = new Error('assertion failed with error code: 14712559985122731094');
-    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+
+  it('does not blame the balance for a missing conversion-info commitment', () => {
+    // The code says "requires conversion info", not "insufficient funds". The old
+    // copy read "Not enough MIDEN to pay the network fee. Receive some MIDEN and
+    // try again", which on a Guardian custom proposal sent the user to top up an
+    // account that was already funded — the one action that provably cannot help.
+    const err = new Error('assertion failed with error code: 14712559985122731094');
+    const message = resolveTransactionErrorMessage(err);
+    expect(message).not.toMatch(/receive some miden/i);
+    expect(message).not.toMatch(/not enough/i);
   });
 });

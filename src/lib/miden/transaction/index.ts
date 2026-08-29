@@ -52,6 +52,7 @@ import {
 } from './complete';
 import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
+import { ensureCustomProposalFeeAuth } from './guardian-fee-auth';
 import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
@@ -1441,7 +1442,14 @@ const ensureGuardianRecallableSendRequestBytes = async (
   recallBlocks: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
-  if (transaction.requestBytes) return transaction.requestBytes;
+  if (transaction.requestBytes) {
+    // Pre-built at QUEUE time by `createBridgeP2IDENote` / `createEarnP2IDENote`
+    // (or persisted by an earlier lap of this function), so the auth-arg block
+    // below never ran over them. Reusing the bytes verbatim is the whole point —
+    // the P2IDE serial number must not change — but on a fee-charging chain they
+    // are unpayable as they stand, so annotate in place rather than rebuild.
+    return feeAuthedRequestBytes(transaction, transaction.requestBytes);
+  }
   // The chain's fee faucet, committed into the request's auth args below. A Guardian
   // custom proposal carries the auth arg the request was BUILT with -- the client
   // cannot inject one, because on a multisig account that slot belongs to the
@@ -1553,11 +1561,36 @@ const ensureGuardianRecallableSendRequestBytes = async (
       throw new Error('guardian P2IDE build: request.serialize() failed', { cause: err });
     }
   });
+  return persistRequestBytes(transaction, requestBytes);
+};
+
+/**
+ * Record the exact bytes a guardian proposal was built from, in memory and on the
+ * row. The proposal's signed summary is derived from these bytes and
+ * `signAndCreateTransactionRequest` re-deserializes them at execution time, so
+ * the two halves have to read the same array — including after a restart.
+ */
+const persistRequestBytes = async (transaction: ITransaction, requestBytes: Uint8Array): Promise<Uint8Array> => {
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
     t.requestBytes = requestBytes;
   });
   return requestBytes;
+};
+
+/**
+ * Commit fee conversion info into the bytes a Guardian CUSTOM proposal is about
+ * to be built from, persisting them only if they actually changed.
+ *
+ * `ensureCustomProposalFeeAuth` returns the caller's own array when there is
+ * nothing to add — a zero-fee chain, or bytes that already carry an auth arg — so
+ * identity is an exact test for "was this rewritten", and a chain that charges
+ * nothing keeps taking exactly the writes it took before.
+ */
+const feeAuthedRequestBytes = async (transaction: ITransaction, requestBytes: Uint8Array): Promise<Uint8Array> => {
+  const annotated = await ensureCustomProposalFeeAuth(requestBytes);
+  if (annotated === requestBytes) return requestBytes;
+  return persistRequestBytes(transaction, annotated);
 };
 
 /**
@@ -1945,7 +1978,11 @@ const generateGuardianTransaction = async (
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
+        // Built and persisted by `initiateB2AggBridge` at queue time, so it needs
+        // the fee-conversion auth arg attached here — see
+        // `ensureCustomProposalFeeAuth`.
+        const requestBytes = await feeAuthedRequestBytes(transaction, bridgeTx.requestBytes!);
+        proposalResult = await service.createCustomProposal(requestBytes);
       }
       break;
     }
@@ -2054,11 +2091,13 @@ const generateGuardianTransaction = async (
             client.terminate();
           }
         });
-        transaction.requestBytes = requestBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = requestBytes;
-        });
+        await persistRequestBytes(transaction, requestBytes);
       }
+      // `buildPswapCreateRequest` emits a bare own-output-note request, so the
+      // PSWAP bytes reach the proposal without the fee-conversion auth arg a
+      // multisig account has to supply itself. Annotated after the build-or-reuse
+      // branch above so a retry reusing persisted bytes is covered too.
+      await feeAuthedRequestBytes(transaction, transaction.requestBytes!);
       proposalResult = await withGuardianConflictRetry(() =>
         service.createCustomProposal(transaction.requestBytes!, 'swap')
       );
@@ -2082,10 +2121,15 @@ const generateGuardianTransaction = async (
       // hardening: the on-chain `procedureThresholds` map enforces per-procedure
       // thresholds (update_guardian = 2 → needs cold + guardian) during proof
       // verification regardless of which key signed the proposal here.
-      const requestBytes = transaction.requestBytes;
-      if (!requestBytes) {
+      if (!transaction.requestBytes) {
         throw new Error('Request Bytes not available for custom transaction');
       }
+      // dApp-supplied bytes: the page cannot know the chain's fee faucet, let
+      // alone commit conversion info for a multisig it does not own. Annotatable
+      // only when the request is own-output-notes-only; anything richer raises
+      // `CustomProposalFeeAuthError` rather than being silently re-emitted as
+      // something else. See `ensureCustomProposalFeeAuth`.
+      const requestBytes = await feeAuthedRequestBytes(transaction, transaction.requestBytes);
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
