@@ -1441,6 +1441,20 @@ const ensureGuardianRecallableSendRequestBytes = async (
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
   if (transaction.requestBytes) return transaction.requestBytes;
+  // The chain's fee faucet, committed into the request's auth args below. A Guardian
+  // custom proposal carries the auth arg the request was BUILT with -- the client
+  // cannot inject one, because on a multisig account that slot belongs to the
+  // multisig. Without it `fee::pay_fee` aborts with "paying a non-zero fee requires
+  // conversion info committed via the auth args" and the recallable send dies at
+  // `creating-proposal`, while the plain (typed-proposal) send beside it succeeds.
+  //
+  // Read OUTSIDE `withWasmClientLock`, deliberately. On a cache miss this discovers
+  // the faucet by driving its own `RpcClient` through `ensureSdkWasmReady`, and the
+  // Miden WASM module is single-threaded: doing that while holding the client lock
+  // is a re-entrant use of the same module, which traps as a bare `RuntimeError` and
+  // poisons the client. The value is a genesis-level constant, so reading it before
+  // the lock costs nothing and cannot go stale within one build.
+  const feeFaucetId = await getNativeAssetId();
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -1504,16 +1518,6 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
-    // The chain's fee faucet, committed into the request's auth args. A Guardian
-    // custom proposal carries the auth arg the request was BUILT with -- the client
-    // cannot inject one, because on a multisig account that slot belongs to the
-    // multisig. Without it `fee::pay_fee` aborts with "paying a non-zero fee requires
-    // conversion info committed via the auth args" and the recallable send dies at
-    // `creating-proposal`, while the plain (typed-proposal) send beside it succeeds --
-    // which is what made this look like a guardian-server problem rather than a gap
-    // on this one path.
-    const feeFaucetId = await getNativeAssetId();
-    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the fee faucet read');
     return buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),

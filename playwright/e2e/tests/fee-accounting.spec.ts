@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/two-wallets';
 import {
+  listVaultAssets,
   toBaseUnits,
   vaultBalance,
   vaultBalanceByFaucet,
@@ -105,7 +106,8 @@ test.describe('Fee accounting', () => {
       expect(
         nativeBefore,
         `wallet A holds no balance under the native faucet ${nativeFaucetId} — the faucet-keyed lookup ` +
-          'found nothing, so the fee deltas below would compare against a default of 0 and mean nothing'
+          'found nothing, so the fee deltas below would compare against a default of 0 and mean nothing. ' +
+          `Rows the store actually holds: ${JSON.stringify(await listVaultAssets(walletA.page))}`
       ).toBeGreaterThan(0n);
 
       timeline.emit({

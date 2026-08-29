@@ -120,7 +120,26 @@ const PROVING_STAGES: ITransactionStage[] = ['proving', 'sending'];
 
 /** The raw `name: message` string persisted on `ITransaction.rawError`. */
 export function formatRawTransactionError(error: unknown): string {
-  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  if (!(error instanceof Error)) return String(error);
+  // Walk `cause`. Several wrappers in this pipeline say "see the cause chain" in
+  // their own message -- `WasmClientPoisonedError` among them -- while every
+  // consumer printed only the outermost frame, so the sentence pointed at
+  // something nothing rendered. A WASM trap arrives as a bare `RuntimeError`
+  // whose only identifying detail lives one or two links down; without this a
+  // guardian send failure reads as "uncaught realm error" and names neither the
+  // call that trapped nor the reason.
+  const seen = new Set<unknown>();
+  const parts: string[] = [];
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current) && parts.length < 5) {
+    seen.add(current);
+    parts.push(`${current.name}: ${current.message}`);
+    current = (current as { cause?: unknown }).cause;
+  }
+  if (current !== undefined && !(current instanceof Error) && parts.length < 5) {
+    parts.push(String(current));
+  }
+  return parts.join(' <- caused by ');
 }
 
 /**

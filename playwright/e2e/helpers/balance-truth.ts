@@ -417,3 +417,25 @@ export async function vaultBalanceByFaucet(page: Page, faucetId: string): Promis
   // field happened to be present.
   return /^\d+$/.test(raw.amount) ? BigInt(raw.amount) : toBaseUnits(raw.amount, raw.decimals);
 }
+
+/** Every asset row the store holds, for diagnostics when a lookup finds nothing. */
+export async function listVaultAssets(
+  page: Page
+): Promise<Array<{ faucetId: string; symbol: string; amount: string }>> {
+  return page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const state = (window as any).__TEST_STORE__?.getState?.();
+    const out: Array<{ faucetId: string; symbol: string; amount: string }> = [];
+    for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
+      if (!Array.isArray(tokenList)) continue;
+      for (const token of tokenList) {
+        out.push({
+          faucetId: String(token?.faucetId ?? '(none)'),
+          symbol: String(token?.metadata?.symbol ?? '(none)'),
+          amount: String(token?.amountBaseUnits ?? token?.balance ?? '(none)')
+        });
+      }
+    }
+    return out;
+  });
+}
