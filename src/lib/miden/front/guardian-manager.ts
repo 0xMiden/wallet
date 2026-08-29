@@ -6,7 +6,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
@@ -160,24 +160,36 @@ export async function getOrCreateMultisigService(
 
     // Get the Account object from the Miden client. Always labelled; bounded only for the
     // caller that runs on a cadence — see `boundAtSyncCeiling` above (#777).
-    const { sdkAccount } = await withWasmClientLock(
-      async () => {
-        // Use the matched account's stored publicKey (the form the in-wallet path
-        // uses) rather than the possibly-bare dApp-supplied id.
-        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-        return { sdkAccount };
-      },
-      boundAtSyncCeiling
-        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
-        : { label: 'guardian-service-build' }
-    );
+    //
+    // ONE hold for the account read AND the signer read derived from it. An `Account`
+    // handle is a borrow of the client's RefCell rather than a snapshot, so reading its
+    // signer set after this hold released was a call on a client an eviction may already
+    // have handed to a successor — and `getSignerDetailsFromAccount` reaches into account
+    // storage, so it is a genuine WASM call, not a field access. Same shape, and the same
+    // fix, as the two guardian-sync self-heal snapshots. The `MultisigService.init` below
+    // takes a hold of its own, so it stays OUTSIDE this one: the mutex is not reentrant
+    // and nesting would deadlock.
+    // ONE options object for BOTH holds the build takes. `init`'s hold is the longer
+    // of the two — it contains the client build and the guardian `load()` round trip —
+    // so bounding only the read above left this parameter's own stated purpose unmet.
+    const buildLockOptions = boundAtSyncCeiling
+      ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+      : { label: 'guardian-service-build' };
+    const { sdkAccount, commitment } = await withWasmClientLock(async hold => {
+      // Use the matched account's stored publicKey (the form the in-wallet path
+      // uses) rather than the possibly-bare dApp-supplied id.
+      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined };
+      assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
+      // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
+      const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+      return { sdkAccount, commitment };
+    }, buildLockOptions);
 
-    if (!sdkAccount) {
+    if (!sdkAccount || commitment === undefined) {
       throw new Error('Account not found in local storage');
     }
 
-    // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-    const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
     // Bind the service to the hot signer — the popup signs with the hot key.
     console.log('creating guardian service', sdkAccount.id().toString());
     const service = await MultisigService.init(
@@ -185,7 +197,8 @@ export async function getOrCreateMultisigService(
       `0x${hotPublicKey}`,
       `0x${commitment}`,
       provider.signWord,
-      currentEndpoint
+      currentEndpoint,
+      buildLockOptions
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the

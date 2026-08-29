@@ -114,13 +114,24 @@ export class MultisigService {
    *
    * `guardianEndpoint` is resolved per-account by the caller (see
    * `resolveGuardianEndpoint`) so accounts on different operators don't collide.
+   *
+   * `lockOptions` bounds and labels the hold below, and the CADENCE callers have to
+   * pass it. This hold — not the account read that precedes it — is the one that
+   * parks on the #777 path: it contains the client BUILD, which after any eviction
+   * finds an empty singleton slot and sends a fresh genesis fetch to the node that
+   * just refused to answer, and then `load()`, a guardian round trip. Left on the
+   * default backstop it was five minutes of frozen wallet per lap, and an unlabelled
+   * eviction record could not say which flow parked. `getOrCreateMultisigService`'s
+   * `boundAtSyncCeiling` bounded only its own read and handed the longer await here
+   * unbounded, so the parameter did not buy what its docstring claimed.
    */
   static async init(
     account: Account,
     publicKey: string,
     signerCommitment: string,
     signWordFn: SignWordFunction,
-    guardianEndpoint: string
+    guardianEndpoint: string,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
   ): Promise<MultisigService> {
     try {
       const signer = new WalletSigner(publicKey, signerCommitment, signWordFn);
@@ -157,7 +168,7 @@ export class MultisigService {
           midenRpcEndpoint: getEffectiveRpcUrl()
         });
         return { multisig: await multisigClient.load(account.id().toString(), signer), client: multisigClient };
-      });
+      }, lockOptions);
 
       return new MultisigService(multisig, client, guardianEndpoint);
     } catch (error) {
@@ -175,23 +186,47 @@ export class MultisigService {
    *
    * Caller is expected to drop the returned service immediately after use so
    * cold key material doesn't outlive the operation.
+   *
+   * `lockOptions` bounds and labels BOTH holds this takes — the commitment read
+   * here and `init`'s below — and the cadence caller (the guardian sync's cold
+   * re-register self-heal) passes it for the reason spelled out on `init`.
    */
   static async buildColdMultisigService(
     account: Account,
     walletAccount: WalletAccount,
-    signWordFn: SignWordFunction
+    signWordFn: SignWordFunction,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
   ): Promise<MultisigService> {
     if (!walletAccount.coldPublicKey) {
       throw new Error(`Guardian account ${walletAccount.publicKey} is missing coldPublicKey — re-create the wallet`);
     }
-    const { commitment } = await getSignerDetailsFromAccount(account, true);
+    // UNDER A HOLD. `getSignerDetailsFromAccount` walks the account's storage
+    // maps, so it is a WASM call and not a field read — and every one of this
+    // method's five callers hands in an `account` read under a hold that has
+    // already RELEASED, which left this call free to run concurrently with
+    // another flow's client operation: the `recursive use of an object ...
+    // unsafe aliasing` panic the global mutex exists to prevent. Sequential with
+    // `init`'s own hold below, never nested, so the non-reentrant mutex is safe.
+    //
+    // What this does NOT recover is the handle's provenance: `account` is a
+    // borrow of whichever client the caller's earlier hold resolved, so an
+    // eviction in the gap leaves these bytes coming from a replaced client. The
+    // strictly-correct shape is the one the guardian-sync snapshots use — ONE
+    // hold spanning the account read and every read derived from it — but that
+    // requires the commitment to be read at all five call sites and threaded in.
+    // Serializing here is the part that removes the crash.
+    const commitment = await withWasmClientLock(
+      async () => (await getSignerDetailsFromAccount(account, true)).commitment,
+      lockOptions
+    );
     const guardianEndpoint = await resolveGuardianEndpoint(walletAccount);
     return MultisigService.init(
       account,
       `0x${walletAccount.coldPublicKey}`,
       `0x${commitment}`,
       signWordFn,
-      guardianEndpoint
+      guardianEndpoint,
+      lockOptions
     );
   }
 
@@ -731,8 +766,17 @@ export class MultisigService {
    * Called explicitly by those completion handlers, and as the Stage-2 last resort
    * in `runSync` once a lagging guardian fails to canonicalize within the retry
    * window (NOT on the first sign of lag — see `runSync`).
+   *
+   * `onBeforeRegister` fires immediately before the first `/configure` goes out, and
+   * exists so a caller that keeps an attempt budget can tell the two halves of this
+   * method apart. Everything above that point is a local WASM hold containing a
+   * `syncState()` — a network round trip, and the likeliest await in the whole method
+   * to park — so a caller that flipped its "attempted" flag before calling this
+   * charged the operator for a request that was never issued. That is the same
+   * which-side-of-the-POST distinction `attemptColdReRegisterSelfHeal` already makes
+   * for its own eviction bookkeeping; it just could not see this far in.
    */
-  async reRegisterCurrentStateOnGuardian(): Promise<void> {
+  async reRegisterCurrentStateOnGuardian(onBeforeRegister?: () => void): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -771,6 +815,9 @@ export class MultisigService {
     if (freshSignerCommitments.length > 0) {
       this.multisig.signerCommitments = freshSignerCommitments;
     }
+    // The POST is now unavoidable from the caller's point of view: past this line a
+    // `/configure` may land even if the retry loop then throws or is torn down.
+    onBeforeRegister?.();
     await this.registerOnGuardianWithRetry(updatedStateBase64);
   }
 }

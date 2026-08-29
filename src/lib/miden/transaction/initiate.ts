@@ -36,6 +36,7 @@ import {
 import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
@@ -614,7 +615,25 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
  * Ensure a Guardian account carries the `update_guardian` threshold-2 hardening
  * that fresh 3-key accounts have. Migrated legacy accounts lack it; recovered /
  * fresh accounts already have it (so this no-ops). Enqueues a cold-signed
- * `update_procedure_threshold` when missing. Best-effort — never throws.
+ * `update_procedure_threshold` when missing.
+ *
+ * Best-effort with ONE exception: a WASM client eviction is re-thrown. This used
+ * to be a blanket catch, and "never throws" is the wrong contract for a function
+ * whose first act is `getOrCreateMultisigService` — a hold, reached on any
+ * service-cache miss, whose `MultisigService.init` raises
+ * `WasmClientPoisonedError` by design. Swallowed into `undefined`, an eviction
+ * was answered as "the hardening is not worth doing": the guardian sync's own
+ * poison `.catch` on this call was unreachable code, the pass went on to the
+ * next account and took fresh holds while the abandoned call was still inside
+ * WASM, and the lap was booked as a clean guardian success — the fuse falsely
+ * exonerated for the very park it exists to record. An eviction is not a verdict
+ * on the hardening; it is the realm telling every caller to stop taking holds,
+ * and it has to reach them.
+ *
+ * The other side of that contract belongs to the caller: this function is called
+ * PAST the terminal status write on the rotation-completion path, so a caller
+ * whose catch marks the transaction failed must scope its own (see
+ * `completeReplaceHotKeyTransaction`).
  *
  * Idempotent (gated on the on-chain threshold already being 2), so besides the
  * post-rotation call it's also invoked self-healingly from the guardian sync —
@@ -634,12 +653,23 @@ const GUARDIAN_PROCEDURE_HARDENING = { procedure: 'update_guardian', threshold: 
 export const ensureGuardianProcedureThresholds = async (
   accountId: string,
   delegateTransaction: boolean | undefined,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  /**
+   * Bound the service build's hold at the sync ceiling rather than the
+   * five-minute backstop — passed by the cadence caller (the idle loop's
+   * guardian sync) and nobody else, exactly as `getOrCreateMultisigService`
+   * documents for its own parameter. Left unset, a hold reached from the ~3 s
+   * loop armed at the backstop, which is five minutes of frozen wallet per lap
+   * and four laps to light the account's fuse. Narrowly reachable — it needs a
+   * service-cache miss — but that miss is precisely the post-eviction
+   * generation bump the sync ceiling exists for.
+   */
+  boundAtSyncCeiling = false
 ): Promise<string | undefined> => {
   try {
     // Loading the service fetches the on-chain account config, including its
     // procedure thresholds.
-    const service = await getOrCreateMultisigService(accountId, guardianProvider);
+    const service = await getOrCreateMultisigService(accountId, guardianProvider, boundAtSyncCeiling);
     if (
       service.getProcedureThreshold(GUARDIAN_PROCEDURE_HARDENING.procedure) === GUARDIAN_PROCEDURE_HARDENING.threshold
     ) {
@@ -665,6 +695,10 @@ export const ensureGuardianProcedureThresholds = async (
     }
     return txId;
   } catch (e) {
+    // The one error that is not about the hardening. See the contract above:
+    // an eviction abandons a call that is still inside WASM, so it has to reach
+    // the caller rather than be reported as "already hardened".
+    if (isWasmClientPoisonedError(e)) throw e;
     console.warn('[guardian] procedure-threshold hardening skipped (non-fatal):', e);
     return undefined;
   }

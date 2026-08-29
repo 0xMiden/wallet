@@ -500,7 +500,25 @@ export const completeReplaceHotKeyTransaction = async (
     // hardening a freshly-created 3-key account has (update_guardian threshold
     // 2 — which the update_signers rotation above can't carry). Best-effort and
     // idempotent; never affects the rotation's success.
-    await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
+    //
+    // SCOPED, because this call sits PAST the terminal status write above.
+    // `ensureGuardianProcedureThresholds` deliberately re-throws a WASM client
+    // eviction (its blanket catch made the guardian sync's poison handling dead
+    // code), and the enclosing catch here writes `Failed` — so an unscoped
+    // throw would flip a rotation that is already on chain and already recorded
+    // Completed into a failure, on the strength of a local hold being evicted.
+    // That is the "never route poison onto a path that rewrites a row" rule:
+    // this function has nothing left to abandon, so the eviction is logged and
+    // the row stands.
+    try {
+      await ensureGuardianProcedureThresholds(tx.accountId, tx.delegateTransaction, guardianProvider);
+    } catch (hardeningError) {
+      console.warn(
+        `[guardian] procedure-threshold hardening did not run after the hot-key rotation for ${tx.accountId}; ` +
+          `the rotation itself is complete and the guardian sync re-attempts the hardening:`,
+        hardeningError
+      );
+    }
   } catch (error) {
     console.error('Error completing replace-hot-key transaction:', error);
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {

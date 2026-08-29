@@ -688,6 +688,18 @@ export const finalizeDirectGuardianSwitch = async (
         if (!account) {
           throw new GuardianRegistrationPreflightError(`Account ${accountId} is missing from local client`);
         }
+        // AND AGAIN AFTER THE ACCOUNT READ, which is a parking await of its own.
+        // Guarding only the sync above covered the first of the two and left the
+        // whole payload derivation — `AccountInspector.fromAccount`,
+        // `account.serialize()`, the guardian-slot read — running on a handle
+        // borrowed from a client an eviction may already have handed to a
+        // successor. That is the same one-guard-per-hold mistake
+        // `reRegisterCurrentStateOnGuardian` fixed by re-checking after BOTH of
+        // its awaits, and the stakes here are the highest in the change: these
+        // bytes are POSTed to the operator as the account's authoritative state
+        // and its new signer allowlist. Still strictly pre-write, so failing
+        // here costs a refunded attempt and nothing else.
+        assertWasmHoldCurrent(hold, 'guardian register preflight, after the account read');
         const detected = AccountInspector.fromAccount(account);
         return {
           accountIdHex: account.id().toString(),

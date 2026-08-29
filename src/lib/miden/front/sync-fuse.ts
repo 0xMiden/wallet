@@ -27,7 +27,7 @@ export type SyncFuseKey =
   | 'claimable-notes'
   | 'balances'
   | 'note-import'
-  | 'pending-rotation-recheck'
+  | `pending-rotation-recheck:${string}`
   | `guardian-sync:${string}`
   | `guardian-drift:${string}`;
 
@@ -61,8 +61,40 @@ export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: 
  * Carries no endpoint: drift's probe is not addressed to the operator, so there is
  * nothing an endpoint change would invalidate. `clearSyncFuseForEndpointChange` still
  * drops it with everything else, because the NODE it reads against did change.
+ *
+ * PER ACCOUNT even though drift's hold reads the realm's single local client, so the
+ * thing that parks is arguably realm-wide and N accounts now cost N x
+ * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS parks rather than one set. That cost is real and
+ * it is the right trade: a realm-wide key reintroduces the cross-account erasure this
+ * whole ledger was split up to end, because drift runs for EVERY guardian account on
+ * every lap and the pass is sequential — a healthy account's success would zero what a
+ * parked account had accumulated, within the same lap, forever. The failure mode of
+ * "too coarse" is that the fuse never lights at all and the wallet parks and leaks a
+ * client every lap indefinitely; the failure mode of "too fine" is that a key cannot
+ * accumulate enough evidence, and that one does not apply here, since each account's
+ * drift probe runs on every lap. Bounded extra cost beats an unreachable threshold.
  */
 export const guardianDriftFuseKey = (accountPublicKey: string): SyncFuseKey => `guardian-drift:${accountPublicKey}`;
+
+/**
+ * The fuse key for one guardian account's PENDING-ROTATION RECHECK probe.
+ *
+ * Carries the account for the same reason `guardianSyncFuseKey` does, and it was a bare
+ * literal first — which put the defeat-by-ordering one level up from the one that
+ * splitting this ledger fixed. The recheck aggregates its per-row outcomes and books
+ * once, but the function runs PER ACCOUNT, so "once" is once per account: with a healthy
+ * account and a parked one in the same list, the healthy one's `noteSyncSuccess` erased
+ * the parked one's eviction on every lap and the threshold was unreachable. The
+ * aggregation comment claimed to have fixed the cross-account case; only a keyed ledger
+ * can.
+ *
+ * Carries no endpoint, unlike the sync key: this probe reads the NODE about a
+ * transaction hash, never the operator — which is also why it runs ahead of the sync
+ * fuse and the 429 cooldown. `clearSyncFuseForEndpointChange` still drops it, because
+ * the node it reads against is what changed.
+ */
+export const pendingRotationRecheckFuseKey = (accountPublicKey: string): SyncFuseKey =>
+  `pending-rotation-recheck:${accountPublicKey}`;
 
 interface FuseEntry {
   evictions: number;

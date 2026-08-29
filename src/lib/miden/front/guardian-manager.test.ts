@@ -37,9 +37,15 @@ const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ getAccount:
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// A sentinel hold, so `assertWasmHoldCurrent` can be asserted on rather than merely
+// tolerated: the guard's whole job is to run between the account read and every read
+// derived from it, and a mock that dropped the argument could not tell whether it did.
+const TEST_HOLD = { label: 'test-hold' };
+const mockAssertWasmHoldCurrent = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T>(fn: (hold: unknown) => Promise<T>) => fn(TEST_HOLD),
+  assertWasmHoldCurrent: (...args: unknown[]) => mockAssertWasmHoldCurrent(...args)
 }));
 
 const mockMultisigServiceInit = jest.fn();
@@ -104,7 +110,9 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
-        'https://default.guardian.test'
+        'https://default.guardian.test',
+        // As are the build's lock options — `init`'s hold is the one that parks.
+        { label: 'guardian-service-build' }
       );
       // Second call for the same account returns the cached instance without
       // re-initializing the service.
@@ -164,7 +172,12 @@ describe('guardian-manager', () => {
         `0x${HOT_PK}`,
         '0xabc',
         provider.signWord,
-        'https://per-account.guardian'
+        'https://per-account.guardian',
+        // The build's lock options reach `init` too: its hold — the client build plus
+        // the guardian `load()` — is the longer of the two the build takes, so leaving
+        // it unlabelled and on the default backstop was what made `boundAtSyncCeiling`
+        // not do what its docstring said.
+        { label: 'guardian-service-build' }
       );
       // The per-account field short-circuits the global-key lookup.
       expect(mockFetchFromStorage).not.toHaveBeenCalled();

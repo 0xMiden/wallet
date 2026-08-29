@@ -38,6 +38,8 @@ import {
   guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
   isSyncFused,
+  noteSyncWatchdogEviction,
+  pendingRotationRecheckFuseKey,
   syncFuseUntilMs
 } from './sync-fuse';
 
@@ -120,6 +122,9 @@ jest.mock('lib/platform', () => ({
 // Cold-re-register self-heal dependencies. isGuardianAuthRejection is stubbed to
 // treat an error tagged `__authRejection` as a 401 so tests can drive that path.
 const mockReRegister = jest.fn();
+// The pre-POST half of `reRegisterCurrentStateOnGuardian` — see the service mock in
+// the self-heal suite's `beforeEach`.
+const mockPreRegisterHold = jest.fn();
 // The self-heal pulls the guardian's own state before deciding whether to push.
 const mockAdoptGuardianState = jest.fn();
 const mockBuildColdMultisigService = jest.fn();
@@ -334,7 +339,15 @@ describe('syncGuardianAccounts', () => {
     await syncGuardianAccounts(); // second pass — the session guard suppresses a re-check
 
     expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
-    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith('guardian-heal', undefined, zustandProvider);
+    // The trailing `true` is `boundAtSyncCeiling`: this call is reached from the ~3 s
+    // loop, so both holds behind it must arm at the sync ceiling rather than the
+    // five-minute backstop.
+    expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledWith(
+      'guardian-heal',
+      undefined,
+      zustandProvider,
+      true
+    );
   });
 
   it('drives the queued hardening row off-extension, where the SW nudge is a no-op', async () => {
@@ -764,8 +777,21 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     mockClearGuardianServiceFor.mockClear();
     mockAdoptGuardianState.mockClear();
     mockAdoptGuardianState.mockResolvedValue(undefined);
+    mockPreRegisterHold.mockClear();
+    mockPreRegisterHold.mockResolvedValue(undefined);
     mockBuildColdMultisigService.mockResolvedValue({
-      reRegisterCurrentStateOnGuardian: mockReRegister,
+      // Mirrors the real method's two halves. `reRegisterCurrentStateOnGuardian` takes
+      // an entire WASM hold — a `syncState()` and an account read — BEFORE it POSTs,
+      // and only then fires `onBeforeRegister`. A mock that ignored the callback made
+      // the caller's attempted/preflight split untestable in both directions: nothing
+      // could charge the budget, and nothing could evict on the pre-POST side.
+      // `mockPreRegisterHold` is that first half, so a test can reject from it to
+      // stand in for an eviction during the local sync.
+      reRegisterCurrentStateOnGuardian: async (onBeforeRegister?: () => void) => {
+        await mockPreRegisterHold();
+        onBeforeRegister?.();
+        return mockReRegister();
+      },
       adoptGuardianStateOnce: mockAdoptGuardianState
     });
     mockGetAccount.mockResolvedValue({ __sdkAccount: true });
@@ -2772,7 +2798,7 @@ describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => 
       await syncGuardianAccounts();
     }
 
-    expect(isSyncFused('pending-rotation-recheck')).toBe(true);
+    expect(isSyncFused(pendingRotationRecheckFuseKey(first.publicKey))).toBe(true);
   });
 
   // Drift's catch is deliberately swallowing — a drift failure must not break
@@ -2893,5 +2919,366 @@ describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => 
 
       expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
     });
+  });
+});
+
+/**
+ * The invariants a mutation probe showed were NOT under test.
+ *
+ * Seven of this module's eviction and fuse guards were deleted at once — the two
+ * post-await `assertWasmHoldCurrent` calls, drift's success booking, the
+ * evicted-probe suppression on the recheck's success arm, the read arm's
+ * non-eviction split, the exhausted-row preference, and the outer catch's poison
+ * report — and all 606 suites / 10,080 tests still passed. A guard nothing can
+ * fail is documentation, not a guard, so each test here removes exactly one of
+ * those reasons-to-exist and asserts the pass notices.
+ *
+ * The shapes that made them survivable are worth naming, because they are the
+ * traps a future test in this area will fall into as well:
+ *
+ *  - The liveness guards need an eviction DURING a hold, not before it. Nothing
+ *    reassigned `currentWasmHold` from inside a mocked WASM call, so every
+ *    post-await re-check compared a hold against itself and passed.
+ *  - The fuse arms need a REALM-ERROR poison. Every existing eviction test uses
+ *    `'watchdog'`, which trips the first arm of the recheck's three-way booking
+ *    and hides both of the others.
+ */
+describe('syncGuardianAccounts — guards a mutation probe found unexercised', () => {
+  const only = { publicKey: 'mut-pk-1', type: WalletType.Guardian, hotPublicKey: 'hot-1', coldPublicKey: 'cold-1' };
+  const other = { publicKey: 'mut-pk-2', type: WalletType.Guardian, hotPublicKey: 'hot-2', coldPublicKey: 'cold-2' };
+  const authError = { __authRejection: true, message: '401 session expired' };
+
+  beforeEach(() => {
+    __resetGuardianSyncOutageForTest();
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    storeState.accounts = [only, other] as never;
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    storeState.revertGuardianEndpointAfterDiscard.mockReset();
+    mockGetOrCreateMultisigService.mockReset();
+    mockGetOrCreateMultisigService.mockResolvedValue({ sync: jest.fn(async () => undefined) });
+    mockListUnconfirmedSwitchRows.mockReset();
+    mockListUnconfirmedSwitchRows.mockResolvedValue([]);
+    mockResolveUnconfirmedSwitch.mockReset();
+    mockResolveUnconfirmedSwitch.mockResolvedValue({});
+    mockReadDirectSwitchCommitState.mockReset();
+    mockEnsureGuardianProcedureThresholds.mockReset();
+    mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+    mockGetAccount.mockReset();
+    mockGetAccount.mockResolvedValue({ __sdkAccount: true });
+    mockGetSignerDetails.mockReset();
+    mockGetSignerDetails.mockResolvedValue({ commitment: 'aabb' });
+    mockCommitmentFromPublicKeyHex.mockReset();
+    mockCommitmentFromPublicKeyHex.mockResolvedValue('0xAABB');
+    mockPreRegisterHold.mockReset();
+    mockPreRegisterHold.mockResolvedValue(undefined);
+    mockReRegister.mockReset();
+    mockReRegister.mockResolvedValue(undefined);
+    mockAdoptGuardianState.mockReset();
+    mockAdoptGuardianState.mockResolvedValue(undefined);
+    mockBuildColdMultisigService.mockReset();
+    mockBuildColdMultisigService.mockResolvedValue({
+      reRegisterCurrentStateOnGuardian: async (onBeforeRegister?: () => void) => {
+        await mockPreRegisterHold();
+        onBeforeRegister?.();
+        return mockReRegister();
+      },
+      adoptGuardianStateOnce: mockAdoptGuardianState
+    });
+  });
+
+  /**
+   * An eviction that lands INSIDE a hold, between the account read and the reads
+   * derived from it. The mocked `withWasmClientLock` installs a fresh hold object
+   * and hands it to the callback; reassigning `currentWasmHold` from inside a
+   * mocked WASM call is therefore exactly what the watchdog does when it gives
+   * the mutex to a successor — and it is the one thing no existing test did, which
+   * is why both post-await guards were deletable.
+   */
+  const stealTheHoldOnCall = (call: number) => {
+    let seen = 0;
+    mockGetAccount.mockImplementation(async () => {
+      seen += 1;
+      if (seen === call) currentWasmHold = {};
+      return { __sdkAccount: true };
+    });
+  };
+
+  // The cold re-register's snapshot hold. `getSignerDetailsFromAccount` reads the
+  // signer set off the SAME `Account` handle the line above returned, and that
+  // handle is a borrow of the client's RefCell rather than a snapshot — so with
+  // the mutex already handed on, reading it is the double borrow. The guard also
+  // has to be the thing that reports: the inner read swallows its own error, so
+  // without it the double borrow landed as "could not read the hot signer" and
+  // the heal refused quietly.
+  it('stops the cold re-register when the client is evicted after its account read', async () => {
+    storeState.accounts = [only, other] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    // Call 1 is the stale-account read, call 2 the snapshot hold this guard sits in.
+    stealTheHoldOnCall(2);
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD; i += 1) {
+      await syncGuardianAccounts();
+    }
+
+    // Never reached the operator: the guard threw before the signer comparison, so
+    // the heal is an eviction rather than a refusal — and the pass stops, leaving
+    // the second account untouched rather than taking a fresh hold under the
+    // abandoned call.
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(mockBuildColdMultisigService).toHaveBeenCalledTimes(1);
+  });
+
+  // An eviction on the PREFLIGHT side of the `/configure` must refund. The flag
+  // used to be set before the call, so it also covered everything
+  // `reRegisterCurrentStateOnGuardian` does before it POSTs — an entire hold whose
+  // first act is a `syncState()`, the likeliest park on the path. A refund is not a
+  // nicety: this budget is only refilled by a successful sync, which is precisely
+  // what a parked client prevents, and three local failures would otherwise
+  // condemn a healthy operator as unrepairable.
+  it('refunds the self-heal budget when the eviction lands before the /configure', async () => {
+    storeState.accounts = [only] as never;
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    mockPreRegisterHold.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    // The POST never went out, so nothing was charged and nothing is condemned.
+    expect(mockReRegister).not.toHaveBeenCalled();
+    expect(isGuardianUnrepairable(only.publicKey)).toBe(false);
+  });
+
+  // Drift's success is the ONLY thing that clears its fuse. Deleted, a drift probe
+  // that recovered stayed fused for the full window, and since drift is the
+  // repair for a rotation that lost its endpoint write, that is the reconciler
+  // being silenced by its own throttle.
+  it('clears the drift fuse when drift finally succeeds', async () => {
+    storeState.accounts = [only] as never;
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+    expect(isSyncFused(guardianDriftFuseKey(only.publicKey))).toBe(true);
+
+    // A user gesture buys one probe through the fuse; that probe now succeeds.
+    __resetSyncFuseStateForTests();
+    storeState.checkGuardianDrift.mockReset();
+    storeState.checkGuardianDrift.mockResolvedValue(undefined);
+    await syncGuardianAccounts();
+    // Re-park once. With the success booked, the evidence was withdrawn, so one
+    // eviction is nowhere near the threshold. Without it, the count survived and
+    // this single eviction re-lights the fuse.
+    storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused(guardianDriftFuseKey(only.publicKey))).toBe(false);
+  });
+
+  /**
+   * The recheck's three-way booking, driven by a REALM-ERROR poison.
+   *
+   * Both surviving mutants here needed the same key: a poison whose reason is not
+   * `'watchdog'`. `isSyncWatchdogEviction` is false for a realm error — its client
+   * is replaced in milliseconds, so it is no evidence that the node parked us — so
+   * the first arm does not fire, and only then do the other two matter.
+   */
+  describe('the recheck booking under a realm-error eviction', () => {
+    const discardedRow = {
+      id: 'row-a',
+      transactionId: '0xa',
+      extraInputs: { newGuardianEndpoint: 'https://new.test', previousGuardianEndpoint: 'https://old.test' }
+    };
+
+    beforeEach(() => {
+      storeState.accounts = [only] as never;
+      mockListUnconfirmedSwitchRows.mockResolvedValue([discardedRow]);
+      // The node read SUCCEEDS — so `probeSucceeded` is set — and the ROLLBACK,
+      // which takes a hold of its own, is what evicts.
+      mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+      storeState.revertGuardianEndpointAfterDiscard.mockRejectedValue(new WasmClientPoisonedError('realm-error'));
+    });
+
+    /**
+     * The fuse has to be LIT BUT LAPSED, not merely lit.
+     *
+     * The recheck's first act is `if (isSyncFused(key)) return` — so a freshly
+     * armed fuse makes the whole probe a no-op and every assertion below passes
+     * without the code under test ever running. Letting the window elapse is what
+     * puts the probe on the allowed lap: `isSyncFused` is false, so it runs, while
+     * `fusedUntilMs` is still non-null, so a re-arm is observable as a deadline
+     * strictly later than the old one.
+     */
+    const armLapsedFuse = (clock: { advance: (ms: number) => void }) => {
+      const key = pendingRotationRecheckFuseKey(only.publicKey);
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) noteSyncWatchdogEviction(key);
+      const armedAt = Number(syncFuseUntilMs(key));
+      clock.advance(FUSED_SYNC_PROBE_INTERVAL_MS + 1);
+      expect(isSyncFused(key)).toBe(false);
+      return { key, armedAt };
+    };
+
+    // A probe that evicted did not succeed, whatever any single row managed. With
+    // the suppression gone, the success arm fires on `probeSucceeded` alone and
+    // WITHDRAWS the accumulated evidence — `syncFuseUntilMs` goes null — which is
+    // the one outcome no failing probe may produce.
+    it('does not book a success for a probe that evicted', async () => {
+      const clock = useFakeClocks(3_000_000);
+      const { key } = armLapsedFuse(clock);
+
+      await syncGuardianAccounts();
+
+      expect(syncFuseUntilMs(key)).not.toBeNull();
+      clock.restore();
+    });
+
+    // And it books the NON-eviction failure instead, which is what re-arms the
+    // deadline. Reported by neither arm, the aggregation fell through all three and
+    // booked nothing at all — so "one probe per 30 min until one SUCCEEDS" stopped
+    // holding for the one probe that had just failed.
+    it('re-arms a lapsed fuse on the realm-error poison rather than booking nothing', async () => {
+      const clock = useFakeClocks(3_000_000);
+      const { key, armedAt } = armLapsedFuse(clock);
+
+      await syncGuardianAccounts();
+
+      // A strictly LATER deadline is the observable difference between "re-armed"
+      // and "left alone". Booking nothing at all — the state the missing arm left
+      // this in — leaves the lapsed deadline in place, so the next lap probes again
+      // immediately.
+      expect(Number(syncFuseUntilMs(key))).toBeGreaterThan(armedAt);
+      expect(isSyncFused(key)).toBe(true);
+      clock.restore();
+    });
+  });
+
+  // The recheck's OUTERMOST catch. Everything inside it runs before any of the two
+  // inner trys exist — the dynamic import and the row list — and a poison there
+  // has to reach the caller for the same reason the inner breaks do.
+  it('stops the pass when the recheck fails out of its outer catch with poison', async () => {
+    mockListUnconfirmedSwitchRows.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await syncGuardianAccounts();
+
+    // Reported as an eviction, so the account loop breaks before drift's hold.
+    // Reported as `false`, drift ran and took a fresh hold under the abandoned call.
+    expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+    expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The hardening self-heal's eviction, which reached NONE of this.
+   *
+   * `ensureGuardianProcedureThresholds` ended in a blanket catch returning
+   * `undefined`, so it never rejected: the poison `.catch` on the call was dead
+   * code, the pass carried on to the next account taking fresh holds, and — worst
+   * — the guardian success had already been booked before the hardening ran, so a
+   * lap that demonstrably evicted was recorded as a clean probe and the fuse stood
+   * exonerated for the very park it exists to record.
+   */
+  describe('when the hardening self-heal is evicted', () => {
+    beforeEach(() => {
+      storeState.accounts = [only, other] as never;
+      mockEnsureGuardianProcedureThresholds.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    });
+
+    it('stops the pass instead of syncing the next account', async () => {
+      await syncGuardianAccounts();
+
+      expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    it('books the eviction rather than a success on the account fuse', async () => {
+      storeState.accounts = [only] as never;
+      const key = guardianSyncFuseKey(only.publicKey, 'https://guardian.test');
+
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+
+      // The round trip itself succeeded every lap, so with the success booked
+      // before the hardening the count was zeroed as fast as it accumulated and
+      // this key could never light.
+      expect(isSyncFused(key)).toBe(true);
+    });
+
+    it('withdraws the once-per-session mark so a later tick retries the hardening', async () => {
+      storeState.accounts = [only] as never;
+
+      await syncGuardianAccounts();
+      mockEnsureGuardianProcedureThresholds.mockReset();
+      mockEnsureGuardianProcedureThresholds.mockResolvedValue(undefined);
+      await syncGuardianAccounts();
+
+      // An eviction never reached a verdict, so leaving the mark would strand a
+      // migrated account at threshold-1 for the rest of the session — the exact
+      // state this self-heal exists to repair.
+      expect(mockEnsureGuardianProcedureThresholds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // The recheck fuse key carries the ACCOUNT for the same reason the guardian and
+  // drift keys do. As a bare literal it aggregated per call and this function is
+  // called per account, so a healthy account's success erased what a parked
+  // account had accumulated, on every lap — the threshold unreachable, exactly the
+  // defeat-by-ordering that splitting this ledger was written to end.
+  it('keeps one account s recheck evidence out of another s reach', async () => {
+    storeState.accounts = [only, other] as never;
+    mockListUnconfirmedSwitchRows.mockImplementation(async (pk: unknown) =>
+      pk === only.publicKey ? [{ id: 'row-a', transactionId: '0xa' }] : []
+    );
+    // The parked account's node read evicts; the healthy account has no rows at
+    // all, which is the shape that books a success on a shared key.
+    mockReadDirectSwitchCommitState.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+      __resetGuardianSyncOutageForTest();
+      await syncGuardianAccounts();
+    }
+
+    expect(isSyncFused(pendingRotationRecheckFuseKey(only.publicKey))).toBe(true);
+    expect(isSyncFused(pendingRotationRecheckFuseKey(other.publicKey))).toBe(false);
+  });
+
+  // A retired pass must not settle rows. The recheck was the one arm with no
+  // generation check at all, and it writes more durable state than any other: it
+  // demotes transaction rows, rolls the account's guardian endpoint back, and
+  // spends per-row budgets.
+  it('stops settling rows once the pass is retired', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-a', transactionId: '0xa' },
+      { id: 'row-b', transactionId: '0xb' }
+    ]);
+    mockReadDirectSwitchCommitState.mockImplementation(async () => {
+      // A reset landing mid-loop, which is what an endpoint change or a lock
+      // recovery does to a pass already in flight — it bumps the generation.
+      __resetGuardianSyncOutageForTest();
+      return 'committed';
+    });
+
+    await syncGuardianAccounts();
+
+    // Row one's write is the one already in hand; row two must not be settled by a
+    // pass whose state has been cleared out from under it.
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
   });
 });
