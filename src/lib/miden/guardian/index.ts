@@ -529,23 +529,9 @@ export class MultisigService {
     // when the proposal posts. It reproduced in roughly half of isolated runs of
     // `guardian-recovery-stress` "rotation register fault retries", where an injected
     // /configure fault delays the registration into the rotation's path.
-    const settled = await this.waitForGuardianDeltaToSettle();
-    // Re-read the account if we actually waited. `account` was snapshotted by the caller
-    // BEFORE the wait, and the delta we waited on canonicalizing is precisely what advances
-    // the account commitment — so proposing against the passed-in snapshot submits with a
-    // stale `initial account commitment` and the node rejects it ("does not match the
-    // current commitment"). Trading a 409 for a commitment mismatch is not a fix.
-    let current = account;
-    if (settled.waited) {
-      await withWasmClientLock(async hold => {
-        await midenClientProxy.syncState();
-        assertWasmHoldCurrent(hold, 'replace-hot-key: after the post-settle sync');
-        const refreshed = await midenClientProxy.getAccount(this.accountId);
-        if (refreshed) current = refreshed;
-      });
-    }
+    await this.waitForGuardianDeltaToSettle();
     const newHot = await secureHotKey.generateHotKey();
-    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(current, true);
+    const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
     const targetSignerCommitments = [ensure0x(newHot.commitmentHex), ensure0x(coldCommitRaw)];
     const targetThreshold = this.multisig.threshold;
@@ -686,10 +672,9 @@ export class MultisigService {
    * the existing terminal failure, which the rotation gate's Retry escapes, rather than a
    * hang behind a blocking overlay.
    */
-  private async waitForGuardianDeltaToSettle(budgetMs = 30_000): Promise<{ waited: boolean }> {
+  private async waitForGuardianDeltaToSettle(budgetMs = 30_000): Promise<void> {
     const settled = (status: unknown): boolean => status !== 'pending' && status !== 'candidate';
     const deadline = Date.now() + budgetMs;
-    let waited = false;
     while (Date.now() < deadline) {
       let inFlight: number;
       try {
@@ -697,14 +682,12 @@ export class MultisigService {
         inFlight = deltas.filter(d => !settled(d.status?.status)).length;
       } catch (error) {
         console.warn('[Guardian] could not read pending deltas before rotation; proceeding', error);
-        return { waited };
+        return;
       }
-      if (inFlight === 0) return { waited };
-      waited = true;
+      if (inFlight === 0) return;
       await delay(1_000);
     }
     console.warn('[Guardian] a delta was still in flight after the settle budget; proposing anyway');
-    return { waited: true };
   }
 
   private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
