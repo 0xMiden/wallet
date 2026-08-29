@@ -36,7 +36,12 @@ export const getUncompletedTransactions = async (address: string, tokenId?: stri
 
 const getTransactionsInStatuses = async (statuses: ITransactionStatus[], accountId: string, tokenId?: string) => {
   let txs = await Repo.transactions.filter(rec => statuses.includes(rec.status)).toArray();
-  txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  // Same tie-break as the processing loop's picker, for the same reason and so the two
+  // agree: `initiatedAt` is whole seconds, so rows queued in the same second tie and a
+  // stable sort falls back to Dexie's primary-key order over random `uuid()`s. Without
+  // this, the queue a caller reads here could be ordered differently from the order the
+  // loop will actually process.
+  txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0));
   txs = txs.filter(tx => compareAccountIds(tx.accountId, accountId));
   if (tokenId) {
     txs = txs.filter(tx => matchesTokenId(tx, tokenId));

@@ -9,7 +9,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
-import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
+import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { deriveRequestAmount, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
@@ -127,9 +127,24 @@ const SwapManager: React.FC = () => {
         ?.balance ?? 0,
     [balanceData, offerBalanceKey, offerToken.faucetId]
   );
+  // What the user may actually offer. Same rule as the send flow: the fee is withdrawn
+  // from this account's own vault, so the full NATIVE balance is not offerable -- a swap
+  // of everything is accepted here and then fails in the epilogue on its own fee, after
+  // the user has already signed. Blocking the no-fee-asset case below is not enough: it
+  // only catches a balance of zero, not a balance entirely committed to the offer.
+  // Non-native offers are unaffected (their fee comes out of a different asset), and
+  // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
+  // the pre-discovery window both keep the full balance.
+  const offerSpendable = useMemo(
+    () =>
+      nativeFaucetId !== null && offerBalanceKey === nativeFaucetId
+        ? maxSendableNative(offerBalance, verificationBaseFee, offerToken.decimals)
+        : offerBalance,
+    [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
+  );
   const offerAmountValue = Number(offerAmount);
   const hasOfferAmount = offerAmountValue > 0;
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error);
   const expirySecondsValue = Number(expirySeconds);
   const validExpiry = Number.isInteger(expirySecondsValue) && expirySecondsValue > 0;
@@ -293,7 +308,9 @@ const SwapManager: React.FC = () => {
             <SwapAmounts
               feeAssetMissing={feeAssetMissing}
               offerToken={offerToken}
-              offerBalance={offerBalance}
+              // The SPENDABLE balance, so the quoted "Available" is the number the
+              // validation actually enforces and Max cannot overshoot it.
+              offerBalance={offerSpendable}
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
@@ -332,7 +349,7 @@ const SwapManager: React.FC = () => {
     },
     [
       offerToken,
-      offerBalance,
+      offerSpendable,
       offerAmount,
       requestToken,
       requestAmount,
