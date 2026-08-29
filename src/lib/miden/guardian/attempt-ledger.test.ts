@@ -103,6 +103,13 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
   it('a late refund from a concurrent handle cannot reopen a closed budget', () => {
     const { ledger, tick } = make();
     const first = ledger.begin(SUBJECT);
+    // The charge is what makes this test able to fail. A refund takes back
+    // exactly the charge ITS OWN handle booked, so an uncharged `first` refunds
+    // nothing and the assertions below hold under a counter-only closure too —
+    // the very implementation the flag replaced. Booking the charge is what
+    // gives the late refund something to decrement, and a count-based `closed`
+    // then falls back under the cap exactly as it did in production.
+    first.chargeEarly();
     tick(60_000);
     const second = ledger.begin(SUBJECT);
 

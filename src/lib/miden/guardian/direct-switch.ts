@@ -656,7 +656,13 @@ const asPreflight = async <T>(operation: () => Promise<T>): Promise<T> => {
 export const finalizeDirectGuardianSwitch = async (
   accountId: string,
   newGuardianEndpoint: string,
-  guardianProvider: GuardianAccountProvider
+  guardianProvider: GuardianAccountProvider,
+  // Same shape, and the same reason, as `readDirectSwitchCommitState` above: the
+  // preflight hold is bounded and labeled by the TIMER-DRIVEN caller, while the
+  // completion path keeps the default ceiling. Both callers reach the same hold,
+  // but only one of them re-enters it every three seconds for as long as the
+  // operator stays unreachable, which is what the sync ceiling is calibrated for.
+  lockOptions?: Parameters<typeof withWasmClientLock>[1]
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -695,7 +701,7 @@ export const finalizeDirectGuardianSwitch = async (
           // feeds is about those bytes.
           guardianCommitment: getGuardianCommitmentFromAccount(account)
         };
-      })
+      }, lockOptions)
     );
 
   // `AccountInspector.fromAccount` swallows per-slot read failures, so a set

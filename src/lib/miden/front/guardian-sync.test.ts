@@ -33,7 +33,13 @@ import {
   syncGuardianAccounts,
   zustandProvider
 } from './guardian-sync';
-import { guardianSyncFuseKey, __resetSyncFuseStateForTests, isSyncFused, syncFuseUntilMs } from './sync-fuse';
+import {
+  guardianDriftFuseKey,
+  guardianSyncFuseKey,
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  syncFuseUntilMs
+} from './sync-fuse';
 
 const storeState: {
   accounts: Array<{
@@ -1125,6 +1131,72 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     clock.restore();
   });
 
+  /**
+   * WHICH SIDE OF THE POST an eviction lands on decides how it is booked, and
+   * the two answers are opposite.
+   *
+   * Before the `/configure`, nothing was prepared and nothing can land, so
+   * charging is the same mistake as charging a local read failure: the budget
+   * is only reset by a successful sync, which the stale allowlist is what
+   * prevents. After it, the call is ABANDONED rather than cancelled — the POST
+   * may still arrive — so a refund would let the next tick prepare a second one.
+   */
+  it('refunds an eviction that landed before the /configure', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    // The stale-account read is the first hold the self-heal takes, well ahead
+    // of any operator traffic.
+    mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    storeState.accounts = [
+      { publicKey: 'acct-preflight-evict', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = 7_000_000;
+    const clock = useFakeClocks(start);
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS; i++) {
+      clock.set(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+    expect(mockReRegister).not.toHaveBeenCalled();
+    // Nothing about the OPERATOR was established, so the account must not be
+    // presented as beyond automatic repair.
+    expect(isGuardianUnrepairable('acct-preflight-evict')).toBe(false);
+
+    // The client recovers: the repair is still available, budget unspent.
+    mockGetAccount.mockResolvedValue({ __sdkAccount: true });
+    clock.set(start + 100 * (SELF_HEAL_COOLDOWN_MS + 1_000));
+    await syncGuardianAccounts();
+    expect(mockReRegister).toHaveBeenCalledTimes(1);
+    clock.restore();
+  });
+
+  it('charges an eviction that landed after the /configure was sent', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({
+      sync: jest.fn(async () => {
+        throw authError;
+      })
+    });
+    mockReRegister.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    storeState.accounts = [
+      { publicKey: 'acct-post-evict', type: WalletType.Guardian, hotPublicKey: 'hot', coldPublicKey: 'cold' }
+    ] as never;
+
+    const start = 7_500_000;
+    const clock = useFakeClocks(start);
+    for (let i = 0; i < SELF_HEAL_AUTH_FAILURE_THRESHOLD + SELF_HEAL_MAX_ATTEMPTS + 2; i++) {
+      clock.set(start + i * (SELF_HEAL_COOLDOWN_MS + 1_000));
+      await syncGuardianAccounts();
+    }
+
+    // Bounded: the abandoned POST may have landed, so the budget is spent
+    // rather than re-prepared on every tick.
+    expect(mockReRegister).toHaveBeenCalledTimes(SELF_HEAL_MAX_ATTEMPTS);
+    clock.restore();
+  });
+
   // The opposite booking for the opposite outcome: being rotated out is a
   // permanent answer, so it closes the budget instead of re-asking the guardian
   // for its state once a cooldown forever.
@@ -1770,6 +1842,14 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     for (let i = 0; i < MISSING_REGISTRATION_PERSISTENCE_THRESHOLD; i++) await syncGuardianAccounts();
   };
 
+  // The preflight hold inside `finalizeDirectGuardianSwitch` is reached from the
+  // 3 s loop, so it takes the sync ceiling and a label rather than the five-minute
+  // backstop reserved for writes a user is waiting on. Asserted alongside the
+  // other arguments because the same function is ALSO called from the completion
+  // path, which correctly passes nothing — the options are what distinguish the
+  // timer-driven caller.
+  const PREFLIGHT_LOCK_OPTIONS = { watchdogMs: 120_000, label: 'guardian-missing-registration' };
+
   beforeEach(() => {
     jest.clearAllMocks();
     __resetGuardianSyncOutageForTest();
@@ -1805,7 +1885,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
 
       await syncGuardianAccounts();
-      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+      expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+        'unregistered-pk',
+        endpoint,
+        zustandProvider,
+        PREFLIGHT_LOCK_OPTIONS
+      );
       // The cached service was built against an operator that had no state; drop it
       // so the next tick builds one against the now-registered account.
       expect(mockClearGuardianServiceFor).toHaveBeenCalledWith('unregistered-pk');
@@ -1845,7 +1930,12 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
 
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
     // Against the operator that answered, not `undefined`.
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(account.publicKey, endpoint, expect.anything());
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+      account.publicKey,
+      endpoint,
+      expect.anything(),
+      PREFLIGHT_LOCK_OPTIONS
+    );
   });
 
   // An unreadable pointer gets the SAME refusal as no pointer at all. This call
@@ -1950,9 +2040,73 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     // doubled one, and the attempt is still available.
     clock.set(1_000_000 + MISSING_REGISTRATION_BACKOFF_MS);
     await syncGuardianAccounts();
-    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith('unregistered-pk', endpoint, zustandProvider);
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
+      'unregistered-pk',
+      endpoint,
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS
+    );
 
     clock.restore();
+  });
+
+  /**
+   * The snapshot hold is the one whose eviction the caller most needs to hear
+   * about, and it had no way to say so: it sits outside the only `try` in the
+   * function (which wraps the `/configure`), so poison threw straight out —
+   * past the `Promise<boolean>` = "evicted" contract, and out of the account
+   * loop's own `catch`, because a throw raised inside a `catch` is not caught by
+   * its own `try`. The pass stopped by accident, the promise it rejected was
+   * discarded by both callers, and the eviction was never booked.
+   */
+  describe('when the snapshot hold is evicted', () => {
+    const secondAccount = { publicKey: 'other-pk', type: WalletType.Guardian, hotPublicKey: 'hot2' };
+
+    beforeEach(() => {
+      __resetSyncFuseStateForTests();
+      storeState.accounts = [account, secondAccount] as never;
+      mockGetAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    });
+
+    it('stops the pass instead of rejecting a promise nobody reads', async () => {
+      // Two accounts and a persistent verdict on the first, so the loop would
+      // otherwise carry on and take fresh holds on a client the mutex has
+      // already handed to a successor.
+      mockGetOrCreateMultisigService.mockClear();
+      await runUntilPersistent();
+
+      // Both accounts on every pass that did not reach the self-heal, and then
+      // only the FIRST on the pass that did — the eviction breaks the loop
+      // before the second account's round trip.
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(
+        (MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1) * 2 + 1
+      );
+      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalledWith(
+        expect.objectContaining({ publicKey: secondAccount.publicKey }),
+        expect.anything()
+      );
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
+
+    it('books the eviction, which the loop-breaking caller cannot do for it', async () => {
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; pass += 1) {
+        await runUntilPersistent();
+      }
+
+      expect(isSyncFused(guardianSyncFuseKey(account.publicKey, endpoint))).toBe(true);
+    });
+
+    // A read that merely FAILED is not an eviction: the client is fine, so the
+    // pass carries on and the account is simply not repaired this tick.
+    it('lets the pass continue when the read fails ordinarily', async () => {
+      mockGetAccount.mockRejectedValue(new Error('storage read failed'));
+      mockGetOrCreateMultisigService.mockClear();
+
+      await runUntilPersistent();
+
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(MISSING_REGISTRATION_PERSISTENCE_THRESHOLD * 2);
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
+    });
   });
 
   // The state this device would POST becomes the operator's authoritative copy of
@@ -2149,7 +2303,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       2,
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS
     );
     clock.restore();
   });
@@ -2181,7 +2336,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledWith(
       'unregistered-pk',
       'https://second.guardian.test',
-      zustandProvider
+      zustandProvider,
+      PREFLIGHT_LOCK_OPTIONS
     );
     clock.restore();
   });
@@ -2532,6 +2688,10 @@ describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => 
 
   beforeEach(() => {
     __resetGuardianSyncOutageForTest();
+    // The fuse ledger is realm-scoped and these tests deliberately park it, so
+    // without this each test inherits the previous one's evidence — and a test
+    // asserting that a key is NOT lit then reads a sibling's park as its own.
+    __resetSyncFuseStateForTests();
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     storeState.accounts = [first, second] as never;
     storeState.checkGuardianDrift.mockReset();
@@ -2660,12 +2820,70 @@ describe('syncGuardianAccounts — a WASM eviction stops the whole pass', () => 
       }
     };
 
-    it('when drift evicts', async () => {
+    // Drift books against a key OF ITS OWN, not the account's guardian key, and
+    // the split is what keeps the account reachable. Drift talks to the NODE
+    // while the guardian round trip talks to the OPERATOR, so a parked node and
+    // a parked operator are two independent facts — and shared, the one that
+    // succeeds withdraws the other's evidence within the same lap.
+    it('when drift evicts, against the drift key', async () => {
       await parkUntilFused(() =>
         storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
       );
 
+      expect(isSyncFused(guardianDriftFuseKey(first.publicKey))).toBe(true);
+    });
+
+    // The starvation this key exists to end: drift ran UNCONDITIONALLY and broke
+    // the account loop on eviction, so with drift parked, every account after the
+    // first never synced again for the life of the realm — a permanent outage
+    // produced by the eviction handling rather than by the operator.
+    it('lets the rest of the pass run once drift itself is fused', async () => {
+      await parkUntilFused(() =>
+        storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+      storeState.checkGuardianDrift.mockClear();
+      mockGetOrCreateMultisigService.mockClear();
+
+      await syncGuardianAccounts();
+
+      // Drift is SKIPPED rather than retried-and-evicted, so nothing breaks the
+      // loop and the operator is reached again. Without the fuse this account
+      // re-parked the client every three seconds and never got past drift.
+      expect(storeState.checkGuardianDrift).not.toHaveBeenCalled();
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
+    });
+
+    // The starvation this key exists to end, stated as the property that matters:
+    // an account BEHIND a permanently-evicting drift is eventually reached. Drift
+    // ran unconditionally and broke the loop, so account two never synced again
+    // for the life of the realm — an outage produced by the eviction handling
+    // rather than by any operator. The keys are per account, so the recovery is
+    // sequential (each account's drift accumulates its own evidence), which is
+    // the same rule that keeps a healthy sibling from erasing a parked one's.
+    it('eventually reaches an account queued behind a permanently-evicting drift', async () => {
+      storeState.accounts = [first, second] as never;
+      storeState.checkGuardianDrift.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      for (let pass = 0; pass < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2; pass += 1) {
+        __resetGuardianSyncOutageForTest();
+        await syncGuardianAccounts();
+      }
+      mockGetOrCreateMultisigService.mockClear();
+      await syncGuardianAccounts();
+
+      expect(isSyncFused(guardianDriftFuseKey(second.publicKey))).toBe(true);
+      expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(2);
+    });
+
+    // The guardian round trip still books against the ACCOUNT key, so a healthy
+    // node with a parked operator fuses the account without touching drift.
+    it('keeps the two keys independent', async () => {
+      await parkUntilFused(() =>
+        mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'))
+      );
+
       expect(isSyncFused(fuseKeyFor(first.publicKey))).toBe(true);
+      expect(isSyncFused(guardianDriftFuseKey(first.publicKey))).toBe(false);
     });
 
     it('when the guardian round trip evicts', async () => {

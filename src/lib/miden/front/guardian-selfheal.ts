@@ -51,21 +51,36 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             more; no later tick can change that, so stop asking.
  *  - `refused-transiently`  — could not tell (unreadable account/commitment); no
  *                             guardian traffic happened, so retry later for free.
- *  - `evicted`              — the WASM client was evicted under the attempt. A
- *                             SEPARATE outcome rather than one of the three above,
- *                             because it is the only one that is not a statement
- *                             about the OPERATOR at all, and the caller has to do
- *                             two things no other outcome asks for: stop the pass
- *                             (the abandoned call still holds a borrow of a client
- *                             the mutex has already handed on) and book the
- *                             eviction against the realm's sync fuse. Folded into
- *                             `attempted` it charged a LOCAL failure to the
- *                             operator's budget and, three deep, accused a healthy
- *                             guardian of "rejecting this device"; folded into
- *                             `refused-transiently` it refunded a `/configure`
- *                             that an abandoned-not-cancelled call may still land.
+ *  - `evicted`              — the WASM client was evicted AFTER `/configure` was
+ *                             issued. A SEPARATE outcome rather than one of the
+ *                             three above, because it is the only one that is not a
+ *                             statement about the OPERATOR at all, and the caller
+ *                             has to stop the pass: the abandoned call still holds
+ *                             a borrow of a client the mutex has already handed on.
+ *                             Folded into `attempted` it also reached the
+ *                             "the operator keeps rejecting this device" marking
+ *                             with a purely local failure.
+ *  - `evicted-preflight`    — the WASM client was evicted BEFORE `/configure` was
+ *                             issued. Split from `evicted` because the two settle
+ *                             the budget in opposite directions and the difference
+ *                             is the whole reason the budget exists. An eviction
+ *                             past the issue point must CHARGE — abandoned is not
+ *                             cancelled, so the POST may still land and a refund
+ *                             would let the next tick prepare a second one. An
+ *                             eviction before it prepared nothing, so charging it
+ *                             is the "three local read failures disable the repair
+ *                             for good" mistake `refused-transiently` exists to
+ *                             avoid — and worse, since the caller stops the pass on
+ *                             an eviction it never reaches the check that raises the
+ *                             prompt, leaving a spent budget with nothing on screen.
+ *                             Both stop the pass; only this one refunds.
  */
-export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently' | 'evicted';
+export type SelfHealOutcome =
+  | 'attempted'
+  | 'refused-permanently'
+  | 'refused-transiently'
+  | 'evicted'
+  | 'evicted-preflight';
 
 // The BOUNDED RETRY and COOLDOWN halves of the decision live in the shared
 // `guardian/attempt-ledger.ts` (the sync module's `selfHealLedger`); the

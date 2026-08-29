@@ -48,7 +48,48 @@ const ROOT = path.resolve(__dirname, '../../../..');
  */
 const KEYED_CONSTRUCTORS = new Set(['Map', 'Set', 'WeakMap', 'WeakSet']);
 
-const isKeyedStore = (declaration: ts.VariableDeclaration): boolean => {
+/**
+ * Names whose PROPERTIES this module writes — `x.n = 1`, `x.n += 1`, `x.n++`,
+ * `delete x.n`, `Object.assign(x, …)`.
+ *
+ * This is what tells a single-subject budget from configuration, and nothing
+ * else can: `{ attempts: 0, nextAt: 0 }` and `{ maxAttempts: 3, backoffMs:
+ * 60_000 }` are the same syntax. The difference is that a budget is WRITTEN —
+ * that is the whole of what makes it state — and a config is read-only for the
+ * life of the module. Matching the shape alone flagged every config object in
+ * the tree, which is the failure mode the expected lists exist to avoid.
+ */
+const mutatedPropertyOwners = (source: ts.SourceFile): Set<string> => {
+  const owners = new Set<string>();
+  const ownerOf = (node: ts.Node): void => {
+    if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return;
+    if (ts.isIdentifier(node.expression)) owners.add(node.expression.text);
+  };
+  // `=` and every compound form. `ts.isAssignmentOperator` is internal, so the
+  // range is spelled out: the assignment operators are contiguous in the enum,
+  // from `=` through `??=`.
+  const isAssignment = (kind: ts.SyntaxKind): boolean =>
+    kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && isAssignment(node.operatorToken.kind)) ownerOf(node.left);
+    else if (ts.isPostfixUnaryExpression(node)) ownerOf(node.operand);
+    else if (
+      ts.isPrefixUnaryExpression(node) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      ownerOf(node.operand);
+    } else if (ts.isDeleteExpression(node)) ownerOf(node.expression);
+    else if (ts.isCallExpression(node) && node.expression.getText().endsWith('Object.assign')) {
+      const target = node.arguments[0];
+      if (target !== undefined && ts.isIdentifier(target)) owners.add(target.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return owners;
+};
+
+const isKeyedStore = (declaration: ts.VariableDeclaration, mutated: Set<string>): boolean => {
   const init = declaration.initializer;
   if (!init) return false;
   if (ts.isNewExpression(init)) {
@@ -67,12 +108,22 @@ const isKeyedStore = (declaration: ts.VariableDeclaration): boolean => {
     // new Map() }` is the textbook hand-rolled budget, and reading only the
     // outer initializer waved it through. Grouping the maps in an object is the
     // most natural way to write one, not an evasion.
-    return init.properties.some(
-      property =>
-        ts.isPropertyAssignment(property) &&
+    return init.properties.some(property => {
+      if (!ts.isPropertyAssignment(property)) return false;
+      if (
         ts.isNewExpression(property.initializer) &&
         KEYED_CONSTRUCTORS.has(property.initializer.expression.getText().split('.').pop() ?? '')
-    );
+      ) {
+        return true;
+      }
+      // A WRITTEN numeric property is the single-subject budget: `const budget =
+      // { attempts: 0, nextAt: 0 }` is the same ledger as the two-Map form for a
+      // repair that handles one thing at a time — and several of these repairs
+      // are keyed by nothing at all. Only the wrapping literal was inspected for
+      // Maps, so this walked through while its keyed sibling was caught. The
+      // write is what separates it from configuration, which is the same syntax.
+      return ts.isNumericLiteral(property.initializer) && mutated.has(declaration.name.getText());
+    });
   }
   return false;
 };
@@ -101,10 +152,11 @@ const moduleStateNames = (relPath: string): string[] => {
   const full = path.join(ROOT, relPath);
   const source = ts.createSourceFile(full, fs.readFileSync(full, 'utf8'), ts.ScriptTarget.Latest, true);
   const names: string[] = [];
+  const mutated = mutatedPropertyOwners(source);
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
     for (const declaration of statement.declarationList.declarations) {
-      if (isKeyedStore(declaration) || isMutableCounter(declaration, statement.declarationList.flags)) {
+      if (isKeyedStore(declaration, mutated) || isMutableCounter(declaration, statement.declarationList.flags)) {
         names.push(declaration.name.getText());
       }
     }
@@ -117,7 +169,13 @@ const guardianModules = (): string[] => {
     fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) return walk(full);
-      return /\.ts$/.test(entry.name) && !/\.test\.ts$/.test(entry.name) && !/\.d\.ts$/.test(entry.name) ? [full] : [];
+      // `.tsx` INCLUDED, because the extension was the whole fence: a guardian
+      // module that renders anything — a hook, a provider — is a `.tsx`, and
+      // one holding a budget was unfenced by file name alone. The sibling
+      // claim fence walks `.tsx?` for the same reason.
+      return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) && !/\.d\.ts$/.test(entry.name)
+        ? [full]
+        : [];
     });
   return walk(path.join(ROOT, 'src/lib/miden'))
     .map(full => path.relative(ROOT, full))
@@ -229,6 +287,9 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
       // literal is the most natural way to group the two maps a budget needs,
       // and a counter does not have to be initialised with a bare literal.
       'const bespokeBudget = { attempts: new Map<string, number>(), nextAt: new Map<string, number>() };',
+      // The single-subject budget: no key at all, so neither Map rule saw it.
+      // The write is what makes it state rather than the config it looks like.
+      'const budget = { attempts: 0, nextAt: 0 };\nexport const spend = () => {\n  budget.attempts += 1;\n};',
       'let coercedTally = Number(0);',
       'let deadlineStamp = Date.now();',
       'let declaredLater: number;'
@@ -246,7 +307,10 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
 
       // Not state: configuration, and anything scoped to a function call.
       const ignored = [
+        // Same syntax as the budget above and correctly invisible, because
+        // nothing writes to it. This pair is the whole rule.
         'const config = { maxAttempts: 3, backoffMs: 60_000 };',
+        'const config = { maxAttempts: 3 };\nexport const read = () => config.maxAttempts;',
         'const frozen = { a: 1 } as const;',
         'function f() {\n  const localTally = new Map<string, number>();\n  return localTally;\n}',
         'export const make = () => {\n  const state = new Map<string, number>();\n  return state;\n};',
@@ -261,10 +325,26 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
     }
   });
 
+  // There is no guardian `.tsx` in the tree today, which is exactly why the
+  // extension mattered: the omission was invisible and would stay invisible
+  // until the first guardian hook or provider arrived already unfenced. Probe
+  // for the RULE rather than for a file, by putting one there.
+  it('self-test: a .tsx guardian module is discovered, not skipped for its extension', () => {
+    const probe = path.join(ROOT, 'src/lib/miden/guardian/__ledger_fence_probe__.tsx');
+    try {
+      fs.writeFileSync(probe, 'export const budget = new Map<string, number>();\n');
+      expect(guardianModules()).toContain('src/lib/miden/guardian/__ledger_fence_probe__.tsx');
+      expect(moduleStateNames('src/lib/miden/guardian/__ledger_fence_probe__.tsx')).toEqual(['budget']);
+    } finally {
+      fs.rmSync(probe, { force: true });
+    }
+  });
+
   // A probe file left behind would be picked up by the discovery walk and fail
   // the pinned map — but only on the NEXT run, which is a confusing way to find
   // out. Assert the cleanup here, where the reason is in view.
   it('self-test: the probe file does not survive the run', () => {
     expect(fs.existsSync(path.join(ROOT, 'src/lib/miden/guardian/__ledger_fence_probe__.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'src/lib/miden/guardian/__ledger_fence_probe__.tsx'))).toBe(false);
   });
 });

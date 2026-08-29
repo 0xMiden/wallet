@@ -65,11 +65,32 @@ const SYNC_STATUS_NAMES = ['guardianSyncStatus'];
 
 type FieldSet = readonly string[];
 
-const literalText = (node: ts.Node): string | undefined => (ts.isStringLiteralLike(node) ? node.text : undefined);
+// Parentheses are transparent to meaning and were not transparent to this
+// matcher: `('commitUnconfirmed') in extra` is the same presence test as the
+// unparenthesized one, and Prettier itself writes the parenthesized form when
+// the test is negated inside a longer condition — which is the F-222 shape.
+const literalText = (node: ts.Node): string | undefined => {
+  const inner = ts.isParenthesizedExpression(node) ? literalText(node.expression) : undefined;
+  if (inner !== undefined) return inner;
+  return ts.isStringLiteralLike(node) ? node.text : undefined;
+};
 
-const hasOwnCallee = (expression: ts.Expression): boolean => {
+// `Reflect.has` is the third spelling of the same question, and the docstring
+// above already concedes `Reflect.get` as out of reach — but `has` is not
+// indirection, it is the presence test written with the reflective API, one
+// autocomplete away from `Object.hasOwn`.
+const presenceCallee = (expression: ts.Expression): boolean => {
   const text = expression.getText();
-  return text.endsWith('hasOwn') || text.endsWith('hasOwnProperty');
+  return text.endsWith('hasOwn') || text.endsWith('hasOwnProperty') || text.endsWith('Reflect.has');
+};
+
+// `Object.keys(extra).includes('commitUnconfirmed')` is a presence test spelled
+// as a list membership, and it reads the field's ABSENCE exactly the way the two
+// forms above do. Matched on the argument rather than on the receiver, since the
+// receiver can be any expression that produces the key list.
+const membershipCallee = (expression: ts.Expression): boolean => {
+  const text = expression.getText();
+  return /\.(includes|indexOf|lastIndexOf)$/.test(text);
 };
 
 /** Every fenced-field read in one file, as the source text that produced it. */
@@ -95,7 +116,7 @@ const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
       found.push(node.getText());
     } else if (
       ts.isCallExpression(node) &&
-      hasOwnCallee(node.expression) &&
+      (presenceCallee(node.expression) || membershipCallee(node.expression)) &&
       node.arguments.some(arg => fenced.has(literalText(arg) ?? ''))
     ) {
       found.push(node.getText());
@@ -276,7 +297,14 @@ describe('guardian claim fence', () => {
       ['for-of destructuring', 'for (const { commitUnconfirmed } of rows) { use(commitUnconfirmed); }'],
       // Absence-as-evidence — the F-222 shape by name.
       ['presence test', `const legacy = !('commitUnconfirmed' in extra);`],
-      ['hasOwn', `const legacy = !Object.hasOwn(extra, 'commitUnconfirmed');`]
+      ['hasOwn', `const legacy = !Object.hasOwn(extra, 'commitUnconfirmed');`],
+      // The three remaining spellings of the same question, each green against
+      // the first AST version. The parenthesized `in` is not an exotic form:
+      // it is what the formatter produces once the test is negated inside a
+      // longer condition.
+      ['presence test, parenthesized', `const legacy = !(('commitUnconfirmed') in extra);`],
+      ['Reflect.has', `const legacy = !Reflect.has(extra, 'commitUnconfirmed');`],
+      ['key-list membership', `const legacy = !Object.keys(extra).includes('commitUnconfirmed');`]
     ];
     for (const [label, code] of caught) {
       expect(`${label}: ${matchCount(code, FLAG_NAMES)}`).toBe(`${label}: 1`);

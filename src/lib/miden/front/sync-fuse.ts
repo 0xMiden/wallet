@@ -28,7 +28,8 @@ export type SyncFuseKey =
   | 'balances'
   | 'note-import'
   | 'pending-rotation-recheck'
-  | `guardian-sync:${string}`;
+  | `guardian-sync:${string}`
+  | `guardian-drift:${string}`;
 
 /**
  * The fuse key for one guardian account's sync probe.
@@ -42,6 +43,26 @@ export type SyncFuseKey =
  */
 export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
   `guardian-sync:${accountPublicKey}@${guardianEndpoint}`;
+
+/**
+ * The fuse key for one guardian account's DRIFT reconciliation probe.
+ *
+ * Separate from `guardianSyncFuseKey` on both halves of the granularity rule. It is a
+ * different SUBJECT: drift's hold reads the local WASM account, while the sync key
+ * gates a round trip to the operator, so folding them together let a wedged client
+ * silence a healthy operator and vice versa. And it needs a different GATE: drift runs
+ * deliberately ahead of the sync fuse — a repaired pointer changes the endpoint, so
+ * drift is that fuse's own exit ramp and must not sit behind it — which left drift
+ * feeding a ledger it could never consult. Since its eviction stops the whole pass,
+ * one account's parked drift read then starved every other guardian account
+ * indefinitely, with no observation left that could clear the fuse. With a key of its
+ * own, drift is skipped after the usual evidence and the pass gets past it.
+ *
+ * Carries no endpoint: drift's probe is not addressed to the operator, so there is
+ * nothing an endpoint change would invalidate. `clearSyncFuseForEndpointChange` still
+ * drops it with everything else, because the NODE it reads against did change.
+ */
+export const guardianDriftFuseKey = (accountPublicKey: string): SyncFuseKey => `guardian-drift:${accountPublicKey}`;
 
 interface FuseEntry {
   evictions: number;

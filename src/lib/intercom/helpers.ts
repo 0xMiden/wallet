@@ -26,20 +26,43 @@ export function deserializeError(data: any) {
  * Deliberately NOT folded into `serializeError`: that one also feeds the dApp
  * content script, whose payload crosses into page context where third-party code
  * reads it as a string. This pair is only ever `IntercomServer` -> `IntercomClient`.
+ *
+ * `reason` rides along with `name` because the two answer different questions and
+ * only one of them survives a class rebuild. `isWasmClientPoisonedError` reads the
+ * name and decides whether to stop taking holds; `isSyncWatchdogEviction` reads the
+ * REASON and decides whether the node is parked — and a `realm-error` eviction
+ * deliberately fails that second test, because its client is replaced in
+ * milliseconds. Carrying only the name made the reason-reading predicate
+ * unconditionally false for anything that crossed this port, so the sync fuse could
+ * not be fed from a backend action at all. Same shape as the offscreen wire's
+ * `errorReason`, which solved this one hop earlier.
+ *
+ * An ARRAY rather than an object, and that is the compatibility direction that
+ * actually occurs: a service worker updated under an open port is a NEW server
+ * talking to an OLD client, and the old `deserializeError` hands an object straight
+ * to `Error` — "[object Object]", with the reason lost. It destructures an array
+ * correctly, so an old client degrades to exactly the message and errors it
+ * understood before.
  */
+const INTERNAL_ERROR_ENVELOPE_LENGTH = 4;
+
 export function serializeInternalError(err: any) {
-  return { message: err?.message || DEFAULT_ERROR_MESSAGE, name: err?.name, errors: err?.errors };
+  return [err?.message || DEFAULT_ERROR_MESSAGE, err?.errors, err?.name, err?.reason];
 }
 
 export function deserializeInternalError(data: any): IntercomError {
-  // Tolerates the legacy string/array shapes: a service worker updated while a
-  // page kept its port open would otherwise turn every backend error into
-  // "Unexpected error occured".
-  if (typeof data === 'string' || Array.isArray(data)) return deserializeError(data);
-  const error = new IntercomError(data?.message ?? DEFAULT_ERROR_MESSAGE, data?.errors);
-  // The whole point of the pair. `name` is what the poison classifier reads, and
-  // it survives here because nothing between the two realms rebuilds the class.
-  if (typeof data?.name === 'string' && data.name.length > 0) error.name = data.name;
+  // Tolerates the legacy shapes in the other direction too — a client updated
+  // ahead of its server would otherwise turn every backend error into
+  // "Unexpected error occured". A legacy array is `[message, errors]`, which is
+  // shorter than this envelope.
+  const internal = Array.isArray(data) && data.length === INTERNAL_ERROR_ENVELOPE_LENGTH;
+  if (!internal) return deserializeError(data);
+  const [message, errors, name, reason] = data;
+  const error = new IntercomError(typeof message === 'string' ? message : DEFAULT_ERROR_MESSAGE, errors);
+  // The whole point of the pair: nothing between the two realms rebuilds the
+  // class, so the classifiers read these two fields off the rebuilt error.
+  if (typeof name === 'string' && name.length > 0) error.name = name;
+  if (typeof reason === 'string' && reason.length > 0) error.reason = reason;
   return error;
 }
 
@@ -57,6 +80,13 @@ export function deserializeInternalError(data: any): IntercomError {
  * other call sites share the same ternary.
  */
 export class IntercomError extends Error {
+  /**
+   * The eviction mechanism, when this error is a rebuilt `WasmClientPoisonedError`.
+   * Read through `poisonReasonOf`, which narrows it; declared here so
+   * `deserializeInternalError` can restore it without a cast.
+   */
+  reason?: string;
+
   constructor(
     message: string,
     public errors?: any[]
