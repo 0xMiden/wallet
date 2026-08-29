@@ -18,7 +18,7 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
@@ -90,12 +90,25 @@ const Explore: FC = () => {
     // explicit guard also protects native-asset swap notes whose per-order
     // auto-consume setting is off: they remain available for manual settlement
     // without being picked up by the wallet-wide native-note auto-consumer.
-    // A note worth no more than its own fee costs the user money to collect, and
-    // this consumer runs without asking. `isWorthClaiming` fails open while the
-    // fee is unknown, so discovery latency never strands a real note.
-    return claimableNotes.filter(
-      note => note!.faucetId === midenFaucetId && !note!.swapOrder && isWorthClaiming(note!.amount, verificationBaseFee)
-    );
+    const candidates = claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
+    // A claim worth no more than its own fee costs the user money, and this consumer
+    // runs without asking. Measured on the BATCH TOTAL because these are claimed as one
+    // transaction paying one fee -- per note, a backlog of individually-marginal notes
+    // was refused in full.
+    //
+    // `verificationBaseFee` is null until discovery lands and `isWorthClaiming` fails
+    // open on null, so this consumer -- unlike the other two, which await the fee
+    // inline -- could run its first pass against an unknown fee. It is gated on the fee
+    // having resolved for that reason: the faucet id resolves from cache strictly
+    // earlier than a fee that may still need an RPC round trip, and an unattended pass
+    // must not spend on a value it does not have yet.
+    if (verificationBaseFee === null) {
+      return [];
+    }
+    if (!isWorthClaiming(totalClaimableAmount(candidates.map(note => note!.amount)), verificationBaseFee)) {
+      return [];
+    }
+    return candidates;
   }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {

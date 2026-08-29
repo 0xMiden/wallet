@@ -1,7 +1,9 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
-import { isFeeNote } from './fee';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+
+import { partitionFeeNote } from './fee';
 import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -123,7 +125,11 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   // excluded from the recorded note ids for the same reason -- the row's
   // `outputNoteIds` is rendered as the count of notes the transaction CREATED, so
   // leaving the fee note in reported one note too many on every fee-charging chain.
-  const userOutputNotes = outputNotes.filter(outputNote => !isFeeNote(outputNote));
+  //
+  // Identified by tag PLUS corroboration (see `partitionFeeNote`) rather than by tag
+  // alone, so a dApp-supplied note carrying the fee tag cannot get itself erased from
+  // the transaction it belongs to.
+  const { userNotes: userOutputNotes } = partitionFeeNote(outputNotes, getNativeAssetIdSync());
   userOutputNotes.forEach(outputNote => {
     const assets = outputNote.assets()!.fungibleAssets();
     outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));

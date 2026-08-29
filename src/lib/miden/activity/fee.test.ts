@@ -1,4 +1,17 @@
-import { TX_FEE_NOTE_TAG, feeFieldsFromResult, feePaidFromResult, feeTextFromTransaction, isFeeNote } from './fee';
+import {
+  TX_FEE_NOTE_TAG,
+  feeFieldsFromResult,
+  feePaidFromResult,
+  feeTextFromTransaction,
+  partitionFeeNote
+} from './fee';
+
+// The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
+// say what that is. `bech32-native` is what the helper mock below encodes 'native' to.
+let mockNativeAssetId: string | null = 'bech32-native';
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId
+}));
 
 jest.mock('lib/shared/format', () => ({
   // Formatting is another module's concern; this suite pins whether a fee yields
@@ -43,15 +56,64 @@ describe('feePaidFromResult', () => {
     expect(feePaidFromResult(result([outputNote(0x0, [asset(500n, 'tkn-faucet')])]))).toBeUndefined();
   });
 
-  it('does not mistake an ordinary note for the fee note', () => {
-    expect(isFeeNote(outputNote(0x0, []) as any)).toBe(false);
-    expect(isFeeNote(outputNote(TX_FEE_NOTE_TAG, []) as any)).toBe(true);
-  });
-
   it('survives a note whose metadata is unavailable', () => {
     // Reading the fee must never break the caller that is recording the row.
     const broken = { metadata: () => undefined, assets: () => ({ fungibleAssets: () => [] }) };
     expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
+  });
+});
+
+describe('partitionFeeNote', () => {
+  const native = 'bech32-native';
+
+  it('separates the kernel fee note from the notes the user created', () => {
+    const user = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([user, fee] as any, native);
+    expect(feeNote).toBe(fee);
+    expect(userNotes).toEqual([user]);
+  });
+
+  it('does not mistake an ordinary note for the fee note', () => {
+    const user = outputNote(0x0, [asset(1n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([user] as any, native);
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([user]);
+  });
+
+  it('rejects a fee-tagged note drawn on a NON-native faucet', () => {
+    // The tag is a plain u32 anything can set, and a dApp's transaction request reaches
+    // the wallet verbatim -- so tag alone would let a website have its own output note
+    // recorded as the network fee AND erased from the transaction's amount and note
+    // list. A fee is only ever paid in the native asset.
+    const spoof = outputNote(TX_FEE_NOTE_TAG, [asset(999n, 'attacker-faucet')]);
+    const { feeNote, userNotes } = partitionFeeNote([spoof] as any, native);
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([spoof]);
+  });
+
+  it('rejects a fee-tagged note carrying more than one asset', () => {
+    const multi = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native'), asset(2n, 'other')]);
+    expect(partitionFeeNote([multi] as any, native).feeNote).toBeUndefined();
+  });
+
+  it('trusts NEITHER note when two candidates appear', () => {
+    // The kernel emits one. With two we cannot say which is real, so the fee figure is
+    // dropped and both notes stay in the totals -- erring toward showing the user more
+    // than they spent rather than hiding a real note of theirs.
+    const a = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native')]);
+    const b = outputNote(TX_FEE_NOTE_TAG, [asset(2n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([a, b] as any, native);
+    expect(feeNote).toBeUndefined();
+    expect(userNotes).toEqual([a, b]);
+  });
+
+  it('falls back to the tag alone before the native faucet is discovered', () => {
+    // A fresh install before its first successful discovery. Counting the kernel's fee
+    // note as user value there would reintroduce the inflated-amount bug the tag check
+    // exists to prevent, and nothing in that window is attacker-selected.
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'anything')]);
+    expect(partitionFeeNote([fee] as any, null).feeNote).toBe(fee);
   });
 });
 

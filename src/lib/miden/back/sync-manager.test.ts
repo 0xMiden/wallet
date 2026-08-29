@@ -182,7 +182,6 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 // ── Imports under test ─────────────────────────────────────────────
 
-import { MIN_CLAIM_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
@@ -1185,25 +1184,41 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 });
 
 describe('doSync — native-note auto-consume', () => {
-  it('does not auto-consume a native note worth less than the fee to claim it', async () => {
+  it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false);
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
     mockBaseFee = 10000;
-    // The floor is `MIN_CLAIM_FEE_MULTIPLE x baseFee`, a conservative lower bound on
-    // the real charge -- not one base fee, which is only the per-cycle-tier unit.
-    // `overBaseFee` is the note the old one-base-fee check claimed at a net loss.
-    const floor = 10000 * MIN_CLAIM_FEE_MULTIPLE;
+    // The backlog is claimed as ONE transaction paying ONE fee, so the BATCH TOTAL is
+    // what has to clear the cost. Dust that sums to less than one transaction's cost
+    // must not be swept on the user's behalf by an unattended pass.
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
       fakeNote({ id: 'dust', faucetId: 'native-faucet', amount: '1' }),
-      fakeNote({ id: 'overBaseFee', faucetId: 'native-faucet', amount: String(10000 + 1) }),
-      fakeNote({ id: 'worthit', faucetId: 'native-faucet', amount: String(floor + 1) })
+      fakeNote({ id: 'overBaseFee', faucetId: 'native-faucet', amount: String(10000 + 1) })
     ]);
 
     await doSync();
 
-    const consumed = (mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).map(n => n.id);
-    expect(consumed).toEqual(['worthit']);
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {
+    // Judged per note these were ALL refused; together they are comfortably worth one
+    // transaction, which is what the wallet actually pays for.
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce(
+      Array.from({ length: 20 }, (_unused, index) =>
+        fakeNote({ id: `n${index}`, faucetId: 'native-faucet', amount: String(10000 * 5) })
+      )
+    );
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
   });
 
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {

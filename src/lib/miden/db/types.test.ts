@@ -1,14 +1,22 @@
 import { ConsumableNote, NoteTypeEnum } from '../types';
 import {
   BridgedReceiveTransaction,
+  BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
   formatTransactionStatus,
+  IBridgedSendNoteParams,
+  IBridgeProvider,
+  ITransaction,
   ITransactionStatus,
   nextQueuedSeq,
+  ReplaceHotKeyTransaction,
   SendTransaction,
-  Transaction
+  SwapTransaction,
+  SwitchGuardianTransaction,
+  Transaction,
+  UpdateProcedureThresholdTransaction
 } from './types';
 
 describe('transaction models', () => {
@@ -302,6 +310,39 @@ describe('queuedSeq — FIFO tie-break', () => {
     expect(first.queuedSeq).toBeDefined();
     expect(second.queuedSeq!).toBeGreaterThan(first.queuedSeq!);
     expect(third.queuedSeq!).toBeGreaterThan(second.queuedSeq!);
+  });
+
+  it('stamps EVERY row type that enters the queue', () => {
+    // Enumerated rather than spot-checked: two constructors were missed when the field
+    // was added, and an unstamped row sorts as 0 -- i.e. ahead of every stamped row in
+    // its second, the opposite of the FIFO this field exists to establish. The `?? 0`
+    // fallback is only correct for rows written BEFORE the field existed.
+    const bridgedSendParams: IBridgedSendNoteParams = {
+      recipientId: 'recip',
+      noteType: NoteTypeEnum.Public,
+      recallBlocks: 100
+    };
+    const rows: ITransaction[] = [
+      new Transaction('acc', new Uint8Array([1])),
+      new SendTransaction('acc', BigInt(1), 'recip', 'faucet', NoteTypeEnum.Public),
+      new ConsumeTransaction(
+        'acc',
+        [{ id: 'n1', faucetId: 'f', amount: '1', isBeingClaimed: false } as ConsumableNote],
+        false
+      ),
+      new SwapTransaction('acc', 'faucet', BigInt(1), 'faucet-b', BigInt(1), false),
+      new BridgedSendTransaction('acc', BigInt(1), '0xdest', 1, 'AGGLAYER' as IBridgeProvider, 'faucet'),
+      new BridgedReceiveTransaction('acc', BigInt(1), 'faucet', 'AGGLAYER' as IBridgeProvider, '0xsrc', '1', 'USDC'),
+      new EarnDepositTransaction('acc', BigInt(1), '0xevm', 'MARKET', 'faucet', bridgedSendParams),
+      new SwitchGuardianTransaction('acc', 'https://guardian.example'),
+      new ReplaceHotKeyTransaction('acc'),
+      new UpdateProcedureThresholdTransaction('acc', 'update_guardian', 2)
+    ];
+
+    const unstamped = rows
+      .filter(row => row.status === ITransactionStatus.Queued && row.queuedSeq === undefined)
+      .map(row => row.constructor.name);
+    expect(unstamped).toEqual([]);
   });
 
   it('sorts rows that predate the field ahead of stamped ones in the same second', () => {

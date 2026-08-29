@@ -2,8 +2,6 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
-import { MIN_CLAIM_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
-
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
 const mockInitiateConsume = jest.fn(
@@ -95,26 +93,35 @@ describe('NativeNoteAutoConsumeManager', () => {
     expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['a', 'b']));
   });
 
-  it('does not auto-consume a native note worth less than the fee to claim it', async () => {
-    // Auto-consume runs unattended, so claiming a note that costs more in fee than
-    // it yields silently moves the balance DOWN.
+  it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
+    // Auto-consume runs unattended, so claiming for more in fee than it yields silently
+    // moves the balance DOWN. The whole backlog is ONE transaction paying ONE fee, so
+    // the BATCH TOTAL is what must clear the floor -- a pile of dust that sums to less
+    // than one transaction's cost must not be swept.
     mockBaseFee = 10000;
-    // The floor is a conservative LOWER bound on what a claim really costs
-    // (`MIN_CLAIM_FEE_MULTIPLE x baseFee`), not one base fee: the kernel charges
-    // `baseFee x (floor(log2(cycles)) + 1)`, so a note worth 1.0001 base fees still
-    // claims at a loss. `overBaseFee` pins that -- it passed the old check.
-    const floor = 10000 * MIN_CLAIM_FEE_MULTIPLE;
     mockClaimable = [
       note('dust', 'native-faucet', { amount: '1' }),
-      note('overBaseFee', 'native-faucet', { amount: String(10000 + 1) }),
-      note('breakeven', 'native-faucet', { amount: String(floor) }),
-      note('worthit', 'native-faucet', { amount: String(floor + 1) })
+      note('overBaseFee', 'native-faucet', { amount: String(10000 + 1) })
     ];
 
     render(<NativeNoteAutoConsumeManager />);
 
+    await waitFor(() => expect(mockGetFaucetIdSetting).toHaveBeenCalled());
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('auto-consumes a backlog of individually-marginal notes, since one fee settles it', async () => {
+    // The stranding bug: judged per note these were ALL refused, yet they total well
+    // above one transaction's cost and a single transaction collects them.
+    mockBaseFee = 10000;
+    mockClaimable = Array.from({ length: 20 }, (_unused, index) =>
+      note(`n${index}`, 'native-faucet', { amount: String(10000 * 5) })
+    );
+
+    render(<NativeNoteAutoConsumeManager />);
+
     await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
-    expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['worthit']);
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1]).toHaveLength(20);
   });
 
   it('auto-consumes every native note on a chain that charges no fee', async () => {

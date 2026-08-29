@@ -1,5 +1,6 @@
 import type { OutputNote, TransactionResult } from '@miden-sdk/miden-sdk';
 
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -19,13 +20,65 @@ export type FeePaid = {
   faucetId: string;
 };
 
-/** Whether an output note is the kernel's fee note rather than one the user created. */
-export function isFeeNote(note: OutputNote): boolean {
+/** Whether an output note carries the fee tag. NOT sufficient on its own — see below. */
+function hasFeeTag(note: OutputNote): boolean {
   try {
     return note.metadata()?.tag()?.asU32() === TX_FEE_NOTE_TAG;
   } catch {
     return false;
   }
+}
+
+/** The bech32 faucet of a note's single fungible asset, or `undefined`. */
+function soleFungibleFaucet(note: OutputNote): string | undefined {
+  try {
+    const assets = note.assets()?.fungibleAssets() ?? [];
+    const first = assets[0];
+    if (!first || assets.length !== 1) {
+      return undefined;
+    }
+    return getBech32AddressFromAccountId(first.faucetId());
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Split output notes into the kernel's fee note and the notes the user actually created.
+ *
+ * The tag ALONE is not evidence. `0xfee` is a plain u32 that anything constructing a
+ * `NoteMetadata` can set, and a dApp's `transactionRequest` reaches
+ * `requestCustomTransaction` verbatim — so a website could add an output note carrying
+ * that tag and have the wallet record it as this transaction's "Network Fee" while
+ * ERASING it from the transaction's amount and note list. The user still approves that
+ * note on the confirmation sheet (which does not consult this code), so it is history
+ * forgery rather than an unauthorized spend, but a wallet should not be the one
+ * mislabelling it.
+ *
+ * Two corroborations, both cheap:
+ *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet,
+ *     which is the only asset a fee is ever paid in;
+ *   - exactly ONE candidate exists. The kernel emits one. If a second appears, we cannot
+ *     say which is real, so NEITHER is treated as the fee: the fee figure is dropped and
+ *     both notes stay in the totals. That errs toward showing the user more than they
+ *     spent rather than hiding a real note, which is the right direction for a receipt.
+ *
+ * When the native faucet is not yet discovered the tag is all there is, so it is used
+ * alone rather than counting the kernel's fee note as user value — the inflated-amount
+ * bug the tag check exists to prevent. That window is a fresh install before its first
+ * successful discovery, and nothing in it is attacker-selected.
+ */
+export function partitionFeeNote(
+  notes: OutputNote[],
+  nativeFaucetId: string | null
+): { feeNote: OutputNote | undefined; userNotes: OutputNote[] } {
+  const candidates = notes.filter(note => {
+    if (!hasFeeTag(note)) return false;
+    if (nativeFaucetId === null) return true;
+    return soleFungibleFaucet(note) === nativeFaucetId;
+  });
+  const feeNote = candidates.length === 1 ? candidates[0] : undefined;
+  return { feeNote, userNotes: feeNote ? notes.filter(note => note !== feeNote) : notes };
 }
 
 /**
@@ -44,23 +97,25 @@ export function isFeeNote(note: OutputNote): boolean {
 export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
   try {
     const notes = result.executedTransaction().outputNotes().notes();
-    for (const note of notes) {
-      if (!isFeeNote(note)) continue;
-      const assets = note.assets()?.fungibleAssets() ?? [];
-      const first = assets[0];
-      if (!first) continue;
-      // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
-      // gives canonical hex, and the two are different encodings of the same account.
-      // `assetsMetadata` is keyed by bech32 and `resolveDisplayMetadata` compares the
-      // native faucet id by string equality, so a hex id missed both, resolved to the
-      // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
-      // false -- which meant the receipt's fee row was never rendered at all.
-      return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
+    const { feeNote } = partitionFeeNote(notes, getNativeAssetIdSync());
+    if (!feeNote) {
+      return undefined;
     }
+    const assets = feeNote.assets()?.fungibleAssets() ?? [];
+    const first = assets[0];
+    if (!first) {
+      return undefined;
+    }
+    // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
+    // gives canonical hex, and the two are different encodings of the same account.
+    // `assetsMetadata` is keyed by bech32 and `resolveDisplayMetadata` compares the
+    // native faucet id by string equality, so a hex id missed both, resolved to the
+    // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
+    // false -- which meant the receipt's fee row was never rendered at all.
+    return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
   } catch {
     return undefined;
   }
-  return undefined;
 }
 
 /**

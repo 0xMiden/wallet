@@ -1151,6 +1151,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Rotating device key';
     this.extraInputs = {};
@@ -1186,6 +1187,7 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Securing account';
     this.extraInputs = { procedure, threshold };

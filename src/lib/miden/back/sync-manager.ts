@@ -3,7 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   computeSyncBackoffMs,
@@ -545,17 +545,20 @@ async function runSync(force: boolean): Promise<void> {
         if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
-            // A note worth no more than its own fee costs the user money to collect.
+            // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
             // `isWorthClaiming` fails open on an unknown fee.
             const baseFee = await getVerificationBaseFee();
-            nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
-              if (!isWorthClaiming(n.amountBaseUnits, baseFee)) return [];
-              if (n.faucetId !== nativeFaucetId || n.swapOrder) return [];
-              const type: ConsumableNote['type'] =
-                n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
-              return [
-                {
+            // Faucet filter FIRST, value check on the BATCH TOTAL second. These notes
+            // are claimed as one transaction paying one fee (see the batch call below),
+            // so the total is what has to clear the fee -- judged per note, twenty notes
+            // worth 5x the base fee each were all refused despite totalling 100x.
+            const candidates = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
+            if (isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), baseFee)) {
+              nativeAutoConsumeNotes = candidates.map(n => {
+                const type: ConsumableNote['type'] =
+                  n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+                return {
                   id: n.id,
                   faucetId: n.faucetId,
                   amount: n.amountBaseUnits,
@@ -563,9 +566,9 @@ async function runSync(force: boolean): Promise<void> {
                   isBeingClaimed: false,
                   type,
                   swapOrder: undefined
-                }
-              ];
-            });
+                };
+              });
+            }
           }
         }
       } catch (err) {

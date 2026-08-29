@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
@@ -51,15 +51,19 @@ export function NativeNoteAutoConsumeManager(): null {
       try {
         const nativeFaucetId = await getFaucetIdSetting();
         if (disposed || !nativeFaucetId) return;
-        // A note worth no more than its own fee makes the balance go DOWN when
-        // claimed. This runs unattended, so the wallet must not collect those on
-        // the user's behalf; `isWorthClaiming` fails open on an unknown fee.
+        // A claim worth no more than its own fee makes the balance go DOWN. This runs
+        // unattended, so the wallet must not collect on the user's behalf at a loss;
+        // `isWorthClaiming` fails open on an unknown fee.
         const baseFee = await getVerificationBaseFee();
         if (disposed) return;
         const nativeNotes: ConsumableNote[] = notes.filter(
-          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed && isWorthClaiming(n.amount, baseFee)
+          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed
         );
         if (nativeNotes.length === 0) return;
+        // Value check on the BATCH TOTAL, not per note: these are claimed as ONE
+        // transaction paying one fee (see below), so the total is what must clear it.
+        // Per note, a backlog of individually-marginal notes was refused in full.
+        if (!isWorthClaiming(totalClaimableAmount(nativeNotes.map(n => n.amount)), baseFee)) return;
         const {
           initiateConsumeTransaction,
           initiateConsumeNotesTransaction,
