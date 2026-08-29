@@ -1518,7 +1518,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
-    return buildSendTransactionRequest(
+    const request = buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
       // The recipient is parsed as permissively as the non-guardian path rather
@@ -1530,7 +1530,16 @@ const ensureGuardianRecallableSendRequestBytes = async (
       noteType,
       syncHeight + recallBlocks,
       feeFaucetId
-    ).serialize();
+    );
+    // Serialization is its own step: a wasm-bindgen panic arrives as a bare
+    // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
+    // ruled themselves out, so this has to be distinguishable from "somewhere later
+    // in the guardian pipeline".
+    try {
+      return request.serialize();
+    } catch (err) {
+      throw new Error('guardian P2IDE build: request.serialize() failed', { cause: err });
+    }
   });
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
