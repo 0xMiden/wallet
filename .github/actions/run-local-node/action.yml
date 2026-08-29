@@ -6,6 +6,16 @@ description: >
   DB, and starts validator + sequencer + ntx-builder + prover, leaving them running
   (--background). The published ghcr node images lag the node the SDK is built against, so the
   node is compiled from source rather than pulled.
+inputs:
+  verification-base-fee:
+    description: >
+      The chain's `verification_base_fee`, in the fee asset's smallest unit, baked into genesis.
+      NON-ZERO IS THE POINT: on a zero-fee chain the kernel skips the fee branch entirely, so
+      every fee-related assertion in the suite passes without a fee ever being charged, which
+      looks like coverage and is not. 10000 matches devnet. Pass '0' only for a suite that
+      cannot yet run against fees, and say why at the call site.
+    required: false
+    default: '10000'
 runs:
   using: composite
   steps:
@@ -103,6 +113,9 @@ runs:
       env:
         MIDEN_PROVER_TIMEOUT: 10m
         MIDEN_PROVER_CAPACITY: '4'
+        # Read by miden-client's test-node-genesis when it renders genesis.toml.
+        # Unset (or 0) means `verification_base_fee = 0` and a fee-free chain.
+        MIDEN_TEST_NODE_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
       run: |
         cd "${{ runner.temp }}/miden-client"
         # Retried because bring-up has a startup race we do not own. The script
@@ -124,6 +137,24 @@ runs:
         done
         echo "::error::node bring-up failed after 3 attempts"
         exit 1
+    # Assert the chain came up with the fee that was asked for. Without this the single
+    # most consequential property of the run is invisible: a suite that believes it is
+    # proving fee behaviour passes on a fee-free chain and reports green.
+    - name: Verify genesis fee parameters
+      shell: bash
+      run: |
+        set -euo pipefail
+        g="${{ runner.temp }}/miden-client/target/test-node/data/genesis-config/genesis.toml"
+        actual=$(grep -E '^verification_base_fee' "$g" | tr -dc '0-9')
+        want='${{ inputs.verification-base-fee }}'
+        echo "genesis verification_base_fee=$actual (requested $want)"
+        if [ "$actual" != "$want" ]; then
+          echo "::error::genesis has verification_base_fee=$actual but $want was requested; the chain is not charging what the suite assumes"
+          exit 1
+        fi
+        if [ "$actual" = "0" ]; then
+          echo "::warning::this chain charges NO fee; any fee assertion in this run is vacuous"
+        fi
     - name: Save node build
       if: steps.node_cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4

@@ -104,6 +104,12 @@ jobs:
           miden-client --version
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
+        with:
+          # This suite is where fee behaviour is proven, so the chain MUST charge one.
+          # 10000 matches devnet. Stated explicitly rather than inherited from the
+          # action's default: if the default ever changes, this suite should fail loudly
+          # rather than quietly stop testing the thing it exists to test.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

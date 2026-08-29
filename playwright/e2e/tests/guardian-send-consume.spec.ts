@@ -148,7 +148,9 @@ test.describe('Guardian account - consume + send', () => {
         // a note that arrived without the guardian ever co-signing the send.
         await waitForPendingNoteTotal(walletB.page, TOKEN, SEND_BASE_UNITS, {
           timeoutMs: 180_000,
-          decimals: TOKEN_DECIMALS
+          decimals: TOKEN_DECIMALS,
+          // If the note never arrives the fault is A's, and B's page cannot see it.
+          diagnoseFrom: walletA.page
         });
 
         // Sender side — the half a recipient-only check cannot see. Both guardian

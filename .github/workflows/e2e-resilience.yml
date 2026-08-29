@@ -86,6 +86,10 @@ jobs:
           miden-client --version
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
+        with:
+          # resilience specs drive fault injection against guardian, so they inherit the
+          # protocol#3765 block above.
+          verification-base-fee: '0'
       - name: Wait for node RPC + prover
         working-directory: playwright/e2e/local-stack
         run: |

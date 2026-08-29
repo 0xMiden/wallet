@@ -41,4 +41,8 @@ jobs:
       # flaky (a service can exit during startup), so don't let it fail the warm job.
       - name: Build + cache the local 0.16 node
         uses: ./.github/actions/run-local-node
+        with:
+          # this job only warms the build cache and runs no specs, so the fee is irrelevant;
+          # pinned explicitly so it never silently diverges from the suites.
+          verification-base-fee: '0'
         continue-on-error: true

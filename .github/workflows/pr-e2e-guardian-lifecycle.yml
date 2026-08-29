@@ -109,6 +109,12 @@ jobs:
           miden-client --version
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
+        with:
+          # guardian specs cannot run on a fee-charging chain until protocol#3765 lands: the
+          # PUBLISHED guarded-multisig auth component contains no `exec.fee::pay_fee` at all,
+          # so a guarded account cannot pay a fee it is required to pay. Flip to the default
+          # once the node pin carries #3765.
+          verification-base-fee: '0'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

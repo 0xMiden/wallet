@@ -104,6 +104,10 @@ jobs:
           miden-client --version
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
+        with:
+          # not yet verified against fees; the earn deposit/withdraw assertions have not been
+          # re-derived for a fee leaving the account.
+          verification-base-fee: '0'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

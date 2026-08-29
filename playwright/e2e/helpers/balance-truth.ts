@@ -29,6 +29,8 @@
  */
 import type { Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
+
 /** A token's on-screen identity plus the raw amount, as the store reports it. */
 export interface SymbolBalance {
   symbol: string;
@@ -188,7 +190,7 @@ export async function waitForPendingNoteTotal(
   page: Page,
   symbol: string,
   expected: bigint,
-  opts: { timeoutMs?: number; decimals?: number } = {}
+  opts: { timeoutMs?: number; decimals?: number; diagnoseFrom?: Page } = {}
 ): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const deadline = Date.now() + timeoutMs;
@@ -201,12 +203,19 @@ export async function waitForPendingNoteTotal(
   const d = opts.decimals;
   const fmt = (v: bigint) => (d == null ? `${v} base units` : `${fromBaseUnits(v, d)} (${v} base units)`);
   const vault = await vaultBalance(page, symbol).catch(() => -1n);
+  // A note that never arrives is almost always a SENDER-side failure, but this
+  // helper only watches the receiver -- so on its own it reports "nothing showed
+  // up" and names no cause. Callers that know the sender pass `diagnoseFrom` and
+  // get the sender's failed rows, including the raw kernel error the friendly
+  // message replaced, in the same throw.
+  const senderFailures = opts.diagnoseFrom ? await failedRowSummary(opts.diagnoseFrom) : '';
   throw new Error(
     `waitForPendingNoteTotal(${symbol}) timed out after ${timeoutMs}ms.\n` +
       `  expected unconsumed: ${fmt(expected)}\n` +
       `  actual unconsumed:   ${fmt(last)}\n` +
       `  vault balance for ${symbol}: ${vault === -1n ? 'unreadable' : vault.toString()} base units\n` +
-      `  (a vault total matching the expectation means the note was already consumed)`
+      `  (a vault total matching the expectation means the note was already consumed)` +
+      senderFailures
   );
 }
 
@@ -276,5 +285,27 @@ export async function waitForVaultBalance(
       `  actual vault:   ${fmt(last)}\n` +
       `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
       `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+  );
+}
+
+/**
+ * The sender's failed transactions, formatted for a receiver-side timeout message.
+ * Returns '' when there are none -- an empty section would imply the sender is fine
+ * when it may simply not have started.
+ */
+async function failedRowSummary(sender: Page): Promise<string> {
+  const rows = await readTransactionRows(sender).catch(() => []);
+  const failed = rows.filter(r => r.status === 3);
+  if (failed.length === 0) return '\n  sender has no failed transactions (it may never have started one)';
+  return (
+    `\n  sender-side failures (${failed.length}):` +
+    failed
+      .map(
+        r =>
+          `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}]` +
+          `\n      ${r.error ?? '(no message)'}` +
+          (r.rawError ? `\n      raw: ${r.rawError}` : '')
+      )
+      .join('')
   );
 }
