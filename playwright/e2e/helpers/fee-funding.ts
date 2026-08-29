@@ -48,6 +48,13 @@ export async function ensureFeeFunded(
   await midenCli.init();
   await midenCli.fundAccountForFees(accountId);
 
+  // Return before the claim loop, not just before the assertion. `fundAccountForFees`
+  // is itself a no-op on a chain that charges nothing, so `balance` stays 0n for all 12
+  // attempts and every one of them runs -- each a `claimAllNotes`, which reloads the
+  // page and spends ~10s in fixed sleeps, plus a 5s spacer. That is roughly four silent
+  // minutes per call against a chain where there is nothing to claim.
+  if (!(await midenCli.chainCharges())) return 0n;
+
   let balance = await vaultBalance(wallet.page, NATIVE_SYMBOL);
   for (let attempt = 0; attempt < attempts && balance === 0n; attempt++) {
     await wallet.claimAllNotes(opts.claimTimeoutMs ?? 60_000).catch(() => {
@@ -58,11 +65,10 @@ export async function ensureFeeFunded(
   }
 
   // Assert rather than proceed hopefully: an unfunded account fails much later, at whatever
-  // transaction first cannot pay, with an error that points nowhere near the cause.
-  if (await midenCli.chainCharges()) {
-    expect(balance, `account ${accountId} was never funded for fees; its next transaction cannot pay`).toBeGreaterThan(
-      0n
-    );
-  }
+  // transaction first cannot pay, with an error that points nowhere near the cause. The
+  // zero-fee case returned above, so reaching here means the chain charges.
+  expect(balance, `account ${accountId} was never funded for fees; its next transaction cannot pay`).toBeGreaterThan(
+    0n
+  );
   return balance;
 }
