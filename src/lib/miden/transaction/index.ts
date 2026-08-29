@@ -1442,7 +1442,24 @@ const ensureGuardianRecallableSendRequestBytes = async (
   recallBlocks: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
-  if (transaction.requestBytes) return transaction.requestBytes;
+  if (transaction.requestBytes) {
+    // Pre-built bytes still need the fee auth. The Epoch (Fast) bridge route builds its request
+    // at INITIATE time (see initiate.ts), so this early return used to hand back a request with
+    // no conversion info and the proposal aborted with ERR_FEE_CONVERSION_INFO_MISSING -- the
+    // fee auth attached below never ran for it.
+    //
+    // Persisted when it changes, because the commitment carries a fresh salt and
+    // `prepareCustomExecution` re-derives it from whatever bytes it is given. The annotation is
+    // idempotent, so repeat calls return the same request.
+    const annotated = await ensureFeeAuthOnRequestBytes(transaction.requestBytes);
+    if (annotated !== transaction.requestBytes) {
+      transaction.requestBytes = annotated;
+      await Repo.transactions.where({ id: transaction.id }).modify(t => {
+        t.requestBytes = annotated;
+      });
+    }
+    return annotated;
+  }
   // The chain's fee faucet, committed into the request's auth args below. A Guardian
   // custom proposal carries the auth arg the request was BUILT with -- the client
   // cannot inject one, because on a multisig account that slot belongs to the
@@ -1946,7 +1963,15 @@ const generateGuardianTransaction = async (
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
+        // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
+        const aggBytes = await ensureFeeAuthOnRequestBytes(bridgeTx.requestBytes!);
+        if (aggBytes !== bridgeTx.requestBytes) {
+          transaction.requestBytes = aggBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = aggBytes;
+          });
+        }
+        proposalResult = await service.createCustomProposal(aggBytes);
       }
       break;
     }
