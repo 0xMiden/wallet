@@ -13,6 +13,7 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import * as secureHotKey from 'lib/secure-hot-key';
 import type { GeneratedHotKey } from 'lib/secure-hot-key';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
@@ -527,6 +528,10 @@ export class MultisigService {
     // WASM client is single-threaded, so resolving the client outside the lock
     // (or splitting the build/execute into two lock windows) leaves a gap where
     // another holder can run and trigger "recursive use ... unsafe aliasing".
+    // Read OUTSIDE the lock: on a cache miss discovery drives its own RpcClient through
+    // the WASM module, and re-entering that while holding the client lock traps as a bare
+    // RuntimeError and poisons the client.
+    const nativeFaucetId = await getNativeAssetId();
     const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(async hold => {
       const webClient = (await getMidenClient()).client;
       // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -540,7 +545,18 @@ export class MultisigService {
         webClient,
         targetThreshold,
         targetSignerCommitments,
-        { signatureScheme: 'ecdsa', midenRpcEndpoint: getEffectiveRpcUrl() }
+        // `feeFaucetId` is what makes this request payable on a fee-charging chain: the
+        // builder commits fee conversion info into the auth args, and without it
+        // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. `Multisig.updateSigners`
+        // supplies it from its own cached lookup, but this call site drives the low-level
+        // builder directly (it needs the request AND salt back to build the proposal by
+        // hand), so it has to supply it too. Passed as an AccountId: the helper parses a
+        // bare string as hex, and the wallet's native asset id is bech32.
+        {
+          signatureScheme: 'ecdsa',
+          midenRpcEndpoint: getEffectiveRpcUrl(),
+          feeFaucetId: accountRefToSdk(nativeFaucetId)
+        }
       );
       assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
       // Since protocol 0.16 the signed summary binds the reference block

@@ -962,7 +962,14 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotcommit', '0xcoldcommitnoprefix'],
-        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
+        // `feeFaucetId` pinned, not ignored: without it the builder commits no fee
+        // conversion info and the rotation aborts in `fee::pay_fee` on any chain whose
+        // verification_base_fee is non-zero.
+        {
+          signatureScheme: 'ecdsa',
+          midenRpcEndpoint: expect.any(String),
+          feeFaucetId: expect.objectContaining({ toString: expect.any(Function) })
+        }
       );
       expect(mockExecuteForSummary).toHaveBeenCalledWith(
         expect.anything(),
@@ -1225,7 +1232,14 @@ describe('MultisigService', () => {
         expect.anything(),
         1,
         ['0xnewhotnoprefix', '0xcoldnoprefix'],
-        { signatureScheme: 'ecdsa', midenRpcEndpoint: expect.any(String) }
+        // `feeFaucetId` pinned, not ignored: without it the builder commits no fee
+        // conversion info and the rotation aborts in `fee::pay_fee` on any chain whose
+        // verification_base_fee is non-zero.
+        {
+          signatureScheme: 'ecdsa',
+          midenRpcEndpoint: expect.any(String),
+          feeFaucetId: expect.objectContaining({ toString: expect.any(Function) })
+        }
       );
     });
   });
