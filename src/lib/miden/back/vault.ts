@@ -812,7 +812,11 @@ export class Vault {
     });
   }
 
-  async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
+  async createHDAccount(
+    walletType: WalletType,
+    name?: string,
+    explicitGuardianEndpoint?: string
+  ): Promise<WalletAccount[]> {
     return withError('Failed to create account', async () => {
       console.log('[Vault.createHDAccount] Step 1: start, walletType =', walletType);
       const [mnemonic, allAccounts] = await Promise.all([
@@ -851,11 +855,19 @@ export class Vault {
       // key is no longer consulted for NEW accounts (#408 stage 3). (Practically
       // unreachable: a custom global key is only ever written by pre-stage-1
       // Guardian onboarding, which always creates a sibling Guardian account.)
+      // An endpoint picked explicitly in the add-account Choose-Guardian step
+      // wins over the sibling default: per-account endpoints exist precisely so
+      // multiple Guardian accounts can live on different operators.
       const existingGuardianAccount =
-        walletType === WalletType.Guardian ? allAccounts.find(a => a.type === WalletType.Guardian) : undefined;
-      const guardianEndpoint = existingGuardianAccount
-        ? await resolveGuardianEndpoint(existingGuardianAccount)
-        : undefined;
+        walletType === WalletType.Guardian && !explicitGuardianEndpoint
+          ? allAccounts.find(a => a.type === WalletType.Guardian)
+          : undefined;
+      const guardianEndpoint =
+        walletType === WalletType.Guardian && explicitGuardianEndpoint
+          ? explicitGuardianEndpoint
+          : existingGuardianAccount
+            ? await resolveGuardianEndpoint(existingGuardianAccount)
+            : undefined;
 
       console.log('[Vault.createHDAccount] Step 5: seed derived, acquiring WASM lock');
 

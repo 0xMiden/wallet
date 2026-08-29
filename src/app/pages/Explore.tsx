@@ -9,7 +9,7 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
+import { AccountsDrawer, AddAccountDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
@@ -24,6 +24,7 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -380,7 +381,22 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   claimableNotes
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
   const { t } = useTranslation();
+
+  // Hardware/swipe back closes an open drawer instead of leaving the page.
+  useMobileBackHandler(() => {
+    if (addAccountOpen) {
+      setAddAccountOpen(false);
+      return true;
+    }
+    if (accountsOpen) {
+      setAccountsOpen(false);
+      return true;
+    }
+    return false;
+  }, [accountsOpen, addAccountOpen]);
+
   return (
     <>
       <Balance>
@@ -388,6 +404,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
+            accountName={account.name}
+            accountType={account.type}
             // Gap 16: until real prices have loaded, every token falls back to the
             // $1 default, so the "USD total" would be a fabricated number equal to
             // the raw token count. When no prices are available (feed down or still
@@ -399,11 +417,15 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}
+            onSwitch={() => setAccountsOpen(true)}
+            onAdd={() => setAddAccountOpen(true)}
           />
         )}
       </Balance>
 
-      <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
+      <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} onAddAccount={() => setAddAccountOpen(true)} />
+
+      <AddAccountDrawer open={addAccountOpen} onOpenChange={setAddAccountOpen} />
 
       <HomePrompts
         account={account}

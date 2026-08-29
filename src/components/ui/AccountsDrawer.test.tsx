@@ -37,6 +37,23 @@ jest.mock('lib/settings/card-color', () => ({
   useCardColor: jest.fn(() => 'slate')
 }));
 
+const mockUpdateCurrentAccount = jest.fn(() => Promise.resolve());
+
+jest.mock('lib/miden/front', () => ({
+  useMidenContext: () => ({ updateCurrentAccount: mockUpdateCurrentAccount })
+}));
+
+const mockAccounts = [
+  { publicKey: 'mtst1primary', name: 'Account 1' },
+  { publicKey: 'mtst1secondary', name: 'Account 2' }
+];
+
+jest.mock('lib/store', () => ({
+  useWalletStore: (
+    selector: (state: { accounts: typeof mockAccounts; currentAccount: (typeof mockAccounts)[0] }) => unknown
+  ) => selector({ accounts: mockAccounts, currentAccount: mockAccounts[0]! })
+}));
+
 // CARD_COLOR_BG is a plain className map shared with the BalanceCard; mock the
 // module so the whole BalanceCard render tree isn't dragged in.
 jest.mock('./BalanceCard', () => ({
@@ -98,7 +115,7 @@ describe('AccountsDrawer', () => {
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
     expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
-    expect(screen.getByText('addAccountComingSoon')).toBeTruthy();
+    expect(screen.getByText('addAccount')).toBeTruthy();
   });
 
   it('renders one swatch per card color with its background class', () => {
@@ -158,11 +175,47 @@ describe('AccountsDrawer', () => {
     expect(navigate).toHaveBeenCalledWith('/settings');
   });
 
-  it('renders the "Add Account" placeholder as a disabled button', () => {
+  it('closes the drawer and opens the add-account picker on Add Account click', () => {
+    const onOpenChange = jest.fn();
+    const onAddAccount = jest.fn();
+    renderDrawer({ onOpenChange, onAddAccount });
+
+    fireEvent.click(screen.getByTestId('accounts-drawer-add-account'));
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onAddAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders one row per account with the active one checked', () => {
     renderDrawer();
 
-    const addButton = screen.getByText('addAccountComingSoon').closest('button')!;
-    expect(addButton).toBeDisabled();
-    expect(addButton.getAttribute('aria-disabled')).toBe('true');
+    const rows = screen.getAllByTestId('accounts-drawer-account');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.getAttribute('aria-checked')).toBe('true');
+    expect(rows[0]!.querySelector('[data-name="Checkmark"]')).not.toBeNull();
+    expect(rows[1]!.getAttribute('aria-checked')).toBe('false');
+    expect(rows[1]!.querySelector('[data-name="Checkmark"]')).toBeNull();
+  });
+
+  it('switches to the tapped account and closes the drawer', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
+
+    fireEvent.click(screen.getAllByTestId('accounts-drawer-account')[1]!);
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mockUpdateCurrentAccount).toHaveBeenCalledWith('mtst1secondary');
+  });
+
+  it('only closes the drawer when the active account is tapped', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
+
+    fireEvent.click(screen.getAllByTestId('accounts-drawer-account')[0]!);
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mockUpdateCurrentAccount).not.toHaveBeenCalled();
   });
 });

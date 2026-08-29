@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { WalletType } from 'screens/onboarding/types';
 
 import { BalanceCard } from './BalanceCard';
 
@@ -215,6 +216,16 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     expect(screen.getByText('EUR')).toBeTruthy();
     expect(screen.getByText('balanceCardAccount')).toBeTruthy();
+  });
+
+  it.each([
+    [WalletType.OnChain, 'accountTypePublic'],
+    [WalletType.OffChain, 'accountTypePrivate'],
+    [WalletType.Guardian, 'accountTypeGuardian']
+  ])('renders the %s account type badge', (accountType, labelKey) => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" accountType={accountType} amount="$123.45" />);
+
+    expect(screen.getByText(labelKey)).toBeTruthy();
   });
 
   it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {

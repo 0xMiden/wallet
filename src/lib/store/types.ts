@@ -140,7 +140,7 @@ export interface WalletActions {
   unlock: (password?: string) => Promise<void>;
 
   // Account actions
-  createAccount: (walletType: WalletType, name?: string) => Promise<void>;
+  createAccount: (walletType: WalletType, name?: string, guardianEndpoint?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;

@@ -546,6 +546,10 @@ export interface CreateAccountRequest extends WalletMessageBase {
   type: WalletMessageType.CreateAccountRequest;
   walletType: WalletType;
   name?: string;
+  // Guardian operator endpoint chosen in the add-account flow's Choose-Guardian
+  // step. Only meaningful for WalletType.Guardian; when absent the vault binds
+  // to an existing Guardian sibling's endpoint (or the network default).
+  guardianEndpoint?: string;
 }
 
 export interface CreateAccountResponse extends WalletMessageBase {
