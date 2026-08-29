@@ -309,3 +309,57 @@ async function failedRowSummary(sender: Page): Promise<string> {
       .join('')
   );
 }
+
+/**
+ * The faucet id backing a symbol in the wallet's own balances projection.
+ *
+ * Needed to assert WHICH asset a fee was paid in. Protocol 0.16 does not force a
+ * fee to be paid in the native asset: `fee::pay_fee` takes the faucet id and the
+ * conversion rate from caller-supplied auth args, and only `no_auth` and
+ * `network_account` read them from the reference block. So "the wallet paid its
+ * fee in the native asset at the native rate" is a property of the WALLET, not of
+ * the chain, and it has to be asserted rather than assumed.
+ */
+export async function faucetIdForSymbol(page: Page, symbol: string): Promise<string | undefined> {
+  return page.evaluate(
+    ({ wanted }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const state = (window as any).__TEST_STORE__?.getState?.();
+      for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
+        if (!Array.isArray(tokenList)) continue;
+        for (const token of tokenList) {
+          if (String(token?.metadata?.symbol ?? '').toLowerCase() === wanted) {
+            return token?.faucetId === undefined ? undefined : String(token.faucetId);
+          }
+        }
+      }
+      return undefined;
+    },
+    { wanted: symbol.toLowerCase() }
+  );
+}
+
+/**
+ * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
+ * wallet has not discovered it.
+ *
+ * Read from the extension's own cache (`native_asset_fee:v1:<scope>`, written by
+ * `lib/miden-chain/native-asset`) rather than from the harness's knowledge of how
+ * the node was genesised. That makes a spec self-describing -- it can require a fee
+ * on a fee-charging chain and say so on a fee-free one -- and it doubles as an
+ * assertion that the wallet's fee discovery works at all.
+ *
+ * `null` and `0` are different answers: `0` is a chain that charges nothing,
+ * `null` is a wallet that does not know. Callers must not collapse them.
+ */
+export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
+  return page.evaluate(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const key = Object.keys(all).find(k => k.startsWith('native_asset_fee:'));
+    const v = key === undefined ? null : all[key];
+    return typeof v === 'number' ? v : null;
+  });
+}
