@@ -49,11 +49,7 @@ export function hasNoFeeAsset(
  */
 export const FEE_RESERVE_MULTIPLE = 30;
 
-export function maxSendableNative(
-  balance: number,
-  verificationBaseFee: number | null,
-  decimals: number
-): number {
+export function maxSendableNative(balance: number, verificationBaseFee: number | null, decimals: number): number {
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return balance;
   }

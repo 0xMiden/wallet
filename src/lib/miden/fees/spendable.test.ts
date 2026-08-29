@@ -4,8 +4,7 @@ import { hasNoFeeAsset, isWorthClaiming, maxSendableNative } from './spendable';
 
 const NATIVE = 'mtst1native';
 
-const row = (tokenId: string, balance: number): TokenBalanceData =>
-  ({ tokenId, balance }) as TokenBalanceData;
+const row = (tokenId: string, balance: number): TokenBalanceData => ({ tokenId, balance }) as TokenBalanceData;
 
 describe('hasNoFeeAsset', () => {
   it('blocks when the chain charges a fee and the account holds none of the fee asset', () => {

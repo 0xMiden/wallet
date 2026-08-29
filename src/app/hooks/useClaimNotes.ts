@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
   getFailedTransactions,
@@ -10,7 +11,6 @@ import {
   verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -315,7 +315,7 @@ export function useClaimNotes(): ClaimNotesState {
         const orderedGroups = [...byFaucet.entries()]
           .sort(([a], [b]) => Number(b === nativeFaucetId) - Number(a === nativeFaucetId))
           .map(([, groupNotes]) => groupNotes);
-        
+
         for (const groupNotes of orderedGroups) {
           const groupNoteIds = groupNotes.map(n => n.id);
           try {
@@ -367,7 +367,12 @@ export function useClaimNotes(): ClaimNotesState {
       isDelegatedProvingEnabled,
       mutateClaimableNotes,
       claimingNoteIds,
-      individualClaimingIds
+      individualClaimingIds,
+      // Read by the native-first ordering above. Omitted, this callback captures the
+      // faucet id from first render -- `null` until discovery resolves -- and the
+      // ordering silently stops preferring the native asset, which is its whole
+      // point: a token note claimed first against an empty vault cannot pay its fee.
+      nativeFaucetId
     ]
   );
 

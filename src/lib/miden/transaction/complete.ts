@@ -1,5 +1,4 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
-import { feeFieldsFromResult } from '../activity/fee';
 
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
@@ -8,6 +7,7 @@ import * as Repo from 'lib/miden/repo';
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { feeFieldsFromResult } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';

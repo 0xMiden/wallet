@@ -241,10 +241,12 @@ describe('HomePrompts', () => {
     render(
       <HomePrompts
         account={account}
-        balances={[
-          { tokenId: 'token', balance: 5 },
-          { tokenId: 'MIDEN-ID', balance: 0 }
-        ] as TokenBalanceData[]}
+        balances={
+          [
+            { tokenId: 'token', balance: 5 },
+            { tokenId: 'MIDEN-ID', balance: 0 }
+          ] as TokenBalanceData[]
+        }
         balancesLoading={false}
         claimableNotes={[]}
         tokenPrices={{}}

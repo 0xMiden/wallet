@@ -3,12 +3,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
@@ -273,7 +273,7 @@ const SwapManager: React.FC = () => {
         case SwapFlowStep.SwapAmounts:
           return (
             <SwapAmounts
-        feeAssetMissing={feeAssetMissing}
+              feeAssetMissing={feeAssetMissing}
               offerToken={offerToken}
               offerBalance={offerBalance}
               offerAmount={offerAmount}
@@ -332,7 +332,12 @@ const SwapManager: React.FC = () => {
       onSwapDirection,
       onSubmit,
       navigateTo,
-      goBack
+      goBack,
+      // Rendered into the review step. Omitted, the "you have no MIDEN to pay the
+      // fee" state is captured from first render, before the balance and the base
+      // fee have resolved -- so the warning shows stale, which on this screen means
+      // either hiding a real blocker or blocking a swap that can pay.
+      feeAssetMissing
     ]
   );
 

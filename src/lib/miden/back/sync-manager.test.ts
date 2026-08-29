@@ -1200,7 +1200,6 @@ describe('doSync — native-note auto-consume', () => {
     expect(consumed).toEqual(['worthit']);
   });
 
-
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving

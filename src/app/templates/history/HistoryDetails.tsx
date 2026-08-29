@@ -1,6 +1,4 @@
 import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
-import { feeTextFromTransaction } from 'lib/miden/activity/fee';
-import { MIDEN_METADATA } from 'lib/miden/metadata';
 
 import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
@@ -30,6 +28,7 @@ import {
   SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
+import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
@@ -42,6 +41,7 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -1272,11 +1272,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
-                 {entry.fee && (
-                   <DetailRow label={t('networkFee')}>
-                     <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
-                   </DetailRow>
-                 )}
+                  {entry.fee && (
+                    <DetailRow label={t('networkFee')}>
+                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
+                    </DetailRow>
+                  )}
 
                   {entry.externalTxId && (
                     <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">

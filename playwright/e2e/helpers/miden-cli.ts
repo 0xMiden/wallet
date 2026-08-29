@@ -277,7 +277,10 @@ export class MidenCli {
   private async importFunders(): Promise<string[]> {
     const dir = MidenCli.funderDir();
     const files = fs.existsSync(dir)
-      ? fs.readdirSync(dir).filter(f => /^wallet_\d+\.mac$/.test(f)).sort()
+      ? fs
+          .readdirSync(dir)
+          .filter(f => /^wallet_\d+\.mac$/.test(f))
+          .sort()
       : [];
     // A chain that charges no fee needs no funders, so an absent directory is not an error here.
     // Only the funding path itself can say whether one was required; it reports that below.
@@ -363,9 +366,7 @@ export class MidenCli {
         { timeoutMs: 180_000 }
       );
       if (sent.exitCode === 0) break;
-      const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(
-        sent.stderr
-      );
+      const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
       if (!stale || attempt === 4) break;
       await new Promise(r => setTimeout(r, 2_000 * attempt));
     }
@@ -444,9 +445,7 @@ export class MidenCli {
     // row specifically -- the same output lists storage keys like
     // `miden::standards::faucets::token_name_0`, and a looser search for the symbol finds one of
     // those first and reads its trailing digit as the balance.
-    const row = shown.stdout
-      .split('\n')
-      .find(line => /fungible asset/i.test(line) && /\bMIDEN\b/.test(line));
+    const row = shown.stdout.split('\n').find(line => /fungible asset/i.test(line) && /\bMIDEN\b/.test(line));
     if (row === undefined) {
       return false;
     }

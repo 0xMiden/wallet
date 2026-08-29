@@ -5,12 +5,12 @@ import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -701,7 +701,19 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         clearErrors('amount');
       }
     },
-    [onAction, token, setError, clearErrors]
+    [
+      onAction,
+      token,
+      setError,
+      clearErrors,
+      // All three feed the `insufficientFeeAsset` branch above. Omitted, the check
+      // runs against first-render values -- an empty balance list and an unresolved
+      // base fee -- so it either blocks a send that can pay its fee or admits one
+      // that cannot, and the amount field's error stops tracking reality.
+      balanceData,
+      nativeFaucetId,
+      verificationBaseFee
+    ]
   );
 
   const goToStep = useCallback(

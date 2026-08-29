@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatDate } from 'app/templates/history/transactionUtils';
@@ -15,6 +14,7 @@ import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { AssetMetadata } from 'lib/miden/front';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -73,7 +73,6 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
-
 
   const groupedNotes = useMemo(() => {
     const groups = new Map<string, AssetNoteGroup>();

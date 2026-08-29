@@ -10,7 +10,7 @@ import type {
   UIContact,
   UIForm,
   UIBalance,
-  UIRecords,
+  UIRecords
 } from './types';
 // The runtime surface of this module is the four enums plus the
 // `TransactionTypeNameMapping` const; everything else is compile-time-only
@@ -252,5 +252,6 @@ describe('send-flow/types', () => {
       const records: UIRecords = { public: 1, private: 2 };
       expect(balance.public + balance.private).toBe(10);
       expect(records.public + records.private).toBe(3);
-    });  });
+    });
+  });
 });

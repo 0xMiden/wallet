@@ -187,19 +187,19 @@ describe('useClaimNotes failed-note check (#456)', () => {
       mutate: jest.fn().mockResolvedValue(notes)
     });
     mockInitiateConsume.mockResolvedValueOnce('tx-miden').mockResolvedValueOnce('tx-usdc');
-  
+
     const { result } = renderHook(() => useClaimNotes());
     await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
-  
+
     await act(async () => {
       await result.current.handleClaimAll();
     });
-  
+
     expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
     expect(queuedNoteIds(0)).toEqual(['n-miden']);
     expect(queuedNoteIds(1)).toEqual(['n-usdc']);
   });
-  
+
   it("queues one consume transaction per faucet, grouping that faucet's notes together", async () => {
     const notes = [note('n-miden', 'faucet-miden'), note('n-usdc', 'faucet-usdc'), note('n-miden-2', 'faucet-miden')];
     mockUseClaimableNotes.mockReturnValue({

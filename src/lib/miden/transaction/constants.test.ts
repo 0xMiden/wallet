@@ -139,4 +139,3 @@ describe('fee failures', () => {
     expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
   });
 });
-

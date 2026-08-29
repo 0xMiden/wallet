@@ -1,7 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
-import { isFeeNote } from './fee';
 import BigNumber from 'bignumber.js';
 
+import { isFeeNote } from './fee';
 import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';

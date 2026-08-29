@@ -62,9 +62,10 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
  * paid: these spread into a partial update that `Object.assign`s over the stored
  * row, so writing explicit undefineds would erase whatever is already there.
  */
-export function feeFieldsFromResult(
-  result: TransactionResult | undefined
-): { feeAmount?: bigint; feeFaucetId?: string } {
+export function feeFieldsFromResult(result: TransactionResult | undefined): {
+  feeAmount?: bigint;
+  feeFaucetId?: string;
+} {
   if (!result) {
     return {};
   }

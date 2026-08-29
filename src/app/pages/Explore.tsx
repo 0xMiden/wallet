@@ -2,7 +2,6 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import Balance from 'app/templates/Balance';
@@ -18,6 +17,7 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
@@ -93,10 +93,7 @@ const Explore: FC = () => {
     // this consumer runs without asking. `isWorthClaiming` fails open while the
     // fee is unknown, so discovery latency never strands a real note.
     return claimableNotes.filter(
-      note =>
-        note!.faucetId === midenFaucetId &&
-        !note!.swapOrder &&
-        isWorthClaiming(note!.amount, verificationBaseFee)
+      note => note!.faucetId === midenFaucetId && !note!.swapOrder && isWorthClaiming(note!.amount, verificationBaseFee)
     );
   }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 

@@ -1,16 +1,10 @@
+import { TX_FEE_NOTE_TAG, feeFieldsFromResult, feePaidFromResult, feeTextFromTransaction, isFeeNote } from './fee';
+
 jest.mock('lib/shared/format', () => ({
   // Formatting is another module's concern; this suite pins whether a fee yields
   // text at all, not how the number is rendered.
   formatAmount: (amount: bigint, decimals: number) => (Number(amount) / 10 ** decimals).toString()
 }));
-
-import {
-  TX_FEE_NOTE_TAG,
-  feeFieldsFromResult,
-  feePaidFromResult,
-  feeTextFromTransaction,
-  isFeeNote
-} from './fee';
 
 const asset = (amount: bigint, faucet: string) => ({
   amount: () => amount.toString(),
@@ -54,9 +48,7 @@ describe('feePaidFromResult', () => {
 
 describe('feeFieldsFromResult', () => {
   it('produces the transaction-row fields when a fee was paid', () => {
-    const fields = feeFieldsFromResult(
-      result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])])
-    );
+    const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]));
     expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'native' });
   });
 
@@ -74,9 +66,7 @@ describe('feeFieldsFromResult', () => {
 
 describe('feeTextFromTransaction', () => {
   it('formats the recorded fee for display', () => {
-    expect(feeTextFromTransaction({ feeAmount: 170000n, feeFaucetId: 'native' } as any, 6, 'MIDEN')).toBe(
-      '0.17 MIDEN'
-    );
+    expect(feeTextFromTransaction({ feeAmount: 170000n, feeFaucetId: 'native' } as any, 6, 'MIDEN')).toBe('0.17 MIDEN');
   });
 
   it('renders nothing for a row that recorded no fee', () => {

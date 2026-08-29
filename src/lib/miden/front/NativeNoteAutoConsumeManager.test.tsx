@@ -133,9 +133,7 @@ describe('NativeNoteAutoConsumeManager', () => {
     await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
     expect(mockInitiateConsumeBatch.mock.calls[0]![0]).toBe('pk-1');
     // Exactly the two eligible native notes — never n2/n3/n4 — and in ONE tx.
-    expect(new Set(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id))).toEqual(
-      new Set(['n1', 'n1b'])
-    );
+    expect(new Set(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id))).toEqual(new Set(['n1', 'n1b']));
     expect(mockStartBg).toHaveBeenCalled();
   });
 

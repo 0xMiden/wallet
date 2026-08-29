@@ -1,10 +1,9 @@
 import browser from 'webextension-polyfill';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
-import { isWorthClaiming } from 'lib/miden/fees/spendable';
 
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   computeSyncBackoffMs,
@@ -13,6 +12,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,

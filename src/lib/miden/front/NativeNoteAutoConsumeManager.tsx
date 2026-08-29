@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -57,42 +57,37 @@ export function NativeNoteAutoConsumeManager(): null {
         const baseFee = await getVerificationBaseFee();
         if (disposed) return;
         const nativeNotes: ConsumableNote[] = notes.filter(
-          n =>
-            n.faucetId === nativeFaucetId &&
-            !n.swapOrder &&
-            !n.isBeingClaimed &&
-            isWorthClaiming(n.amount, baseFee)
+          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed && isWorthClaiming(n.amount, baseFee)
         );
         if (nativeNotes.length === 0) return;
         const {
-            initiateConsumeTransaction,
-            initiateConsumeNotesTransaction,
-            startBackgroundTransactionProcessing,
-            getUncompletedTransactions
-          } =
-          await import('../transaction');
+          initiateConsumeTransaction,
+          initiateConsumeNotesTransaction,
+          startBackgroundTransactionProcessing,
+          getUncompletedTransactions
+        } = await import('../transaction');
         const delegate = isDelegateProofEnabled();
-          // ONE transaction for the whole batch: every consume pays its own fee, so
-          // claiming a backlog note-by-note charges the user N fees for what the chain
-          // will settle for one.
-          //
-          // A Miden tx is atomic, so a single un-consumable note fails the batch. That
-          // is what the split below is for: on failure each note is retried alone, which
-          // isolates the poison note instead of letting it throttle its healthy mates
-          // through the shared row's #215 backoff -- the regression the previous
-          // per-note-always design existed to avoid.
-          try {
-            await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate);
-          } catch (batchErr) {
-            console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
-            for (const note of nativeNotes) {
-              try {
-                await initiateConsumeTransaction(publicKey, note, delegate);
-              } catch (noteErr) {
-                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
-              }
+        // ONE transaction for the whole batch: every consume pays its own fee, so
+        // claiming a backlog note-by-note charges the user N fees for what the chain
+        // will settle for one.
+        //
+        // A Miden tx is atomic, so a single un-consumable note fails the batch. That
+        // is what the split below is for: on failure each note is retried alone, which
+        // isolates the poison note instead of letting it throttle its healthy mates
+        // through the shared row's #215 backoff -- the regression the previous
+        // per-note-always design existed to avoid.
+        try {
+          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate);
+        } catch (batchErr) {
+          console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+          for (const note of nativeNotes) {
+            try {
+              await initiateConsumeTransaction(publicKey, note, delegate);
+            } catch (noteErr) {
+              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
             }
           }
+        }
         // This route-independent consumer is the one that fires when the user is
         // NOT on Home, so it must also dismiss the now-stale "click to claim"
         // notification once it auto-claims the note (#459).

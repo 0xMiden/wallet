@@ -1,15 +1,15 @@
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
-import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
@@ -190,9 +190,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // move them, so it still needs the faucet. `hasNoFeeAsset` fails open, so a
   // zero-fee chain keeps the original any-token behaviour.
   const hasBalance = useMemo(
-    () =>
-      balances.some(token => token.balance > 0) &&
-      !hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee),
+    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee),
     [balances, nativeFaucetId, verificationBaseFee]
   );
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
@@ -202,8 +200,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // re-arm the user is left stuck with no affordance anywhere on Home.
   const cannotPayFee = hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
-    !cannotPayFee &&
-    (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
+    !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
   const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal;
 
   useEffect(
