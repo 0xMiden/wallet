@@ -143,7 +143,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const isLoading = state === 'loading';
   const isHidden = state === 'hidden';
   const isZero = state === 'zero';
-  const cardColor = useCardColor();
+  const cardColor = useCardColor(accountId ?? accountNumber);
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
 
   const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';

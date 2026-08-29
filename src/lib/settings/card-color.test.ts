@@ -1,7 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { getCardColor, setCardColor, useCardColor } from './card-color';
+import { getCardColor, initializeAccountCardColors, setCardColor, useCardColor } from './card-color';
 import { CARD_COLOR_STORAGE_KEY, CARD_COLORS, DEFAULT_CARD_COLOR } from './constants';
+
+const ACCOUNT_A = 'mtst1account-a';
+const ACCOUNT_B = 'mtst1account-b';
+const accountStorageKey = (accountId: string) => `${CARD_COLOR_STORAGE_KEY}:${accountId}`;
 
 describe('card color setting', () => {
   beforeEach(() => {
@@ -10,19 +14,27 @@ describe('card color setting', () => {
 
   describe('getCardColor', () => {
     it('returns the default color when nothing is stored', () => {
-      expect(getCardColor()).toBe(DEFAULT_CARD_COLOR);
+      expect(getCardColor(ACCOUNT_A)).toBe(DEFAULT_CARD_COLOR);
     });
 
-    it('returns each valid stored color', () => {
+    it('returns each valid color stored for an account', () => {
       for (const color of CARD_COLORS) {
-        localStorage.setItem(CARD_COLOR_STORAGE_KEY, color);
-        expect(getCardColor()).toBe(color);
+        localStorage.setItem(accountStorageKey(ACCOUNT_A), color);
+        expect(getCardColor(ACCOUNT_A)).toBe(color);
       }
     });
 
     it('falls back to the default when the stored value is not a known color', () => {
-      localStorage.setItem(CARD_COLOR_STORAGE_KEY, 'chartreuse');
-      expect(getCardColor()).toBe(DEFAULT_CARD_COLOR);
+      localStorage.setItem(accountStorageKey(ACCOUNT_A), 'chartreuse');
+      expect(getCardColor(ACCOUNT_A)).toBe(DEFAULT_CARD_COLOR);
+    });
+
+    it('falls back to the former wallet-wide color for accounts without a preference', () => {
+      localStorage.setItem(CARD_COLOR_STORAGE_KEY, 'orange');
+      localStorage.setItem(accountStorageKey(ACCOUNT_A), 'blue');
+
+      expect(getCardColor(ACCOUNT_A)).toBe('blue');
+      expect(getCardColor(ACCOUNT_B)).toBe('orange');
     });
 
     it('falls back to the default when localStorage.getItem throws', () => {
@@ -33,28 +45,32 @@ describe('card color setting', () => {
       const spy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
         throw new Error('Storage error');
       });
-      expect(getCardColor()).toBe(DEFAULT_CARD_COLOR);
+      expect(getCardColor(ACCOUNT_A)).toBe(DEFAULT_CARD_COLOR);
       spy.mockRestore();
     });
   });
 
   describe('setCardColor', () => {
-    it('persists the chosen color under the storage key', () => {
-      setCardColor('blue');
-      expect(localStorage.getItem(CARD_COLOR_STORAGE_KEY)).toBe('blue');
-      expect(getCardColor()).toBe('blue');
+    it('persists independent choices under each account storage key', () => {
+      setCardColor(ACCOUNT_A, 'blue');
+      setCardColor(ACCOUNT_B, 'green');
+
+      expect(localStorage.getItem(accountStorageKey(ACCOUNT_A))).toBe('blue');
+      expect(localStorage.getItem(accountStorageKey(ACCOUNT_B))).toBe('green');
+      expect(getCardColor(ACCOUNT_A)).toBe('blue');
+      expect(getCardColor(ACCOUNT_B)).toBe('green');
     });
 
     it('does not throw when localStorage.setItem throws', () => {
       const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage full');
       });
-      expect(() => setCardColor('green')).not.toThrow();
+      expect(() => setCardColor(ACCOUNT_A, 'green')).not.toThrow();
       spy.mockRestore();
     });
 
     it('notifies subscribers even when persistence fails', () => {
-      const { result } = renderHook(() => useCardColor());
+      const { result } = renderHook(() => useCardColor(ACCOUNT_A));
       expect(result.current).toBe(DEFAULT_CARD_COLOR);
 
       const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
@@ -64,7 +80,7 @@ describe('card color setting', () => {
       // notification path must still run without throwing; the re-read then
       // returns the (unchanged) default.
       act(() => {
-        setCardColor('purple');
+        setCardColor(ACCOUNT_A, 'purple');
       });
       spy.mockRestore();
 
@@ -72,32 +88,55 @@ describe('card color setting', () => {
     });
   });
 
+  describe('initializeAccountCardColors', () => {
+    it('gives every newly observed account a different color from its predecessor', () => {
+      const accountIds = Array.from({ length: 7 }, (_, index) => `mtst1account-${index + 1}`);
+
+      initializeAccountCardColors(accountIds);
+
+      const colors = accountIds.map(accountId => getCardColor(accountId));
+      for (let index = 1; index < colors.length; index += 1) {
+        expect(colors[index]).not.toBe(colors[index - 1]);
+      }
+      expect(colors[6]).not.toBe(colors[5]);
+    });
+
+    it('keeps user-selected colors and advances the next new account from that choice', () => {
+      setCardColor(ACCOUNT_A, 'purple');
+
+      initializeAccountCardColors([ACCOUNT_A, ACCOUNT_B]);
+
+      expect(getCardColor(ACCOUNT_A)).toBe('purple');
+      expect(getCardColor(ACCOUNT_B)).toBe('slate');
+    });
+  });
+
   describe('useCardColor', () => {
     it('returns the current stored color on mount', () => {
-      localStorage.setItem(CARD_COLOR_STORAGE_KEY, 'orange');
-      const { result } = renderHook(() => useCardColor());
+      localStorage.setItem(accountStorageKey(ACCOUNT_A), 'orange');
+      const { result } = renderHook(() => useCardColor(ACCOUNT_A));
       expect(result.current).toBe('orange');
     });
 
     it('re-renders subscribers when setCardColor changes the value', () => {
-      const { result } = renderHook(() => useCardColor());
+      const { result } = renderHook(() => useCardColor(ACCOUNT_A));
       expect(result.current).toBe(DEFAULT_CARD_COLOR);
 
       act(() => {
-        setCardColor('green');
+        setCardColor(ACCOUNT_A, 'green');
       });
       expect(result.current).toBe('green');
 
       act(() => {
-        setCardColor('purple');
+        setCardColor(ACCOUNT_A, 'purple');
       });
       expect(result.current).toBe('purple');
     });
 
     it('unsubscribes on unmount so later changes do not update it', () => {
-      const { result, unmount } = renderHook(() => useCardColor());
+      const { result, unmount } = renderHook(() => useCardColor(ACCOUNT_A));
       act(() => {
-        setCardColor('blue');
+        setCardColor(ACCOUNT_A, 'blue');
       });
       expect(result.current).toBe('blue');
 
@@ -106,10 +145,10 @@ describe('card color setting', () => {
       // After unmount the listener is removed; the next change must not throw
       // and the unmounted hook keeps its last value.
       act(() => {
-        setCardColor('orange');
+        setCardColor(ACCOUNT_A, 'orange');
       });
       expect(result.current).toBe('blue');
-      expect(getCardColor()).toBe('orange');
+      expect(getCardColor(ACCOUNT_A)).toBe('orange');
     });
   });
 });
