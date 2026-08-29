@@ -55,6 +55,13 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
       .poll(
         async () => {
           const row = (await readBridgedSendRows(walletA.page)).find(r => r.extraInputs?.provider === 'agglayer');
+          // Carry the REASON in the polled value. `.poll().toBe(2)` can only report the value it
+          // saw, so a Failed row otherwise surfaces as a bare `Received: 3` -- a status code with
+          // no cause, which is exactly what made the last bridge failure need a code read to
+          // diagnose. Returning the error here puts it straight in the assertion message.
+          if (row?.status === 3) {
+            return `Failed(3): ${row.rawError ?? row.error ?? 'no error recorded on the row'}`;
+          }
           return row?.status ?? null;
         },
         { timeout: 300_000, intervals: [3000] }
