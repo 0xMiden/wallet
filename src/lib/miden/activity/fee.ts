@@ -2,6 +2,8 @@ import type { OutputNote, TransactionResult } from '@miden-sdk/miden-sdk';
 
 import { formatAmount } from 'lib/shared/format';
 
+import { getBech32AddressFromAccountId } from '../sdk/helpers';
+
 /**
  * Tag carried by the TX_FEE note the kernel emits when a transaction pays a fee.
  *
@@ -47,7 +49,13 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
       const assets = note.assets()?.fungibleAssets() ?? [];
       const first = assets[0];
       if (!first) continue;
-      return { amount: BigInt(first.amount()), faucetId: String(first.faucetId()) };
+      // BECH32, like every other faucet id the wallet stores -- `String(AccountId)`
+      // gives canonical hex, and the two are different encodings of the same account.
+      // `assetsMetadata` is keyed by bech32 and `resolveDisplayMetadata` compares the
+      // native faucet id by string equality, so a hex id missed both, resolved to the
+      // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
+      // false -- which meant the receipt's fee row was never rendered at all.
+      return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
     }
   } catch {
     return undefined;

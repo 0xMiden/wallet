@@ -6,6 +6,15 @@ jest.mock('lib/shared/format', () => ({
   formatAmount: (amount: bigint, decimals: number) => (Number(amount) / 10 ** decimals).toString()
 }));
 
+// The recorded faucet id must be BECH32, like every other faucet id the wallet
+// stores: `assetsMetadata` is keyed by bech32 and the receipt resolves the fee token
+// by string equality, so a raw/hex id resolved to the unknown-token placeholder and
+// suppressed the fee line entirely. The prefix makes the encoding visible in the
+// assertions below -- an id that arrived unencoded would not carry it.
+jest.mock('../sdk/helpers', () => ({
+  getBech32AddressFromAccountId: (id: unknown) => `bech32-${String(id)}`
+}));
+
 const asset = (amount: bigint, faucet: string) => ({
   amount: () => amount.toString(),
   faucetId: () => faucet
@@ -26,7 +35,7 @@ describe('feePaidFromResult', () => {
     const fee = feePaidFromResult(
       result([outputNote(0x0, [asset(500n, 'tkn-faucet')]), outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])])
     );
-    expect(fee).toEqual({ amount: 163840n, faucetId: 'native' });
+    expect(fee).toEqual({ amount: 163840n, faucetId: 'bech32-native' });
   });
 
   it('returns undefined when the transaction created no fee note', () => {
@@ -49,7 +58,9 @@ describe('feePaidFromResult', () => {
 describe('feeFieldsFromResult', () => {
   it('produces the transaction-row fields when a fee was paid', () => {
     const fields = feeFieldsFromResult(result([outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')])]));
-    expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'native' });
+    // Bech32, so `assetsMetadata` (keyed by bech32) can resolve the fee token and the
+    // receipt renders a fee line at all.
+    expect(fields).toEqual({ feeAmount: 163840n, feeFaucetId: 'bech32-native' });
   });
 
   it('produces no fields when there is no result at all', () => {

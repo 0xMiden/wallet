@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { MIN_CLAIM_FEE_MULTIPLE } from 'lib/miden/fees/spendable';
+
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 
 const mockInitiateConsume = jest.fn(
@@ -97,10 +99,16 @@ describe('NativeNoteAutoConsumeManager', () => {
     // Auto-consume runs unattended, so claiming a note that costs more in fee than
     // it yields silently moves the balance DOWN.
     mockBaseFee = 10000;
+    // The floor is a conservative LOWER bound on what a claim really costs
+    // (`MIN_CLAIM_FEE_MULTIPLE x baseFee`), not one base fee: the kernel charges
+    // `baseFee x (floor(log2(cycles)) + 1)`, so a note worth 1.0001 base fees still
+    // claims at a loss. `overBaseFee` pins that -- it passed the old check.
+    const floor = 10000 * MIN_CLAIM_FEE_MULTIPLE;
     mockClaimable = [
-      note('dust', 'native-faucet', { amount: '9999' }),
-      note('breakeven', 'native-faucet', { amount: '10000' }),
-      note('worthit', 'native-faucet', { amount: '10001' })
+      note('dust', 'native-faucet', { amount: '1' }),
+      note('overBaseFee', 'native-faucet', { amount: String(10000 + 1) }),
+      note('breakeven', 'native-faucet', { amount: String(floor) }),
+      note('worthit', 'native-faucet', { amount: String(floor + 1) })
     ];
 
     render(<NativeNoteAutoConsumeManager />);

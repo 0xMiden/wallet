@@ -190,11 +190,33 @@ export const TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR =
 export const ERR_FEE_CONVERSION_INFO_MISSING_CODE = '14712559985122731094';
 
 export function isFeeUnpayableError(raw: string): boolean {
-  return (
-    /amount of the asset in the vault is less than the amount to remove/i.test(raw) ||
-    raw.includes(ERR_FEE_CONVERSION_INFO_MISSING_CODE)
-  );
+  return raw.includes(ERR_FEE_CONVERSION_INFO_MISSING_CODE);
 }
+
+/**
+ * The kernel's generic remove-asset assertion, which says a vault held less of some
+ * asset than the transaction tried to take out — but NOT which asset.
+ *
+ * Deliberately NOT treated as a fee failure. The fee is one producer, but
+ * `resolveHeldFungibleAsset` (`sdk/helpers.ts`) documents two others and warns about
+ * both: a faucet with no local vault slot (usually stale local state, not a real
+ * shortfall) and a balance split across callback flags, where no single slot can fund
+ * an amount the total covers. Attributing all three to the fee told a user holding
+ * plenty of MIDEN to "Receive some MIDEN", and asserted the failure was deterministic
+ * — which talked them out of the resync/retry that fixes the stale-state case.
+ */
+export function isVaultShortfallError(raw: string): boolean {
+  return /amount of the asset in the vault is less than the amount to remove/i.test(raw);
+}
+
+/**
+ * An asset the transaction tried to move was not available in full, without claiming
+ * WHICH one. Names both candidates rather than guessing, and does not forbid a retry:
+ * the local-vault-view case is one a fresher sync genuinely resolves.
+ */
+export const TRANSACTION_VAULT_SHORTFALL_ERROR =
+  'The transaction could not be completed because an asset it moves was not available in full — either the ' +
+  'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
 
 function classifyTransactionError(
   error: unknown,
@@ -244,9 +266,15 @@ function classifyTransactionError(
   }
   // A fee failure is deterministic: the account cannot cover its own fee, so the
   // same transaction will fail identically until the balance changes. Naming it
-  // stops the UI offering a Retry that cannot succeed.
+  // stops the UI offering a Retry that cannot succeed. Only the hashed
+  // conversion-info code gets this treatment — it is unambiguously about the fee.
   if (isFeeUnpayableError(raw)) {
     return TRANSACTION_FEE_UNPAYABLE_ERROR;
+  }
+  // Checked AFTER the fee code, since a fee failure is the more specific reading of
+  // an assertion this one deliberately declines to attribute.
+  if (isVaultShortfallError(raw)) {
+    return TRANSACTION_VAULT_SHORTFALL_ERROR;
   }
   return raw;
 }

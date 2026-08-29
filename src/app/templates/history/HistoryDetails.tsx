@@ -46,6 +46,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -425,6 +426,24 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setLoadError(null);
         const tx = await getTransactionById(transactionId);
         const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
+        // The fee's own scale, not MIDEN's hardcoded 6. The fee is paid in the native
+        // asset, whose real symbol and decimals are chain-discovered -- a custom
+        // dev-settings network need not match the brand constant, and formatting a fee
+        // by the wrong decimals misstates money by orders of magnitude. Prefer the fee
+        // faucet's resolved metadata, fall back to chain-truth native metadata, and only
+        // then to the brand.
+        // Only for a row that actually recorded a fee: rows predating fees, and every
+        // row on a zero-fee chain, render no fee line at all, so resolving metadata for
+        // them would be a wasted round trip (and would reach the chain-metadata path
+        // for a figure nothing displays).
+        const resolvedFeeMetadata =
+          tx.feeAmount !== undefined && tx.feeFaucetId ? await getTokenMetadata(tx.feeFaucetId) : undefined;
+        const feeMetadata =
+          tx.feeAmount === undefined
+            ? undefined
+            : resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
+              ? resolvedFeeMetadata
+              : ((await getNativeAssetMetadata()) ?? MIDEN_METADATA);
         console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
         // Bridge metadata (route/provider, EVM destination, per-route status) lives
         // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
@@ -494,7 +513,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               : undefined,
           // Present only on rows recorded since fees were charged, and only on chains
           // that charge -- older rows simply render no fee line.
-          fee: feeTextFromTransaction(tx, MIDEN_METADATA.decimals, MIDEN_METADATA.symbol),
+          fee: feeMetadata ? feeTextFromTransaction(tx, feeMetadata.decimals, feeMetadata.symbol) : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,

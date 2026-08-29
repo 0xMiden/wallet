@@ -235,6 +235,87 @@ describe('native-asset module', () => {
     unsub();
   });
 
+  it('discovers the base fee when the faucet id was already cached', async () => {
+    // The upgrade path for every existing install. The fee key is deliberately NOT a
+    // `v4` bump, so a stored id stays valid and nothing forces a rediscovery -- but
+    // `discover()` is the only place the fee is read, and a cached id short-circuits
+    // it. Without a forced probe the fee stays null forever on exactly the wallets
+    // that already ran, and every guard that fails open on null is permanently inert.
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'native-acc' }),
+      verificationBaseFee: () => 10000
+    };
+
+    await expect(getVerificationBaseFee()).resolves.toBe(10000);
+    expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet']).toBe(10000);
+  });
+
+  it('asks for the base fee once against a node that reports none', async () => {
+    // The bound on the probe above: an SDK build with no `verificationBaseFee`
+    // accessor must not turn every caller into a fresh block-header fetch.
+    _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet'] = 'pre-cached-id';
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'native-acc' }) };
+
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    const afterFirst = _g.__nativeAssetTest.rpcCalls;
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBeNull();
+
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(afterFirst);
+  });
+
+  it('drops a discovered base fee when the endpoint changes', async () => {
+    // The fee belongs to the node that quoted it. Left behind, the sync getter serves
+    // the previous chain's value while the faucet id has already gone null -- so a
+    // wallet moved from a zero-fee chain to a charging one reserves nothing, and the
+    // reverse disables sending outright.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'faucet-A' }),
+      verificationBaseFee: () => 10000
+    };
+    await expect(getVerificationBaseFee()).resolves.toBe(10000);
+
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'faucet-B' }),
+      verificationBaseFee: () => 250
+    };
+
+    expect(getVerificationBaseFeeSync()).toBeNull();
+    await expect(getVerificationBaseFee()).resolves.toBe(250);
+  });
+
+  it('persists a fee discovered across an endpoint switch under its OWN node key', async () => {
+    // Same snapshot rule the faucet id already follows. The fee write happens after two
+    // awaits, so recomputing the key there files node A's fee under node B's scope --
+    // and B then rehydrates A's number as its own.
+    _g.__nativeAssetTest.rpcUrl = 'rpc-A';
+    let resolveA: (h: any) => void = () => {};
+    _g.__nativeAssetTest.deferHeader = new Promise(res => {
+      resolveA = res;
+    });
+    const pA = getNativeAssetId();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(_g.__nativeAssetTest.rpcCalls).toBe(1);
+
+    _g.__nativeAssetTest.rpcUrl = 'rpc-B';
+    _g.__nativeAssetTest.deferHeader = null;
+    _g.__nativeAssetTest.rpcHeader = {
+      feeFaucetId: () => ({ _id: 'faucet-B' }),
+      verificationBaseFee: () => 250
+    };
+    await expect(getNativeAssetId()).resolves.toBe('bech32-faucet-B');
+
+    resolveA({ feeFaucetId: () => ({ _id: 'faucet-A' }), verificationBaseFee: () => 10000 });
+    await expect(pA).resolves.toBe('bech32-faucet-A');
+
+    expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-A|testnet']).toBe(10000);
+    expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-B|testnet']).toBe(250);
+    expect(getVerificationBaseFeeSync()).toBe(250);
+  });
+
   it('does not let a hydrate read parked across an endpoint switch seed the old node id', async () => {
     // A persisted entry exists for node A.
     _g.__nativeAssetTest.storage['native_asset_id:v4:rpc-A|testnet'] = 'stored-A';
@@ -432,21 +513,25 @@ describe('native-asset module', () => {
     expect(getNativeAssetMetadataSync()).toBeNull();
   });
 
-  it('resetNativeAssetCache clears both caches', async () => {
-    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'q' }) };
+  it('resetNativeAssetCache clears all three caches', async () => {
+    _g.__nativeAssetTest.rpcHeader = { feeFaucetId: () => ({ _id: 'q' }), verificationBaseFee: () => 10000 };
     _g.__nativeAssetTest.fetchTokenMetadata.mockResolvedValue({
       base: { symbol: 'Q', decimals: 4, name: 'Q' }
     });
     await getNativeAssetMetadata();
     expect(getNativeAssetIdSync()).toBe('bech32-q');
     expect(getNativeAssetMetadataSync()).toEqual({ symbol: 'Q', decimals: 4 });
+    expect(getVerificationBaseFeeSync()).toBe(10000);
 
     await resetNativeAssetCache();
 
     expect(getNativeAssetIdSync()).toBeNull();
     expect(getNativeAssetMetadataSync()).toBeNull();
+    // The fee is the third cache, and the one a reset used to be asserted without.
+    expect(getVerificationBaseFeeSync()).toBeNull();
     expect(_g.__nativeAssetTest.storage['native_asset_id:v4:rpc-testnet|testnet']).toBeNull();
     expect(_g.__nativeAssetTest.storage['native_asset_meta:v4:rpc-testnet|testnet']).toBeNull();
+    expect(_g.__nativeAssetTest.storage['native_asset_fee:v1:rpc-testnet|testnet']).toBeNull();
   });
 
   it('swallows listener exceptions when emitting', async () => {

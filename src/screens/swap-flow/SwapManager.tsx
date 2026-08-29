@@ -142,6 +142,13 @@ const SwapManager: React.FC = () => {
     !sameToken &&
     hasOfferAmount &&
     !offerAmountExceedsBalance &&
+    // The fee is withdrawn from this account's own vault, so with none of the fee
+    // asset the swap cannot succeed at any amount. `SwapAmounts` already SHOWS this,
+    // but showing it is not blocking it: without this the Continue button stayed
+    // enabled, review opened, and the swap ran through biometric confirmation to an
+    // on-chain failure -- the "reads as a lost transaction" outcome the check exists
+    // to prevent. `hasNoFeeAsset` fails open, so a zero-fee chain is unaffected.
+    !feeAssetMissing &&
     Number(requestAmount) > 0 &&
     validExpiry;
 
@@ -207,6 +214,13 @@ const SwapManager: React.FC = () => {
       setSubmitError(t('swapInvalidAmounts'));
       return;
     }
+    // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
+    // the review screen's Swap button is not gated by `canProceed`, and the balance can
+    // resolve or drain between opening review and tapping it.
+    if (feeAssetMissing) {
+      setSubmitError(t('insufficientFeeAsset'));
+      return;
+    }
     setSubmitting(true);
     // Re-confirm this user-initiated swap with biometrics when enabled (same
     // app-layer gate as the send flow — see confirmSensitiveAction).
@@ -256,6 +270,10 @@ const SwapManager: React.FC = () => {
     expirySecondsValue,
     autoConsume,
     validExpiry,
+    // Read by the fee-asset refusal above. Omitted, the re-check would run against
+    // the first-render value -- before the balance and base fee resolve -- and admit
+    // exactly the swap it exists to stop.
+    feeAssetMissing,
     t
   ]);
 

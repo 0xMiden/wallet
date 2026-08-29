@@ -12,6 +12,7 @@ import { Loader } from 'components/Loader';
 import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
+  initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
   reconcileBridgedReceives,
   requestSWTransactionProcessing,
@@ -111,10 +112,26 @@ const Explore: FC = () => {
       return;
     }
 
-    const promises = notesToClaim.map(async note => {
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-    });
-    await Promise.all(promises);
+    // ONE transaction for the batch, matching the other two native auto-consumers
+    // (`NativeNoteAutoConsumeManager`, the SW sync pass): every consume pays its own
+    // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
+    // This consumer runs on Home and fires on render, so it usually WINS the race
+    // against the others -- leaving it per-note meant the batching those two do was
+    // defeated in the common case. On failure each note is retried alone, which
+    // isolates an un-consumable note instead of letting it throttle its mates through
+    // the shared row's #215 backoff.
+    try {
+      await initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled);
+    } catch (batchErr) {
+      console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+      for (const note of notesToClaim) {
+        try {
+          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+        } catch (noteErr) {
+          console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+        }
+      }
+    }
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
     clearNoteReceivedNotification();

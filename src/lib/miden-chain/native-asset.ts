@@ -49,6 +49,12 @@ let feeMemCache: number | null = null;
 let hydrated = false;
 let inflight: Promise<string> | null = null;
 let metaInflight: Promise<NativeAssetChainMetadata | null> | null = null;
+let feeInflight: Promise<number | null> | null = null;
+// The scope a header read has already been completed for. Distinguishes "this
+// chain reports no fee" from "we never asked": the forced fee discovery below
+// must not re-fetch a header on every call against a node whose SDK build has no
+// `verificationBaseFee` accessor, but must still retry after a read that threw.
+let feeProbedScope: string | null = null;
 
 // The cache scope (RPC URL + network name; see `cacheScope`) the in-memory
 // caches were populated for. The persisted cache is scope-keyed (see
@@ -64,9 +70,17 @@ function invalidateOnEndpointChange(): void {
   if (cachedForScope !== null && cachedForScope !== scope) {
     memCache = null;
     metaMemCache = null;
+    // The fee belongs to the node that quoted it. Left in place, the sync getter
+    // keeps serving the previous chain's value while the faucet id has already
+    // gone null, and `getVerificationBaseFee` returns that stale non-null value
+    // before it can rediscover -- so a wallet moved from a zero-fee chain to a
+    // charging one reserves nothing, and the reverse disables sending.
+    feeMemCache = null;
+    feeProbedScope = null;
     hydrated = false;
     inflight = null;
     metaInflight = null;
+    feeInflight = null;
   }
   cachedForScope = scope;
 }
@@ -115,6 +129,11 @@ async function discover(): Promise<string> {
   // Snapshot the cache key up front so a concurrent endpoint switch can't make
   // us persist this node's faucet id under a different node's key.
   const cacheKey = idCacheKey();
+  // Snapshotted alongside the id key, for the same reason: the fee write below
+  // happens after two awaits, so recomputing the key there files THIS node's fee
+  // under whatever scope is current by then.
+  const feeKey = feeCacheKey();
+  const probedScope = cacheScope();
   const rpc = new RpcClient(getRpcEndpoint());
   const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(undefined), 'native-asset-discover');
   const accountId = header.feeFaucetId();
@@ -146,12 +165,16 @@ async function discover(): Promise<string> {
     if (baseFee !== null) {
       feeMemCache = baseFee;
     }
+    // Records that a header was actually READ for this scope, whether or not it
+    // carried a fee, so the forced discovery in `getVerificationBaseFee` stops
+    // after one attempt against a node that reports none.
+    feeProbedScope = probedScope;
     emit(bech32);
   }
   try {
     await putToStorage(cacheKey, bech32);
     if (baseFee !== null) {
-      await putToStorage(feeCacheKey(), baseFee);
+      await putToStorage(feeKey, baseFee);
     }
   } catch (err) {
     console.warn('native-asset storage write failed', err);
@@ -230,7 +253,39 @@ export async function getVerificationBaseFee(): Promise<number | null> {
     return feeMemCache;
   }
   await getNativeAssetId();
-  return feeMemCache;
+  if (feeMemCache !== null) {
+    return feeMemCache;
+  }
+  // The faucet id resolved WITHOUT a header read -- it was already cached, which is
+  // the normal state of every installation that predates this fee key (the key is
+  // deliberately not a `v4` bump, so the stored id stays valid and nothing forces a
+  // rediscovery). `discover()` is the only place the fee is read, so without this
+  // the fee would stay `null` forever on exactly those wallets, and every guard that
+  // fails open on `null` would be permanently inert. Bounded by `feeProbedScope`, so
+  // a chain that genuinely reports no fee costs one header read rather than one per
+  // caller.
+  if (feeProbedScope === cacheScope()) {
+    return feeMemCache;
+  }
+  if (feeInflight) {
+    return feeInflight;
+  }
+  let pending!: Promise<number | null>;
+  pending = (async () => {
+    try {
+      await discover();
+      return feeMemCache;
+    } catch (err) {
+      // Left unprobed so a transient RPC failure is retried, unlike a header that
+      // simply carried no fee.
+      console.warn('native-asset fee discovery failed', err);
+      return null;
+    } finally {
+      if (feeInflight === pending) feeInflight = null;
+    }
+  })();
+  feeInflight = pending;
+  return pending;
 }
 
 /**
@@ -337,9 +392,11 @@ export async function resetNativeAssetCache(): Promise<void> {
   memCache = null;
   metaMemCache = null;
   feeMemCache = null;
+  feeProbedScope = null;
   hydrated = false;
   inflight = null;
   metaInflight = null;
+  feeInflight = null;
   cachedForScope = null;
   try {
     await Promise.all([

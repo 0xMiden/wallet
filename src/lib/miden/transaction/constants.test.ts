@@ -5,6 +5,7 @@ import {
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
   TRANSACTION_FEE_UNPAYABLE_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
   LOCAL_PROVER_FAILED_ERROR,
@@ -121,20 +122,36 @@ describe('resolveTransactionErrorMessage', () => {
   });
 });
 describe('fee failures', () => {
-  it('names the missing fee asset instead of returning the raw kernel assertion', () => {
-    // The kernel aborts with a vault-shortfall assertion when the account cannot
-    // cover its own fee. Raw, it reads as an internal error and the user is shown
-    // Retry -- which can only fail again, because nothing about the account changed.
-    const err = new Error(
-      'failed to execute transaction kernel program: failed to remove the fungible asset from ' +
-        'the vault since the amount of the asset in the vault is less than the amount to remove'
-    );
-    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+  const vaultShortfall = new Error(
+    'failed to execute transaction kernel program: failed to remove the fungible asset from ' +
+      'the vault since the amount of the asset in the vault is less than the amount to remove'
+  );
+
+  it('does not attribute the generic vault-shortfall assertion to the fee', () => {
+    // The kernel assertion says a vault held less of SOME asset than the transaction
+    // tried to remove -- it does not say which. The fee is one producer; an ordinary
+    // send against a stale local balance is another, and `resolveHeldFungibleAsset`
+    // documents two more. Attributing all of them to the fee told users holding plenty
+    // of MIDEN to "Receive some MIDEN", and called a stale-state failure deterministic
+    // -- talking them out of the resync that actually fixes it.
+    const message = resolveTransactionErrorMessage(vaultShortfall);
+    expect(message).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+    expect(message).not.toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
+  });
+
+  it('still replaces that raw assertion with something a user can act on', () => {
+    // Not attributing it is not the same as passing the kernel text through: raw, it
+    // reads as an internal error. The replacement names both candidates and points at
+    // the resync, without claiming which asset fell short.
+    const message = resolveTransactionErrorMessage(vaultShortfall);
+    expect(message).not.toContain('transaction kernel program');
+    expect(message).toContain('network fee');
   });
 
   it('names a missing fee conversion info abort rather than its numeric error code', () => {
     // ERR_FEE_CONVERSION_INFO_MISSING surfaces only as a hashed code, which tells
-    // the user nothing and tells support even less.
+    // the user nothing and tells support even less. Unlike the assertion above this
+    // one IS unambiguously about the fee, so it keeps the fee-specific message.
     const err = new Error('assertion failed with error code: 14712559985122731094');
     expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_UNPAYABLE_ERROR);
   });

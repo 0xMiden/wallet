@@ -169,6 +169,11 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+  // `interpretTransactionResult` carries type/amount/notes but no fee fields, so this
+  // route — the `execute` and default transaction types — was the one completion path
+  // that recorded no fee, leaving its history row without the fee line every other
+  // type shows.
+  Object.assign(updatedTransaction, feeFieldsFromResult(result));
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.

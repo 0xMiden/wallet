@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { getVerificationBaseFee, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
+import { getVerificationBaseFee, getVerificationBaseFeeSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
 
 /**
  * Returns the chain's per-transaction verification base fee, in the fee asset's
@@ -20,13 +20,32 @@ function useVerificationBaseFee(): number | null {
   useEffect(() => {
     let cancelled = false;
 
-    (async () => {
-      const fee = await getVerificationBaseFee();
-      if (!cancelled) setBaseFee(fee);
-    })();
+    // Never rejects: a discovery failure has to leave the fee `null` (guards fail
+    // open) rather than surface as an unhandled rejection, and the subscription
+    // below is what repairs it once discovery succeeds.
+    const read = async () => {
+      try {
+        const fee = await getVerificationBaseFee();
+        if (!cancelled) setBaseFee(fee);
+      } catch (err) {
+        console.warn('useVerificationBaseFee: base fee read failed', err);
+      }
+    };
+
+    read();
+
+    // The fee belongs to ONE chain, and discovery is what learns it. Without this
+    // the hook kept whatever it read at mount: a screen mounted before discovery
+    // resolved never saw the fee, and an endpoint change left every mounted screen
+    // gating on the previous chain's value. Same signal `useMidenFaucetId`
+    // subscribes to -- `discover()` sets the fee and emits in the same block.
+    const unsub = onNativeAssetChanged(() => {
+      read();
+    });
 
     return () => {
       cancelled = true;
+      unsub();
     };
   }, []);
 

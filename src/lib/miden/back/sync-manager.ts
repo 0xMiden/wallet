@@ -665,14 +665,12 @@ async function runSync(force: boolean): Promise<void> {
       }
 
       // Enqueue the native-note auto-consume computed above (after swap so swap-managed
-      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx
-      // PER NOTE (mirroring the Home-page consumer), NOT a batch: a Miden tx is atomic,
-      // so batching lets a single un-consumable note fail the whole tx and — because the
-      // #215 backoff gate keys on the shared row's noteIds — throttle its healthy
-      // batch-mates (and the frontend consumer) too. Per-note isolates failures. Dedup +
-      // backoff live inside initiateConsumeTransaction, so a repeated ~30s tick never
-      // spawns duplicate rows. Proving follows the user's delegated/local setting via the
-      // SW-readable mirror — like every other proving path in the wallet.
+      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx for
+      // the whole batch, matching the Home-page consumer — see the note below on why the
+      // batch is preferred and what the per-note fallback does. Dedup + backoff live
+      // inside the initiate helpers, so a repeated ~30s tick never spawns duplicate rows.
+      // Proving follows the user's delegated/local setting via the SW-readable mirror —
+      // like every other proving path in the wallet.
       if (nativeAutoConsumeNotes.length > 0) {
         try {
           const delegate = await isDelegateProofEnabledAsync();

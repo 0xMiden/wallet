@@ -49,6 +49,23 @@ export function hasNoFeeAsset(
  */
 export const FEE_RESERVE_MULTIPLE = 30;
 
+/**
+ * Lower bound on what a transaction actually costs, as a multiple of the base fee.
+ *
+ * The same `baseFee x (floor(log2(cycles)) + 1)` charge drives this and
+ * `FEE_RESERVE_MULTIPLE`, from opposite directions: reserving for a send needs an
+ * UPPER bound (30x, so an accepted send cannot fail on its fee), while deciding
+ * whether a note is worth claiming needs a LOWER one (a note must beat the cheapest
+ * fee the claim could possibly cost). Observed transactions land near 17x, so 8x is
+ * deliberately conservative -- it errs toward claiming, which strands nothing.
+ *
+ * One base fee, which is what this used to compare against, is not a candidate for
+ * either bound: it is the per-cycle-tier UNIT, not a transaction's cost. Using it
+ * meant every note between 1x and ~17x passed a check whose entire purpose was to
+ * refuse notes that cost more to claim than they yield.
+ */
+export const MIN_CLAIM_FEE_MULTIPLE = 8;
+
 export function maxSendableNative(balance: number, verificationBaseFee: number | null, decimals: number): number {
   if (verificationBaseFee === null || verificationBaseFee <= 0) {
     return balance;
@@ -65,11 +82,18 @@ export function maxSendableNative(balance: number, verificationBaseFee: number |
  * vector: one fee buys an attacker a batch of dust notes, each of which costs the
  * victim a fee to sweep up.
  *
- * The floor is exactly the fee -- the only threshold that is arithmetically
- * provable rather than a judgement call. A note at or below it cannot profit the
- * holder; a note above it nets something, however little. Anything stricter would
- * start refusing notes a user might reasonably want, which is a product decision
- * rather than arithmetic.
+ * The floor is a CONSERVATIVE LOWER BOUND on the real charge
+ * (`MIN_CLAIM_FEE_MULTIPLE x baseFee`), not the base fee itself. The base fee is the
+ * per-cycle-tier unit rather than a transaction's cost -- the kernel charges
+ * `baseFee x (floor(log2(cycles)) + 1)`, which lands near 17x in practice -- so
+ * comparing a note against one base fee admitted every note between 1x and ~17x at a
+ * net loss, which is exactly the outcome (and the griefing vector) this check exists
+ * to refuse. Erring low keeps the failure mode on the safe side: a marginal note gets
+ * claimed rather than stranded.
+ *
+ * `amount` here is the amount the CLAIM will credit -- callers that batch several
+ * notes into one transaction must pass the batch total, since one transaction pays
+ * one fee.
  *
  * Both arguments are in the asset's smallest unit -- note amounts arrive from the
  * chain unscaled, so unlike the send cap there is no decimals conversion here.
@@ -95,5 +119,7 @@ export function isWorthClaiming(
   } catch {
     return true;
   }
-  return parsed > BigInt(verificationBaseFee);
+  // `Math.trunc` before `BigInt`: a non-integral fee would throw a RangeError here,
+  // and this expression sits OUTSIDE the try above.
+  return parsed > BigInt(Math.trunc(verificationBaseFee)) * BigInt(MIN_CLAIM_FEE_MULTIPLE);
 }

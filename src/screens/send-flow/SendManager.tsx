@@ -11,7 +11,7 @@ import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Na
 import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
-import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
+import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -480,6 +480,28 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     setValue('token', uiToken);
   }, [preselectedTokenId, balanceData, setValue]);
 
+  // What the user may actually send. The fee is withdrawn from this account's own
+  // vault, so the full NATIVE balance is not spendable -- a send of everything is
+  // accepted here and then fails in the epilogue on its own fee, which is the failure
+  // `maxSendableNative` exists to prevent and which nothing was calling it to prevent.
+  // Non-native tokens are unaffected (their fee comes out of a different asset), and
+  // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
+  // the pre-discovery window both keep the full balance.
+  const spendableBalance = useMemo(() => {
+    if (!token) return 0;
+    return nativeFaucetId !== null && token.id === nativeFaucetId
+      ? maxSendableNative(token.balance, verificationBaseFee, token.decimals)
+      : token.balance;
+  }, [token, nativeFaucetId, verificationBaseFee]);
+
+  // Shown on the Amount step so the quoted "Available" is the number the validation
+  // below actually enforces. The form's own `token` keeps the true balance, which is
+  // what review and submit read.
+  const spendableToken = useMemo(
+    () => (token ? { ...token, balance: spendableBalance } : token),
+    [token, spendableBalance]
+  );
+
   // Re-validate the amount whenever the selected token changes. In the new
   // flow the user can type an amount before picking a token, so the balance
   // check in onAmountChange may have run with no token (or a different one).
@@ -493,14 +515,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       // The fee is taken from this account's own vault, so with no native
       // asset the transaction cannot succeed however small the amount.
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
-    } else if (token && parseFloat(amount) > token.balance) {
+    } else if (token && parseFloat(amount) > spendableBalance) {
       setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
     } else {
       clearErrors('amount');
     }
-    // Only re-run when the token changes.
+    // Also re-run when the balances or the chain's fee resolve: both arrive
+    // asynchronously, so an amount typed before they landed was validated against an
+    // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, spendableBalance, balanceData, nativeFaucetId, verificationBaseFee]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -695,7 +719,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
-      } else if (token && amount > token.balance) {
+      } else if (token && amount > spendableBalance) {
         setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
       } else {
         clearErrors('amount');
@@ -706,6 +730,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       token,
       setError,
       clearErrors,
+      // The fee-reserved cap, not the raw balance (see `spendableBalance`).
+      spendableBalance,
       // All three feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
@@ -749,7 +775,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         case SendFlowStep.SelectAmount:
           return (
             <SelectAmount
-              token={token}
+              token={spendableToken}
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
@@ -776,7 +802,10 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       }
     },
     [
-      token,
+      // Rendered as the Amount step's quoted balance. Omitted, the step keeps the
+      // first-render cap -- the full balance, before the fee resolved. `token` itself
+      // is no longer a dependency: it reaches the render only through this value.
+      spendableToken,
       recipientAddress,
       isValidRecipient,
       recents,

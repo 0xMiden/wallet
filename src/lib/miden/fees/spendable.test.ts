@@ -1,6 +1,6 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 
-import { hasNoFeeAsset, isWorthClaiming, maxSendableNative } from './spendable';
+import { hasNoFeeAsset, isWorthClaiming, maxSendableNative, MIN_CLAIM_FEE_MULTIPLE } from './spendable';
 
 const NATIVE = 'mtst1native';
 
@@ -69,16 +69,30 @@ describe('maxSendableNative', () => {
 describe('isWorthClaiming', () => {
   // Unlike the send cap, both sides here are already in base units: a note's
   // amount comes off the chain unscaled, as does the fee. No decimals conversion.
+  const BASE = 10000;
+  // What a claim actually costs, at the conservative lower bound the predicate uses.
+  const FLOOR = BigInt(BASE) * BigInt(MIN_CLAIM_FEE_MULTIPLE);
+
   it('rejects a note worth less than the fee to claim it', () => {
-    expect(isWorthClaiming(9999n, 10000)).toBe(false);
+    expect(isWorthClaiming(FLOOR - 1n, BASE)).toBe(false);
   });
 
   it('rejects a note worth exactly the fee, which nets the user nothing', () => {
-    expect(isWorthClaiming(10000n, 10000)).toBe(false);
+    expect(isWorthClaiming(FLOOR, BASE)).toBe(false);
   });
 
   it('accepts a note worth more than the fee', () => {
-    expect(isWorthClaiming(10001n, 10000)).toBe(true);
+    expect(isWorthClaiming(FLOOR + 1n, BASE)).toBe(true);
+  });
+
+  it('rejects a note that beats ONE base fee but not the fee a claim really costs', () => {
+    // The regression this floor exists to prevent. The kernel charges
+    // `baseFee x (floor(log2(cycles)) + 1)` -- near 17x in practice -- so the base fee
+    // is the per-tier UNIT, not a transaction's cost. Comparing against one base fee
+    // auto-claimed everything between 1x and ~17x at a net LOSS, which is precisely the
+    // outcome (and the dust-flood griefing vector) the check was written to refuse.
+    expect(isWorthClaiming(BigInt(BASE) + 1n, BASE)).toBe(false);
+    expect(isWorthClaiming(BigInt(BASE) * 2n, BASE)).toBe(false);
   });
 
   it('accepts any note on a chain that charges nothing', () => {
@@ -86,8 +100,16 @@ describe('isWorthClaiming', () => {
   });
 
   it('accepts a note whose amount is a decimal string', () => {
-    expect(isWorthClaiming('10001', 10000)).toBe(true);
-    expect(isWorthClaiming('9999', 10000)).toBe(false);
+    expect(isWorthClaiming((FLOOR + 1n).toString(), BASE)).toBe(true);
+    expect(isWorthClaiming((FLOOR - 1n).toString(), BASE)).toBe(false);
+  });
+
+  it('does not throw on a non-integral base fee', () => {
+    // `BigInt(10000.5)` is a RangeError, and this conversion sits outside the guard
+    // that protects the amount parse -- so a fractional fee would take down the
+    // unattended consumer for every note.
+    expect(() => isWorthClaiming(1_000_000n, 10000.5)).not.toThrow();
+    expect(isWorthClaiming(1_000_000n, 10000.5)).toBe(true);
   });
 
   it('accepts a note whose amount is missing rather than crashing the consumer', () => {
