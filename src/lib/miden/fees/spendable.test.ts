@@ -80,6 +80,19 @@ describe('hasNoFeeAsset', () => {
     const balances = [row('TKN', 50), row(NATIVE, 0.001, null)];
     expect(hasNoFeeAsset(balances, NATIVE, 10000)).toBe(false);
   });
+
+  it('fails open on a placeholder scale, which carries a number it invented', () => {
+    // The harder half of the same case, and the one a `typeof decimals === 'number'`
+    // test alone lets through: `DEFAULT_TOKEN_METADATA` ships `decimals: 6` with
+    // `scaleIsUnknown: true`, so the shape looks answerable while the 6 is a guess.
+    // Scaling by it would block the form on arithmetic nobody stated.
+    const placeholder: TokenBalanceData = {
+      tokenId: NATIVE,
+      balance: 0.001,
+      metadata: { decimals: 6, scaleIsUnknown: true }
+    } as TokenBalanceData;
+    expect(hasNoFeeAsset([row('TKN', 50), placeholder], NATIVE, 10000)).toBe(false);
+  });
 });
 
 describe('maxSendableNative', () => {

@@ -1,4 +1,5 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 
 /**
  * Whether a transaction is certain to fail because the account cannot cover the
@@ -52,8 +53,15 @@ export function hasNoFeeAsset(
   // asset's smallest unit -- the same mismatch `maxSendableNative` converts for.
   // An absent or non-finite `decimals` would scale the comparison arbitrarily, so
   // fail open rather than guess.
+  //
+  // `hasKnownScale` is the load-bearing half of that test, not a duplicate of it:
+  // `DEFAULT_TOKEN_METADATA` carries `decimals: 6` with `scaleIsUnknown: true`,
+  // so a placeholder record passes the `typeof` test with an INVENTED scale and
+  // would block the form on arithmetic nobody stated. Both balance builders
+  // hard-wire `MIDEN_METADATA` for the native row today, so this is a latent
+  // shape rather than a live one -- which is exactly when it is cheap to close.
   const decimals = native.metadata?.decimals;
-  if (typeof decimals !== 'number' || !Number.isFinite(decimals)) {
+  if (typeof decimals !== 'number' || !Number.isFinite(decimals) || !hasKnownScale(native.metadata)) {
     return false;
   }
   return native.balance * 10 ** decimals < verificationBaseFee;
