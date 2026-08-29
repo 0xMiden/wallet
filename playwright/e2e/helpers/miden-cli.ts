@@ -441,21 +441,40 @@ export class MidenCli {
       return;
     }
     const funders = await this.importFunders();
-    const funder = funders[0];
-    if (funder === undefined || !this.nativeFaucetId) {
+    if (funders.length === 0 || !this.nativeFaucetId) {
       throw new Error(
         `This chain charges a transaction fee, so ${accountId} must hold the native asset before ` +
           `it can transact, but no genesis funder is available to send it any.`
       );
     }
     await this.sync();
-    const sent = await this.run(
-      `transfer --sender ${funder} --target ${accountId} ` +
-        `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
-      { timeoutMs: 180_000 }
-    );
-    if (sent.exitCode !== 0) {
-      throw new Error(`Could not send ${accountId} its fee funding from ${funder}: ${sent.stderr}`);
+
+    // Try EVERY funder, not just the first. Each genesis funder holds a fixed balance, and a
+    // long session drains one: repeated suite runs at FUNDING_MIDEN per account add up, and
+    // every transfer also costs the funder its own fee. Draining the only funder surfaced as
+    // a bare `cli::client_error`, which reads like a CLI bug rather than an empty wallet, and
+    // took out every spec that funded after it.
+    const failures: string[] = [];
+    let funded = false;
+    for (const funder of funders) {
+      const sent = await this.run(
+        `transfer --sender ${funder} --target ${accountId} ` +
+          `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
+        { timeoutMs: 180_000 }
+      );
+      if (sent.exitCode === 0) {
+        funded = true;
+        break;
+      }
+      failures.push(`${funder}: ${sent.stderr.trim().slice(0, 200)}`);
+    }
+    if (!funded) {
+      throw new Error(
+        `Could not send ${accountId} its fee funding from any of ${funders.length} genesis funder(s). ` +
+          `If they all report an empty vault, the local chain has been drained by repeated runs and ` +
+          `needs re-genesising: restart the node with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set.\n  ` +
+          failures.join('\n  ')
+      );
     }
     this.fundedForFees.add(accountId);
     await this.sync();
