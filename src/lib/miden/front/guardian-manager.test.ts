@@ -41,7 +41,17 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // tolerated: the guard's whole job is to run between the account read and every read
 // derived from it, and a mock that dropped the argument could not tell whether it did.
 const TEST_HOLD = { label: 'test-hold' };
-const mockAssertWasmHoldCurrent = jest.fn();
+// Set by the one test that needs the watchdog to land during the account read, so
+// the guard has something real to refuse. A jest.fn() that never throws can only
+// answer "was it called", which a guard moved to a useless place would also
+// satisfy; this makes the refusal itself observable.
+let currentWasmHold: object | null = TEST_HOLD;
+const mockAssertWasmHoldCurrent = jest.fn((...args: unknown[]) => {
+  const [hold, where] = args;
+  if (currentWasmHold === hold) return;
+  const { WasmClientPoisonedError } = jest.requireActual('../sdk/wasm-client-poison');
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${String(where)}`));
+});
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   withWasmClientLock: async <T>(fn: (hold: unknown) => Promise<T>) => fn(TEST_HOLD),
@@ -88,6 +98,7 @@ describe('guardian-manager', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearGuardianCache();
+    currentWasmHold = TEST_HOLD;
     mockFetchFromStorage.mockResolvedValue('https://default.guardian.test');
     mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc' });
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'acc-id' }) });
@@ -309,6 +320,34 @@ describe('guardian-manager', () => {
       await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow(
         'Account not found in local storage'
       );
+    });
+
+    /**
+     * The account read and the signer-details read are ONE hold, with a liveness
+     * re-check between them.
+     *
+     * They used to be two: the account came back from one hold, the hold released,
+     * and `getSignerDetailsFromAccount` then read through a handle borrowed from a
+     * client the mutex had already handed on. The re-check is what makes the single
+     * hold worth having — without it the merge only narrows the window instead of
+     * closing it.
+     *
+     * Asserted by REFUSAL, not by "the guard was called": the signer read must not
+     * happen, and the failure must arrive as poison so the caller treats it as an
+     * abandoned operation rather than a missing account.
+     */
+    it('refuses the signer-details read when the account read was evicted', async () => {
+      mockGetAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { id: () => ({ toString: () => 'acc-id' }) };
+      });
+      const provider = makeProvider([guardianAccount]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
   });
 

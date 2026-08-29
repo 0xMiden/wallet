@@ -939,6 +939,45 @@ describe('finalizeDirectGuardianSwitch', () => {
     expect(mockGuardianConfigure).not.toHaveBeenCalled();
   });
 
+  /**
+   * The ACCOUNT READ is a parking await of its own, and the guard after the sync
+   * does not cover it.
+   *
+   * Everything downstream of this read borrows the returned handle from the
+   * client's RefCell — `AccountInspector.fromAccount`, `account.serialize()`, the
+   * guardian-slot read — so after an eviction those are second borrows of a client
+   * the watchdog has already handed to a successor. And the bytes they produce are
+   * the highest-stakes payload in the change: the account's authoritative state
+   * and its new signer allowlist, POSTed to the operator.
+   *
+   * It escapes as a poison error and deliberately NOT as a preflight error, per
+   * `asPreflight`'s documented exception: the preflight tag means "refused before
+   * contacting the operator, refund and carry on", and carrying on is the one
+   * thing a caller must not do after an eviction.
+   */
+  it('stops at the post-account-read hold re-check instead of deriving the payload from a borrowed handle', async () => {
+    // The read RESOLVES — a handle really does come back — and the watchdog lands
+    // while it was suspended. That is the shape the guard exists for; a rejecting
+    // read is the case the test above already covers.
+    mockProxyGetAccount.mockImplementation(async () => {
+      currentWasmHold = null;
+      return sdkAccount;
+    });
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(isGuardianRegistrationPreflightError(error)).toBe(false);
+    // The three reads that borrow the handle, none of them reached.
+    expect(mockedMultisigClient.AccountInspector.fromAccount).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
   it('tags a failing local sync as preflight too', async () => {
     mockProxySyncState.mockRejectedValue(new Error('rpc unavailable'));
 

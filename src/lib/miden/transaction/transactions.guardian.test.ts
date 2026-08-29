@@ -5992,6 +5992,40 @@ describe('ensureGuardianProcedureThresholds', () => {
     await expect(ensureGuardianProcedureThresholds('guardian-acc', false, {} as never)).resolves.toBeUndefined();
     expect(txStore).toHaveLength(0);
   });
+
+  /**
+   * The ONE exception to the blanket "never throws" above, and the reason it is an
+   * exception rather than an inconsistency.
+   *
+   * Every other failure here is about the guardian or the account, and swallowing
+   * it is right: the hardening is opportunistic and its caller has real work to
+   * finish. A poison error is not about either. It says the realm's WASM client was
+   * taken away mid-call, and the caller's very next act — on the sync path, another
+   * account's hold one iteration later — is a second borrow of a client somebody
+   * else now owns. Swallowed into a `console.warn` returning `undefined`, that
+   * reads to the caller as "already hardened, carry on", which is the one
+   * conclusion the eviction rules out.
+   */
+  it('re-throws a poison error instead of swallowing it as "nothing to harden"', async () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    mockGetOrCreateMultisigService.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    await expect(ensureGuardianProcedureThresholds('guardian-acc', false, {} as never)).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    expect(txStore).toHaveLength(0);
+  });
+
+  // The cadence-driven caller asks for the two-minute SYNC ceiling rather than the
+  // five-minute default backstop, because it runs every ~3s: a hold parked for
+  // five minutes there is a hundred laps of nothing.
+  it('threads the sync-ceiling request through to the service build', async () => {
+    mockGetOrCreateMultisigService.mockResolvedValue({ getProcedureThreshold: () => 2 });
+
+    await ensureGuardianProcedureThresholds('guardian-acc', false, {} as never, true);
+
+    expect(mockGetOrCreateMultisigService).toHaveBeenCalledWith('guardian-acc', expect.anything(), true);
+  });
 });
 
 // The one commit-wait failure where "finalize anyway" inverts. A timeout leaves

@@ -3182,6 +3182,20 @@ describe('syncGuardianAccounts — guards a mutation probe found unexercised', (
     expect(mockGetOrCreateMultisigService).not.toHaveBeenCalled();
   });
 
+  // And it BOOKS the eviction on the way out. Breaking without booking is the
+  // half-fix: the pass stops this lap, and the next lap ~3s later re-parks against
+  // the same node because nothing accumulated toward the threshold that stretches
+  // the cadence. This assertion is what the break alone cannot make.
+  it('books the outer catch poison on the account s own recheck fuse', async () => {
+    const key = pendingRotationRecheckFuseKey(only.publicKey);
+    mockListUnconfirmedSwitchRows.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i += 1) await syncGuardianAccounts();
+
+    // The threshold reached from nothing but outer-catch evictions.
+    expect(isSyncFused(key)).toBe(true);
+  });
+
   /**
    * The hardening self-heal's eviction, which reached NONE of this.
    *

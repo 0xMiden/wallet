@@ -610,6 +610,56 @@ describe('MultisigService', () => {
       await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
     });
 
+    /**
+     * `onBeforeRegister` exists so a caller with an attempt budget can tell the two
+     * halves of this method apart, and it is only worth anything if it fires on the
+     * right SIDE of the POST. Everything above it is a local WASM hold containing a
+     * `syncState()` — the likeliest await here to park — so a caller that flipped
+     * its "attempted" flag before calling charged the operator for a request never
+     * issued.
+     *
+     * Asserted through the call ORDER rather than "was called": a callback invoked
+     * at the top of the method also gets called, and would satisfy any weaker
+     * assertion while restoring exactly the bug it was added to fix.
+     */
+    it('fires onBeforeRegister after the local reads and immediately before the POST', async () => {
+      const order: string[] = [];
+      const registerOnGuardian = jest.fn(async () => {
+        order.push('register');
+      });
+      const multisig = makeMultisig({ registerOnGuardian });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockSyncState.mockImplementationOnce(async () => {
+        order.push('sync');
+      });
+      mockGetAccount.mockImplementation(async () => {
+        order.push('read');
+        return { serialize: () => new Uint8Array([1]) };
+      });
+
+      await service.reRegisterCurrentStateOnGuardian(() => order.push('before-register'));
+
+      expect(order).toEqual(['sync', 'read', 'before-register', 'register']);
+    });
+
+    // The budget half of the same contract: an eviction inside the hold must leave
+    // the callback UNFIRED, because that is what makes the attempt refundable.
+    it('does not fire onBeforeRegister when the hold is evicted before the POST', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const onBeforeRegister = jest.fn();
+      mockGetAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { serialize: () => new Uint8Array([1]) };
+      });
+
+      await expect(service.reRegisterCurrentStateOnGuardian(onBeforeRegister)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(onBeforeRegister).not.toHaveBeenCalled();
+      expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
+    });
+
     it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
       // The multisig was loaded from a possibly-stale guardian blob, so its
       // cached signerCommitments still hold the PRE-rotation [old-hot, cold].
