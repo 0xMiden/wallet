@@ -138,6 +138,13 @@ jest.mock('../sdk/miden-client', () => {
   };
 });
 
+// The Guardian custom-proposal build now reads the chain's fee faucet to commit
+// fee conversion info into the request's auth args. Mocked to a fixed id so the
+// argument assertions below can pin that it is actually passed through.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000')
+}));
+
 jest.mock('lib/intercom', () => ({
   getIntercom: () => ({ broadcast: jest.fn(), request: jest.fn() })
 }));
@@ -917,7 +924,8 @@ describe('generateTransaction — Guardian routing', () => {
         'faucet',
         1000n,
         expectedSdkNoteType,
-        125
+        125,
+        '0xfee0000000000000000000000000000000'
       );
       expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -984,7 +992,8 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
-      125
+      125,
+      '0xfee0000000000000000000000000000000'
     );
   });
 
@@ -1115,7 +1124,8 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
-      230
+      230,
+      '0xfee0000000000000000000000000000000'
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -1180,7 +1190,8 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
-      125
+      125,
+      '0xfee0000000000000000000000000000000'
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -1257,7 +1268,8 @@ describe('generateTransaction — Guardian routing', () => {
       'faucet',
       1000n,
       'Public',
-      225
+      225,
+      '0xfee0000000000000000000000000000000'
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });

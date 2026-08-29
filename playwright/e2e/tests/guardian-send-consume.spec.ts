@@ -161,8 +161,14 @@ test.describe('Guardian account - consume + send', () => {
         // pending, or a send that credits B without debiting A, fails here.
         // Exact (rather than the "debited by at least" form the transfer helper
         // uses) is safe because a Miden fee is charged in the NATIVE asset, never
-        // in TST — these accounts hold no native balance at all, so nothing but
-        // the send itself can move A's TST.
+        // in TST, so nothing but the send itself can move A's TST.
+        //
+        // NOT because the account is nativeless: it used to be, and this comment
+        // used to say so, but `MidenCli.mint()` now calls `fundAccountForFees`, so
+        // A holds MIDEN throughout. The exactness rests on the ASSET SPLIT alone.
+        // What that means is that this assertion cannot see the fee at all — a fee
+        // of zero, of 100x, or charged to the wrong account all leave it green.
+        // `fee-accounting.spec.ts` is what covers that.
         await waitForVaultBalance(walletA.page, TOKEN, MINT_BASE_UNITS - SEND_BASE_UNITS, {
           timeoutMs: 120_000,
           decimals: TOKEN_DECIMALS

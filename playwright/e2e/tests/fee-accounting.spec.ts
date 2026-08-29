@@ -1,11 +1,12 @@
 import { expect, test } from '../fixtures/two-wallets';
 import {
-  faucetIdForSymbol,
   toBaseUnits,
   vaultBalance,
+  vaultBalanceByFaucet,
   waitForPendingNoteTotal,
   waitForVaultBalance,
-  walletDiscoveredBaseFee
+  walletDiscoveredBaseFee,
+  walletDiscoveredNativeFaucetId
 } from '../helpers/balance-truth';
 import { readTransactionRows } from '../helpers/history';
 
@@ -32,7 +33,6 @@ import { readTransactionRows } from '../helpers/history';
 // inflated rate, would still transfer correctly and would pass every other spec.
 const TOKEN = 'TST';
 const TOKEN_DECIMALS = 8;
-const NATIVE = 'MIDEN';
 const MINT_BASE_UNITS = 100_000_000_000n;
 const SEND_AMOUNT = '500';
 const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
@@ -80,7 +80,7 @@ test.describe('Fee accounting', () => {
     // on any chain, and it doubles as an assertion that fee discovery works: a
     // wallet that never learned the base fee cannot reserve for one either.
     let baseFee: number | null = null;
-    let nativeFaucetId: string | undefined;
+    let nativeFaucetId: string | null = null;
     let nativeBefore = 0n;
     let nativeBeforeB = 0n;
     let tokenBefore = 0n;
@@ -93,9 +93,13 @@ test.describe('Fee accounting', () => {
           'both depend on it, so this is a real failure and not a property of the chain'
       ).not.toBeNull();
 
-      nativeFaucetId = await faucetIdForSymbol(walletA.page, NATIVE);
-      nativeBefore = await vaultBalance(walletA.page, NATIVE);
-      nativeBeforeB = await vaultBalance(walletB.page, NATIVE);
+      nativeFaucetId = await walletDiscoveredNativeFaucetId(walletA.page);
+      expect(
+        nativeFaucetId,
+        'the wallet never discovered the chain native/fee faucet id; the fee asset cannot be identified without it'
+      ).not.toBeNull();
+      nativeBefore = await vaultBalanceByFaucet(walletA.page, nativeFaucetId!);
+      nativeBeforeB = await vaultBalanceByFaucet(walletB.page, nativeFaucetId!);
       tokenBefore = await vaultBalance(walletA.page, TOKEN);
 
       timeline.emit({
@@ -137,9 +141,10 @@ test.describe('Fee accounting', () => {
             'below were NOT exercised. This run is not evidence that fees work.'
         });
         expect(send!.feeAmount, 'a zero-fee chain must not record a fee').toBeUndefined();
-        expect(await vaultBalance(walletA.page, NATIVE), 'a zero-fee chain must not move the native balance').toBe(
-          nativeBefore
-        );
+        expect(
+          await vaultBalanceByFaucet(walletA.page, nativeFaucetId!),
+          'a zero-fee chain must not move the native balance'
+        ).toBe(nativeBefore);
         return;
       }
 
@@ -158,13 +163,12 @@ test.describe('Fee accounting', () => {
 
       // 3. RIGHT ASSET. Paid in the native asset, not some other fungible the caller
       //    could have named through the auth args.
-      expect(nativeFaucetId, 'wallet A holds no native asset row to compare the fee faucet against').toBeDefined();
       expect(send!.feeFaucetId, 'fee was paid in a non-native asset').toBe(nativeFaucetId);
 
       // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
       //    rest of the suite cannot make: the sender's NATIVE balance falls by the
       //    fee, while its TOKEN balance falls by the transfer, independently.
-      const nativeAfter = await vaultBalance(walletA.page, NATIVE);
+      const nativeAfter = await vaultBalanceByFaucet(walletA.page, nativeFaucetId!);
       expect(
         nativeBefore - nativeAfter,
         `sender's native balance moved by ${nativeBefore - nativeAfter} but the row records a fee of ${feePaid}`
@@ -179,7 +183,7 @@ test.describe('Fee accounting', () => {
       //    the fee leaves the native (acting) account, but that is the property under
       //    test -- assert it observably rather than trusting it.
       expect(
-        await vaultBalance(walletB.page, NATIVE),
+        await vaultBalanceByFaucet(walletB.page, nativeFaucetId!),
         "recipient's native balance moved during a send it did not make"
       ).toBe(nativeBeforeB);
 

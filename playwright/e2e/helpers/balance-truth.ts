@@ -363,3 +363,57 @@ export async function walletDiscoveredBaseFee(page: Page): Promise<number | null
     return typeof v === 'number' ? v : null;
   });
 }
+
+/**
+ * The chain's native (fee) faucet id as the WALLET discovered it, or `null`.
+ *
+ * Read from the extension's own cache (`native_asset_id:v4:<scope>`). Preferred
+ * over looking the row up by symbol: the native asset's symbol comes from chain
+ * metadata that a local chain need not supply, so a symbol lookup can miss on a
+ * wallet that knows the faucet perfectly well.
+ */
+export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const key = Object.keys(all).find(k => k.startsWith('native_asset_id:'));
+    const v = key === undefined ? null : all[key];
+    return typeof v === 'string' ? v : null;
+  });
+}
+
+/**
+ * Spendable vault balance for one FAUCET id, in base units.
+ *
+ * The faucet-keyed counterpart of `vaultBalance`. Assertions about a fee want the
+ * asset the fee was actually paid in, which the transaction row names by faucet id
+ * -- matching on that directly cannot be defeated by two faucets sharing a symbol,
+ * or by a chain that ships no symbol at all.
+ */
+export async function vaultBalanceByFaucet(page: Page, faucetId: string): Promise<bigint> {
+  const raw = await page.evaluate(
+    ({ wanted }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const state = (window as any).__TEST_STORE__?.getState?.();
+      for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
+        if (!Array.isArray(tokenList)) continue;
+        for (const token of tokenList) {
+          if (String(token?.faucetId ?? '') !== wanted) continue;
+          return {
+            amount: String(token?.amountBaseUnits ?? token?.balance ?? '0'),
+            decimals: Number(token?.metadata?.decimals ?? 0)
+          };
+        }
+      }
+      return null;
+    },
+    { wanted: faucetId }
+  );
+  if (raw === null) return 0n;
+  // `amountBaseUnits` is already base units; a `balance` fallback is a display
+  // number and has to be scaled, so distinguish rather than trusting whichever
+  // field happened to be present.
+  return /^\d+$/.test(raw.amount) ? BigInt(raw.amount) : toBaseUnits(raw.amount, raw.decimals);
+}

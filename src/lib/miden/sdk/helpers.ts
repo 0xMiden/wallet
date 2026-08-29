@@ -2,6 +2,8 @@ import {
   Account,
   AccountId,
   Address,
+  FeeConversionInfo,
+  Felt,
   FungibleAsset,
   Note,
   NoteArray,
@@ -9,7 +11,8 @@ import {
   NoteAttachment,
   NoteType,
   TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequestBuilder,
+  Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNetworkId } from 'lib/miden-chain/constants';
@@ -225,6 +228,19 @@ export function resolveHeldFungibleAsset(
  * chain reads a P2ID attachment, but a reader that treats any attachment word
  * as a payload must skip this one — see `attachmentOrderAndDepth`.
  */
+/**
+ * A fresh salt for a fee-conversion commitment.
+ *
+ * Four field elements from the CSPRNG, each masked to 63 bits so it is always
+ * below the field modulus (2^64 - 2^32 + 1) without rejection sampling — the
+ * commitment only needs the salt to be unpredictable and non-repeating.
+ */
+function randomFeeSalt(): Word {
+  const raw = new BigUint64Array(4);
+  crypto.getRandomValues(raw);
+  return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
+}
+
 export function buildSendTransactionRequest(
   senderAccount: Account | undefined,
   sender: AccountId,
@@ -232,7 +248,8 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
-  reclaimAfter?: number
+  reclaimAfter?: number,
+  feeFaucetId?: string
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -240,7 +257,26 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  const builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and conversion rate
+  // from the AUTH ARGS, and aborts with "paying a non-zero fee requires conversion
+  // info committed via the auth args" when they are absent. The client injects that
+  // for accounts whose auth args it owns — but a multisig account's auth arg is the
+  // multisig's own, so a request built here for a Guardian proposal has to commit it
+  // explicitly or the transaction cannot execute on a fee-charging chain.
+  //
+  // Only the Guardian CUSTOM-proposal path needs this: the typed proposal APIs
+  // commit their own conversion info. Generating the salt here (rather than taking
+  // it) is safe precisely because this request's bytes are built once, persisted on
+  // the row, and reused verbatim for both the proposal and its execution — so the
+  // commitment stays stable across the retry that reuses them.
+  if (feeFaucetId !== undefined) {
+    // `accountRefToSdk`, not `AccountId.fromHex`: the wallet's native-asset id is a
+    // bech32 address, and fromHex rejects it with "expected hex data to have length
+    // 32 ... found 49". The shared resolver accepts both forms.
+    builder.withFeeConversionInfo(FeeConversionInfo.oneToOne(accountRefToSdk(feeFaucetId)), randomFeeSalt());
+  }
+  return builder.build();
 }
 
 /**

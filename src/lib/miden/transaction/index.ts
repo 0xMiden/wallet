@@ -26,6 +26,7 @@ import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
@@ -1503,6 +1504,16 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
+    // The chain's fee faucet, committed into the request's auth args. A Guardian
+    // custom proposal carries the auth arg the request was BUILT with -- the client
+    // cannot inject one, because on a multisig account that slot belongs to the
+    // multisig. Without it `fee::pay_fee` aborts with "paying a non-zero fee requires
+    // conversion info committed via the auth args" and the recallable send dies at
+    // `creating-proposal`, while the plain (typed-proposal) send beside it succeeds --
+    // which is what made this look like a guardian-server problem rather than a gap
+    // on this one path.
+    const feeFaucetId = await getNativeAssetId();
+    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the fee faucet read');
     return buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
@@ -1513,7 +1524,8 @@ const ensureGuardianRecallableSendRequestBytes = async (
       faucetId,
       amount,
       noteType,
-      syncHeight + recallBlocks
+      syncHeight + recallBlocks,
+      feeFaucetId
     ).serialize();
   });
   transaction.requestBytes = requestBytes;
