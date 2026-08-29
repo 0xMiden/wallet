@@ -102,6 +102,12 @@ test.describe('Fee accounting', () => {
       nativeBeforeB = await vaultBalanceByFaucet(walletB.page, nativeFaucetId!);
       tokenBefore = await vaultBalance(walletA.page, TOKEN);
 
+      expect(
+        nativeBefore,
+        `wallet A holds no balance under the native faucet ${nativeFaucetId} — the faucet-keyed lookup ` +
+          'found nothing, so the fee deltas below would compare against a default of 0 and mean nothing'
+      ).toBeGreaterThan(0n);
+
       timeline.emit({
         category: 'blockchain_state',
         severity: 'info',
@@ -163,7 +169,15 @@ test.describe('Fee accounting', () => {
 
       // 3. RIGHT ASSET. Paid in the native asset, not some other fungible the caller
       //    could have named through the auth args.
-      expect(send!.feeFaucetId, 'fee was paid in a non-native asset').toBe(nativeFaucetId);
+      // NOT a direct id comparison. The row stores `String(AccountId)` (canonical
+      // hex) while the wallet caches the native asset id as bech32, so comparing
+      // them compares two ENCODINGS of the same account and can never pass. The
+      // property that matters -- "the fee came out of the native asset" -- is
+      // established by the two balance deltas below instead: the native balance
+      // falls by exactly the recorded fee, and the transferred token falls by
+      // exactly the amount sent, so no third asset moved and the fee cannot have
+      // been taken in the transferred one.
+      expect(send!.feeFaucetId, 'the row records no fee faucet').toBeTruthy();
 
       // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
       //    rest of the suite cannot make: the sender's NATIVE balance falls by the

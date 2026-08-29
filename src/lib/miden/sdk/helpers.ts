@@ -257,7 +257,7 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  const builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  const base = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
   // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and conversion rate
   // from the AUTH ARGS, and aborts with "paying a non-zero fee requires conversion
   // info committed via the auth args" when they are absent. The client injects that
@@ -270,12 +270,19 @@ export function buildSendTransactionRequest(
   // it) is safe precisely because this request's bytes are built once, persisted on
   // the row, and reused verbatim for both the proposal and its execution — so the
   // commitment stays stable across the retry that reuses them.
-  if (feeFaucetId !== undefined) {
-    // `accountRefToSdk`, not `AccountId.fromHex`: the wallet's native-asset id is a
-    // bech32 address, and fromHex rejects it with "expected hex data to have length
-    // 32 ... found 49". The shared resolver accepts both forms.
-    builder.withFeeConversionInfo(FeeConversionInfo.oneToOne(accountRefToSdk(feeFaucetId)), randomFeeSalt());
-  }
+  // Reassigned, never called for its side effect: these builder methods are
+  // wasm-bindgen MOVES. They consume the handle and return a new one, so discarding
+  // the return value both drops the fee info AND leaves `base` moved-from -- the
+  // next call on it traps with a bare `RuntimeError` inside the WASM lock, which
+  // surfaces as "the wallet had to recover its transaction engine" and names nothing.
+  //
+  // `accountRefToSdk`, not `AccountId.fromHex`: the wallet's native-asset id is a
+  // bech32 address, and fromHex rejects it with "expected hex data to have length
+  // 32 ... found 49". The shared resolver accepts both forms.
+  const builder =
+    feeFaucetId === undefined
+      ? base
+      : base.withFeeConversionInfo(FeeConversionInfo.oneToOne(accountRefToSdk(feeFaucetId)), randomFeeSalt());
   return builder.build();
 }
 
