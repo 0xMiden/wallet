@@ -1,6 +1,6 @@
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
-import { vaultBalance } from '../helpers/balance-truth';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // The guardian this spec creates against — same source guardian-recovery uses.
 const GUARDIAN_URL = getEnvironmentConfig().guardianUrl;
@@ -65,8 +65,6 @@ const BACKUP_PROMPT_TITLE = 'Verify your recovery phrase';
 const VERDICT_WRONG = "That's not the first and last word — tap them again";
 const VERDICT_CORRECT = "That's the first and last word — tap Continue";
 
-const NATIVE_SYMBOL = 'MIDEN';
-
 test.describe('Seed Phrase Backup and Verification', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -97,30 +95,7 @@ test.describe('Seed Phrase Backup and Verification', () => {
       // credit lands before `pay_fee` withdraws.
       //
       // No-op on a chain that charges nothing, so this spec stays fast there.
-      await midenCli.init();
-      await midenCli.fundAccountForFees(addressA);
-
-      // Claim in a loop rather than once. `claimAllNotes` exits when it sees an empty
-      // pending list twice, so calling it the instant after funding can return having
-      // drained nothing -- the note has not reached the wallet yet. That is what made the
-      // first version of this fix a no-op: it looked like it funded, and the rotation
-      // still failed with an empty vault.
-      let nativeBalance = 0n;
-      for (let attempt = 0; attempt < 12 && nativeBalance === 0n; attempt++) {
-        await walletA.claimAllNotes(60_000).catch(() => {
-          // Not yet visible; the poll below decides whether to keep waiting.
-        });
-        nativeBalance = await vaultBalance(walletA.page, NATIVE_SYMBOL);
-        if (nativeBalance === 0n) await walletA.page.waitForTimeout(5_000);
-      }
-
-      // Assert rather than proceed hopefully. Without this the spec fails 30s later at the
-      // rotation gate with a kernel assertion code, which says nothing about the real
-      // cause -- an unfunded account. On a zero-fee chain funding is skipped by design, so
-      // only require a balance when the chain actually charges.
-      if (await midenCli.chainCharges()) {
-        expect(nativeBalance, 'wallet A was never funded for fees; the rotation below cannot pay').toBeGreaterThan(0n);
-      }
+      await ensureFeeFunded(midenCli, walletA, addressA);
     });
 
     await steps.step('home_offers_the_backup_prompt', async () => {
