@@ -158,6 +158,7 @@
   "privateKeyRevealAcknowledge": "I understand this key cannot be rotated or revoked.",
   "encryptedFileImportedAccountsOmitted": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
   "editAccountName": "Edit Account Name",
+  "invalidAccountName": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name.",
   "delegate": "Delegate",
   "receive": "Receive",
   "send": "Send",

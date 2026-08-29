@@ -1,9 +1,9 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
-import { setCardColor, useCardColor } from 'lib/settings/card-color';
+import { initializeAccountCardColors, setCardColor, useCardColor } from 'lib/settings/card-color';
 import { CARD_COLORS } from 'lib/settings/constants';
 import { navigate } from 'lib/woozie';
 
@@ -33,14 +33,17 @@ jest.mock('lib/woozie', () => ({
 }));
 
 jest.mock('lib/settings/card-color', () => ({
+  getCardColor: jest.fn((accountId: string) => (accountId === 'mtst1secondary' ? 'orange' : 'slate')),
+  initializeAccountCardColors: jest.fn(),
   setCardColor: jest.fn(),
-  useCardColor: jest.fn(() => 'slate')
+  useCardColor: jest.fn((_accountId?: string) => 'slate')
 }));
 
 const mockUpdateCurrentAccount = jest.fn(() => Promise.resolve());
+const mockEditAccountName = jest.fn(() => Promise.resolve());
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ updateCurrentAccount: mockUpdateCurrentAccount })
+  useMidenContext: () => ({ editAccountName: mockEditAccountName, updateCurrentAccount: mockUpdateCurrentAccount })
 }));
 
 const mockAccounts = [
@@ -161,7 +164,7 @@ describe('AccountsDrawer', () => {
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(setCardColor).toHaveBeenCalledTimes(1);
-    expect(setCardColor).toHaveBeenCalledWith('green');
+    expect(setCardColor).toHaveBeenCalledWith('mtst1primary', 'green');
   });
 
   it('closes the drawer, fires haptics, and navigates on Settings click', () => {
@@ -196,6 +199,9 @@ describe('AccountsDrawer', () => {
     expect(rows[0]!.querySelector('[data-name="Checkmark"]')).not.toBeNull();
     expect(rows[1]!.getAttribute('aria-checked')).toBe('false');
     expect(rows[1]!.querySelector('[data-name="Checkmark"]')).toBeNull();
+    expect(rows[0]!.querySelector('.bg-card-slate')).not.toBeNull();
+    expect(rows[1]!.querySelector('.bg-card-orange')).not.toBeNull();
+    expect(initializeAccountCardColors).toHaveBeenCalledWith(['mtst1primary', 'mtst1secondary']);
   });
 
   it('switches to the tapped account and closes the drawer', () => {
@@ -217,5 +223,30 @@ describe('AccountsDrawer', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mockUpdateCurrentAccount).not.toHaveBeenCalled();
+  });
+
+  it('renames an account inline without switching accounts', async () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    const nameInput = screen.getByRole('textbox', { name: 'editAccountName' });
+    fireEvent.change(nameInput, { target: { value: 'Savings' } });
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+
+    await waitFor(() => expect(mockEditAccountName).toHaveBeenCalledWith('mtst1secondary', 'Savings'));
+    expect(mockUpdateCurrentAccount).not.toHaveBeenCalled();
+    expect(hapticLight).toHaveBeenCalledTimes(2);
+  });
+
+  it('disables rename confirmation for a duplicate account name', () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'editAccountName' }), {
+      target: { value: 'Account 1' }
+    });
+
+    expect(screen.getByRole('button', { name: 'confirm' }).hasAttribute('disabled')).toBe(true);
+    expect(mockEditAccountName).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { useCardColor } from 'lib/settings/card-color';
 import { WalletType } from 'screens/onboarding/types';
 
 import { BalanceCard } from './BalanceCard';
@@ -32,7 +33,7 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/settings/card-color', () => ({
-  useCardColor: () => 'slate'
+  useCardColor: jest.fn((_accountId?: string) => 'slate')
 }));
 
 /* jsdom has no layout engine, so the fit-to-width hook's measurements are
@@ -216,6 +217,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     expect(screen.getByText('EUR')).toBeTruthy();
     expect(screen.getByText('balanceCardAccount')).toBeTruthy();
+    expect(useCardColor).toHaveBeenCalledWith('mtst1aqgfullaccountid940z');
   });
 
   it.each([
