@@ -154,10 +154,25 @@ type AttemptState = {
   attempts: number;
   lastAttemptAt: number;
   closed: boolean;
+  /**
+   * Identity of THIS incarnation of the subject, so a handle can tell "my entry"
+   * from "an entry that happens to live at my key".
+   *
+   * `write`'s existence check alone was not enough. It makes a cleared subject
+   * stay cleared, which is right, but `begin` re-seeds the entry — so a `clear`
+   * followed by a fresh `begin` gave a stale handle a live entry to write to, and
+   * its settle then operated on somebody else's count: a late `'refunded'`
+   * subtracted its own charge from the new incarnation (erasing a real attempt),
+   * and a late `'closed'` spent a budget the new incarnation had just opened.
+   * Single-flight per subject is the intended discipline; as with the live-count
+   * read below, this ledger does not assume it.
+   */
+  incarnation: number;
 };
 
 export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
+  let nextIncarnation = 1;
   // Lazy property read, NOT a captured `Date.now` reference: ledgers are
   // module-scoped, so a captured reference would be bound before any test's
   // `jest.spyOn(Date, 'now')` and every timing test would silently run on the
@@ -181,12 +196,18 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
     begin(subject, now = readClock()) {
       const key = subjectKey(subject);
       const existing = state.get(key);
+      // Carried forward while the entry survives, so concurrent handles on ONE
+      // incarnation still share a count (that is the live-read discipline below);
+      // freshly minted only when `begin` is re-creating a cleared subject, which
+      // is the case a stale handle must not be able to write to.
+      const incarnation = existing?.incarnation ?? nextIncarnation++;
       state.set(key, {
         accountPublicKey: subject.accountPublicKey,
         endpoint: subject.endpoint,
         attempts: existing?.attempts ?? 0,
         lastAttemptAt: now,
-        closed: existing?.closed ?? false
+        closed: existing?.closed ?? false,
+        incarnation
       });
       // Every mutation below reads the LIVE entry rather than the count captured
       // at `begin`. With the captured count, two handles open on one subject
@@ -199,9 +220,11 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
       const write = (attempts: number, at: number, close = false): void => {
         // A subject cleared underneath an open handle stays cleared: the clear
         // is a statement that the question is settled, and re-creating the entry
-        // would resurrect evidence its owner just withdrew.
+        // would resurrect evidence its owner just withdrew. The incarnation check
+        // extends that to the case the existence check missed — cleared AND
+        // re-begun, where the entry is present but is not this handle's.
         const current = state.get(key);
-        if (!current) return;
+        if (!current || current.incarnation !== incarnation) return;
         state.set(key, {
           accountPublicKey: subject.accountPublicKey,
           // CARRIED FORWARD, not re-derived and not dropped. This rebuilds the
@@ -215,7 +238,8 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
           lastAttemptAt: at,
           // Never un-set: a close is permanent, so a sibling handle settling
           // afterwards cannot walk it back.
-          closed: current.closed || close
+          closed: current.closed || close,
+          incarnation: current.incarnation
         });
       };
       const live = (): number => state.get(key)?.attempts ?? 0;

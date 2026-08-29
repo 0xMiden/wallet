@@ -266,6 +266,27 @@ export function grantManualSyncProbe(key: SyncFuseKey): void {
 }
 
 /**
+ * This probe's SUBJECT no longer exists, so its whole entry is void.
+ *
+ * Distinct from `noteSyncSuccess`, and deliberately not spelled as one. A success
+ * is the claim "a round trip reached this node and came back", which is the only
+ * observation allowed to withdraw parked-node evidence; booking one because a probe
+ * found nothing to do would clear that evidence on the strength of a local
+ * IndexedDB read, which says nothing about whether the node parked us.
+ *
+ * What retirement fixes is the opposite hazard. `fusedUntilMs` is non-null for
+ * "lit", and an EXPIRED non-null deadline is load-bearing (see
+ * `grantManualSyncProbe`) — writers still read it as lit and re-arm. So a probe
+ * whose subject disappears while its fuse is lit leaves that field non-null
+ * forever, and one ordinary failure much later arms a full 30-minute silence on
+ * evidence about a question that has since been answered. Dropping the entry says
+ * "there is nothing here to be fused about", which is the truth.
+ */
+export function retireSyncFuse(key: SyncFuseKey): void {
+  ledger.delete(key);
+}
+
+/**
  * Every probe's evidence is void — the realm now talks to a different node.
  *
  * The fuse's claim is about one node's parked call, so an endpoint change invalidates it

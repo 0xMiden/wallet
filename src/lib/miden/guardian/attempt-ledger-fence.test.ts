@@ -45,8 +45,85 @@ const ROOT = path.resolve(__dirname, '../../../..');
  *
  * Function-local state stays invisible on purpose: it cannot survive a tick, so
  * it cannot be a budget.
+ *
+ * THREE FORMS ARE CONCEDED, all of them name or dataflow indirection rather than
+ * a store sitting in the syntax, and each would cost more than it buys:
+ *
+ *  - `const budget = (() => new Map())();` — the value comes out of an opaque
+ *    call, so catching it means treating every module-scope call result as a
+ *    store, which is most of the module-scope declarations in the tree.
+ *  - `const M = Map; const budget = new M();` — the constructor is name-held.
+ *    Catching it needs the checker, not the tree.
+ *  - `let budget = undefined;` later assigned a `new Map()` — dataflow, with no
+ *    statement of intent anywhere in the declaration. The two spellings that DO
+ *    state it are caught: the annotation (`let budget: Map<…>;`) and the
+ *    assertion (`… = undefined as unknown as number`). In a strict-TS repo the
+ *    bare one does not type-check into a `.set` or a `+= 1`, so writing the
+ *    ledger requires reaching for one of the caught forms.
+ *
+ * The bar is unchanged: a store whose shape is visible where it is declared.
  */
 const KEYED_CONSTRUCTORS = new Set(['Map', 'Set', 'WeakMap', 'WeakSet']);
+
+/**
+ * Type assertions are erased at runtime, so they cannot change what a
+ * declaration IS — but they changed what this scan saw. `let n = 0 as number`
+ * and `{ attempts: 0 as number }` both walked through, because the initializer
+ * was an `AsExpression` rather than the `NumericLiteral` the two numeric rules
+ * asked for. Same wrapper class the sibling claim fence had to unwrap, and the
+ * same reason it is not an evasion: `as const` and `as number` on an initializer
+ * are ordinary habits.
+ */
+const unwrap = (node: ts.Expression): ts.Expression =>
+  ts.isAsExpression(node) ||
+  ts.isSatisfiesExpression(node) ||
+  ts.isTypeAssertionExpression(node) ||
+  ts.isParenthesizedExpression(node) ||
+  ts.isNonNullExpression(node)
+    ? unwrap(node.expression)
+    : node;
+
+/**
+ * A KEYED-STORE annotation, for the declaration whose initializer is deferred.
+ *
+ * `let ledger: Map<string, Attempt>;` assigned in an `init()` below is module
+ * state by any reading, and both rules missed it: `isKeyedStore` wants an
+ * initializer and `isMutableCounter` wants a numeric one. The annotation is the
+ * declaration's own statement of what it holds, which is enough — a deferred
+ * store is if anything MORE likely to be a budget, since deferring it is what a
+ * lazily-built one looks like.
+ */
+const KEYED_ANNOTATION = /^(Map|Set|WeakMap|WeakSet)\s*</;
+
+/**
+ * A numeric initializer in every form a counter or a sentinel is written in.
+ *
+ * `-1` is the one that matters most and it was missing: a `let attempts = -1`
+ * sentinel meaning "never tried" is the idiomatic way to write the very state
+ * this fence exists to catch, and it parses as a PrefixUnaryExpression whose
+ * operand is the literal — so the bare `isNumericLiteral` test said no. `+0` is
+ * the same node shape.
+ */
+const isNumericish = (node: ts.Expression): boolean => {
+  // THE ASSERTION'S TARGET TYPE IS A DECLARATION OF INTENT, and reading it is
+  // what catches `let attempts = undefined as unknown as number`. The annotation
+  // rule above only looks left of the `=`; this is the same statement made on the
+  // right, which is where a counter that starts out unset has to make it.
+  if ((ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) && node.type.getText() === 'number') {
+    return true;
+  }
+  const inner = unwrap(node);
+  if (ts.isNumericLiteral(inner)) return true;
+  if (
+    ts.isPrefixUnaryExpression(inner) &&
+    (inner.operator === ts.SyntaxKind.MinusToken || inner.operator === ts.SyntaxKind.PlusToken)
+  ) {
+    return isNumericish(inner.operand);
+  }
+  // `Number(...)`, `parseInt(...)`, `Date.now()`, `performance.now()` — the
+  // shapes a counter or a deadline stamp is actually written with.
+  return ts.isCallExpression(inner) && /(^|\.)(Number|parseInt|parseFloat|now)$/.test(inner.expression.getText());
+};
 
 /**
  * Names whose PROPERTIES this module writes — `x.n = 1`, `x.n += 1`, `x.n++`,
@@ -89,20 +166,37 @@ const mutatedPropertyOwners = (source: ts.SourceFile): Set<string> => {
   return owners;
 };
 
-const isKeyedStore = (declaration: ts.VariableDeclaration, mutated: Set<string>): boolean => {
-  const init = declaration.initializer;
+/**
+ * A declaration with a name, an optional annotation and an optional initializer
+ * — the only three things either rule reads. Widened from
+ * `ts.VariableDeclaration` so the static-class-field walk can ask the same two
+ * questions instead of growing a parallel pair that drifts.
+ */
+type Declared = ts.VariableDeclaration | ts.PropertyDeclaration;
+
+const isKeyedStore = (declaration: Declared, mutated: Set<string>): boolean => {
+  const annotation = declaration.type?.getText() ?? '';
+  // Checked BEFORE the initializer, so it also covers the deferred declaration.
+  if (KEYED_ANNOTATION.test(annotation)) return true;
+  const init = declaration.initializer === undefined ? undefined : unwrap(declaration.initializer);
   if (!init) return false;
   if (ts.isNewExpression(init)) {
     const ctor = init.expression.getText().split('.').pop() ?? '';
     return KEYED_CONSTRUCTORS.has(ctor);
   }
   if (ts.isCallExpression(init) && init.expression.getText().endsWith('Object.create')) return true;
+  // AN ARRAY IS A KEYED STORE — keyed by index, and `const attempts = []` with a
+  // `.push` per try is a hand-rolled ledger as surely as the Map form. It was
+  // invisible because only object literals were inspected, and the annotated
+  // form (`const rows: Attempt[] = []`) reads even more like the real thing.
+  if (ts.isArrayLiteralExpression(init)) {
+    return init.elements.length === 0 || /(\[\]|^(Array|ReadonlyArray)\s*<)/.test(annotation);
+  }
   if (ts.isObjectLiteralExpression(init)) {
     // `= {}` is a store waiting to be filled; a literal with properties is
     // configuration. An index-signature or `Record<…>` annotation says store
     // whichever way it was initialised.
     if (init.properties.length === 0) return true;
-    const annotation = declaration.type?.getText() ?? '';
     if (annotation.startsWith('Record<') || /^\{\s*\[/.test(annotation)) return true;
     // A literal WRAPPING stores is still a store — `{ attempts: new Map(), nextAt:
     // new Map() }` is the textbook hand-rolled budget, and reading only the
@@ -122,7 +216,7 @@ const isKeyedStore = (declaration: ts.VariableDeclaration, mutated: Set<string>)
       // are keyed by nothing at all. Only the wrapping literal was inspected for
       // Maps, so this walked through while its keyed sibling was caught. The
       // write is what separates it from configuration, which is the same syntax.
-      return ts.isNumericLiteral(property.initializer) && mutated.has(declaration.name.getText());
+      return isNumericish(property.initializer) && mutated.has(declaration.name.getText());
     });
   }
   return false;
@@ -136,15 +230,10 @@ const isKeyedStore = (declaration: ts.VariableDeclaration, mutated: Set<string>)
  * second walked through. A `let` with a numeric ANNOTATION counts even when the
  * initializer is deferred.
  */
-const isMutableCounter = (declaration: ts.VariableDeclaration, flags: ts.NodeFlags): boolean => {
+const isMutableCounter = (declaration: Declared, flags: ts.NodeFlags): boolean => {
   if ((flags & ts.NodeFlags.Const) !== 0) return false;
   if (declaration.type?.getText() === 'number') return true;
-  const init = declaration.initializer;
-  if (!init) return false;
-  if (ts.isNumericLiteral(init)) return true;
-  // `Number(...)`, `parseInt(...)`, `Date.now()`, `performance.now()` — the
-  // shapes a counter or a deadline stamp is actually written with.
-  return ts.isCallExpression(init) && /(^|\.)(Number|parseInt|parseFloat|now)$/.test(init.expression.getText());
+  return declaration.initializer !== undefined && isNumericish(declaration.initializer);
 };
 
 /** Every module-scope store or counter in one file, by name. */
@@ -154,6 +243,25 @@ const moduleStateNames = (relPath: string): string[] => {
   const names: string[] = [];
   const mutated = mutatedPropertyOwners(source);
   for (const statement of source.statements) {
+    // A STATIC CLASS FIELD is module-scope state with a different keyword in
+    // front of it: `class GuardianRetry { static attempts = new Map(); }` lives
+    // for the module's lifetime exactly as a `const` would, and this walk only
+    // ever looked at variable statements — so the whole shape was unfenced. Not
+    // hypothetical for this tree: `MultisigService` is a class with statics, and
+    // it is where guardian repair machinery already lives.
+    if (ts.isClassDeclaration(statement)) {
+      for (const member of statement.members) {
+        if (!ts.isPropertyDeclaration(member)) continue;
+        if (!member.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword)) continue;
+        // Reuses the variable rules by shape: a static field is `const`-like
+        // unless `readonly` is absent AND the initializer is numeric, which is
+        // the counter case, so both rules are asked with `let` semantics.
+        if (isKeyedStore(member, mutated) || isMutableCounter(member, ts.NodeFlags.None)) {
+          names.push(`${statement.name?.text ?? '(anonymous)'}.${member.name.getText()}`);
+        }
+      }
+      continue;
+    }
     if (!ts.isVariableStatement(statement)) continue;
     for (const declaration of statement.declarationList.declarations) {
       if (isKeyedStore(declaration, mutated) || isMutableCounter(declaration, statement.declarationList.flags)) {
@@ -292,7 +400,25 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
       'const budget = { attempts: 0, nextAt: 0 };\nexport const spend = () => {\n  budget.attempts += 1;\n};',
       'let coercedTally = Number(0);',
       'let deadlineStamp = Date.now();',
-      'let declaredLater: number;'
+      'let declaredLater: number;',
+      // Round 9's probe: every one of these was green, and none is an evasion.
+      // An index-keyed ledger, both spellings.
+      'const attemptLog = [];',
+      'const attemptRows: { at: number }[] = [];',
+      // A store whose initializer is deferred — the lazily-built budget.
+      'let lazyLedger: Map<string, number>;',
+      // Assertions on the initializer, erased at runtime.
+      'let assertedTally = 0 as number;',
+      'const assertedBudget = { attempts: 0 as number };\nexport const spend = () => {\n  assertedBudget.attempts += 1;\n};',
+      // The `-1` sentinel: "never attempted", the idiomatic spelling of the
+      // exact state this fence governs.
+      'let neverAttempted = -1;',
+      'let signedZero = +0;',
+      // A counter that starts out unset, asserted into shape on the right.
+      'let deferredTally = undefined as unknown as number;',
+      // Module-scope state with a different keyword in front of it.
+      'export class Retry {\n  static attempts = new Map<string, number>();\n}',
+      'export class Retry {\n  static declare(): void {}\n  static tally = -1;\n}'
     ];
     try {
       for (const declaration of caught) {
@@ -314,7 +440,14 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
         'const frozen = { a: 1 } as const;',
         'function f() {\n  const localTally = new Map<string, number>();\n  return localTally;\n}',
         'export const make = () => {\n  const state = new Map<string, number>();\n  return state;\n};',
-        'const CEILING = 3;'
+        'const CEILING = 3;',
+        // A non-static class field is per-instance, so it cannot be a
+        // module-lifetime budget — the `static` modifier is the whole test.
+        'export class Retry {\n  attempts = new Map<string, number>();\n}',
+        // Configuration in the array shape: a populated literal with no
+        // index-collection annotation is a table, and tables are what the
+        // `Record<` rule already concedes false positives for.
+        `const ORDER = ['hot', 'cold'];`
       ];
       for (const declaration of ignored) {
         fs.writeFileSync(probe, `${declaration}\n`);

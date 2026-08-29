@@ -31,7 +31,14 @@ const guardianServiceCache = new Map<string, CacheEntry>();
 // each tick can start a fresh init before the resolved service reaches the cache.
 // Tagged with the generation it started on, so a caller arriving after a recovery
 // is not handed an init that is building on the client that just died.
-type InflightEntry = { promise: Promise<MultisigService>; generation: number };
+// The requested ceiling is part of the identity, not a detail of the caller: the
+// hold happens INSIDE the init, so whoever wins the race picks the ceiling for
+// everyone who coalesces onto it. Both directions of a mismatch are wrong in the
+// way the parameter exists to prevent — a cadence caller inheriting the 5-minute
+// backstop is the hundred-dead-laps freeze, and a transaction-pipeline caller
+// inheriting the 2-minute ceiling gives up three minutes early on the path whose
+// docstring says that risks stranding the account. So they simply do not share.
+type InflightEntry = { promise: Promise<MultisigService>; generation: number; boundAtSyncCeiling: boolean };
 const guardianServiceInflight = new Map<string, InflightEntry>();
 
 /**
@@ -110,7 +117,12 @@ export async function getOrCreateMultisigService(
     // started before a recovery will resolve a service bound to the dead client,
     // and handing it to a caller that arrived afterwards would spread the corpse
     // instead of containing it (#775).
-    if (inflight.generation === startedAtGeneration) {
+    //
+    // And onto one that asked for the SAME ceiling — the second conjunct, whose
+    // reasoning is on `InflightEntry` above. The short version: the hold is inside
+    // the init, so the winner of the race picks the ceiling for every caller that
+    // coalesces onto it, and both directions of a mismatch defeat the parameter.
+    if (inflight.generation === startedAtGeneration && inflight.boundAtSyncCeiling === boundAtSyncCeiling) {
       return inflight.promise;
     }
     guardianServiceInflight.delete(accountPublicKey);
@@ -214,7 +226,11 @@ export async function getOrCreateMultisigService(
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration });
+  guardianServiceInflight.set(accountPublicKey, {
+    promise: initPromise,
+    generation: startedAtGeneration,
+    boundAtSyncCeiling
+  });
   try {
     return await initPromise;
   } finally {

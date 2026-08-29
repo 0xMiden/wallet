@@ -136,6 +136,38 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
     expect(ledger.budgetSpent(SUBJECT)).toBe(false);
   });
 
+  // The existence check in `write` makes a cleared subject stay cleared, but
+  // `begin` re-seeds the entry — so a clear followed by a fresh begin handed the
+  // stale handle a live entry that is not its own.
+  it('a stale handle cannot refund out of the incarnation that replaced it', () => {
+    const { ledger } = make();
+    const stale = ledger.begin(SUBJECT);
+    stale.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    ledger.clear(SUBJECT);
+    const fresh = ledger.begin(SUBJECT);
+    fresh.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    // The late refund belongs to a subject that no longer exists; spending it
+    // here would erase the new incarnation's real, in-flight attempt.
+    stale.settle('refunded');
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+  });
+
+  it('a stale handle cannot close the incarnation that replaced it', () => {
+    const { ledger } = make();
+    const stale = ledger.begin(SUBJECT);
+    ledger.clear(SUBJECT);
+    ledger.begin(SUBJECT).chargeEarly();
+
+    stale.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false); // still inside its own backoff
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+  });
+
   it('keys budgets by the whole subject and clears by account prefix', () => {
     const { ledger, tick } = make();
     const otherEndpoint: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'https://other.example' };

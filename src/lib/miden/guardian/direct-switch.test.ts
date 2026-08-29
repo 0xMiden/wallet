@@ -940,6 +940,31 @@ describe('finalizeDirectGuardianSwitch', () => {
   });
 
   /**
+   * The POST-SYNC guard, which the account-read test below cannot stand in for.
+   *
+   * `evictDuringSync` existed already but was only ever armed for
+   * `readDirectSwitchCommitState`, so this function's copy of the same guard was
+   * deletable with the suite green. The distinction matters: the sync is the
+   * FIRST parking await here, so without this guard `getAccount` on the next line
+   * is itself the double borrow, and the account-read guard never gets a chance to
+   * refuse.
+   */
+  it('stops before the account read when the preflight sync is evicted', async () => {
+    evictDuringSync = true;
+
+    const error = await finalizeDirectGuardianSwitch(
+      '0xacct',
+      'https://new.guardian.test',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      provider() as any
+    ).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(WasmClientPoisonedError);
+    expect(mockProxyGetAccount).not.toHaveBeenCalled();
+    expect(mockGuardianConfigure).not.toHaveBeenCalled();
+  });
+
+  /**
    * The ACCOUNT READ is a parking await of its own, and the guard after the sync
    * does not cover it.
    *

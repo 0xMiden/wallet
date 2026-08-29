@@ -40,6 +40,7 @@ import {
   noteSyncSuccess,
   noteSyncWatchdogEviction,
   pendingRotationRecheckFuseKey,
+  retireSyncFuse,
   type SyncFuseKey
 } from './sync-fuse';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -672,6 +673,16 @@ async function runPendingRotationRecheck(
       // would otherwise sit in the ledger for the realm's lifetime.
       pendingRotationRecheckLedger.clearForAccount(account.publicKey);
       if (retirePendingRotationPrompts(account.publicKey)) notifyOutageListeners();
+      // And the FUSE entry, for the same reason and not by booking a success. This
+      // probe's subject is the unconfirmed rows; with none left there is nothing
+      // here that can be parked. Left behind, a lit-but-expired `fusedUntilMs`
+      // stays non-null for the realm's lifetime — every writer reads that as lit
+      // (deliberately, per `grantManualSyncProbe`) — so one ordinary failure much
+      // later armed a full 30-minute silence on evidence about rotations that had
+      // already resolved. Retiring is not a success: nothing above this line
+      // reached the node, so claiming one would clear parked-node evidence on the
+      // strength of a Dexie read.
+      retireSyncFuse(fuseKey);
       return NO_RECHECK_RESULT;
     }
     // A prompt whose row has left the unconfirmed list by any route other than
@@ -719,7 +730,8 @@ async function runPendingRotationRecheck(
     // reset (an endpoint change, a lock recovery) left the old pass free to do every
     // one of those against state the reset had deliberately cleared. Checked inside
     // the loop rather than once, because the awaits within it are where a whole
-    // pass's worth of wall clock goes.
+    // pass's worth of wall clock goes. Tripped in production by
+    // `retireGuardianSyncPasses`, which the endpoint-change save calls.
     const retired = (): boolean => generation !== syncGeneration;
     // Rows that actually reached the node this pass. Each one costs a full chain
     // sync (`readDirectSwitchCommitState` syncs before it looks) and, on a
@@ -1061,7 +1073,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     endpoint = await resolveChosenGuardianEndpoint(account);
   } catch (error) {
     console.warn(
-      `[GuardianSync] could not read the guardian pointer for ${account.publicKey}; skipping self-heal`,
+      `[Guardian Sync] could not read the guardian pointer for ${account.publicKey}; skipping self-heal`,
       error
     );
     return false;
@@ -1513,9 +1525,14 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount, fuseKey: Sy
     // `'evicted-preflight'` and spent a budget only a successful sync can refill, on
     // an operator that had not been asked for anything. That is the exact mistake the
     // preflight/post split was introduced to fix, surviving one level down.
-    await coldService.reRegisterCurrentStateOnGuardian(() => {
-      attempted = true;
-    });
+    await coldService.reRegisterCurrentStateOnGuardian(
+      () => {
+        attempted = true;
+      },
+      // The callee's own hold, bounded and labelled from here for the same reason
+      // as the two above it: this whole path runs on the ~3s tick.
+      { ...GUARDIAN_READ_LOCK_OPTIONS, label: 'guardian-re-register' }
+    );
     console.warn(`[Guardian Sync] cold re-register self-heal succeeded for ${account.publicKey}`);
   } catch (e) {
     // AN EVICTION IS NOT A VERDICT ON THE OPERATOR, and this is the arm where
@@ -1586,8 +1603,32 @@ let syncInFlight: Promise<void> | undefined;
  * pass running: the old pass kept writing to maps the reset had emptied, and its
  * `finally` cleared the marker a NEWER pass had installed, disabling coalescing
  * from then on. Both are now conditional on the generation the pass started in.
+ *
+ * TWO WRITERS, and for a while there was only one. The test reset had it to
+ * itself, which made every `retired()` check in this module inert in production
+ * while its comments claimed an endpoint change would trip them — a guard that
+ * cannot fire is documentation. `retireGuardianSyncPasses` is the production
+ * writer those comments were describing.
  */
 let syncGeneration = 0;
+
+/**
+ * Retire every guardian pass currently in flight: the realm now points somewhere
+ * else, so nothing a running pass is about to write is about the right operator.
+ *
+ * `passMayRecord` already compares the endpoint per account and covers the
+ * guardian arm, but the pending-rotation recheck is not covered by it and writes
+ * the most durable state in the loop — it demotes transaction rows, rolls the
+ * account's guardian binding back, and spends per-row budgets. Those decisions
+ * come from chain reads taken before the change, against a binding the user has
+ * since replaced.
+ *
+ * Called next to `clearSyncFuseForEndpointChange`, which discards the evidence
+ * side of the same fact.
+ */
+export function retireGuardianSyncPasses(): void {
+  syncGeneration += 1;
+}
 
 /**
  * May this pass still record what it just learned about `endpoint`?
@@ -1948,7 +1989,21 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
       // Same rule as the success path, and it matters just as much here: a
       // failure earned by the outgoing operator must not arm the outage banner,
       // spend a repair budget, or start a 401 streak against the incoming one.
-      if (!(await passMayRecord(generation, account.publicKey, endpoint))) continue;
+      //
+      // BUT THE FUSE IS BOOKED ANYWAY, which is why this is not the bare `continue`
+      // it looks like it should be. The stale-pass guard answers "may this pass
+      // record a verdict about this OPERATOR", and none of the state below is
+      // about anything else. The fuse asks a different question — did a probe
+      // reach a node and come back — and the answer here is yes, it reached one
+      // and failed. Skipping the booking left a LIT fuse un-re-armed by the one
+      // probe its window had granted, so the next lap 3s later probed again and
+      // "one probe per 30 min until one SUCCEEDS" stopped holding. Exactly the
+      // asymmetry the success path above was changed away from; the failure path
+      // kept its `continue` and so kept the bug.
+      if (!(await passMayRecord(generation, account.publicKey, endpoint))) {
+        noteNonEvictionSyncFailure(fuseKey);
+        continue;
+      }
 
       // An auth rejection (401) means the guardian's request-auth allowlist and
       // this account's hot signer disagree. Evict the cached hot service so the
@@ -2124,6 +2179,14 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
  * miss, and a cache miss is exactly what an eviction's generation bump produces. The
  * caller's eviction arm therefore has to be able to see it, which is also why the
  * guardian success is booked after this returns rather than before it runs.
+ *
+ * That contract is ENFORCED here rather than assumed of the callee, because two of
+ * the awaits below are not the callee: the dynamic import, and the background
+ * processor start. Left to escape, either one turned a guardian round trip that had
+ * fully succeeded into `noteNonEvictionSyncFailure` — which, while the fuse is lit,
+ * re-arms the 30-minute deadline instead of clearing it, so the one probe the window
+ * had granted did not put the fuse out. The hardening is opportunistic; the caller's
+ * success is not, and an opportunistic step must not be able to retract it.
  */
 async function runGuardianHardeningSelfHeal(account: WalletAccount): Promise<void> {
   if (hardeningChecked.has(account.publicKey)) return;
@@ -2137,31 +2200,44 @@ async function runGuardianHardeningSelfHeal(account: WalletAccount): Promise<voi
   // poison withdraws it; an ordinary failure keeps the once-per-session
   // bound rather than re-queuing the check on every 3 s tick.
   hardeningChecked.add(account.publicKey);
-  const { ensureGuardianProcedureThresholds, startBackgroundTransactionProcessing } =
-    await import('lib/miden/transaction');
-  const hardeningTxId = await ensureGuardianProcedureThresholds(
-    account.publicKey,
-    undefined,
-    zustandProvider,
-    // Bounded at the sync ceiling: this call is reached from the ~3 s loop, and
-    // both of the holds it takes (the account read and `MultisigService.init`)
-    // would otherwise arm at the five-minute backstop — five minutes of frozen
-    // wallet per lap, four laps to light this account's fuse.
-    true
-  ).catch(hardeningError => {
-    if (isWasmClientPoisonedError(hardeningError)) hardeningChecked.delete(account.publicKey);
-    throw hardeningError;
-  });
-  // The nudge inside `ensureGuardianProcedureThresholds` is
-  // `requestSWTransactionProcessing()`, which returns immediately when
-  // there is no extension service worker. Off-extension nothing else
-  // starts the FIFO loop from this path, so without this the freshly
-  // queued `update-procedure-threshold` row would sit Queued for the rest
-  // of the session — visible in Activity as a pending entry that never
-  // progresses, with the account left un-hardened until the next app
-  // launch's OrphanedTransactionRecovery picked it up. Every other enqueue
-  // site pairs the nudge with exactly this driver.
-  if (hardeningTxId && !isExtension()) {
-    startBackgroundTransactionProcessing(useWalletStore.getState().signTransaction, false, zustandProvider);
+  try {
+    const { ensureGuardianProcedureThresholds, startBackgroundTransactionProcessing } =
+      await import('lib/miden/transaction');
+    const hardeningTxId = await ensureGuardianProcedureThresholds(
+      account.publicKey,
+      undefined,
+      zustandProvider,
+      // Bounded at the sync ceiling: this call is reached from the ~3 s loop, and
+      // both of the holds it takes (the account read and `MultisigService.init`)
+      // would otherwise arm at the five-minute backstop — five minutes of frozen
+      // wallet per lap, four laps to light this account's fuse.
+      true
+    );
+    // The nudge inside `ensureGuardianProcedureThresholds` is
+    // `requestSWTransactionProcessing()`, which returns immediately when
+    // there is no extension service worker. Off-extension nothing else
+    // starts the FIFO loop from this path, so without this the freshly
+    // queued `update-procedure-threshold` row would sit Queued for the rest
+    // of the session — visible in Activity as a pending entry that never
+    // progresses, with the account left un-hardened until the next app
+    // launch's OrphanedTransactionRecovery picked it up. Every other enqueue
+    // site pairs the nudge with exactly this driver.
+    if (hardeningTxId && !isExtension()) {
+      startBackgroundTransactionProcessing(useWalletStore.getState().signTransaction, false, zustandProvider);
+    }
+  } catch (hardeningError) {
+    if (isWasmClientPoisonedError(hardeningError)) {
+      hardeningChecked.delete(account.publicKey);
+      throw hardeningError;
+    }
+    // Swallowed, and the once-per-session mark deliberately KEPT: an ordinary
+    // failure is a verdict about the hardening, which is best-effort, so retrying
+    // it every 3 s would be the wrong trade. Only an eviction — which reached no
+    // verdict at all — withdraws the mark.
+    console.warn(
+      `[Guardian Sync] threshold-2 hardening self-heal did not run for ${account.publicKey}; ` +
+        `the guardian sync itself succeeded and this account keeps its once-per-session mark:`,
+      hardeningError
+    );
   }
 }

@@ -594,15 +594,21 @@ describe('syncGuardianAccounts', () => {
 
     // …and past the 429's own rate-limit cooldown, which otherwise skips the next lap at
     // the cooldown gate and makes this test vacuous.
-    let nowMs = Date.now();
-    jest.spyOn(Date, 'now').mockImplementation(() => nowMs);
-    nowMs += SYNC_RATE_LIMIT_MAX_COOLDOWN_MS + 1_000;
+    //
+    // BOTH CLOCKS, via the shared helper. Spying `Date.now` alone was the vacuous
+    // version of this very guard: `guardianRateLimit` is built on `monotonicNowMs`,
+    // i.e. `performance.now`, so the cooldown never expired, the lap below was
+    // skipped at the gate, and the assertion held no matter what the 429 arm
+    // reported. The comment above was already right about the failure mode — it
+    // just described a clock the cooldown does not read.
+    const clock = useFakeClocks(9_000_000 + SYNC_RATE_LIMIT_MAX_COOLDOWN_MS);
 
     // …so the next eviction cannot be the fourth CONSECUTIVE one. Without the report the
     // chain was never broken and this lap lights the fuse.
     await syncGuardianAccounts();
     expect(syncFuseUntilMs(key)).toBeNull();
 
+    clock.restore();
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
   });
@@ -2120,6 +2126,36 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       }
 
       expect(isSyncFused(guardianSyncFuseKey(account.publicKey, endpoint))).toBe(true);
+    });
+
+    /**
+     * The eviction has to land DURING the read, not instead of it.
+     *
+     * The two tests above reject `getAccount` outright, which reaches the hold's
+     * catch without ever running the guard that follows a SUCCESSFUL read — so
+     * that guard was deletable with the whole suite green. What it protects is
+     * the pair of reads immediately after it, both of which borrow the returned
+     * handle and both of which swallow their own failures: without the guard a
+     * double borrow lands as "no commitment" and "no hot signer" rather than as
+     * an error, and the self-heal then draws a conclusion about the operator's
+     * allowlist from two values it never actually read.
+     */
+    it('refuses the commitment reads when the eviction lands inside a successful account read', async () => {
+      mockGetAccount.mockReset();
+      mockGetAccount.mockImplementation(async () => {
+        // Reassigning the module's hold from inside a mocked WASM call IS what the
+        // watchdog does when it gives the mutex to a successor.
+        currentWasmHold = {};
+        return { id: () => ({ toString: () => 'acct-id' }) };
+      });
+
+      await runUntilPersistent();
+
+      expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+      expect(mockGetSignerDetails).not.toHaveBeenCalled();
+      // And the eviction is still booked and the pass still stopped, exactly as
+      // for a rejecting read.
+      expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
     });
 
     // A read that merely FAILED is not an eviction: the client is fine, so the

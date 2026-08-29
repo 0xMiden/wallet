@@ -59,6 +59,17 @@ const ROOT = path.resolve(__dirname, '../../../..');
  * Indirection can still defeat this (a variable-held property name,
  * `Reflect.get`, a helper that returns the whole `extraInputs`). The bar is the
  * forms a person writes without trying to evade the fence.
+ *
+ * Two conceded forms are worth naming, because a later probe will find them
+ * again and they are NOT the same class as the holes above. `for (const k in
+ * extra) { if (k === 'commitUnconfirmed') … }` and
+ * `Object.entries(extra).find(([k]) => k === 'commitUnconfirmed')` both compare a
+ * LOOP VARIABLE to the literal — the property name is variable-held, which is
+ * the first conceded case in the paragraph above, and catching them means
+ * treating every `=== 'commitUnconfirmed'` in the tree as a field read. That
+ * would fire on this very file. Everything the fence was extended for — type
+ * assertions, computed binding names — is by contrast a DIRECT read whose key is
+ * a literal sitting in the syntax; the wrapper was the only thing hiding it.
  */
 const FLAG_NAMES = ['commitUnconfirmed', 'registerFailed', 'endpointPersistFailed'];
 const SYNC_STATUS_NAMES = ['guardianSyncStatus'];
@@ -69,9 +80,25 @@ type FieldSet = readonly string[];
 // matcher: `('commitUnconfirmed') in extra` is the same presence test as the
 // unparenthesized one, and Prettier itself writes the parenthesized form when
 // the test is negated inside a longer condition — which is the F-222 shape.
+//
+// TYPE ASSERTIONS ARE TRANSPARENT THE SAME WAY, and they leaked for longer:
+// `extra['commitUnconfirmed' as const]` is the identical read, `as const` on a
+// key is a habit rather than an exotic form, and the assertion is ERASED at
+// runtime — so the fence was distinguishing two spellings that compile to one
+// instruction. `as string` and `satisfies string` are the same shape, and each
+// also defeated the `in` matcher: `('commitUnconfirmed' as const) in extra` is
+// the F-222 presence test wearing an annotation. Unwrapped recursively, since
+// the wrappers nest.
 const literalText = (node: ts.Node): string | undefined => {
-  const inner = ts.isParenthesizedExpression(node) ? literalText(node.expression) : undefined;
-  if (inner !== undefined) return inner;
+  if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
+    return literalText(node.expression);
+  }
   return ts.isStringLiteralLike(node) ? node.text : undefined;
 };
 
@@ -106,8 +133,18 @@ const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
     } else if (ts.isBindingElement(node)) {
       // A rename (`{ flag: alias }`) reads `propertyName`; a shorthand
       // (`{ flag }`) reads its own `name`. Both are reads of the field.
+      //
+      // A COMPUTED name is the third form and it was missing: `const
+      // {['commitUnconfirmed']: x} = extra` destructures the fenced field while
+      // its `propertyName` is a `ComputedPropertyName`, not an `Identifier`, so
+      // the identifier test dropped it — a destructure that reads exactly what
+      // the two allowed spellings read, and the one form of destructure that got
+      // through the fence.
       const read = node.propertyName ?? node.name;
-      if (ts.isIdentifier(read) && fenced.has(read.text)) found.push(node.getText());
+      const name = ts.isComputedPropertyName(read) ? literalText(read.expression) : undefined;
+      if (name !== undefined ? fenced.has(name) : ts.isIdentifier(read) && fenced.has(read.text)) {
+        found.push(node.getText());
+      }
     } else if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InKeyword &&
@@ -304,7 +341,18 @@ describe('guardian claim fence', () => {
       // longer condition.
       ['presence test, parenthesized', `const legacy = !(('commitUnconfirmed') in extra);`],
       ['Reflect.has', `const legacy = !Reflect.has(extra, 'commitUnconfirmed');`],
-      ['key-list membership', `const legacy = !Object.keys(extra).includes('commitUnconfirmed');`]
+      ['key-list membership', `const legacy = !Object.keys(extra).includes('commitUnconfirmed');`],
+      // Type assertions on the key. Each of these was GREEN against the AST
+      // version above, and each erases to the plain bracket read one line up —
+      // `as const` on an object key is a habit, not an evasion.
+      ['bracket access, as const', `const lying = extra['commitUnconfirmed' as const];`],
+      ['bracket access, as string', `const lying = extra['commitUnconfirmed' as string];`],
+      ['bracket access, satisfies', `const lying = extra['commitUnconfirmed' satisfies string];`],
+      ['optional bracket access, as const', `const lying = extra?.['commitUnconfirmed' as const];`],
+      ['presence test, asserted', `const legacy = !(('commitUnconfirmed' as const) in extra);`],
+      // The one destructure form the identifier test dropped.
+      ['computed destructuring', `const { ['commitUnconfirmed']: x } = extra;`],
+      ['computed destructuring, asserted', `const { ['commitUnconfirmed' as const]: x } = extra;`]
     ];
     for (const [label, code] of caught) {
       expect(`${label}: ${matchCount(code, FLAG_NAMES)}`).toBe(`${label}: 1`);
@@ -314,6 +362,12 @@ describe('guardian claim fence', () => {
     // regex versions each needed a comment-stripping pass to approximate it.
     expect(matchCount('// .registerFailed in prose does not count\n', FLAG_NAMES)).toBe(0);
     expect(matchCount('/* commitUnconfirmed, registerFailed */\n', FLAG_NAMES)).toBe(0);
+
+    // The angle-bracket assertion is the fourth transparent wrapper, and it can
+    // only be written in a `.ts` file — in TSX `<string>` opens an element. Asked
+    // under the right script kind rather than dropped, since the modules most
+    // likely to grow a raw read are `.ts`.
+    expect(matchCount(`const lying = extra[<string>'commitUnconfirmed'];`, FLAG_NAMES, 'probe.ts')).toBe(1);
 
     expect(matchCount('if (account.guardianSyncStatus) {}', SYNC_STATUS_NAMES)).toBe(1);
     expect(matchCount('const { guardianSyncStatus } = account;', SYNC_STATUS_NAMES)).toBe(1);

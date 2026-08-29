@@ -32,7 +32,11 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk } from '../sdk/helpers';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import {
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError,
+  isWasmClientPoisonedError
+} from '../sdk/wasm-client-poison';
 
 /**
  * Structural GuardianHttpError auth-rejection check (401 /
@@ -215,6 +219,16 @@ export class MultisigService {
     // hold spanning the account read and every read derived from it — but that
     // requires the commitment to be read at all five call sites and threaded in.
     // Serializing here is the part that removes the crash.
+    //
+    // Left as-is deliberately, on the strength of WHICH field is read: the COLD
+    // commitment is a permanent allowlist member, unchanged by any rotation, so a
+    // handle from a replaced client yields the same bytes a fresh read would — the
+    // guardian-sync caller names its argument `staleAccount` for exactly this
+    // reason. What a replaced client can do is DISPOSE the handle, and that
+    // surfaces as the SDK's own `isDisposed` throw, i.e. a failed attempt and a
+    // retry, not a wrong commitment written to the guardian. Should this method
+    // ever read a field that a rotation moves, that reasoning expires and the
+    // threading is required.
     const commitment = await withWasmClientLock(
       async () => (await getSignerDetailsFromAccount(account, true)).commitment,
       lockOptions
@@ -517,9 +531,28 @@ export class MultisigService {
               console.warn(
                 'Guardian still lagging after canonicalization window; re-registering current state as a last resort'
               );
-              await this.reRegisterCurrentStateOnGuardian();
+              await this.reRegisterCurrentStateOnGuardian(undefined, {
+                watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+                label: 'guardian-re-register'
+              });
               continue;
             } catch (realignError) {
+              // AN EVICTION IS NOT "non-fatal", AND IT IS NOT ABOUT THE GUARDIAN.
+              // `reRegisterCurrentStateOnGuardian` takes a hold whose first act is a
+              // `syncState()` round trip and re-checks ownership twice, so poison is
+              // one of the shapes this catch actually receives. Swallowed here, what
+              // reached the caller was `error` — the canonicalization failure — so
+              // `syncGuardianAccounts`' poison arm read false, the pass did NOT break,
+              // and it went on to take fresh holds for the remaining accounts while
+              // the abandoned call was still inside WASM. Worse than the double
+              // borrow: the fall-through then books `noteNonEvictionSyncFailure`,
+              // which ZEROES this account's eviction count, so the lap that parked us
+              // withdrew the fuse's evidence for the park. Stage 2 is reached after
+              // ~30s of ordinary post-rotation operator lag, on a ~3s cadence.
+              //
+              // Identical to the defect the adopt arm carries a rethrow for; this is
+              // the same rule one function over.
+              if (isWasmClientPoisonedError(realignError)) throw realignError;
               console.warn('Last-resort guardian re-registration failed (non-fatal):', realignError);
             }
           }
@@ -775,8 +808,18 @@ export class MultisigService {
    * charged the operator for a request that was never issued. That is the same
    * which-side-of-the-POST distinction `attemptColdReRegisterSelfHeal` already makes
    * for its own eviction bookkeeping; it just could not see this far in.
+   *
+   * `lockOptions` bounds and labels the hold below, and the CADENCE caller has to pass
+   * it for the same reason `init` documents: the hold contains a `syncState()`, so on
+   * the #777 path it parks on a node that never answers. Reached from `runSync`'s
+   * stage-2 last resort, which the ~3 s guardian sync drives — left on the default
+   * five-minute backstop that was a frozen wallet per lap, and unlabelled the eviction
+   * record could not say which of the loop's holds it was.
    */
-  async reRegisterCurrentStateOnGuardian(onBeforeRegister?: () => void): Promise<void> {
+  async reRegisterCurrentStateOnGuardian(
+    onBeforeRegister?: () => void,
+    lockOptions?: Parameters<typeof withWasmClientLock>[1]
+  ): Promise<void> {
     const { updatedStateBase64, freshSignerCommitments } = await withWasmClientLock(async hold => {
       await midenClientProxy.syncState();
       // Reachable from the BACKGROUND runSync stage-2 last resort — exactly the
@@ -805,7 +848,14 @@ export class MultisigService {
       // 401 this method exists to prevent.
       const freshSignerCommitments = AccountInspector.fromAccount(account).signerCommitments;
       return { updatedStateBase64: u8ToB64(account.serialize()), freshSignerCommitments };
-    });
+      // Bounded and labelled BY THE CALLER, because both callers are on the ~3s
+      // guardian cadence: `runSync`'s stage-2 last resort and the cold
+      // re-register self-heal. This was the one hold left in the file on the
+      // 5-minute default backstop, which on a 3s loop is a hundred dead laps —
+      // and, unlabelled, its eviction record could not say which of the two
+      // flows had parked. The sibling holds here already make this argument for
+      // themselves (`guardian-adopt`, `guardian-sync`).
+    }, lockOptions);
     // Guard against a truncated read: AccountInspector.fromAccount swallows
     // per-slot storage-read failures (skips the slot, no throw), so a partial
     // read could yield an empty set. NEVER overwrite a good cached allowlist with
