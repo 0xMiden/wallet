@@ -406,6 +406,20 @@ export class MidenCli {
    * recipient to claim: this client holds no key for a wallet living in the extension, and the
    * claim is exactly the transaction the funding makes payable.
    */
+  /**
+   * Whether this chain charges a transaction fee, as the harness has determined it.
+   *
+   * Lets a spec assert it was actually funded rather than proceed hopefully: an unfunded
+   * account fails much later, at whatever transaction it first cannot pay for, with a
+   * kernel assertion code that says nothing about the cause.
+   */
+  async chainCharges(): Promise<boolean> {
+    if (!this.chainChargesFees && (await this.importFunders()).length > 0) {
+      this.chainChargesFees = true;
+    }
+    return this.chainChargesFees;
+  }
+
   async fundAccountForFees(accountId: string): Promise<void> {
     if (this.fundedForFees.has(accountId)) {
       return;
