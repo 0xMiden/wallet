@@ -45,8 +45,15 @@ export async function ensureFeeAuthOnRequestBytes(requestBytes: Uint8Array): Pro
     console.warn('[Guardian] could not read request bytes to attach fee auth; passing through', error);
     return requestBytes;
   }
+  // An EMPTY auth arg is not a commitment. miden-client says so explicitly where it decides
+  // whether to inject conversion info -- "an empty one commits nothing, so it is treated as
+  // unset" -- and a builder that was handed no auth arg can still serialize a zero word. Testing
+  // only for `undefined` therefore skips exactly the requests that need annotating, which is why
+  // the guardian swap kept aborting with ERR_FEE_CONVERSION_INFO_MISSING after this helper was
+  // supposedly applied to it.
   const existing = request?.authArg?.();
-  if (request === undefined || existing !== undefined) {
+  const commitsSomething = existing !== undefined && !/^0x0*$/.test(existing.toHex());
+  if (request === undefined || commitsSomething) {
     // Already committed by whoever built it; re-attaching would replace a live commitment
     // whose salt the caller may still need.
     return requestBytes;

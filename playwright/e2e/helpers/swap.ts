@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -160,15 +161,35 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 
   let orderId = '';
-  await expect
-    .poll(
-      async () => {
-        orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
-        return orderId;
-      },
-      { timeout: 90_000, intervals: [3000] }
-    )
-    .not.toBe('');
+  try {
+    await expect
+      .poll(
+        async () => {
+          orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
+          return orderId;
+        },
+        { timeout: 90_000, intervals: [3000] }
+      )
+      .not.toBe('');
+  } catch (pollError) {
+    // "No new order id" is a symptom; the reason is on the transaction row. Without this the
+    // failure reads as a bare timeout on a predicate, which says nothing about WHY the swap
+    // never completed -- on a fee-charging chain that is usually an unpayable fee, and the
+    // kernel error naming it is already persisted.
+    const rows = await readTransactionRows(page).catch(() => []);
+    const failed = rows
+      .filter(r => r.status === 3)
+      .map(
+        r =>
+          `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+          (r.rawError ? `\n      raw: ${r.rawError}` : '')
+      )
+      .join('');
+    throw new Error(
+      `${(pollError as Error).message}\n  swap never produced a new order id.` +
+        (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+    );
+  }
   return orderId;
 }
 
