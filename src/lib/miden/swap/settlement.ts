@@ -138,6 +138,23 @@ export async function reconcileSwapOrderNotes(
     // the leftover.
     for (const batch of [paybackNotes, reclaimNotes]) {
       if (batch.length === 0) continue;
+      // No `verificationBaseFee`, so no claim floor — unlike the three native
+      // auto-consumers. Deliberate, on two grounds.
+      //
+      // It is not expressible here: the records this function receives carry
+      // `faucetId: ''` and `amount: ''` (see `settleSwapOrders`, which keeps only
+      // note id + lineage because that is all settlement needs). Summing them
+      // yields 0n, which is below every floor, so passing a fee would settle
+      // NOTHING rather than settling frugally.
+      //
+      // And it is not the same risk. The floor exists against a griefing vector —
+      // one fee buys an attacker a pile of dust notes the victim must sweep — and
+      // an attacker cannot make this account place swap orders. A solver CAN
+      // partial-fill into many small payback notes, but the split above is per
+      // ROLE, not per note: every payback for one order goes into one consume, so
+      // a trickle of fills costs one fee per lap rather than one per note. What
+      // remains is that one lap's fee can exceed a very small fill, which is the
+      // price of settling promptly on funds the user is owed.
       const txId = await initiateConsumeNotesTransaction(accountId, batch, delegate);
       // A batch of payback notes delivered funds — it settles (Confirmed), it
       // doesn't reclaim. A tip-only batch is the unfilled remainder coming back.
