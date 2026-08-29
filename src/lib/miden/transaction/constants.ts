@@ -39,9 +39,20 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * What it actually means is that whoever BUILT the request did not commit
  * conversion info into its auth args. On a multisig account the client cannot
  * inject that -- the auth-arg slot belongs to the multisig -- so the request has
- * to carry it, and a request built elsewhere (a dApp's, or one persisted before
- * the wallet handled fees) may not. See `ensureCustomProposalFeeAuth`. Retrying
- * the same row cannot fix it, so the copy does not invite one.
+ * to carry it, and a request built elsewhere may not.
+ *
+ * KNOWN REACHABLE on a fee-charging chain, for the four Guardian flows whose
+ * request bytes are serialized before any fee-auth code runs: Epoch bridged-send
+ * and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer bridged-send
+ * (`initiateB2AggBridge`), the swap's PSWAP note (`buildPswapCreateRequest`), and
+ * a dApp `execute`. Annotating those bytes after the fact is not possible --
+ * `TransactionRequest` has no `withAuthArg`, its readers do not cover input notes
+ * or the script, and `serialize()` is not canonical, so a rebuild can neither
+ * carry everything forward nor prove that it did. The fix has to reach each
+ * producer's BUILDER (or gain an SDK method); until then this message is what the
+ * user sees, and it correctly declines to blame the balance.
+ *
+ * Retrying the same row cannot fix it, so the copy does not invite one.
  */
 export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
   'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +

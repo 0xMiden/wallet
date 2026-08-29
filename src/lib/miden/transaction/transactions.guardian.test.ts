@@ -150,27 +150,9 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
   resolveAuthArg: jest.fn(() => ({ authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }))
 }));
 
-// Defaults to a chain that charges nothing, which is what every case below
-// except the fee-auth one assumes: `ensureCustomProposalFeeAuth` returns the
-// caller's own bytes untouched at a zero fee, so the pre-built-request
-// assertions can keep pinning the exact array they queued.
-// eslint-disable-next-line no-var
-var mockGetVerificationBaseFee = jest.fn(async (): Promise<number | null> => 0);
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000'),
-  getVerificationBaseFee: (...a: unknown[]) => mockGetVerificationBaseFee(...(a as []))
+  getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000')
 }));
-
-/**
- * A transaction request modelled as JSON, so `ensureCustomProposalFeeAuth`'s
- * round-trip proof is exercised rather than stubbed away: a request whose only
- * content is own output notes re-emits byte-identically (and so can be
- * annotated), and the auth arg is readable back out of the result.
- */
-const encodeFakeRequest = (request: { ownNotes: unknown[]; authArg?: unknown }): Uint8Array =>
-  Uint8Array.from(JSON.stringify(request), character => character.charCodeAt(0));
-const decodeFakeRequest = (bytes: Uint8Array): { ownNotes: unknown[]; authArg?: unknown } =>
-  JSON.parse(String.fromCharCode(...Array.from(bytes)));
 
 jest.mock('lib/intercom', () => ({
   getIntercom: () => ({ broadcast: jest.fn(), request: jest.fn() })
@@ -223,43 +205,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     ChainAnchor: {
       deserialize: (...a: unknown[]) => mockChainAnchorDeserialize(...a)
-    },
-    // Only reached when the chain charges a fee, where
-    // `ensureCustomProposalFeeAuth` has to re-emit a pre-built request through a
-    // builder to give it an auth arg. The shared wasmMock stubs the builder as a
-    // bare jest.fn(), which cannot round-trip.
-    NoteArray: jest.fn(function (this: any, notes: unknown[]) {
-      this.notes = notes;
-    }),
-    TransactionRequest: {
-      deserialize: jest.fn((bytes: Uint8Array) => {
-        const parsed = JSON.parse(String.fromCharCode(...Array.from(bytes)));
-        return {
-          authArg: () => parsed.authArg,
-          expectedOutputOwnNotes: () => parsed.ownNotes,
-          serialize: () => bytes
-        };
-      })
-    },
-    TransactionRequestBuilder: jest.fn(function (this: any) {
-      const state: { ownNotes: unknown[]; authArg?: unknown } = { ownNotes: [] };
-      this.withOwnOutputNotes = (noteArray: { notes: unknown[] }) => {
-        state.ownNotes = noteArray.notes;
-        return this;
-      };
-      this.withAuthArg = (authArg: unknown) => {
-        state.authArg = authArg;
-        return this;
-      };
-      this.extendAdviceMap = () => this;
-      this.build = () => ({
-        serialize: () =>
-          Uint8Array.from(
-            JSON.stringify(state.authArg === undefined ? { ownNotes: state.ownNotes } : state),
-            character => character.charCodeAt(0)
-          )
-      });
-    })
+    }
   };
 });
 
@@ -446,11 +392,6 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateWasmWebClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
     mockBuildPswapCreateRequest.mockReset();
-    // Same `clearAllMocks` caveat as the anchor below: without restoring the
-    // zero-fee default, the one fee-charging case leaks a non-zero fee into every
-    // test after it, sending pre-built-request paths through the annotation
-    // rebuild they do not model.
-    mockGetVerificationBaseFee.mockResolvedValue(0);
     // #784: `clearAllMocks` clears CALLS but keeps implementations, so reset
     // this one and give it an echoing default. Without a default, a test that
     // sets `metadata.chainAnchor` but forgets `mockReturnValue` would decode to
@@ -2008,79 +1949,6 @@ describe('generateTransaction — Guardian routing', () => {
     expect(row?.status).toBe(ITransactionStatus.Completed);
     // The label matches what `completeBridgedSendTransaction` writes on the happy path.
     expect(row?.displayMessage).toBe('Bridged to EVM');
-  });
-
-  it('Guardian AGGLAYER bridged-send: a fee-charging chain gets conversion info committed into the pre-built request', async () => {
-    // The bytes are built and persisted by `initiateB2AggBridge` at QUEUE time, as
-    // a bare own-output-note request, and `createCustomProposal` injects nothing —
-    // so on a fee-charging chain this proposal used to reach the kernel with no
-    // conversion-info commitment and abort at `creating-proposal`. Invisible to
-    // CI, which pins `verification-base-fee: '0'` on every guardian workflow.
-    //
-    // Both halves are asserted because they have to agree: the proposal's signed
-    // summary is derived from these bytes and `signAndCreateTransactionRequest`
-    // re-deserializes them, so annotating one and not the other would swap the
-    // summary salt out from under the signatures.
-    mockGetVerificationBaseFee.mockResolvedValue(10000);
-    const txId = 'bridge-guardian-agglayer-feeauth';
-    const requestBytes = encodeFakeRequest({ ownNotes: ['b2agg-note'] });
-    const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
-      id: txId,
-      type: 'bridged-send',
-      amount: 1000n,
-      faucetId: 'faucet',
-      requestBytes,
-      extraInputs: {
-        provider: 'agglayer',
-        destinationAddress: '0xevm',
-        destinationNetwork: 0,
-        sourceFaucetId: 'faucet',
-        claimStatus: 'pending'
-      },
-      delegateTransaction: true
-    });
-    txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    const multisigService = {
-      // Typed parameters, so the bytes read back off `mock.calls` below are a
-      // Uint8Array rather than an untyped tuple element needing a cast.
-      createCustomProposal: jest.fn(async (_requestBytes: Uint8Array, _proposalType?: string) => ({
-        id: 'agglayer-feeauth-proposal',
-        nonce: 11
-      })),
-      createSendProposal: jest.fn(),
-      signAndCreateTransactionRequest: jest.fn(async () => ({
-        serialize: () => new Uint8Array([1]),
-        authArg: () => undefined
-      })),
-      abandonCandidate: jest.fn(async () => {}),
-      sync: jest.fn(async () => {})
-    };
-    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
-    const client = Object.assign(makeClientApi(makeResult()), {
-      sync: jest.fn(async () => ({ blockNum: () => 100 }))
-    });
-    mockGetMidenClient.mockResolvedValue({ syncState: jest.fn(async () => {}), client });
-
-    await generateTransaction(
-      transaction,
-      jest.fn(async () => new Uint8Array([2])),
-      false,
-      makeGuardianProvider(true)
-    );
-
-    const proposedBytes = multisigService.createCustomProposal.mock.calls[0]![0];
-    expect(decodeFakeRequest(proposedBytes).authArg).toBe('AUTH_ARG');
-    // The note itself must survive verbatim — its serial number is the note id
-    // the L1 claim is keyed to.
-    expect(decodeFakeRequest(proposedBytes).ownNotes).toEqual(['b2agg-note']);
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith(
-      'agglayer-feeauth-proposal',
-      proposedBytes
-    );
-    // Persisted, so a retry after a restart reuses the annotated bytes rather
-    // than the unpayable ones it queued.
-    expect(txStore.find(r => r.id === txId)?.requestBytes).toEqual(proposedBytes);
   });
 
   it('Guardian bridged-send: a canonicalization race after submit also marks the row Failed (not Completed)', async () => {
