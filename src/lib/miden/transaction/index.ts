@@ -52,6 +52,7 @@ import {
 } from './complete';
 import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
+import { ensureFeeAuthOnRequestBytes } from './guardian-fee-auth';
 import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
@@ -2087,7 +2088,17 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
+      // A dApp's request is built outside the wallet and cannot be rebuilt, so its fee auth has
+      // to be attached to the finished bytes. Persisted back so the execution below reproduces
+      // the same commitment.
+      const dappBytes = await ensureFeeAuthOnRequestBytes(requestBytes);
+      if (dappBytes !== requestBytes) {
+        transaction.requestBytes = dappBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = dappBytes;
+        });
+      }
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(dappBytes));
       break;
     }
   }
