@@ -518,18 +518,6 @@ export class MultisigService {
    * the resulting tx (see initiateReplaceHotKeyTransaction).
    */
   async createReplaceHotKeyProposal(account: Account): Promise<{ proposal: Proposal; newHot: GeneratedHotKey }> {
-    // Settle first, mint second. `replace-hot-key` is deliberately excluded from
-    // REQUEUEABLE_ON_PENDING_CONFLICT because the mint below happens BEFORE the proposal
-    // POST, so requeuing a pending-delta 409 would re-mint and orphan a hardware key every
-    // cycle. That exclusion makes such a 409 terminal — so the only safe way to survive one
-    // is not to provoke it. Waiting HERE costs nothing, because nothing has been created yet.
-    //
-    // The window is real: a recovery re-registers on the guardian immediately before the
-    // rotation gate auto-initiates, and that registration's delta is still canonicalizing
-    // when the proposal posts. It reproduced in roughly half of isolated runs of
-    // `guardian-recovery-stress` "rotation register fault retries", where an injected
-    // /configure fault delays the registration into the rotation's path.
-    await this.waitForGuardianDeltaToSettle();
     const newHot = await secureHotKey.generateHotKey();
     const { commitment: coldCommitRaw } = await getSignerDetailsFromAccount(account, true);
     const ensure0x = (h: string): string => (h.startsWith('0x') ? h : `0x${h}`);
@@ -658,36 +646,6 @@ export class MultisigService {
       console.error('Error finalizing guardian switch:', error);
       throw error;
     }
-  }
-
-  /**
-   * Wait until this account has no in-flight delta on the guardian.
-   *
-   * `pending`/`candidate` are the states the guardian rejects a new proposal against with
-   * `409 Conflict — There's already a pending change for this account`; `canonical`,
-   * `retained` and `discarded` are settled and do not block.
-   *
-   * Bounded, and deliberately best-effort: past the budget — or if the guardian cannot be
-   * asked — it returns and lets the POST decide. A guardian that never settles then produces
-   * the existing terminal failure, which the rotation gate's Retry escapes, rather than a
-   * hang behind a blocking overlay.
-   */
-  private async waitForGuardianDeltaToSettle(budgetMs = 30_000): Promise<void> {
-    const settled = (status: unknown): boolean => status !== 'pending' && status !== 'candidate';
-    const deadline = Date.now() + budgetMs;
-    while (Date.now() < deadline) {
-      let inFlight: number;
-      try {
-        const deltas = await this.client.guardianClient.getDeltaProposals(this.accountId);
-        inFlight = deltas.filter(d => !settled(d.status?.status)).length;
-      } catch (error) {
-        console.warn('[Guardian] could not read pending deltas before rotation; proceeding', error);
-        return;
-      }
-      if (inFlight === 0) return;
-      await delay(1_000);
-    }
-    console.warn('[Guardian] a delta was still in flight after the settle budget; proposing anyway');
   }
 
   private async registerOnGuardianWithRetry(stateBase64: string): Promise<void> {
