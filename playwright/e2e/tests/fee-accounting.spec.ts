@@ -8,6 +8,7 @@ import {
   walletDiscoveredBaseFee,
   walletDiscoveredNativeFaucetId
 } from '../helpers/balance-truth';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 import { readTransactionRows } from '../helpers/history';
 
 // Proof that a transaction fee is taken from the RIGHT ACCOUNT, in the RIGHT ASSET,
@@ -79,6 +80,21 @@ test.describe('Fee accounting', () => {
         timeoutMs: 120_000,
         decimals: TOKEN_DECIMALS
       });
+    });
+
+    await steps.step('fund_wallet_b_for_fees', async () => {
+      // Assertion 6 below ("the recipient did not pay for the sender's transaction")
+      // needs B to hold a NON-ZERO native balance to hold constant. Wallet A is
+      // funded as a side effect of being minted to (`mint` calls
+      // `fundAccountForFees`), but B is only ever a recipient, so it held 0n before
+      // and 0n after and the assertion compared 0n to 0n -- a regression that
+      // charged the fee to the recipient would have passed it.
+      //
+      // B claims the funding note here and makes no transaction afterwards (the
+      // send credits it a PENDING token note the spec never claims), so its native
+      // balance is genuinely expected to be unchanged. A no-op on a zero-fee chain,
+      // which returns before assertion 6 anyway.
+      await ensureFeeFunded(midenCli, walletB, addressB!);
     });
 
     // Read the chain's fee from the WALLET's own discovery, not from the harness's
@@ -218,6 +234,15 @@ test.describe('Fee accounting', () => {
       // 6. The recipient did not pay for the sender's transaction. The kernel asserts
       //    the fee leaves the native (acting) account, but that is the property under
       //    test -- assert it observably rather than trusting it.
+      //
+      //    The non-zero guard is what makes the equality mean something: with B
+      //    unfunded this compared 0n to 0n and could not fail, so a regression that
+      //    debited the recipient would still have gone green.
+      expect(
+        nativeBeforeB,
+        'wallet B holds no native balance, so the assertion below would compare 0n to 0n and prove nothing; ' +
+          'fund_wallet_b_for_fees should have credited it'
+      ).toBeGreaterThan(0n);
       expect(
         await vaultBalance(walletB.page, NATIVE),
         "recipient's native balance moved during a send it did not make"
