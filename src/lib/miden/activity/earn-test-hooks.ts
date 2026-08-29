@@ -32,6 +32,14 @@ interface LatestEarnDeposit {
   stage?: ITransaction['stage'];
   epochStatus?: IEarnDepositExtraInputs['epochStatus'];
   displayMessage?: string;
+  /**
+   * Why the row failed. `epochStatus: 'failed'` is written from two very different places -- a
+   * genuinely failed Epoch leg, and `intent.error` on the submit path -- so without the reason
+   * the two are indistinguishable from the harness. That is what made an earn failure read as an
+   * allocator problem while the allocator was a fake programmed to succeed.
+   */
+  error?: string;
+  rawError?: string;
 }
 
 declare global {
@@ -55,7 +63,9 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
     status: row.status,
     stage: row.stage,
     epochStatus: inputs?.epochStatus,
-    displayMessage: row.displayMessage
+    displayMessage: row.displayMessage,
+    error: row.error,
+    rawError: row.rawError
   };
 }
 

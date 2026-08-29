@@ -26,6 +26,17 @@ import { newEvmDestination } from '../../helpers/sepolia';
 test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
 
+  // The header's "requires public Miden testnet" was prose only, so this ran against a local
+  // chain and spent six minutes failing deep in the kernel with
+  //   before_foreign_load -> account 0xa22ec1... not found at block N
+  // because the real AggLayer bridge account it loads as a FOREIGN account exists only on
+  // testnet. That reads like a wallet bug and is not one. `e2e-bridge.yml` runs this suite with
+  // E2E_NETWORK=testnet; nothing else should.
+  test.skip(
+    (process.env.E2E_NETWORK ?? 'testnet') !== 'testnet',
+    'needs public Miden testnet: the AggLayer bridge account is loaded as a foreign account and does not exist on a local chain'
+  );
+
   const TOKEN_SYMBOL = 'AGG';
   const BRIDGE_AMOUNT = '1';
 
