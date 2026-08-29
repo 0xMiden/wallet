@@ -221,17 +221,24 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
 /** Raw sent-note info for the maker (id + tag + noteType per output note). */
 async function readMakerSent(
   maker: Wallet
-): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }>> {
+): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string }>> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }> };
+  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string }> };
   return info?.sent ?? [];
 }
 
 /** The maker's swap note id (full hex). Single-order specs have exactly one sent note. */
-export async function readMakerNoteId(maker: Wallet): Promise<string | undefined> {
+export async function readMakerNoteId(maker: Wallet, orderId?: string): Promise<string | undefined> {
   const sent = await readMakerSent(maker);
-  return sent.find(s => s.fullId && s.fullId !== '?')?.fullId;
+  const usable = sent.filter(s => s.fullId && s.fullId !== '?');
+  // A fee-charging chain makes the maker's create transaction emit a fee note
+  // as well as the swap note, so "the first sent note" is no longer the swap
+  // note — handing that one to the taker fails PSWAP's script-root check. The
+  // order id is carried in the PSWAP serial number, so match on it when the
+  // caller knows which order it is looking for.
+  if (orderId) return usable.find(s => s.orderId === orderId)?.fullId;
+  return usable[0]?.fullId;
 }
 
 /**
@@ -318,8 +325,13 @@ export interface FillResult {
 export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
   let noteFileHex = o.noteFileHex;
   if (!noteFileHex && o.maker) {
-    const noteId = await readMakerNoteId(o.maker);
-    if (!noteId) throw new Error('fillSwapOrder: maker has no exportable swap note');
+    const noteId = await readMakerNoteId(o.maker, o.orderId);
+    if (!noteId) {
+      const sent = await readMakerSent(o.maker);
+      throw new Error(
+        `fillSwapOrder: maker has no sent note carrying order id ${o.orderId}; sent notes were ${JSON.stringify(sent)}`
+      );
+    }
     noteFileHex = await exportMakerNote(o.maker, noteId);
   }
   return swOf(o.taker).evaluate(

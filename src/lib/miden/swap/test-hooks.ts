@@ -94,7 +94,10 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
           id: safe(() => r.id().toString()).slice(0, 14),
           fullId: safe(() => r.id().toString()),
           tag: safe(() => r.metadata().tag().asU32()),
-          noteType: safe(() => r.metadata().noteType())
+          noteType: safe(() => r.metadata().noteType()),
+          // The PSWAP order id, so a caller can tell the swap note apart from
+          // the fee note the account also emits on a fee-charging chain.
+          orderId: orderIdOf(r)
         }))
       };
     } catch (e) {
