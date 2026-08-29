@@ -2042,7 +2042,12 @@ describe('generateTransaction — Guardian routing', () => {
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'agglayer-feeauth-proposal', nonce: 11 })),
+      // Typed parameters, so the bytes read back off `mock.calls` below are a
+      // Uint8Array rather than an untyped tuple element needing a cast.
+      createCustomProposal: jest.fn(async (_requestBytes: Uint8Array, _proposalType?: string) => ({
+        id: 'agglayer-feeauth-proposal',
+        nonce: 11
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2064,7 +2069,7 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    const proposedBytes = multisigService.createCustomProposal.mock.calls[0][0] as unknown as Uint8Array;
+    const proposedBytes = multisigService.createCustomProposal.mock.calls[0]![0];
     expect(decodeFakeRequest(proposedBytes).authArg).toBe('AUTH_ARG');
     // The note itself must survive verbatim — its serial number is the note id
     // the L1 claim is keyed to.

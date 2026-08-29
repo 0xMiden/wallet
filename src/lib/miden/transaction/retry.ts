@@ -11,7 +11,8 @@ import {
   ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
-  ITransactionType
+  ITransactionType,
+  nextQueuedSeq
 } from '../db/types';
 
 /**
@@ -389,6 +390,12 @@ export const requeueFailedTransaction = async (txId: string, options: RetryOptio
     if (dbTx.status !== ITransactionStatus.Failed || dbTx.stage !== failedStage) return false;
     dbTx.status = ITransactionStatus.Queued;
     dbTx.initiatedAt = Math.floor(Date.now() / 1000);
+    // Re-stamped with the timestamp, not left at the original. `initiatedAt` is
+    // whole SECONDS, so the processing loop breaks ties on `queuedSeq` — and a
+    // requeued row keeping its old (smaller) sequence would sort AHEAD of a
+    // transaction queued in the same second, which is the opposite of the FIFO
+    // order the tie-break exists to impose.
+    dbTx.queuedSeq = nextQueuedSeq();
     dbTx.processingStartedAt = undefined;
     dbTx.completedAt = undefined;
     dbTx.stage = undefined;
