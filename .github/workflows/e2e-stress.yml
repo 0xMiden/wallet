@@ -106,9 +106,8 @@ jobs:
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
         with:
-          # the stress suite measures throughput; a fee changes its balance arithmetic and it
-          # has not been re-derived. Not a correctness suite, so it is not the place to prove fees.
-          verification-base-fee: '0'
+          # Throughput under the same fee-charging conditions every other suite runs on.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

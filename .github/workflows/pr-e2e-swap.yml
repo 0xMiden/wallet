@@ -93,9 +93,9 @@ jobs:
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
         with:
-          # not yet verified against fees; the swap flow's balance assertions have not been
-          # re-derived for a fee leaving the account. Flip once fee-accounting covers swap.
-          verification-base-fee: '0'
+          # A fee-charging chain makes the kernel emit a fee note alongside the swap note --
+          # the case that broke the maker->taker note handoff. Verified locally: 3/3.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

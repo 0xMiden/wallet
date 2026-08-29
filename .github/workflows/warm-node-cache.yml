@@ -44,5 +44,5 @@ jobs:
         with:
           # this job only warms the build cache and runs no specs, so the fee is irrelevant;
           # pinned explicitly so it never silently diverges from the suites.
-          verification-base-fee: '0'
+          verification-base-fee: '10000'
         continue-on-error: true

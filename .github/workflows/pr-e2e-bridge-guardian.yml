@@ -94,8 +94,8 @@ jobs:
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
         with:
-          # guardian half of this suite is blocked on protocol#3765 (see pr-e2e-guardian-lifecycle).
-          verification-base-fee: '0'
+          # Guarded account bridging out; pays its fee via protocol#3765. Verified locally.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |

@@ -51,7 +51,7 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
+        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}-rust1.96.1
     - name: Patch prover port 50051 -> 50052
       shell: bash
       # The wallet's localnet remote-prover endpoint is :50052 (the guardian binds :50051);
@@ -160,7 +160,7 @@ runs:
       uses: actions/cache/save@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-rust1.96.1
+        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}-rust1.96.1
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.
