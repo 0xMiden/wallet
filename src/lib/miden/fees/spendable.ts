@@ -1,14 +1,29 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 
 /**
- * Whether a transaction is certain to fail because the account holds none of the
- * asset the fee is taken in.
+ * Whether a transaction is certain to fail because the account cannot cover the
+ * fee, which is taken in the native asset whatever the transaction moves.
  *
  * Since protocol 0.16 the fee is withdrawn from the acting account's own vault in
  * the auth procedure, so an account holding only non-native tokens cannot move
  * them at all. Without this the send form stays enabled and the failure surfaces
  * after biometric confirmation, which reads as a lost transaction rather than a
  * precondition the wallet could have checked.
+ *
+ * ## Why a LOWER bound here, when the send cap reserves an upper one
+ *
+ * The two are asking opposite questions and need opposite bounds. `maxSendableNative`
+ * asks "how much can I spend and still be SAFE", so it holds back the worst case
+ * (`FEE_RESERVE_MULTIPLE`). This asks "is failure CERTAIN", and answering that with
+ * the worst case would disable sending for accounts that can pay perfectly well:
+ * the real charge is `baseFee x (floor(log2(cycles)) + 1)` and lands near 17x on
+ * devnet, so a 30x test would refuse an account holding 20x -- turning a working
+ * send into a dead button, which is worse than the late failure it avoids.
+ *
+ * One base fee is the smallest charge the kernel can levy, so below it the fee
+ * provably cannot be paid. That leaves a band (roughly 1x..30x) where the form
+ * still allows a send that may fail in the epilogue; closing it needs the real
+ * cycle count, which is not knowable until the transaction is proven.
  *
  * Fails OPEN in every uncertain case -- an unknown fee, an unknown native asset,
  * or a native row that has not arrived. Those are indistinguishable from a
@@ -30,7 +45,18 @@ export function hasNoFeeAsset(
   if (native === undefined) {
     return false;
   }
-  return native.balance <= 0;
+  if (native.balance <= 0) {
+    return true;
+  }
+  // `balance` is decimal-scaled for display, `verificationBaseFee` is in the
+  // asset's smallest unit -- the same mismatch `maxSendableNative` converts for.
+  // An absent or non-finite `decimals` would scale the comparison arbitrarily, so
+  // fail open rather than guess.
+  const decimals = native.metadata?.decimals;
+  if (typeof decimals !== 'number' || !Number.isFinite(decimals)) {
+    return false;
+  }
+  return native.balance * 10 ** decimals < verificationBaseFee;
 }
 
 /**

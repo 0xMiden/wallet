@@ -10,7 +10,14 @@ import {
 
 const NATIVE = 'mtst1native';
 
-const row = (tokenId: string, balance: number): TokenBalanceData => ({ tokenId, balance }) as TokenBalanceData;
+// MIDEN's 6 decimals, so a base fee of 10000 base units is 0.01 in the
+// decimal-scaled `balance` these rows carry. The scale is not decoration here:
+// `hasNoFeeAsset` converts through it, and a row without it fails open.
+// `null` means "the row carries no decimals at all", which is a distinct case
+// from omitting the argument — passing `undefined` explicitly would just
+// re-trigger the default.
+const row = (tokenId: string, balance: number, decimals: number | null = 6): TokenBalanceData =>
+  ({ tokenId, balance, metadata: decimals === null ? {} : { decimals } }) as TokenBalanceData;
 
 describe('hasNoFeeAsset', () => {
   it('blocks when the chain charges a fee and the account holds none of the fee asset', () => {
@@ -45,6 +52,32 @@ describe('hasNoFeeAsset', () => {
 
   it('fails open when the native row has not arrived yet', () => {
     const balances = [row('TKN', 50)];
+    expect(hasNoFeeAsset(balances, NATIVE, 10000)).toBe(false);
+  });
+
+  it('blocks a native balance too small to cover even one base fee', () => {
+    // A non-zero balance is not the same as a payable one. At 6 decimals a base
+    // fee of 10000 is 0.01 MIDEN, so 0.001 provably cannot pay it — and a plain
+    // `balance <= 0` test let this account through to fail after biometric
+    // confirmation, which is exactly what this guard exists to prevent.
+    const balances = [row('TKN', 50), row(NATIVE, 0.001)];
+    expect(hasNoFeeAsset(balances, NATIVE, 10000)).toBe(true);
+  });
+
+  it('allows a balance between one base fee and the send reserve', () => {
+    // 0.05 MIDEN is 5x the base fee: under the 30x the send cap RESERVES, but
+    // well over the ~17x a real transaction charges, so the send may well
+    // succeed. Testing "certain to fail" against the worst case instead would
+    // disable the form for an account that can pay.
+    const balances = [row('TKN', 50), row(NATIVE, 0.05)];
+    expect(hasNoFeeAsset(balances, NATIVE, 10000)).toBe(false);
+  });
+
+  it('fails open when the native row carries no decimals', () => {
+    // Without a scale the comparison is arbitrary — 0.001 reads as either 1000
+    // base units or 0.001 of them. Guessing could disable sending on a funded
+    // account, so an unknown scale is treated like an unknown fee.
+    const balances = [row('TKN', 50), row(NATIVE, 0.001, null)];
     expect(hasNoFeeAsset(balances, NATIVE, 10000)).toBe(false);
   });
 });
