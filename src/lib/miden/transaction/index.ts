@@ -1352,9 +1352,21 @@ export const generateTransaction = async (
         await assertEarnDepositIntentLive(transaction);
       }
       if (transaction.requestBytes) {
+        // Pre-built bytes need the fee auth here exactly as they do on the Guardian leaf.
+        // `bridged-send` (AggLayer) and `earn-deposit` build their request at INITIATE time, so
+        // the fee auth attached during a normal build never ran for them: on a fee-charging chain
+        // the request reached the chain carrying no conversion info and the row went Failed.
+        // Persisted because the commitment carries a fresh salt; the annotation is idempotent.
+        const annotated = await ensureFeeAuthOnRequestBytes(transaction.requestBytes);
+        if (annotated !== transaction.requestBytes) {
+          transaction.requestBytes = annotated;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = annotated;
+          });
+        }
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
-          transaction.requestBytes,
+          annotated,
           transaction.delegateTransaction,
           signCallback
         );
@@ -1363,14 +1375,24 @@ export const generateTransaction = async (
       }
       break;
     case 'execute':
-    default:
+    default: {
+      // Same pre-built-bytes gap as the branch above: a dApp `execute` carries bytes the wallet
+      // did not build, so the fee auth has to be attached before it is submitted.
+      const executeBytes = await ensureFeeAuthOnRequestBytes(transaction.requestBytes!);
+      if (executeBytes !== transaction.requestBytes) {
+        transaction.requestBytes = executeBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = executeBytes;
+        });
+      }
       result = await midenClientProxy.newTransaction(
         transaction.accountId,
-        transaction.requestBytes!,
+        executeBytes,
         transaction.delegateTransaction,
         signCallback
       );
       break;
+    }
   }
 
   switch (transaction.type) {
