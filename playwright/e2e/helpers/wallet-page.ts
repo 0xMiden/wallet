@@ -2204,6 +2204,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
               // Read it only together with `status`.
               stage: row.stage,
               error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+              // `error` is the user-facing copy, which deliberately drops the technical
+              // detail -- "the prover does not recognize part of this transaction" without
+              // naming WHICH procedure root it could not resolve. The wallet keeps the
+              // untouched cause in `rawError` whenever it rewrote the message; a failure
+              // dump that omits it hides the one field that identifies the fault.
+              rawError: typeof row.rawError === 'string' ? row.rawError.slice(0, 600) : undefined,
               errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
             }))
         );
