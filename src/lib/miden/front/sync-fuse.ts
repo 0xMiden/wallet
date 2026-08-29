@@ -218,6 +218,40 @@ export function noteNonEvictionSyncFailure(key: SyncFuseKey): void {
 }
 
 /**
+ * This probe was ABANDONED rather than answered — it learned nothing about the node.
+ *
+ * The third outcome, and the ledger had only two. `noteNonEvictionSyncFailure` means
+ * "the probe reached the node and the node failed us", which is why it may zero the
+ * count: a failure that came back breaks a run of evictions. But two failure shapes
+ * reach a caller carrying no information about the node at all, and routing either of
+ * them through that function ERASED evidence instead of merely declining to add:
+ *
+ *   - a `realm-error` poison, i.e. a WASM trap in this realm. The abandoned call is
+ *     still parked wherever it was; a trap says nothing about whether the node
+ *     answered. `isSyncWatchdogEviction` is deliberately watchdog-only, so this
+ *     landed in the "some other reason" arm and zeroed the count.
+ *   - a local failure before any hold — a Dexie read, a dynamic import, a listener
+ *     that threw — which is not the node's doing either.
+ *
+ * Zeroing on those is what made the loop-terminating `break`s unbounded over half of
+ * their own trigger set. The breaks fire on ANY poison, and the per-probe fuse is
+ * their only escape ramp; with a recurring realm-error eviction the count could never
+ * reach `MAX_CONSECUTIVE_WATCHDOG_EVICTIONS`, so the pass aborted at the same account
+ * on every lap and the guardian accounts after it were never synced again. Alternating
+ * the two poison reasons was worse than either: 0 → 1 → 0 forever, the exact
+ * unreachable threshold that keying this ledger per probe was written to end.
+ *
+ * So: re-arm a LIT fuse — "one probe per 30 min until one SUCCEEDS" is the contract,
+ * and an abandoned probe has not succeeded — but leave an unlit entry's evidence
+ * exactly as it stands. Never a success, never a withdrawal.
+ */
+export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry || entry.fusedUntilMs === null) return;
+  entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+}
+
+/**
  * This probe went through. The only thing that clears its fuse: it proves the call is
  * not parked after all, which is the one observation the fuse is waiting for.
  */

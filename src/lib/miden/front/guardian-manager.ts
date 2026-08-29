@@ -187,15 +187,20 @@ export async function getOrCreateMultisigService(
     const buildLockOptions = boundAtSyncCeiling
       ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
       : { label: 'guardian-service-build' };
-    const { sdkAccount, commitment } = await withWasmClientLock(async hold => {
+    const { sdkAccount, commitment, accountIdHex } = await withWasmClientLock(async hold => {
       // Use the matched account's stored publicKey (the form the in-wallet path
       // uses) rather than the possibly-bare dApp-supplied id.
       const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined };
+      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined };
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
       // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
-      return { sdkAccount, commitment };
+      // READ IN HERE, not at the log site below. `id()` is a call on a borrowed
+      // handle, so asking for it after this hold released was the very thing the
+      // comment above forbids — and a `console.log` is a silly place to take a
+      // double borrow: an eviction in the gap made it throw `isDisposed` and
+      // aborted a service build that had otherwise succeeded.
+      return { sdkAccount, commitment, accountIdHex: sdkAccount.id().toString() };
     }, buildLockOptions);
 
     if (!sdkAccount || commitment === undefined) {
@@ -203,7 +208,7 @@ export async function getOrCreateMultisigService(
     }
 
     // Bind the service to the hot signer — the popup signs with the hot key.
-    console.log('creating guardian service', sdkAccount.id().toString());
+    console.log('creating guardian service', accountIdHex);
     const service = await MultisigService.init(
       sdkAccount,
       `0x${hotPublicKey}`,

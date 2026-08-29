@@ -884,9 +884,45 @@ export async function revertGuardianEndpointAfterDiscard(
   // binding still on this rotation's target it licenses the rollback, and with
   // the binding moved on it licenses nothing — that is somebody else's row to
   // repair — but it must not read as "nothing to undo" either.
-  const bindingMovedOn =
-    !account.guardianEndpoint || !sameGuardianEndpoint(account.guardianEndpoint, discardedEndpoint);
-  if (!account.guardianEndpoint) return 'stale';
+  // THE POINTER THIS ACCOUNT CHOSE, not the raw field — the same correction the
+  // reconciler above already carries, and the rollback kept the old reading.
+  // A pre-per-account-endpoint account has the legacy global key as its ONLY
+  // pointer (the unlock backfill leaves the field empty on purpose), and the raw
+  // field is also empty whenever completion stamped the row but its binding write
+  // failed. Both landed on the `return 'stale'` below, which is not a harmless
+  // wait: the caller CHARGES a stale against this row's finite budget, so fifteen
+  // laps of an account with nothing wrong with it — its pointer never moved, so
+  // there is nothing to roll back — declared it unrepairable and put a
+  // `needs-user-input` prompt in front of the user.
+  //
+  // The default arm stays excluded (`resolveChosenGuardianEndpoint`, not
+  // `resolveGuardianEndpoint`): this function ends in a WRITE, and an endpoint the
+  // wallet merely guessed is not a pointer the account chose.
+  let boundEndpoint: string | undefined;
+  try {
+    boundEndpoint = await resolveChosenGuardianEndpoint(account);
+  } catch (error) {
+    // A storage read that threw says nothing about the binding, and this guard
+    // cannot treat "I could not tell" as permission — the same fail-closed rule
+    // the unreachable-operator and unread-commitment arms below follow.
+    console.warn(
+      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; leaving the rollback pending`,
+      error
+    );
+    return 'stale';
+  }
+  // No pointer at all, by either route. Unchanged answer, but now for the right
+  // reason: there is genuinely nothing to compare the row against.
+  if (!boundEndpoint) return 'stale';
+  // ALREADY WHERE THE ROLLBACK WOULD PUT IT. `'superseded'`, not `'stale'`: the
+  // write is a no-op, so the row is finished and the caller should settle it
+  // rather than spend fifteen more laps re-establishing that. This is the arm the
+  // legacy-global account reaches — its chosen pointer is still the pre-rotation
+  // operator, which is exactly `revertTo` (`initiate` stamps
+  // `previousGuardianEndpoint` from the same resolver).
+  if (sameGuardianEndpoint(boundEndpoint, revertTo)) return 'superseded';
+
+  const bindingMovedOn = !sameGuardianEndpoint(boundEndpoint, discardedEndpoint);
 
   const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
@@ -913,7 +949,7 @@ export async function revertGuardianEndpointAfterDiscard(
   // the shorter ceiling. The cost of the long one is bounded from the other end
   // instead — by the caller's per-row cooldown and its per-pass row cap — which
   // is the bound that can be raised without turning slowness into a verdict.
-  const authority = await verifyEndpointMatchesCommitment(account.guardianEndpoint, onChain);
+  const authority = await verifyEndpointMatchesCommitment(boundEndpoint, onChain);
   // The bound endpoint answers for the account's on-chain guardian, so SOME
   // rotation to it landed — whichever row owned it. Nothing to roll back, and the
   // caller may settle. This is the one answer that licenses the demote, and it is

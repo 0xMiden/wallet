@@ -107,18 +107,73 @@ const literalText = (node: ts.Node): string | undefined => {
 // indirection, it is the presence test written with the reflective API, one
 // autocomplete away from `Object.hasOwn`.
 const presenceCallee = (expression: ts.Expression): boolean => {
-  const text = expression.getText();
+  // `.call` / `.apply` STRIPPED FIRST. `Object.prototype.hasOwnProperty.call(x, 'f')`
+  // is the canonical, lint-recommended spelling of the presence test — and its
+  // callee text ends in `.call`, so every suffix below missed it. That is not
+  // indirection the docstring concedes: the method is named right there in the
+  // syntax, wearing the one wrapper the language requires for a prototype method.
+  const text = calleeReceiverText(expression);
   return text.endsWith('hasOwn') || text.endsWith('hasOwnProperty') || text.endsWith('Reflect.has');
 };
+
+/** Callee text with a trailing `.call` / `.apply` / `.bind` removed. */
+const calleeReceiverText = (expression: ts.Expression): string =>
+  expression.getText().replace(/\.(call|apply|bind)$/, '');
 
 // `Object.keys(extra).includes('commitUnconfirmed')` is a presence test spelled
 // as a list membership, and it reads the field's ABSENCE exactly the way the two
 // forms above do. Matched on the argument rather than on the receiver, since the
 // receiver can be any expression that produces the key list.
 const membershipCallee = (expression: ts.Expression): boolean => {
-  const text = expression.getText();
+  const text = calleeReceiverText(expression);
   return /\.(includes|indexOf|lastIndexOf)$/.test(text);
 };
+
+/**
+ * Fenced field names read by a DESTRUCTURING ASSIGNMENT — `({ flag: x } = extra)`.
+ *
+ * The `BindingElement` arm above covers destructuring in a *declaration* (`const
+ * { flag } = extra`) and in a parameter, because those are binding patterns. An
+ * assignment to an existing variable is not: TypeScript parses its left side as an
+ * ordinary `ObjectLiteralExpression` whose members are `PropertyAssignment` /
+ * `ShorthandPropertyAssignment`, node kinds this walk never looked at. So the one
+ * spelling that needs no `const` at all read the field straight through the fence.
+ *
+ * Scoped to the left of an `=` ON PURPOSE. Matching `PropertyAssignment` anywhere
+ * would flag every object literal that WRITES the field — `{ commitUnconfirmed:
+ * true }` in the completion path — and writers are deliberately not what this
+ * fence governs. A read is a read only when the literal is the assignment target.
+ */
+const assignmentTargetReads = (target: ts.Node, fenced: Set<string>): string[] => {
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
+      const name = ts.isComputedPropertyName(node.name) ? literalText(node.name.expression) : node.name.getText();
+      if (name !== undefined && fenced.has(name)) found.push(node.getText());
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(target);
+  return found;
+};
+
+/**
+ * Literal keys named by a call's arguments, one level of array literal included.
+ *
+ * `.apply` takes its arguments as an ARRAY, so the key that `.call` passes
+ * directly — `hasOwnProperty.call(extra, 'flag')` — arrives wrapped as
+ * `hasOwnProperty.apply(extra, ['flag'])`. Stripping the `.apply` off the callee
+ * without also looking inside that array closes half the hole and leaves the
+ * other half looking closed.
+ */
+const callArgumentKeys = (args: ts.NodeArray<ts.Expression>): string[] =>
+  args.flatMap(arg => {
+    if (ts.isArrayLiteralExpression(arg)) {
+      return arg.elements.map(element => literalText(element)).filter((key): key is string => key !== undefined);
+    }
+    const key = literalText(arg);
+    return key === undefined ? [] : [key];
+  });
 
 /** Every fenced-field read in one file, as the source text that produced it. */
 const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
@@ -151,10 +206,12 @@ const fieldReads = (source: ts.SourceFile, names: FieldSet): string[] => {
       fenced.has(literalText(node.left) ?? '')
     ) {
       found.push(node.getText());
+    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      found.push(...assignmentTargetReads(node.left, fenced));
     } else if (
       ts.isCallExpression(node) &&
       (presenceCallee(node.expression) || membershipCallee(node.expression)) &&
-      node.arguments.some(arg => fenced.has(literalText(arg) ?? ''))
+      callArgumentKeys(node.arguments).some(key => fenced.has(key))
     ) {
       found.push(node.getText());
     }
@@ -352,7 +409,24 @@ describe('guardian claim fence', () => {
       ['presence test, asserted', `const legacy = !(('commitUnconfirmed' as const) in extra);`],
       // The one destructure form the identifier test dropped.
       ['computed destructuring', `const { ['commitUnconfirmed']: x } = extra;`],
-      ['computed destructuring, asserted', `const { ['commitUnconfirmed' as const]: x } = extra;`]
+      ['computed destructuring, asserted', `const { ['commitUnconfirmed' as const]: x } = extra;`],
+      // `.call` / `.apply` on the presence test. The first of these is what the
+      // no-prototype-builtins lint rule tells you to write, so it is the form a
+      // future reader is most likely to reach for — and every suffix test above
+      // saw a callee ending in `.call`.
+      ['hasOwnProperty via .call', `const legacy = !Object.prototype.hasOwnProperty.call(extra, 'commitUnconfirmed');`],
+      [
+        'hasOwnProperty via .apply',
+        `const legacy = !Object.prototype.hasOwnProperty.apply(extra, ['commitUnconfirmed']);`
+      ],
+      ['key-list membership via .call', `const legacy = !['a'].includes.call(keys, 'commitUnconfirmed');`],
+      // DESTRUCTURING ASSIGNMENT, the form that needs no declaration. TypeScript
+      // parses the left side as an object LITERAL, so none of the binding-pattern
+      // arms above ever saw it.
+      ['destructuring assignment', `({ commitUnconfirmed: x } = extra);`],
+      ['destructuring assignment, shorthand', `({ commitUnconfirmed } = extra);`],
+      ['destructuring assignment, computed', `({ ['commitUnconfirmed']: x } = extra);`],
+      ['destructuring assignment, nested', `({ extraInputs: { commitUnconfirmed } } = tx);`]
     ];
     for (const [label, code] of caught) {
       expect(`${label}: ${matchCount(code, FLAG_NAMES)}`).toBe(`${label}: 1`);
@@ -377,6 +451,12 @@ describe('guardian claim fence', () => {
     expect(matchCount('await update(id, { commitUnconfirmed: true });', FLAG_NAMES)).toBe(0);
     // A local variable that merely SHARES the name is not a field read either.
     expect(matchCount('const commitUnconfirmed = false; return commitUnconfirmed;', FLAG_NAMES)).toBe(0);
+    // And the new assignment-target arm must not turn WRITES into reads. This is
+    // the risk that arm carries: an object literal holding the field is the
+    // completion path's normal way of writing it, and it appears on the RIGHT of
+    // an `=` — matching `PropertyAssignment` anywhere would have flagged every one.
+    expect(matchCount('const patch = { commitUnconfirmed: true };', FLAG_NAMES)).toBe(0);
+    expect(matchCount('tx.extraInputs = { ...ei, commitUnconfirmed: true };', FLAG_NAMES)).toBe(0);
   });
 
   it('self-test: `offenders` reports a real file, and the allowlist is what suppresses it', () => {

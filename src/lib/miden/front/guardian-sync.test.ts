@@ -1885,6 +1885,13 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetGuardianSyncOutageForTest();
+    // THE FUSE IS MODULE-SCOPED, so it leaks between tests in this suite exactly
+    // as the outage counter does — and this suite is where evictions are thrown on
+    // purpose. Three of them light the per-account fuse, which then gates
+    // `syncGuardianAccounts` for whatever runs next: the symptom is a later test
+    // seeing zero calls to a mock it never touched, which reads as a bug in the
+    // fix rather than as leaked state.
+    __resetSyncFuseStateForTests();
     storeState.accounts = [account] as never;
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     mockFinalizeDirectGuardianSwitch.mockResolvedValue(undefined);
@@ -1921,7 +1928,11 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
         'unregistered-pk',
         endpoint,
         zustandProvider,
-        PREFLIGHT_LOCK_OPTIONS
+        PREFLIGHT_LOCK_OPTIONS,
+        // The charge hook. The attempt is spent from INSIDE the switch, right
+        // before the POST, rather than by the caller beforehand — see the
+        // dedicated charge-timing tests below.
+        expect.any(Function)
       );
       // The cached service was built against an operator that had no state; drop it
       // so the next tick builds one against the now-registered account.
@@ -1966,7 +1977,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       account.publicKey,
       endpoint,
       expect.anything(),
-      PREFLIGHT_LOCK_OPTIONS
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
   });
 
@@ -2076,7 +2088,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'unregistered-pk',
       endpoint,
       zustandProvider,
-      PREFLIGHT_LOCK_OPTIONS
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
 
     clock.restore();
@@ -2310,6 +2323,70 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
     clock.restore();
   });
 
+  // AN EVICTION IS NOT EVIDENCE ABOUT THE OPERATOR — not before a `/configure`
+  // is sent, anyway. `finalizeDirectGuardianSwitch` spends a `syncState()` round
+  // trip, an account read, a serialization and a 5 s operator probe before it
+  // POSTs anything, and the watchdog eviction of that leading `syncState` is a
+  // parked NODE. `asPreflight` rethrows poison unwrapped, so the error cannot be
+  // told apart from a post-POST eviction by inspecting it — only by whether the
+  // POST was reached. Charged for the whole call, three parked node reads spent a
+  // budget that only a successful registration refunds and then declared the
+  // account unrepairable, killing the only automatic repair an unregistered
+  // account has, over an operator that was never contacted.
+  it('does not spend the registration budget when the client is evicted before any /configure', async () => {
+    mockFinalizeDirectGuardianSwitch.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Well past the cap a spent budget would have hit. THE FUSE IS RETIRED EACH
+    // LAP on purpose: three evictions light it, and a lit fuse gates the probe
+    // for its own reasons — so leaving it armed would let the fuse do the capping
+    // and the test would pass whichever way the budget was booked.
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
+      __resetSyncFuseStateForTests();
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS + 4);
+
+    clock.restore();
+  });
+
+  // The other half, and the reason the hook is a hook rather than a rule about
+  // error types: once the POST has been reached, the abandoned call may still
+  // land, so it counts. An eviction is abandonment, not cancellation.
+  it('spends the registration budget when the eviction happens after the /configure was reached', async () => {
+    mockFinalizeDirectGuardianSwitch.mockImplementation(
+      async (
+        _publicKey: string,
+        _endpoint: string,
+        _provider: unknown,
+        _lockOptions: unknown,
+        onBeforeRegister?: () => void
+      ) => {
+        onBeforeRegister?.();
+        throw new WasmClientPoisonedError('watchdog');
+      }
+    );
+    const clock = useFakeClocks(1_000_000);
+
+    await runUntilPersistent();
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(1);
+
+    // Fuse retired each lap for the same reason as above — the cap being asserted
+    // has to be the BUDGET's, and a lit fuse would produce the same number.
+    for (let i = 0; i < MISSING_REGISTRATION_MAX_ATTEMPTS + 3; i++) {
+      __resetSyncFuseStateForTests();
+      clock.advance(MISSING_REGISTRATION_BACKOFF_MS);
+      await syncGuardianAccounts();
+    }
+    expect(mockFinalizeDirectGuardianSwitch).toHaveBeenCalledTimes(MISSING_REGISTRATION_MAX_ATTEMPTS);
+
+    clock.restore();
+  });
+
   // The bounded budget exists because a `/configure` that throws may still have
   // landed. A failure raised BEFORE that call carries no such doubt, and the only
   // thing that refunds the budget — a successful registration — is precisely what
@@ -2366,7 +2443,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'unregistered-pk',
       'https://second.guardian.test',
       zustandProvider,
-      PREFLIGHT_LOCK_OPTIONS
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
     clock.restore();
   });
@@ -2399,7 +2477,8 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       'unregistered-pk',
       'https://second.guardian.test',
       zustandProvider,
-      PREFLIGHT_LOCK_OPTIONS
+      PREFLIGHT_LOCK_OPTIONS,
+      expect.any(Function)
     );
     clock.restore();
   });

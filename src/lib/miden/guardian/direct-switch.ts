@@ -565,9 +565,17 @@ export const didDirectSwitchLand = async (
     // explicitly NOT evidence of not-landing — are both non-verdicts.
     return undefined;
   } catch (error) {
-    // A failure here is not a verdict — say so, rather than letting a broken read
-    // masquerade as "did not land" and fail a rotation that may well have
-    // committed.
+    // POISON IS NOT A NON-VERDICT, it is a statement about the caller. Folded to
+    // `undefined` like any other read failure, an eviction of this node read
+    // reached the completion path as the W1 "submitted, commit unconfirmed"
+    // residue — so an abandoned pipeline went on to persist the endpoint and mark
+    // the row Completed, and the `generateTransaction` poison handler whose whole
+    // job is to NOT finalize an abandoned pipeline never saw it. Same rule, same
+    // file: `asPreflight` rethrows poison unwrapped for exactly this reason.
+    if (isWasmClientPoisonedError(error)) throw error;
+    // Any other failure here is not a verdict — say so, rather than letting a
+    // broken read masquerade as "did not land" and fail a rotation that may well
+    // have committed.
     console.warn('Could not read the node-side state of the direct switch transaction:', error);
     return undefined;
   }
@@ -662,7 +670,24 @@ export const finalizeDirectGuardianSwitch = async (
   // completion path keeps the default ceiling. Both callers reach the same hold,
   // but only one of them re-enters it every three seconds for as long as the
   // operator stays unreachable, which is what the sync ceiling is calibrated for.
-  lockOptions?: Parameters<typeof withWasmClientLock>[1]
+  lockOptions?: Parameters<typeof withWasmClientLock>[1],
+  /**
+   * Fired ONCE, immediately before the first `/configure` leaves this device.
+   *
+   * The same affordance, for the same reason, as
+   * `MultisigService.reRegisterCurrentStateOnGuardian`'s callback of this name.
+   * A caller on a bounded budget has to know which side of the POST a failure
+   * came from, and the ERROR cannot tell it: `asPreflight` deliberately rethrows
+   * a `WasmClientPoisonedError` unwrapped, so an eviction of the preflight's
+   * `syncState()` — strictly pre-POST — arrives looking exactly like an eviction
+   * that landed with a `/configure` in flight. The caller that guessed "charged"
+   * spent a budget only a successful registration refunds, on an operator that
+   * was never asked for anything.
+   *
+   * Not called at all when this function throws before the loop below, which is
+   * precisely the signal: no call, no request, refund.
+   */
+  onBeforeRegister?: () => void
 ): Promise<void> => {
   const walletAccount = (await guardianProvider.getAccounts()).find(a => sameWalletAccountId(a.publicKey, accountId));
   if (!walletAccount?.hotPublicKey) {
@@ -813,6 +838,12 @@ export const finalizeDirectGuardianSwitch = async (
   guardian.setSigner(
     new WalletSigner(ensureHexPrefix(hotPublicKey), ensureHexPrefix(deviceHotCommitment), guardianProvider.signWord)
   );
+
+  // THE BOUNDARY. Everything above is preflight — local reads, the allowlist and
+  // hot-signer guards, the operator probe — and every one of them refunds. From
+  // here on a request can be in flight, so a failure may have landed and the
+  // caller must count it.
+  onBeforeRegister?.();
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_DIRECT_REGISTER_RETRIES; attempt++) {

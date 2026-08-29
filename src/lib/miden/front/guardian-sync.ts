@@ -37,6 +37,7 @@ import {
   guardianSyncFuseKey,
   isSyncFused,
   noteNonEvictionSyncFailure,
+  noteAbandonedSyncProbe,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
   pendingRotationRecheckFuseKey,
@@ -70,6 +71,12 @@ import {
  */
 function noteGuardianProbeFailure(key: SyncFuseKey, error: unknown): void {
   if (isSyncWatchdogEviction(error)) noteSyncWatchdogEviction(key);
+  // THREE OUTCOMES, NOT TWO. A poison that is not a watchdog eviction is a realm
+  // trap: the probe was abandoned without learning anything about the node, so it
+  // must not zero the eviction evidence the way a returned failure does. Sent to
+  // the non-eviction note, it erased the very count the loop-terminating `break`s
+  // depend on — see `noteAbandonedSyncProbe` for why that left them unbounded.
+  else if (isWasmClientPoisonedError(error)) noteAbandonedSyncProbe(key);
   else noteNonEvictionSyncFailure(key);
 }
 
@@ -663,7 +670,16 @@ async function runPendingRotationRecheck(
   // success erase a parked one's evidence on every lap.
   const fuseKey = pendingRotationRecheckFuseKey(account.publicKey);
   try {
-    if (isSyncFused(fuseKey)) return NO_RECHECK_RESULT;
+    // THE FUSE GATES THE NODE READS, NOT THE DEXIE READ — and it used to sit above
+    // both. What this probe does before it touches the node is pure local
+    // observation: list the account's still-unconfirmed rows, and retire or prune
+    // the prompts belonging to rows that have since left that list. A row resolved
+    // by ANOTHER realm (the extension's service worker completes rotations) leaves
+    // this realm holding an exhausted-recheck prompt for a question the chain has
+    // already answered, and gated above the read, the account sat behind
+    // "surface it for manual recovery" for the full 30-minute fuse window with
+    // nothing able to withdraw it. A lit fuse is a statement about the NODE; it is
+    // not a reason to stop believing IndexedDB.
     const { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } = await import('lib/miden/transaction');
     const rows = await listUnconfirmedSwitchRows(account.publicKey);
     if (rows.length === 0) {
@@ -691,6 +707,11 @@ async function runPendingRotationRecheck(
     // other retirement is the empty-list branch above and there is a sibling row
     // keeping the list non-empty.
     if (prunePendingRotationPrompts(account.publicKey, new Set(rows.map(row => row.id)))) notifyOutageListeners();
+    // NOW the fuse, with the local half done. Reported exactly as before —
+    // `NO_RECHECK_RESULT`, no `pendingRowId` — so a fused pass still tells the
+    // shadow classifier nothing it has not verified against the chain this pass,
+    // and the divergence tally keeps meaning what it meant.
+    if (isSyncFused(fuseKey)) return NO_RECHECK_RESULT;
     // Rows still awaiting an answer when this pass ends. Only one of these may
     // be reported as the account's pending rotation.
     const unsettled: string[] = [];
@@ -705,6 +726,12 @@ async function runPendingRotationRecheck(
     // outcome erase what the rest of the loop had accumulated.
     let probeWatchdogEvicted = false;
     let probeFailedOtherwise = false;
+    // The THIRD outcome: a realm-trap poison, or a local failure that never
+    // reached the node. It re-arms a lit fuse but must not zero the eviction
+    // count, so it cannot share `probeFailedOtherwise` — routed there, a trap
+    // eviction erased the evidence the watchdog arm was accumulating, and the
+    // account loop's `break` lost its only bound. See `noteAbandonedSyncProbe`.
+    let probeAbandoned = false;
     // Reported to the CALLER, not just used here. Breaking this row loop only
     // stops the recheck's own holds; the account loop goes on to take several
     // more (drift, the guardian round trip) against the same abandoned client.
@@ -819,18 +846,40 @@ async function runPendingRotationRecheck(
         const poisoned = isWasmClientPoisonedError(recheckError);
         // AGGREGATED, exactly like the success, and for the same reason spelled
         // out above it. `noteNonEvictionSyncFailure` ZEROES the eviction count
-        // while the fuse is unlit, and this key is deliberately shared by every
-        // row and every account — so booked per row it erased the evidence a
-        // later row, or a later account, was accumulating. With one account's
-        // read failing ordinarily and another's evicting, the counter oscillated
-        // 0 → 1 → 0 on every lap and the threshold was unreachable: the same
-        // defeat-by-ordering that keying the ledger per probe was written to
-        // fix, reproduced inside one key. Booked once, after the loop.
+        // while the fuse is unlit, and this key is shared by every ROW of this
+        // account — so booked per row it erased the evidence a later row was
+        // accumulating. With one row's read failing ordinarily and another's
+        // evicting, the counter oscillated 0 → 1 → 0 on every lap and the
+        // threshold was unreachable: the same defeat-by-ordering that keying the
+        // ledger per probe was written to fix, reproduced inside one key. Booked
+        // once, after the loop.
+        //
+        // ACCOUNTS are a different matter and are already separated — the key
+        // carries the account (`pendingRotationRecheckFuseKey`), which is what
+        // stopped a healthy account's success from erasing a parked one's
+        // evidence. An earlier version of this comment claimed the key was shared
+        // across accounts too; it describes the bug, not the code.
         if (isSyncWatchdogEviction(recheckError)) probeWatchdogEvicted = true;
+        // A trap eviction is not "some other reason": it abandoned the probe
+        // without an answer from the node, so it re-arms a lit fuse and leaves
+        // the eviction count alone rather than zeroing it.
+        else if (poisoned) probeAbandoned = true;
         else probeFailedOtherwise = true;
         // Could not look — that is not a verdict, and not a spent attempt.
         attempt.settle('refunded');
         unsettled.push(row.id);
+        // NOT SILENT. This arm is the whole "could not look" path, and it was the
+        // only one in the loop that said nothing on any channel: no console line,
+        // no budget progression (the refund is deliberate), and no user prompt. A
+        // rotation pending against a node this wallet cannot reach therefore
+        // retried at the flat gap indefinitely with the console showing nothing at
+        // all — while the sibling drift arm below argues at length that exactly
+        // this silence is what hides a stalled reconciler.
+        console.warn(
+          `[Guardian Sync] could not read the chain state of pending rotation ${row.id} for ` +
+            `${account.publicKey} (no attempt spent; the recheck will ask again):`,
+          recheckError
+        );
         // An eviction ABANDONS the hold rather than cancelling it: the corpse is
         // still inside WASM and the mutex has already been handed to a
         // successor. Taking a fresh hold for the next row would be a second
@@ -973,7 +1022,10 @@ async function runPendingRotationRecheck(
           // "one probe per 30 min until one SUCCEEDS" stopped holding for the very
           // probe that had just failed.
           if (isSyncWatchdogEviction(settleError)) probeWatchdogEvicted = true;
-          else probeFailedOtherwise = true;
+          // Same three-way split as the read arm: this branch is already inside
+          // `isWasmClientPoisonedError`, so anything that is not a watchdog
+          // eviction here is a trap — abandoned, not answered.
+          else probeAbandoned = true;
           probeEvicted = true;
           evicted = true;
           break;
@@ -986,6 +1038,11 @@ async function runPendingRotationRecheck(
     if (probeWatchdogEvicted) noteSyncWatchdogEviction(fuseKey);
     else if (probeSucceeded && !probeEvicted) noteSyncSuccess(fuseKey);
     else if (probeFailedOtherwise) noteNonEvictionSyncFailure(fuseKey);
+    // Last, because it is the weakest claim of the four: it neither adds evidence
+    // nor withdraws any, and only re-arms a fuse that is already lit. Ranked above
+    // the non-eviction note it would wrongly suppress a real withdrawal; ranked
+    // above the success it would suppress a real recovery.
+    else if (probeAbandoned) noteAbandonedSyncProbe(fuseKey);
     // A row this pass already settled is NOT pending, and handing its id to the
     // shadow classifier tells it a rotation is outstanding after the chain
     // answered — the same "fact that is not a fact" that made two hardcoded
@@ -1014,6 +1071,17 @@ async function runPendingRotationRecheck(
     // arm that catches "anything else" is exactly where a future failure shape would
     // land silently.
     if (poisoned) noteGuardianProbeFailure(fuseKey, e);
+    // AND SO DOES AN ORDINARY ONE, which the poison gate above withheld. The
+    // comment beside it already named this gap — "a reporting gap in the arm that
+    // catches anything else is exactly where a future failure shape would land
+    // silently" — and then closed only the poison half. Everything reachable here
+    // is local (a dynamic import, the Dexie row read, a listener that threw), so
+    // it says nothing about the node: booked as ABANDONED, which re-arms a lit
+    // fuse without withdrawing evidence a storage error cannot speak to. Without
+    // it a probe granted through a lit fuse, or one whose deadline had just
+    // lapsed, failed locally and fell straight back to the 3 s cadence — the
+    // "until one succeeds" contract broken by the one arm that never books.
+    else noteAbandonedSyncProbe(fuseKey);
     return { evicted: poisoned, bindingChanged: false };
   }
 }
@@ -1251,21 +1319,46 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     return false;
   }
 
-  // Charged before the await: an attempt that throws — or that is torn down
-  // mid-flight — has still spent one, because `/configure` may have landed.
-  // The settle below then re-stamps from when the attempt FINISHED, which is a
-  // different time entirely: `finalizeDirectGuardianSwitch` can spend eight
-  // 30s `/configure` deadlines plus backoff — minutes — and measuring the next
-  // gap from before all of that made the cooldown inert in the one case it
-  // exists for. The `MISSING_REGISTRATION_BACKOFF_MS` docstring promises ~3
-  // minutes across three pushes; settle-time stamping is what makes that true.
-  attempt.chargeEarly();
+  // CHARGED AT THE POST, not before the whole call.
+  //
+  // The attempt is charged EAGERLY (`chargeEarly`, before the await it guards)
+  // because a `/configure` that throws — or that is torn down mid-flight — may
+  // still have landed, and the settle then re-stamps the clock from when the
+  // attempt FINISHED: `finalizeDirectGuardianSwitch` can spend eight 30 s
+  // `/configure` deadlines plus backoff, and measuring the next gap from before
+  // all of that made the cooldown inert in the one case it exists for. The
+  // `MISSING_REGISTRATION_BACKOFF_MS` docstring promises ~3 minutes across three
+  // pushes; settle-time stamping is what makes that true.
+  //
+  // What moved is WHERE that eager charge happens. "A request that throws may
+  // still have landed" is only true from the moment one is sent, and this call
+  // spends a `syncState()` round trip,
+  // an account read, a serialization and a 5 s operator probe first. A watchdog
+  // eviction of that leading `syncState` is a parked NODE, nothing to do with the
+  // operator, and `asPreflight` rethrows poison unwrapped so it cannot be told
+  // apart from a post-POST eviction by inspecting the error. Charged for the whole
+  // call, three parked node reads spent a budget only a successful registration
+  // refunds and then raised `markGuardianUnrepairable` — "the operator holds no
+  // record of the account" — about an operator that was never contacted, killing
+  // the only automatic repair an unregistered account has. `asPreflight`'s own
+  // docstring already said which half is which: "The refund is right; carrying on
+  // is not."
+  let registrationAttempted = false;
 
   try {
-    await finalizeDirectGuardianSwitch(account.publicKey, endpoint, zustandProvider, {
-      ...GUARDIAN_READ_LOCK_OPTIONS,
-      label: 'guardian-missing-registration'
-    });
+    await finalizeDirectGuardianSwitch(
+      account.publicKey,
+      endpoint,
+      zustandProvider,
+      {
+        ...GUARDIAN_READ_LOCK_OPTIONS,
+        label: 'guardian-missing-registration'
+      },
+      () => {
+        registrationAttempted = true;
+        attempt.chargeEarly();
+      }
+    );
     attempt.settle('charged');
     clearGuardianServiceFor(account.publicKey);
     console.warn(
@@ -1273,12 +1366,13 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount, fuseKe
     );
   } catch (e) {
     if (isWasmClientPoisonedError(e)) {
-      // CHARGED, not refunded: an eviction abandons the call, it does not cancel
-      // it, so the `/configure` this attempt was preparing may still be in flight
-      // and may still land. Refunding would let the next tick prepare a second
-      // one. Reported to the caller so the pass stops taking holds — the
-      // abandoned call is still inside a client the mutex has already handed on.
-      attempt.settle('charged');
+      // CHARGED ONLY IF A `/configure` WAS ACTUALLY REACHED. An eviction abandons
+      // the call rather than cancelling it, so a request already in flight may
+      // still land and must be counted — but an eviction of the preflight touched
+      // no operator, and charging it is what let three parked node reads disable
+      // this repair for the session. `registrationAttempted` is the only thing
+      // that can tell the two apart; the error cannot.
+      attempt.settle(registrationAttempted ? 'charged' : 'refunded');
       // Booked here, where the error is in hand: only this frame can tell a
       // parked node from a trap, and the caller's break skips its own feed.
       noteGuardianProbeFailure(fuseKey, e);
@@ -1684,11 +1778,29 @@ async function passMayRecord(generation: number, accountPublicKey: string, endpo
 export function syncGuardianAccounts(): Promise<void> {
   if (syncInFlight === undefined) {
     const generation = syncGeneration;
-    syncInFlight = runGuardianAccountsSync(generation).finally(() => {
-      // Only the CURRENT pass owns the marker. A retired one clearing it would
-      // hand a concurrent successor's slot away.
-      if (generation === syncGeneration) syncInFlight = undefined;
+    // IDENTITY, NOT GENERATION. The marker's owner is whoever installed it, and
+    // that is a question about this promise, not about the generation it started
+    // in. Gated on the generation, a retirement landing mid-pass — which is the
+    // ONLY case `retireGuardianSyncPasses` has any work to do — left the marker
+    // pinned to a settled promise forever: the pass's own `finally` declined to
+    // clear it because the generation had moved, and no successor could install
+    // one because `syncInFlight` was never `undefined` again. Every later tick
+    // then handed the caller that dead promise and started nothing, so one
+    // Developer-Settings endpoint save silently ended guardian sync — outage
+    // detection, self-heal, drift reconciliation, the pending-rotation recheck
+    // and the hardening check — for the rest of the realm's lifetime, on the
+    // realms that own the idle loop and do not reload after the save.
+    //
+    // The case the generation check was protecting against is real but is not
+    // this one: a retired pass must not clear a marker a NEWER pass installed.
+    // Comparing the promise says exactly that and nothing more — a retired pass
+    // still owns the marker while nothing has replaced it, and a replaced pass
+    // does not. Same shape as `guardianServiceInflight`'s release in
+    // `guardian-manager.ts`, which compares the promise for this reason.
+    const pass = runGuardianAccountsSync(generation).finally(() => {
+      if (syncInFlight === pass) syncInFlight = undefined;
     });
+    syncInFlight = pass;
   }
   return syncInFlight;
 }

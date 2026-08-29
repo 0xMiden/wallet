@@ -138,9 +138,22 @@ const isNumericish = (node: ts.Expression): boolean => {
  */
 const mutatedPropertyOwners = (source: ts.SourceFile): Set<string> => {
   const owners = new Set<string>();
+  // THE ROOT OF THE CHAIN, not the immediate receiver. `budget.attempts += 1`
+  // has `budget` sitting one hop away, but `budget.inner.attempts += 1` has
+  // `budget.inner` there — a `PropertyAccessExpression`, not an identifier — so
+  // the write was attributed to nothing and the declaration it belongs to looked
+  // unwritten. That is the half of the nested-budget hole that no amount of
+  // recursion on the DECLARATION side can close: the shape rule below asks
+  // `mutated.has(name)` for the outer name, and only the root walk can answer.
   const ownerOf = (node: ts.Node): void => {
-    if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return;
-    if (ts.isIdentifier(node.expression)) owners.add(node.expression.text);
+    let current: ts.Node = node;
+    while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+      if (ts.isIdentifier(current.expression)) {
+        owners.add(current.expression.text);
+        return;
+      }
+      current = current.expression;
+    }
   };
   // `=` and every compound form. `ts.isAssignmentOperator` is internal, so the
   // range is spelled out: the assignment operators are contiguous in the enum,
@@ -174,6 +187,41 @@ const mutatedPropertyOwners = (source: ts.SourceFile): Set<string> => {
  */
 type Declared = ts.VariableDeclaration | ts.PropertyDeclaration;
 
+/**
+ * Does an object literal HOLD a store, at any depth?
+ *
+ * The one-level version caught `{ attempts: new Map(), nextAt: new Map() }` and
+ * missed `{ byKey: { attempts: new Map() } }`, which is the same ledger with a
+ * namespace around it — and namespacing is what you do the moment a module holds
+ * two of them. Worse, the miss was silent in the direction that matters: the
+ * comment beside the one-level rule argued that reading only the OUTER
+ * initializer waves a wrapped store through, then stopped one level in.
+ *
+ * `written` is the outer declaration's mutation verdict, threaded down rather
+ * than recomputed, because the write that makes a nested numeric a budget is
+ * spelled against the outer name (`budget.byKey.attempts += 1`).
+ */
+const holdsStore = (literal: ts.ObjectLiteralExpression, written: boolean): boolean =>
+  literal.properties.some(property => {
+    if (!ts.isPropertyAssignment(property)) return false;
+    const value = unwrap(property.initializer);
+    if (ts.isNewExpression(value) && KEYED_CONSTRUCTORS.has(value.expression.getText().split('.').pop() ?? '')) {
+      return true;
+    }
+    if (ts.isObjectLiteralExpression(value)) {
+      // An EMPTY nested literal is a store waiting to be filled, exactly as it is
+      // at the top level — `{ byKey: {} }` with a `budget.byKey[id] = n` per try.
+      return value.properties.length === 0 ? written : holdsStore(value, written);
+    }
+    // A WRITTEN numeric property is the single-subject budget: `const budget =
+    // { attempts: 0, nextAt: 0 }` is the same ledger as the two-Map form for a
+    // repair that handles one thing at a time — and several of these repairs
+    // are keyed by nothing at all. Only the wrapping literal was inspected for
+    // Maps, so this walked through while its keyed sibling was caught. The
+    // write is what separates it from configuration, which is the same syntax.
+    return isNumericish(property.initializer) && written;
+  });
+
 const isKeyedStore = (declaration: Declared, mutated: Set<string>): boolean => {
   const annotation = declaration.type?.getText() ?? '';
   // Checked BEFORE the initializer, so it also covers the deferred declaration.
@@ -202,22 +250,7 @@ const isKeyedStore = (declaration: Declared, mutated: Set<string>): boolean => {
     // new Map() }` is the textbook hand-rolled budget, and reading only the
     // outer initializer waved it through. Grouping the maps in an object is the
     // most natural way to write one, not an evasion.
-    return init.properties.some(property => {
-      if (!ts.isPropertyAssignment(property)) return false;
-      if (
-        ts.isNewExpression(property.initializer) &&
-        KEYED_CONSTRUCTORS.has(property.initializer.expression.getText().split('.').pop() ?? '')
-      ) {
-        return true;
-      }
-      // A WRITTEN numeric property is the single-subject budget: `const budget =
-      // { attempts: 0, nextAt: 0 }` is the same ledger as the two-Map form for a
-      // repair that handles one thing at a time — and several of these repairs
-      // are keyed by nothing at all. Only the wrapping literal was inspected for
-      // Maps, so this walked through while its keyed sibling was caught. The
-      // write is what separates it from configuration, which is the same syntax.
-      return isNumericish(property.initializer) && mutated.has(declaration.name.getText());
-    });
+    return holdsStore(init, mutated.has(declaration.name.getText()));
   }
   return false;
 };
@@ -418,7 +451,18 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
       'let deferredTally = undefined as unknown as number;',
       // Module-scope state with a different keyword in front of it.
       'export class Retry {\n  static attempts = new Map<string, number>();\n}',
-      'export class Retry {\n  static declare(): void {}\n  static tally = -1;\n}'
+      'export class Retry {\n  static declare(): void {}\n  static tally = -1;\n}',
+      // NESTED, which is what a module holding two budgets writes the moment it
+      // needs to tell them apart. Each of these was green against the one-level
+      // property scan, whose own comment had just finished arguing that reading
+      // only the outer initializer waves a wrapped store through.
+      'const ledger = { byKey: { attempts: new Map<string, number>() } };',
+      'const ledger = { switches: { byKey: { nextAt: new Map<string, number>() } } };',
+      // And the two halves of the nested COUNTER: the shape on the declaration
+      // and the write spelled against the outer name, which the receiver-only
+      // owner walk attributed to nothing at all.
+      'const budget = { inner: { attempts: 0 } };\nexport const spend = () => {\n  budget.inner.attempts += 1;\n};',
+      'const budget = { byKey: {} };\nexport const spend = (id: string) => {\n  budget.byKey[id] = 1;\n};'
     ];
     try {
       for (const declaration of caught) {
@@ -447,7 +491,12 @@ describe('guardian repair modules hold no hand-rolled retry ledgers', () => {
         // Configuration in the array shape: a populated literal with no
         // index-collection annotation is a table, and tables are what the
         // `Record<` rule already concedes false positives for.
-        `const ORDER = ['hot', 'cold'];`
+        `const ORDER = ['hot', 'cold'];`,
+        // NESTED CONFIGURATION, the false positive the recursion could have
+        // bought: same shape as the nested budget above, and invisible for the
+        // same single reason the flat pair is — nothing writes it.
+        'const config = { retry: { maxAttempts: 3, backoffMs: 60_000 } };',
+        'const config = { retry: { maxAttempts: 3 } };\nexport const read = () => config.retry.maxAttempts;'
       ];
       for (const declaration of ignored) {
         fs.writeFileSync(probe, `${declaration}\n`);
