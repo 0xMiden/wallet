@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
@@ -987,8 +988,33 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       this.page
         .getByTestId('hot-key-rotation-failed')
         .waitFor({ state: 'visible', timeout: 120_000 })
-        .then(() => {
-          throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
+        .then(async () => {
+          // The gate only says "it failed". The reason is on the row -- and on a
+
+          // fee-charging chain the reasons differ sharply (an unpayable fee vs a
+
+          // guardian/register fault), so the bare surface message sends the reader
+
+          // to the wrong place.
+
+          const rows = await readTransactionRows(this.page).catch(() => []);
+
+          const failed = rows
+
+            .filter(r => r.status === 3)
+
+            .map(
+              r =>
+                `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+                (r.rawError ? `\n      raw: ${r.rawError}` : '')
+            )
+
+            .join('');
+
+          throw new Error(
+            'completeHotKeyRotation: rotation reached its terminal-failure surface' +
+              (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+          );
         })
     ]);
   }
