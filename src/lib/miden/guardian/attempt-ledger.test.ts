@@ -95,6 +95,79 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
     expect(ledger.attempts(SUBJECT)).toBe(0);
   });
 
+  // 'closed' means the question has an answer and re-asking is pointless — it is
+  // not "the counter happens to sit at max". Two handles can be open on one
+  // subject (a slow first pass overlapping the next tick's), and while closure
+  // was only the counter, the second handle's late refund decremented it back
+  // under the cap and re-armed a budget that had already concluded.
+  it('a late refund from a concurrent handle cannot reopen a closed budget', () => {
+    const { ledger, tick } = make();
+    const first = ledger.begin(SUBJECT);
+    // The charge is what makes this test able to fail. A refund takes back
+    // exactly the charge ITS OWN handle booked, so an uncharged `first` refunds
+    // nothing and the assertions below hold under a counter-only closure too —
+    // the very implementation the flag replaced. Booking the charge is what
+    // gives the late refund something to decrement, and a count-based `closed`
+    // then falls back under the cap exactly as it did in production.
+    first.chargeEarly();
+    tick(60_000);
+    const second = ledger.begin(SUBJECT);
+
+    second.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+
+    first.settle('refunded');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+    tick(60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+  });
+
+  // Closure is sticky against the clock too, not just against refunds.
+  it('a closed budget stays closed however long the cooldown outlives it', () => {
+    const { ledger, tick } = make();
+    ledger.begin(SUBJECT).settle('closed');
+    tick(24 * 60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+
+    // Only an explicit clear re-arms it — that is the deliberate exit.
+    ledger.clear(SUBJECT);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(true);
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+  });
+
+  // The existence check in `write` makes a cleared subject stay cleared, but
+  // `begin` re-seeds the entry — so a clear followed by a fresh begin handed the
+  // stale handle a live entry that is not its own.
+  it('a stale handle cannot refund out of the incarnation that replaced it', () => {
+    const { ledger } = make();
+    const stale = ledger.begin(SUBJECT);
+    stale.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    ledger.clear(SUBJECT);
+    const fresh = ledger.begin(SUBJECT);
+    fresh.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    // The late refund belongs to a subject that no longer exists; spending it
+    // here would erase the new incarnation's real, in-flight attempt.
+    stale.settle('refunded');
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+  });
+
+  it('a stale handle cannot close the incarnation that replaced it', () => {
+    const { ledger } = make();
+    const stale = ledger.begin(SUBJECT);
+    ledger.clear(SUBJECT);
+    ledger.begin(SUBJECT).chargeEarly();
+
+    stale.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false); // still inside its own backoff
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+  });
+
   it('keys budgets by the whole subject and clears by account prefix', () => {
     const { ledger, tick } = make();
     const otherEndpoint: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'https://other.example' };
@@ -115,6 +188,52 @@ describe('createAttemptLedger — flat curve (the cold re-register shape)', () =
     expect(ledger.budgetSpent(SUBJECT)).toBe(false);
     expect(ledger.mayAttempt(SUBJECT)).toBe(true);
     expect(ledger.attempts(otherAccount)).toBe(1);
+  });
+
+  // The account-level question, and the reason it takes an endpoint. Its caller
+  // is the shadow classifier, which knows the account and the operator but not
+  // the on-chain guardian key the subject is also keyed by — so it cannot ask
+  // `budgetSpent` and has to ask this instead.
+  describe('anySpentForAccount', () => {
+    const spendIt = (
+      ledger: ReturnType<typeof createAttemptLedger>,
+      subject: AttemptSubject,
+      tick: (ms: number) => void
+    ) => {
+      for (let i = 0; i < 3; i++) {
+        ledger.begin(subject).settle('charged');
+        tick(60_000);
+      }
+    };
+
+    it('answers for the account once any of its subjects is spent', () => {
+      const { ledger, tick } = make();
+      expect(ledger.anySpentForAccount('pk')).toBe(false);
+      spendIt(ledger, SUBJECT, tick);
+      expect(ledger.anySpentForAccount('pk')).toBe(true);
+      expect(ledger.anySpentForAccount('pk2')).toBe(false);
+    });
+
+    // THE ENDPOINT HAS TO SURVIVE THE SETTLE. `begin` stamps it, but every
+    // charge and settle rewrites the whole entry, and a rewrite that forgot the
+    // field left the narrowed query unable to see the spent budgets it was
+    // added to find — reporting "available" forever, which is exactly the
+    // hardcoded-`'available'` blindness this fact exists to replace.
+    it('still finds a spent budget by endpoint after the attempt settled', () => {
+      const { ledger, tick } = make();
+      spendIt(ledger, SUBJECT, tick);
+
+      expect(ledger.anySpentForAccount('pk', SUBJECT.endpoint)).toBe(true);
+    });
+
+    // The narrowing's whole point: a budget spent against the operator the
+    // account has just rotated AWAY from says nothing about the new one.
+    it('does not inherit a spent budget across a rotation to another operator', () => {
+      const { ledger, tick } = make();
+      spendIt(ledger, SUBJECT, tick);
+
+      expect(ledger.anySpentForAccount('pk', 'https://newly-rotated.example')).toBe(false);
+    });
   });
 });
 

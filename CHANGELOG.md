@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [CHANGE][all] Guardian recovery gains one trigger table (`classifyGuardianRecovery`, shadow-first with divergence counting) whose totality test forbids dead-end states by construction, and the acknowledged no-owner wedge — a submitted-but-never-confirmed guardian switch — gets its exit: the sync loop rechecks the pending rotation against the node on a bounded ledger (the Dexie row is the durable intent), upgrades or honestly demotes the row when the chain finally answers, and surfaces an exhausted budget through the guardian screen instead of going silent; the recheck evidence deliberately survives healthy operator syncs, which answer nothing about the chain.
+
 - [CHANGE][all] The four hand-rolled guardian retry/budget ledgers (cold re-register, missing-registration push, 429 cooldown — plus their charge/refund/keying rules, each re-fixed separately in the #786 review) are replaced by one `AttemptLedger` module with settle-time charging, preflight refunds, budget closing, full-subject keying and account-scoped reset encoded once, and a clock-injected `RateCooldown` for the 429 path; a fence test pins the repair modules to zero new hand-rolled ledger maps.
 
 - [CHANGE][all] Guardian binding writes (endpoint + commitment baseline) are now guarded by a per-account `guardianEpoch` compare-and-swap in the vault: a drift repair or backfill that snapshotted the account before a rotation gets `stale` instead of resurrecting the old operator's endpoint over the new one, endpoint and baseline land in one atomic patch (no more torn hand-ordered writes), and rotation completion force-bumps so it can never lose. A stale-discarded repair releases its probe cooldown so the next tick re-derives immediately.

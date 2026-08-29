@@ -9,7 +9,16 @@ import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/ty
 
 import { midenClientProxy } from './miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front/storage';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+
+/**
+ * Drift's account reads are driven by the ~3 s guardian tick, so they take the
+ * sync ceiling rather than the five-minute last-resort default, and they carry a
+ * label — a dozen sites share that ceiling, and an eviction record without one
+ * cannot say which flow parked.
+ */
+const GUARDIAN_DRIFT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-drift-read' };
 
 /**
  * How long to wait before re-probing operators for an account whose drift is
@@ -342,10 +351,16 @@ export async function resolveGuardianDrift(
   // along so a rotation completing during the probes turns the write stale.
   const snapshotEpoch = account.guardianEpoch ?? 0;
 
-  const onChain = await withWasmClientLock(async () => {
+  const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-  });
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
   if (!onChain) return { status: 'in-sync', changed: false };
 
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
@@ -744,13 +759,25 @@ export async function applyUserGuardianEndpoint(
   // asks for one retry against the new state rather than binding a
   // stale-verified endpoint.
   const account = await vault.getAccount(accountPublicKey);
-  if (!account) return 'no-onchain-guardian';
+  // NOT `'no-onchain-guardian'`, whose copy reads "this account has no on-chain
+  // guardian to verify against yet" — a statement about the CHAIN, which this
+  // case has established nothing about. The vault record is simply gone or moved
+  // (a removed account, a frontend snapshot ahead of the backend), which is
+  // exactly what `'stale'` already means to the banner: the state moved under
+  // you, try again.
+  if (!account) return 'stale';
   const snapshotEpoch = account.guardianEpoch ?? 0;
 
-  const onChain = await withWasmClientLock(async () => {
+  const onChain = await withWasmClientLock(async hold => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
-  });
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
   if (!onChain) return 'no-onchain-guardian';
 
   const verdict = await verifyEndpointMatchesCommitment(endpoint, onChain);
@@ -766,8 +793,180 @@ export async function applyUserGuardianEndpoint(
     guardianOperatorCommitment: onChain
   });
   if (write.outcome === 'stale') return 'stale';
-  await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+  // The BINDING is the load-bearing write and it has landed; the status is
+  // advisory. Reporting a failure here sends the banner's generic catch at the
+  // user, who then retries an apply that already succeeded — and the retry
+  // cannot succeed, because the epoch this one bumped makes it stale. The next
+  // drift tick sees baseline == chain with a blocking status and repairs it.
+  try {
+    await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+  } catch (statusError) {
+    console.warn(
+      `[GuardianDrift] bound ${accountPublicKey} to ${endpoint} but could not stamp the in-sync status ` +
+        `(the next drift tick will):`,
+      statusError
+    );
+  }
   return 'applied';
+}
+
+export type RevertDiscardedEndpointOutcome = 'reverted' | 'superseded' | 'stale';
+
+/**
+ * Point an account back at its previous operator after the node DISCARDED the
+ * rotation that moved it — the other half of demoting the row, since completion
+ * persisted the new endpoint before it knew the commit was unconfirmed.
+ *
+ * The evidence for this rollback is a row that may have been listed thirty
+ * minutes and fifteen node reads ago, so the binding it names can legitimately
+ * have moved on in the meantime. Writing it unconditionally re-creates, from the
+ * repair path, exactly the silently-unusable account the repair exists to
+ * prevent — so the rollback has to earn the write three times over:
+ *
+ *  1. the account must still name the rotation's own target. Compared with
+ *     `sameGuardianEndpoint`, not `===`: drift canonicalizes spellings, so the
+ *     row's original URL and the stored one can be the same operator written two
+ *     ways, and a literal comparison would refuse a rollback the account needs.
+ *  2. THE CHAIN MUST AGREE THE BINDING IS UNAUTHORIZED. A URL is not a rotation
+ *     id: a user whose switch appeared not to work can simply rotate to the SAME
+ *     operator again, and if that retry commits, the account is correctly bound
+ *     to an endpoint that still equals `discardedEndpoint`. Condition 1 cannot
+ *     tell that apart from the stranded case, and neither can the epoch — the
+ *     retry's write is already in the past by the time this reads. What
+ *     distinguishes them is the only authority there is: whether the bound
+ *     endpoint answers for the account's on-chain guardian commitment. `'match'`
+ *     means some rotation to this operator did land, whichever row it belonged
+ *     to, and there is nothing to roll back.
+ *  3. the epoch read must survive to the write (the CAS), which is what a
+ *     concurrent force-writer's bump invalidates.
+ *
+ * NOT looking is never grounds to write: an unreachable operator or an unread
+ * commitment returns `'stale'`, which leaves the row pending for the next pass.
+ * That is the same fail-closed rule the hot-signer guard and
+ * `applyUserGuardianEndpoint` already follow — a guard over write authority
+ * cannot treat "I could not tell" as permission.
+ *
+ * `'superseded'` means the rollback is unnecessary and the caller should finish
+ * settling its row; `'stale'` means try again. They are NOT interchangeable.
+ */
+export async function revertGuardianEndpointAfterDiscard(
+  vault: GuardianDriftVault,
+  accountPublicKey: string,
+  discardedEndpoint: string,
+  revertTo: string
+): Promise<RevertDiscardedEndpointOutcome> {
+  const account = await vault.getAccount(accountPublicKey);
+  // `'stale'`, NOT `'superseded'` — the same distinction `applyUserGuardianEndpoint`
+  // draws for this exact read. A missing record is a statement about the VAULT (a
+  // removed account, a frontend snapshot ahead of the backend), not about the
+  // rotation, and only `'superseded'` licenses the caller to spend its one
+  // irreversible demote. Answering it here traded a re-read on the next pass for
+  // a permanently unrepairable binding.
+  if (!account) return 'stale';
+  // NOT `'superseded'` on its own. "The account names something other than this
+  // rotation's target" is only good news if the something else has authority —
+  // and with two rotations unconfirmed at once it usually does not.
+  //
+  // A→B and B→C both complete unconfirmed (the dedup in `initiate.ts` only looks
+  // at Queued/GeneratingTransaction rows, and an unconfirmed rotation is
+  // Completed, so the user can start the second one), and the node discards
+  // both. `listUnconfirmedSwitchRows` imposes no order, so the pass can take
+  // A→B first: the account names C, and answering `'superseded'` here spent the
+  // caller's one irreversible demote on the ONLY row that records A. Then B→C
+  // rolls back to B — an operator that never held authority — and drift cannot
+  // see it, because its cheap path compares the stored baseline against the
+  // chain and both still name A's key, so it never reads the endpoint at all.
+  // The account ends up bound to the middle operator with the rollback evidence
+  // destroyed and every surface green, decided by nothing but uuid collation.
+  //
+  // So fall through to the chain check in every case and let AUTHORITY decide.
+  // The two conditions then differ only in what a `'mismatch'` means: with the
+  // binding still on this rotation's target it licenses the rollback, and with
+  // the binding moved on it licenses nothing — that is somebody else's row to
+  // repair — but it must not read as "nothing to undo" either.
+  // THE POINTER THIS ACCOUNT CHOSE, not the raw field — the same correction the
+  // reconciler above already carries, and the rollback kept the old reading.
+  // A pre-per-account-endpoint account has the legacy global key as its ONLY
+  // pointer (the unlock backfill leaves the field empty on purpose), and the raw
+  // field is also empty whenever completion stamped the row but its binding write
+  // failed. Both landed on the `return 'stale'` below, which is not a harmless
+  // wait: the caller CHARGES a stale against this row's finite budget, so fifteen
+  // laps of an account with nothing wrong with it — its pointer never moved, so
+  // there is nothing to roll back — declared it unrepairable and put a
+  // `needs-user-input` prompt in front of the user.
+  //
+  // The default arm stays excluded (`resolveChosenGuardianEndpoint`, not
+  // `resolveGuardianEndpoint`): this function ends in a WRITE, and an endpoint the
+  // wallet merely guessed is not a pointer the account chose.
+  let boundEndpoint: string | undefined;
+  try {
+    boundEndpoint = await resolveChosenGuardianEndpoint(account);
+  } catch (error) {
+    // A storage read that threw says nothing about the binding, and this guard
+    // cannot treat "I could not tell" as permission — the same fail-closed rule
+    // the unreachable-operator and unread-commitment arms below follow.
+    console.warn(
+      `[GuardianDrift] could not read the guardian pointer for ${accountPublicKey}; leaving the rollback pending`,
+      error
+    );
+    return 'stale';
+  }
+  // No pointer at all, by either route. Unchanged answer, but now for the right
+  // reason: there is genuinely nothing to compare the row against.
+  if (!boundEndpoint) return 'stale';
+  // ALREADY WHERE THE ROLLBACK WOULD PUT IT. `'superseded'`, not `'stale'`: the
+  // write is a no-op, so the row is finished and the caller should settle it
+  // rather than spend fifteen more laps re-establishing that. This is the arm the
+  // legacy-global account reaches — its chosen pointer is still the pre-rotation
+  // operator, which is exactly `revertTo` (`initiate` stamps
+  // `previousGuardianEndpoint` from the same resolver).
+  if (sameGuardianEndpoint(boundEndpoint, revertTo)) return 'superseded';
+
+  const bindingMovedOn = !sameGuardianEndpoint(boundEndpoint, discardedEndpoint);
+
+  const onChain = await withWasmClientLock(async hold => {
+    const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
+    // The account handle is a BORROW of the client it came from, not a snapshot,
+    // so reading its storage below is a WASM call on a client an eviction may
+    // already have handed to a successor. It fails silently too:
+    // `getGuardianCommitmentFromAccount` catches and answers `undefined`, which
+    // this path cannot tell from "no guardian on chain".
+    assertWasmHoldCurrent(hold, 'guardian drift, after the account read');
+    return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
+  }, GUARDIAN_DRIFT_LOCK_OPTIONS);
+  // An account with no on-chain guardian at all cannot have authorized the bound
+  // endpoint either — but it also cannot corroborate the rollback target, and a
+  // read that came back empty is as likely to be a cold local client as a real
+  // absence. Leave it pending rather than rebinding on no evidence.
+  if (!onChain) return 'stale';
+  // THE LONG TIMEOUT, deliberately, even though this runs off a repeating tick.
+  //
+  // The tick's usual 5 s default is right for a probe whose only cost of being
+  // wrong is one wasted lap. This probe's is not: a timeout reads `'unreachable'`
+  // → `'stale'`, the caller CHARGES a stale against the row's finite budget, and
+  // fifteen of those declare the account unrepairable to the user. An operator
+  // that answers in eight seconds is perfectly healthy and would be condemned by
+  // the shorter ceiling. The cost of the long one is bounded from the other end
+  // instead — by the caller's per-row cooldown and its per-pass row cap — which
+  // is the bound that can be raised without turning slowness into a verdict.
+  const authority = await verifyEndpointMatchesCommitment(boundEndpoint, onChain);
+  // The bound endpoint answers for the account's on-chain guardian, so SOME
+  // rotation to it landed — whichever row owned it. Nothing to roll back, and the
+  // caller may settle. This is the one answer that licenses the demote, and it is
+  // now the only path to it.
+  if (authority === 'match') return 'superseded';
+  if (authority !== 'mismatch') return 'stale';
+  // Unauthorized, but not by this row's doing: the binding has moved to a third
+  // value since, so `revertTo` is two rotations stale and writing it would undo
+  // whatever the later row is still trying to repair. Leave it to that row, and
+  // report `'stale'` so this one keeps its budget moving toward the manual
+  // prompt instead of being demoted on a conclusion it did not establish.
+  if (bindingMovedOn) return 'stale';
+
+  const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
+    guardianEndpoint: revertTo
+  });
+  return write.outcome === 'applied' ? 'reverted' : 'stale';
 }
 
 function normalizedEqual(a: string, b: string): boolean {

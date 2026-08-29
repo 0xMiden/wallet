@@ -595,6 +595,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
       };
+    case WalletMessageType.RevertGuardianEndpointRequest:
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
+      };
     case WalletMessageType.SetGuardianOperatorCommitmentRequest:
       await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);
       return {

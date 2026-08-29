@@ -6,7 +6,7 @@ import { WalletType } from 'screens/onboarding/types';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
@@ -31,7 +31,14 @@ const guardianServiceCache = new Map<string, CacheEntry>();
 // each tick can start a fresh init before the resolved service reaches the cache.
 // Tagged with the generation it started on, so a caller arriving after a recovery
 // is not handed an init that is building on the client that just died.
-type InflightEntry = { promise: Promise<MultisigService>; generation: number };
+// The requested ceiling is part of the identity, not a detail of the caller: the
+// hold happens INSIDE the init, so whoever wins the race picks the ceiling for
+// everyone who coalesces onto it. Both directions of a mismatch are wrong in the
+// way the parameter exists to prevent — a cadence caller inheriting the 5-minute
+// backstop is the hundred-dead-laps freeze, and a transaction-pipeline caller
+// inheriting the 2-minute ceiling gives up three minutes early on the path whose
+// docstring says that risks stranding the account. So they simply do not share.
+type InflightEntry = { promise: Promise<MultisigService>; generation: number; boundAtSyncCeiling: boolean };
 const guardianServiceInflight = new Map<string, InflightEntry>();
 
 /**
@@ -55,6 +62,18 @@ export interface GuardianAccountProvider {
   // SW-only (vault-backed); the frontend zustand provider leaves it undefined
   // because guardian-switch completion runs exclusively in the backend processor.
   setGuardianEndpoint?: (accountPublicKey: string, guardianEndpoint: string) => Promise<void>;
+  /**
+   * Roll the binding back after the node discards a rotation. The mirror image
+   * of `setGuardianEndpoint`: that one is authoritative and forces, this one
+   * carries evidence that may be half an hour old and so is refused unless the
+   * account still names `discardedEndpoint`. Frontend-only in practice — the
+   * pending-rotation recheck lives in the sync loop.
+   */
+  revertGuardianEndpointAfterDiscard?: (
+    accountPublicKey: string,
+    discardedEndpoint: string,
+    revertTo: string
+  ) => Promise<'reverted' | 'superseded' | 'stale'>;
 }
 
 /**
@@ -98,7 +117,12 @@ export async function getOrCreateMultisigService(
     // started before a recovery will resolve a service bound to the dead client,
     // and handing it to a caller that arrived afterwards would spread the corpse
     // instead of containing it (#775).
-    if (inflight.generation === startedAtGeneration) {
+    //
+    // And onto one that asked for the SAME ceiling — the second conjunct, whose
+    // reasoning is on `InflightEntry` above. The short version: the hold is inside
+    // the init, so the winner of the race picks the ceiling for every caller that
+    // coalesces onto it, and both directions of a mismatch defeat the parameter.
+    if (inflight.generation === startedAtGeneration && inflight.boundAtSyncCeiling === boundAtSyncCeiling) {
       return inflight.promise;
     }
     guardianServiceInflight.delete(accountPublicKey);
@@ -148,32 +172,50 @@ export async function getOrCreateMultisigService(
 
     // Get the Account object from the Miden client. Always labelled; bounded only for the
     // caller that runs on a cadence — see `boundAtSyncCeiling` above (#777).
-    const { sdkAccount } = await withWasmClientLock(
-      async () => {
-        // Use the matched account's stored publicKey (the form the in-wallet path
-        // uses) rather than the possibly-bare dApp-supplied id.
-        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-        return { sdkAccount };
-      },
-      boundAtSyncCeiling
-        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
-        : { label: 'guardian-service-build' }
-    );
+    //
+    // ONE hold for the account read AND the signer read derived from it. An `Account`
+    // handle is a borrow of the client's RefCell rather than a snapshot, so reading its
+    // signer set after this hold released was a call on a client an eviction may already
+    // have handed to a successor — and `getSignerDetailsFromAccount` reaches into account
+    // storage, so it is a genuine WASM call, not a field access. Same shape, and the same
+    // fix, as the two guardian-sync self-heal snapshots. The `MultisigService.init` below
+    // takes a hold of its own, so it stays OUTSIDE this one: the mutex is not reentrant
+    // and nesting would deadlock.
+    // ONE options object for BOTH holds the build takes. `init`'s hold is the longer
+    // of the two — it contains the client build and the guardian `load()` round trip —
+    // so bounding only the read above left this parameter's own stated purpose unmet.
+    const buildLockOptions = boundAtSyncCeiling
+      ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+      : { label: 'guardian-service-build' };
+    const { sdkAccount, commitment, accountIdHex } = await withWasmClientLock(async hold => {
+      // Use the matched account's stored publicKey (the form the in-wallet path
+      // uses) rather than the possibly-bare dApp-supplied id.
+      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+      if (!sdkAccount) return { sdkAccount: undefined, commitment: undefined, accountIdHex: undefined };
+      assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
+      // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
+      const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+      // READ IN HERE, not at the log site below. `id()` is a call on a borrowed
+      // handle, so asking for it after this hold released was the very thing the
+      // comment above forbids — and a `console.log` is a silly place to take a
+      // double borrow: an eviction in the gap made it throw `isDisposed` and
+      // aborted a service build that had otherwise succeeded.
+      return { sdkAccount, commitment, accountIdHex: sdkAccount.id().toString() };
+    }, buildLockOptions);
 
-    if (!sdkAccount) {
+    if (!sdkAccount || commitment === undefined) {
       throw new Error('Account not found in local storage');
     }
 
-    // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
-    const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
     // Bind the service to the hot signer — the popup signs with the hot key.
-    console.log('creating guardian service', sdkAccount.id().toString());
+    console.log('creating guardian service', accountIdHex);
     const service = await MultisigService.init(
       sdkAccount,
       `0x${hotPublicKey}`,
       `0x${commitment}`,
       provider.signWord,
-      currentEndpoint
+      currentEndpoint,
+      buildLockOptions
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
@@ -189,7 +231,11 @@ export async function getOrCreateMultisigService(
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration });
+  guardianServiceInflight.set(accountPublicKey, {
+    promise: initPromise,
+    generation: startedAtGeneration,
+    boundAtSyncCeiling
+  });
   try {
     return await initPromise;
   } finally {

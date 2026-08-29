@@ -1999,6 +1999,14 @@ const generateDirectSwitchGuardianTransaction = async (
     await midenClientProxy.waitForTransactionCommit(id);
   } catch (waitError) {
     if (isTransactionDiscardedError(waitError)) throw waitError;
+    // An eviction is not a failed commit wait. Swallowed into `commitConfirmed =
+    // false`, it sent this function on to take ANOTHER WASM hold
+    // (`didDirectSwitchLand`) from inside an abandoned pipeline, and then to
+    // finalize the rotation on whatever that read returned — the two things the
+    // poison contract forbids. The handler in `generateTransaction` exists to
+    // stop an abandoned pipeline from finalizing; it can only do that if the
+    // error reaches it.
+    if (isWasmClientPoisonedError(waitError)) throw waitError;
     commitConfirmed = false;
     console.warn(
       `Direct guardian switch ${id} was submitted but its commit wait failed without a verdict; ` +

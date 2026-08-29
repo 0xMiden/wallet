@@ -18,6 +18,7 @@ import {
   startGuardianRecovery,
   checkGuardianDrift,
   applyUserGuardianEndpoint,
+  revertGuardianEndpointAfterDiscard,
   getAllDAppSessions,
   getCurrentAccount,
   createHDAccount,
@@ -76,7 +77,8 @@ let mockStoreState = {
 
 jest.mock('lib/miden/back/guardian-drift', () => ({
   resolveGuardianDrift: jest.fn(),
-  applyUserGuardianEndpoint: jest.fn()
+  applyUserGuardianEndpoint: jest.fn(),
+  revertGuardianEndpointAfterDiscard: jest.fn()
 }));
 
 jest.mock('lib/miden/back/guardian-recovery', () => ({
@@ -626,6 +628,40 @@ describe('actions', () => {
         guardianOperatorCommitment: 'newC'
       });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
+    });
+  });
+
+  // The rollback the pending-rotation recheck runs when the node discards a
+  // guardian switch. The decision itself lives in `guardian-drift` next to the
+  // on-chain authority check it needs (see `guardian-drift.test.ts`); what this
+  // action owes is the queued vault and a broadcast that fires ONLY on a write.
+  describe('revertGuardianEndpointAfterDiscard', () => {
+    it('broadcasts the new accounts once the rollback actually wrote', async () => {
+      const { revertGuardianEndpointAfterDiscard: revert } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [{ publicKey: 'pk1', guardianEndpoint: 'https://old' }];
+      revert.mockResolvedValueOnce('reverted');
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(accounts[0]);
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe('reverted');
+      expect(revert).toHaveBeenCalledWith(expect.any(Object), 'pk1', 'https://new', 'https://old');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts, currentAccount: accounts[0] });
+    });
+
+    // `'superseded'` and `'stale'` both mean nothing was written. Broadcasting
+    // on them would push a fresh `accounts` array on every recheck tick, and the
+    // frontend re-renders on identity, not on value.
+    it.each(['superseded', 'stale'])('stays silent when the rollback did not write (%s)', async outcome => {
+      const { revertGuardianEndpointAfterDiscard: revert } = jest.requireMock('lib/miden/back/guardian-drift');
+      revert.mockResolvedValueOnce(outcome);
+      mockAccountsUpdated.mockClear();
+
+      const result = await revertGuardianEndpointAfterDiscard('pk1', 'https://new', 'https://old');
+
+      expect(result).toBe(outcome);
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
     });
   });
 

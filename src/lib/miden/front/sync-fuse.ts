@@ -22,7 +22,14 @@ import {
  * minutes forever. Guardian is the wallet's DEFAULT account type, so that path is the
  * likeliest one in the product, not a corner.
  */
-export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | 'note-import' | `guardian-sync:${string}`;
+export type SyncFuseKey =
+  | 'idle-sync'
+  | 'claimable-notes'
+  | 'balances'
+  | 'note-import'
+  | `pending-rotation-recheck:${string}`
+  | `guardian-sync:${string}`
+  | `guardian-drift:${string}`;
 
 /**
  * The fuse key for one guardian account's sync probe.
@@ -36,6 +43,58 @@ export type SyncFuseKey = 'idle-sync' | 'claimable-notes' | 'balances' | 'note-i
  */
 export const guardianSyncFuseKey = (accountPublicKey: string, guardianEndpoint: string): SyncFuseKey =>
   `guardian-sync:${accountPublicKey}@${guardianEndpoint}`;
+
+/**
+ * The fuse key for one guardian account's DRIFT reconciliation probe.
+ *
+ * Separate from `guardianSyncFuseKey` on both halves of the granularity rule. It is a
+ * different SUBJECT: drift's hold reads the local WASM account, while the sync key
+ * gates a round trip to the operator, so folding them together let a wedged client
+ * silence a healthy operator and vice versa. And it needs a different GATE: drift runs
+ * deliberately ahead of the sync fuse — a repaired pointer changes the endpoint, so
+ * drift is that fuse's own exit ramp and must not sit behind it — which left drift
+ * feeding a ledger it could never consult. Since its eviction stops the whole pass,
+ * one account's parked drift read then starved every other guardian account
+ * indefinitely, with no observation left that could clear the fuse. With a key of its
+ * own, drift is skipped after the usual evidence and the pass gets past it.
+ *
+ * Carries no endpoint: drift's probe is not addressed to the operator, so there is
+ * nothing an endpoint change would invalidate. `clearSyncFuseForEndpointChange` still
+ * drops it with everything else, because the NODE it reads against did change.
+ *
+ * PER ACCOUNT even though drift's hold reads the realm's single local client, so the
+ * thing that parks is arguably realm-wide and N accounts now cost N x
+ * MAX_CONSECUTIVE_WATCHDOG_EVICTIONS parks rather than one set. That cost is real and
+ * it is the right trade: a realm-wide key reintroduces the cross-account erasure this
+ * whole ledger was split up to end, because drift runs for EVERY guardian account on
+ * every lap and the pass is sequential — a healthy account's success would zero what a
+ * parked account had accumulated, within the same lap, forever. The failure mode of
+ * "too coarse" is that the fuse never lights at all and the wallet parks and leaks a
+ * client every lap indefinitely; the failure mode of "too fine" is that a key cannot
+ * accumulate enough evidence, and that one does not apply here, since each account's
+ * drift probe runs on every lap. Bounded extra cost beats an unreachable threshold.
+ */
+export const guardianDriftFuseKey = (accountPublicKey: string): SyncFuseKey => `guardian-drift:${accountPublicKey}`;
+
+/**
+ * The fuse key for one guardian account's PENDING-ROTATION RECHECK probe.
+ *
+ * Carries the account for the same reason `guardianSyncFuseKey` does, and it was a bare
+ * literal first — which put the defeat-by-ordering one level up from the one that
+ * splitting this ledger fixed. The recheck aggregates its per-row outcomes and books
+ * once, but the function runs PER ACCOUNT, so "once" is once per account: with a healthy
+ * account and a parked one in the same list, the healthy one's `noteSyncSuccess` erased
+ * the parked one's eviction on every lap and the threshold was unreachable. The
+ * aggregation comment claimed to have fixed the cross-account case; only a keyed ledger
+ * can.
+ *
+ * Carries no endpoint, unlike the sync key: this probe reads the NODE about a
+ * transaction hash, never the operator — which is also why it runs ahead of the sync
+ * fuse and the 429 cooldown. `clearSyncFuseForEndpointChange` still drops it, because
+ * the node it reads against is what changed.
+ */
+export const pendingRotationRecheckFuseKey = (accountPublicKey: string): SyncFuseKey =>
+  `pending-rotation-recheck:${accountPublicKey}`;
 
 interface FuseEntry {
   evictions: number;
@@ -159,6 +218,40 @@ export function noteNonEvictionSyncFailure(key: SyncFuseKey): void {
 }
 
 /**
+ * This probe was ABANDONED rather than answered — it learned nothing about the node.
+ *
+ * The third outcome, and the ledger had only two. `noteNonEvictionSyncFailure` means
+ * "the probe reached the node and the node failed us", which is why it may zero the
+ * count: a failure that came back breaks a run of evictions. But two failure shapes
+ * reach a caller carrying no information about the node at all, and routing either of
+ * them through that function ERASED evidence instead of merely declining to add:
+ *
+ *   - a `realm-error` poison, i.e. a WASM trap in this realm. The abandoned call is
+ *     still parked wherever it was; a trap says nothing about whether the node
+ *     answered. `isSyncWatchdogEviction` is deliberately watchdog-only, so this
+ *     landed in the "some other reason" arm and zeroed the count.
+ *   - a local failure before any hold — a Dexie read, a dynamic import, a listener
+ *     that threw — which is not the node's doing either.
+ *
+ * Zeroing on those is what made the loop-terminating `break`s unbounded over half of
+ * their own trigger set. The breaks fire on ANY poison, and the per-probe fuse is
+ * their only escape ramp; with a recurring realm-error eviction the count could never
+ * reach `MAX_CONSECUTIVE_WATCHDOG_EVICTIONS`, so the pass aborted at the same account
+ * on every lap and the guardian accounts after it were never synced again. Alternating
+ * the two poison reasons was worse than either: 0 → 1 → 0 forever, the exact
+ * unreachable threshold that keying this ledger per probe was written to end.
+ *
+ * So: re-arm a LIT fuse — "one probe per 30 min until one SUCCEEDS" is the contract,
+ * and an abandoned probe has not succeeded — but leave an unlit entry's evidence
+ * exactly as it stands. Never a success, never a withdrawal.
+ */
+export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
+  const entry = ledger.get(key);
+  if (!entry || entry.fusedUntilMs === null) return;
+  entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+}
+
+/**
  * This probe went through. The only thing that clears its fuse: it proves the call is
  * not parked after all, which is the one observation the fuse is waiting for.
  */
@@ -204,6 +297,27 @@ export function grantManualSyncProbe(key: SyncFuseKey): void {
   const entry = ledger.get(key);
   if (!entry || entry.fusedUntilMs === null) return;
   entry.fusedUntilMs = monotonicNowMs();
+}
+
+/**
+ * This probe's SUBJECT no longer exists, so its whole entry is void.
+ *
+ * Distinct from `noteSyncSuccess`, and deliberately not spelled as one. A success
+ * is the claim "a round trip reached this node and came back", which is the only
+ * observation allowed to withdraw parked-node evidence; booking one because a probe
+ * found nothing to do would clear that evidence on the strength of a local
+ * IndexedDB read, which says nothing about whether the node parked us.
+ *
+ * What retirement fixes is the opposite hazard. `fusedUntilMs` is non-null for
+ * "lit", and an EXPIRED non-null deadline is load-bearing (see
+ * `grantManualSyncProbe`) — writers still read it as lit and re-arm. So a probe
+ * whose subject disappears while its fuse is lit leaves that field non-null
+ * forever, and one ordinary failure much later arms a full 30-minute silence on
+ * evidence about a question that has since been answered. Dropping the entry says
+ * "there is nothing here to be fused about", which is the truth.
+ */
+export function retireSyncFuse(key: SyncFuseKey): void {
+  ledger.delete(key);
 }
 
 /**

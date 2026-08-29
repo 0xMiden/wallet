@@ -173,7 +173,16 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-3',
-      data: 'Handler failed'
+      // The internal port carries `name` and `reason` as well as `message`, so the
+      // frontend can still tell WHICH class of backend failure it got — the poison
+      // classifiers read exactly those two fields, and a bare message string made
+      // them dead code on the extension.
+      //
+      // An ARRAY, in the order `[message, errors, name, reason]`, because the skew
+      // that actually happens is a service worker updated under an open port: a new
+      // server talking to an OLD client, whose `deserializeError` hands an object
+      // straight to `Error` ("[object Object]") but destructures an array correctly.
+      data: ['Handler failed', undefined, 'Error', undefined]
     });
   });
 
@@ -192,7 +201,7 @@ describe('IntercomServer', () => {
     expect(mockPostMessage).toHaveBeenCalledWith({
       type: MessageType.Err,
       reqId: 'req-4',
-      data: 'Not Found'
+      data: ['Not Found', undefined, 'Error', undefined]
     });
   });
 

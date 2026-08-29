@@ -6,7 +6,8 @@ import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'l
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import {
   applyUserGuardianEndpoint as applyVerifiedGuardianEndpoint,
-  resolveGuardianDrift
+  resolveGuardianDrift,
+  revertGuardianEndpointAfterDiscard as revertDiscardedGuardianEndpoint
 } from 'lib/miden/back/guardian-drift';
 import { maybeStartGuardianRecovery } from 'lib/miden/back/guardian-recovery';
 import {
@@ -389,6 +390,39 @@ export function setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: 
   );
 }
 
+/**
+ * Point an account back at its previous operator after the node DISCARDED the
+ * rotation that moved it. The guards live in `guardian-drift.ts` next to the
+ * other write that verifies an endpoint against the chain before binding it;
+ * this wrapper only supplies the queued vault adapter and broadcasts the result.
+ *
+ * Deliberately NOT `setGuardianEndpoint`, which is `force` — for the
+ * authoritative writers that must never lose. This is the opposite kind of
+ * write: its evidence is up to half an hour old and everything it touches may
+ * have moved since.
+ *
+ * Broadcast only on `'reverted'`, like `checkGuardianDrift`: the other two
+ * outcomes wrote nothing, and this runs off a 3 s loop.
+ */
+export function revertGuardianEndpointAfterDiscard(
+  accountPublicKey: string,
+  discardedEndpoint: string,
+  revertTo: string
+) {
+  return withUnlocked(async ({ vault }) => {
+    const outcome = await revertDiscardedGuardianEndpoint(
+      queuedDriftVaultAdapter(vault),
+      accountPublicKey,
+      discardedEndpoint,
+      revertTo
+    );
+    if (outcome === 'reverted') {
+      accountsUpdated({ accounts: await vault.fetchAccounts(), currentAccount: await vault.getCurrentAccount() });
+    }
+    return outcome;
+  });
+}
+
 export function setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
   return withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
@@ -425,17 +459,6 @@ export function startGuardianRecovery(accountPublicKey: string) {
 }
 
 /**
- * Detect and, where possible, auto-resolve an out-of-band guardian switch for
- * an account. `resolveGuardianDrift` writes through the vault's guardian
- * setters directly (not through the `setGuardian*` actions above), so this
- * wrapper re-reads the current account state afterward and broadcasts it —
- * same reason `setGuardianEndpoint` broadcasts: without it the popup's
- * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
- * when `resolveGuardianDrift` reports `changed: true` — the periodic
- * guardian-sync loop calls this every 3s per guardian account, and on the
- * common no-op tick (nothing drifted) there's nothing new to broadcast.
- */
-/**
  * The drift resolvers' vault adapter, with each accounts-list write on the
  * single-writer queue. Only the individual writes are queued, not the whole
  * resolution: it makes guardian HTTP calls between them, and holding the queue
@@ -452,6 +475,17 @@ function queuedDriftVaultAdapter(vault: Vault) {
   };
 }
 
+/**
+ * Detect and, where possible, auto-resolve an out-of-band guardian switch for
+ * an account. `resolveGuardianDrift` writes through the vault's guardian
+ * setters directly (not through the `setGuardian*` actions above), so this
+ * wrapper re-reads the current account state afterward and broadcasts it —
+ * same reason `setGuardianEndpoint` broadcasts: without it the popup's
+ * Zustand snapshot keeps the stale endpoint/commitment/status. Only does so
+ * when `resolveGuardianDrift` reports `changed: true` — the periodic
+ * guardian-sync loop calls this every 3s per guardian account, and on the
+ * common no-op tick (nothing drifted) there's nothing new to broadcast.
+ */
 export function checkGuardianDrift(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
     const { status, changed } = await resolveGuardianDrift(queuedDriftVaultAdapter(vault), accountPublicKey);

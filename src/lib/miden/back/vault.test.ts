@@ -939,6 +939,68 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
       expect(pkA?.guardianOperatorCommitment).toBeUndefined();
     });
 
+    // A patch is a set of fields to change, not a replacement binding. Spread
+    // whole, an explicitly-`undefined` key (the shape an optional read produces
+    // when its source is empty) erased a field the caller never mentioned —
+    // silently unbinding an operator on a write about the other field.
+    it('leaves a field the patch does not carry alone, even when the key is present and undefined', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      await vault.updateGuardianBinding('pkA', 0, {
+        guardianEndpoint: 'https://op.example',
+        guardianOperatorCommitment: 'baseline'
+      });
+
+      const write = await vault.updateGuardianBinding('pkA', 1, {
+        guardianEndpoint: 'https://moved.example',
+        guardianOperatorCommitment: undefined
+      });
+
+      expect(write.outcome).toBe('applied');
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://moved.example');
+      expect(pkA?.guardianOperatorCommitment).toBe('baseline');
+    });
+
+    // The epoch is a CAS token, not a modification counter. A patch that changes
+    // nothing must not spend one: the bump invalidates the snapshot every
+    // concurrent repair is holding, so an all-`undefined` patch — which the type
+    // permits, and which `'force'` would wave through without even a stale check
+    // — would turn an uncontended repair's write `stale` and make it unwind.
+    it.each([
+      ['a caller-supplied empty patch', {}],
+      ['a patch whose every field is explicitly undefined', { guardianEndpoint: undefined }]
+    ])('does not spend an epoch on %s', async (_label, patch) => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+      await vault.updateGuardianBinding('pkA', 0, { guardianEndpoint: 'https://op.example' });
+
+      const write = await vault.updateGuardianBinding('pkA', 1, patch);
+
+      expect(write.outcome).toBe('applied');
+      expect(write.epoch).toBe(1);
+      const pkA = (await vault.fetchAccounts()).find(a => a.publicKey === 'pkA');
+      expect(pkA?.guardianEndpoint).toBe('https://op.example');
+      expect(pkA?.guardianEpoch).toBe(1);
+      // The concurrent repair still holding epoch 1 can therefore still write.
+      expect((await vault.updateGuardianBinding('pkA', 1, { guardianOperatorCommitment: 'c2' })).outcome).toBe(
+        'applied'
+      );
+    });
+
+    // `'force'` skips the stale check, so without the empty-patch guard it is the
+    // one path that bumps unconditionally.
+    it('does not spend an epoch on an empty forced patch either', async () => {
+      const vault = await seedVault('pw');
+      await seedGuardianPair(vault);
+
+      const write = await vault.updateGuardianBinding('pkA', 'force', {});
+
+      expect(write.outcome).toBe('applied');
+      expect(write.epoch).toBe(0);
+      expect((await vault.fetchAccounts()).find(a => a.publicKey === 'pkA')?.guardianEpoch).toBeUndefined();
+    });
+
     it('status writes stay last-write-wins and do not consume or bump the epoch', async () => {
       const vault = await seedVault('pw');
       await seedGuardianPair(vault);

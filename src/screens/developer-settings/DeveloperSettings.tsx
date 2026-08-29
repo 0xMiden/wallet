@@ -7,6 +7,7 @@ import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { TabPicker } from 'components/TabPicker';
+import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import {
@@ -136,6 +137,11 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // successful sync that puts the fuse out is the thing it stops giving itself the
     // chance to observe (#777).
     clearSyncFuseForEndpointChange();
+    // The other half of the same fact. The line above discards what the old node
+    // taught us; this one retires the passes still in flight against it, whose
+    // pending-rotation recheck would otherwise demote rows and roll the guardian
+    // binding back from chain reads taken before this save.
+    retireGuardianSyncPasses();
     // On the extension, the service worker is a separate JS realm with its own
     // module-level override cache and a create-once Miden client singleton, so
     // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate

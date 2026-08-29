@@ -71,6 +71,8 @@ export enum WalletMessageType {
   SwapHotKeyResponse = 'SWAP_HOT_KEY_RESPONSE',
   SetGuardianEndpointRequest = 'SET_GUARDIAN_ENDPOINT_REQUEST',
   SetGuardianEndpointResponse = 'SET_GUARDIAN_ENDPOINT_RESPONSE',
+  RevertGuardianEndpointRequest = 'REVERT_GUARDIAN_ENDPOINT_REQUEST',
+  RevertGuardianEndpointResponse = 'REVERT_GUARDIAN_ENDPOINT_RESPONSE',
   SetGuardianOperatorCommitmentRequest = 'SET_GUARDIAN_OPERATOR_COMMITMENT_REQUEST',
   SetGuardianOperatorCommitmentResponse = 'SET_GUARDIAN_OPERATOR_COMMITMENT_RESPONSE',
   SetGuardianSyncStatusRequest = 'SET_GUARDIAN_SYNC_STATUS_REQUEST',
@@ -797,6 +799,25 @@ export interface SetGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.SetGuardianEndpointResponse;
 }
 
+/**
+ * The conditional rollback the pending-rotation recheck performs when the node
+ * reports a submitted guardian switch discarded. `discardedEndpoint` is the
+ * target of the rotation being rolled back — the backend refuses the write
+ * unless the account still names it, so a rollback whose evidence is half an
+ * hour old cannot clobber a binding something authoritative has since moved.
+ */
+export interface RevertGuardianEndpointRequest extends WalletMessageBase {
+  type: WalletMessageType.RevertGuardianEndpointRequest;
+  accountPublicKey: string;
+  discardedEndpoint: string;
+  revertTo: string;
+}
+
+export interface RevertGuardianEndpointResponse extends WalletMessageBase {
+  type: WalletMessageType.RevertGuardianEndpointResponse;
+  outcome: 'reverted' | 'superseded' | 'stale';
+}
+
 export interface SetGuardianOperatorCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.SetGuardianOperatorCommitmentRequest;
   accountPublicKey: string;
@@ -1074,6 +1095,7 @@ export type WalletRequest =
   | PersistNewHotKeyRequest
   | SwapHotKeyRequest
   | SetGuardianEndpointRequest
+  | RevertGuardianEndpointRequest
   | SetGuardianOperatorCommitmentRequest
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
@@ -1139,6 +1161,7 @@ export type WalletResponse =
   | PersistNewHotKeyResponse
   | SwapHotKeyResponse
   | SetGuardianEndpointResponse
+  | RevertGuardianEndpointResponse
   | SetGuardianOperatorCommitmentResponse
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
