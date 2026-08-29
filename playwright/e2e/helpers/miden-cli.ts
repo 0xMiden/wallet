@@ -350,8 +350,7 @@ export class MidenCli {
     }
 
     const funders = await this.importFunders();
-    const funder = funders[0];
-    if (funder === undefined) {
+    if (funders[0] === undefined) {
       throw new Error(
         `This chain charges a transaction fee, so accounts must be funded before they can ` +
           `transact, but no funder wallets were found in ${MidenCli.funderDir()}. Bring the local ` +
@@ -368,21 +367,42 @@ export class MidenCli {
     // client. A submission built against a stale view is rejected by the node with `initial account
     // commitment ... does not match the current commitment`; re-syncing and rebuilding is the
     // recovery, so retry rather than fail the spec.
+    // Try EVERY funder, exactly as `fundAccountForFees` already does. A genesis funder holds a
+    // fixed balance and a long-lived local chain drains the first one -- when that happened here the
+    // failure was a bare `cli::client_error`/`asset error` naming only `funders[0]`, which reads like
+    // a CLI fault rather than an empty wallet, and it took out every suite that deploys a faucet.
+    // The stale-commitment retry stays INSIDE the per-funder loop: a stale view is worth retrying
+    // against the same funder, an empty vault never is.
+    const failures: string[] = [];
     let sent: CLIInvocation | undefined;
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      await this.sync();
-      sent = await this.run(
-        `transfer --sender ${funder} --target ${newId} ` +
-          `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
-        { timeoutMs: 180_000 }
-      );
-      if (sent.exitCode === 0) break;
-      const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
-      if (!stale || attempt === 4) break;
-      await new Promise(r => setTimeout(r, 2_000 * attempt));
+    /** Which funder actually paid, so a later failure can name it. */
+    let payingFunder: string | undefined;
+    for (const funder of funders) {
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        await this.sync();
+        sent = await this.run(
+          `transfer --sender ${funder} --target ${newId} ` +
+            `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
+          { timeoutMs: 180_000 }
+        );
+        if (sent.exitCode === 0) break;
+        const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
+        if (!stale || attempt === 4) break;
+        await new Promise(r => setTimeout(r, 2_000 * attempt));
+      }
+      if (sent?.exitCode === 0) {
+        payingFunder = funder;
+        break;
+      }
+      failures.push(`${funder}: ${sent?.stderr.trim().slice(0, 200) ?? 'no output'}`);
     }
     if (!sent || sent.exitCode !== 0) {
-      throw new Error(`Funder ${funder} could not pay ${newId}: ${sent?.stderr ?? 'no output'}`);
+      throw new Error(
+        `Could not fund faucet ${newId} from any of ${funders.length} genesis funder(s). If they all ` +
+          `report an empty vault, the local chain has been drained by repeated runs and needs ` +
+          `re-genesising: restart the node with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set.\n  ` +
+          failures.join('\n  ')
+      );
     }
 
     // The funding note only becomes consumable once it is committed in a block, and
@@ -402,7 +422,7 @@ export class MidenCli {
     }
     if (!funded) {
       throw new Error(
-        `Faucet ${newId} never received its funding note from ${funder}; its vault still holds ` +
+        `Faucet ${newId} never received its funding note from ${payingFunder}; its vault still holds ` +
           `none of the fee asset after 10 attempts. Last consume-notes output: ` +
           `${consumed?.stderr || consumed?.stdout || 'no output'}`
       );
