@@ -3,7 +3,6 @@ import {
   listVaultAssets,
   toBaseUnits,
   vaultBalance,
-  vaultBalanceByFaucet,
   waitForPendingNoteTotal,
   waitForVaultBalance,
   walletDiscoveredBaseFee,
@@ -33,6 +32,12 @@ import { readTransactionRows } from '../helpers/history';
 // than assumed -- a wallet that named another of its own fungible assets, or an
 // inflated rate, would still transfer correctly and would pass every other spec.
 const TOKEN = 'TST';
+// Keyed by SYMBOL, not faucet id: the store's balances projection carries
+// `{ metadata: { symbol, decimals }, balance }` and no faucet id at all, so a
+// faucet-keyed lookup silently matches nothing and every delta below would be
+// computed against a default of 0. The guard in `snapshot_before_send` is what
+// makes that failure loud rather than a vacuous pass.
+const NATIVE = 'MIDEN';
 const TOKEN_DECIMALS = 8;
 const MINT_BASE_UNITS = 100_000_000_000n;
 const SEND_AMOUNT = '500';
@@ -99,14 +104,14 @@ test.describe('Fee accounting', () => {
         nativeFaucetId,
         'the wallet never discovered the chain native/fee faucet id; the fee asset cannot be identified without it'
       ).not.toBeNull();
-      nativeBefore = await vaultBalanceByFaucet(walletA.page, nativeFaucetId!);
-      nativeBeforeB = await vaultBalanceByFaucet(walletB.page, nativeFaucetId!);
+      nativeBefore = await vaultBalance(walletA.page, NATIVE);
+      nativeBeforeB = await vaultBalance(walletB.page, NATIVE);
       tokenBefore = await vaultBalance(walletA.page, TOKEN);
 
       expect(
         nativeBefore,
-        `wallet A holds no balance under the native faucet ${nativeFaucetId} — the faucet-keyed lookup ` +
-          'found nothing, so the fee deltas below would compare against a default of 0 and mean nothing. ' +
+        `wallet A holds no ${NATIVE} balance — the lookup found nothing, so the fee deltas below ` +
+          'would compare against a default of 0 and mean nothing. ' +
           `Rows the store actually holds: ${JSON.stringify(await listVaultAssets(walletA.page))}`
       ).toBeGreaterThan(0n);
 
@@ -149,10 +154,9 @@ test.describe('Fee accounting', () => {
             'below were NOT exercised. This run is not evidence that fees work.'
         });
         expect(send!.feeAmount, 'a zero-fee chain must not record a fee').toBeUndefined();
-        expect(
-          await vaultBalanceByFaucet(walletA.page, nativeFaucetId!),
-          'a zero-fee chain must not move the native balance'
-        ).toBe(nativeBefore);
+        expect(await vaultBalance(walletA.page, NATIVE), 'a zero-fee chain must not move the native balance').toBe(
+          nativeBefore
+        );
         return;
       }
 
@@ -184,7 +188,7 @@ test.describe('Fee accounting', () => {
       // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
       //    rest of the suite cannot make: the sender's NATIVE balance falls by the
       //    fee, while its TOKEN balance falls by the transfer, independently.
-      const nativeAfter = await vaultBalanceByFaucet(walletA.page, nativeFaucetId!);
+      const nativeAfter = await vaultBalance(walletA.page, NATIVE);
       expect(
         nativeBefore - nativeAfter,
         `sender's native balance moved by ${nativeBefore - nativeAfter} but the row records a fee of ${feePaid}`
@@ -199,7 +203,7 @@ test.describe('Fee accounting', () => {
       //    the fee leaves the native (acting) account, but that is the property under
       //    test -- assert it observably rather than trusting it.
       expect(
-        await vaultBalanceByFaucet(walletB.page, nativeFaucetId!),
+        await vaultBalance(walletB.page, NATIVE),
         "recipient's native balance moved during a send it did not make"
       ).toBe(nativeBeforeB);
 

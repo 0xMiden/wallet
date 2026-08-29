@@ -384,40 +384,6 @@ export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string
   });
 }
 
-/**
- * Spendable vault balance for one FAUCET id, in base units.
- *
- * The faucet-keyed counterpart of `vaultBalance`. Assertions about a fee want the
- * asset the fee was actually paid in, which the transaction row names by faucet id
- * -- matching on that directly cannot be defeated by two faucets sharing a symbol,
- * or by a chain that ships no symbol at all.
- */
-export async function vaultBalanceByFaucet(page: Page, faucetId: string): Promise<bigint> {
-  const raw = await page.evaluate(
-    ({ wanted }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const state = (window as any).__TEST_STORE__?.getState?.();
-      for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
-        if (!Array.isArray(tokenList)) continue;
-        for (const token of tokenList) {
-          if (String(token?.faucetId ?? '') !== wanted) continue;
-          return {
-            amount: String(token?.amountBaseUnits ?? token?.balance ?? '0'),
-            decimals: Number(token?.metadata?.decimals ?? 0)
-          };
-        }
-      }
-      return null;
-    },
-    { wanted: faucetId }
-  );
-  if (raw === null) return 0n;
-  // `amountBaseUnits` is already base units; a `balance` fallback is a display
-  // number and has to be scaled, so distinguish rather than trusting whichever
-  // field happened to be present.
-  return /^\d+$/.test(raw.amount) ? BigInt(raw.amount) : toBaseUnits(raw.amount, raw.decimals);
-}
-
 /** Every asset row the store holds, for diagnostics when a lookup finds nothing. */
 export async function listVaultAssets(
   page: Page
