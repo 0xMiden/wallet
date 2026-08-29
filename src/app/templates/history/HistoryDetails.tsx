@@ -41,10 +41,12 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -442,8 +444,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         // line is suppressed rather than formatted by the placeholder's guessed 6 --
         // which would display one asset's quantity as another's. The receipt, given the
         // same row, renders nothing too, so the two surfaces agree.
+        //
+        // The native fallback is not redundant with the short-circuit above, because
+        // the two disagree under one configuration: `getTokenMetadata` short-circuits
+        // on `getFaucetIdSetting()`, which honours the Developer Settings faucet-id
+        // OVERRIDE, while the chain's real fee faucet is what the row records. With an
+        // override set the fee faucet misses the short-circuit, and if its record is
+        // absent or in the unresolved-faucet backoff it lands on the placeholder and
+        // the fee line disappears. `MIDEN_METADATA` rather than the chain-discovered
+        // scale, for the reason above: consistency with every other native figure.
+        const feeIsNative = tx.feeFaucetId !== undefined && tx.feeFaucetId === getNativeAssetIdSync();
         const feeMetadata =
-          resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata) ? resolvedFeeMetadata : undefined;
+          resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
+            ? resolvedFeeMetadata
+            : feeIsNative
+              ? MIDEN_METADATA
+              : undefined;
         console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
         // Bridge metadata (route/provider, EVM destination, per-route status) lives
         // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from

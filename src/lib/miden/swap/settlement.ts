@@ -139,15 +139,19 @@ export async function reconcileSwapOrderNotes(
     for (const batch of [paybackNotes, reclaimNotes]) {
       if (batch.length === 0) continue;
       // No `verificationBaseFee`, so no claim floor — unlike the three native
-      // auto-consumers. Deliberate, on two grounds.
+      // auto-consumers. Deliberate, and the reason is the RISK, not the plumbing.
       //
-      // It is not expressible here: the records this function receives carry
-      // `faucetId: ''` and `amount: ''` (see `settleSwapOrders`, which keeps only
-      // note id + lineage because that is all settlement needs). Summing them
-      // yields 0n, which is below every floor, so passing a fee would settle
-      // NOTHING rather than settling frugally.
+      // On one of the two paths in it is not even expressible: `settleSwapOrders`
+      // builds its records with `faucetId: ''` and `amount: ''`, keeping only note
+      // id + lineage because that is all settlement needs, so a floor would sum to
+      // 0n and settle NOTHING rather than settling frugally. The service worker's
+      // path DOES carry real amounts (`sync-manager` passes `n.amountBaseUnits`),
+      // so a floor could be applied there — which is precisely why the decision
+      // has to rest on the argument below rather than on what is available: the
+      // extension is the primary platform, and having the floor apply on one
+      // platform and not the other would be worse than either choice.
       //
-      // And it is not the same risk. The floor exists against a griefing vector —
+      // It is not the same risk. The floor exists against a griefing vector —
       // one fee buys an attacker a pile of dust notes the victim must sweep — and
       // an attacker cannot make this account place swap orders. A solver CAN
       // partial-fill into many small payback notes, but the split above is per
