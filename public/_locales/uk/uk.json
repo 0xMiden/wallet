@@ -970,7 +970,6 @@
   "devEndpointResetAndReonboard": "Скинути налаштування до заводських та пройти реєстрацію заново",
   "devEndpointsRow": "Кінцеві точки мережі",
   "devEndpointResetConfirm": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "networkFee": "Network Fee"
 }

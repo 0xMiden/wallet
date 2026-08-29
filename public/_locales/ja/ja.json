@@ -970,7 +970,6 @@
   "devEndpointResetAndReonboard": "デフォルト設定にリセットして、オンボーディングをやり直す",
   "devEndpointsRow": "ネットワークエンドポイント",
   "devEndpointResetConfirm": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "networkFee": "Network Fee"
 }

@@ -970,7 +970,6 @@
   "devEndpointResetAndReonboard": "Redefinir para as configurações padrão e realizar a integração novamente",
   "devEndpointsRow": "Terminais de rede",
   "devEndpointResetConfirm": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "networkFee": "Network Fee"
 }

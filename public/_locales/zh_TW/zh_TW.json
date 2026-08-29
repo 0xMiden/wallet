@@ -970,7 +970,6 @@
   "devEndpointResetAndReonboard": "重設為預設值並重新完成註冊流程",
   "devEndpointsRow": "網路端點",
   "devEndpointResetConfirm": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "networkFee": "Network Fee"
 }

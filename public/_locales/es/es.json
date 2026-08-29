@@ -970,7 +970,6 @@
   "devEndpointResetAndReonboard": "Restablecer la configuración predeterminada y volver a dar de alta",
   "devEndpointsRow": "Terminales de red",
   "devEndpointResetConfirm": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
-  "insufficientFeeAsset": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "networkFee": "Network Fee"
 }
