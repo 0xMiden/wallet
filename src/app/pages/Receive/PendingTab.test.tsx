@@ -10,8 +10,14 @@ import { PendingTab, NoteWithMetadata } from './PendingTab';
 // end to end. `t` is the identity function, so an assertion on a rendered key
 // (e.g. 'noteUnavailable') proves that key was chosen.
 
+/** The chain's native (fee) faucet. `makeNote` defaults to a NON-native faucet. */
+const NATIVE_FAUCET = 'native-faucet';
+
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+
+let mockNativeFaucetId: string | null = NATIVE_FAUCET;
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -102,20 +108,48 @@ const renderTab = (props: Partial<React.ComponentProps<typeof PendingTab>> = {})
 const openDetail = () => fireEvent.click(screen.getByTestId('pending-asset-row'));
 
 describe('PendingTab — dust notes', () => {
-  it('marks a group the wallet will not auto-claim because it is worth less than the fee', () => {
+  it('marks a NATIVE group the wallet will not auto-claim because it is worth less than the fee', () => {
     // Auto-consume skips these, so without a hint the note just sits there with no
     // explanation. Claiming stays available -- the user may still want it.
     mockBaseFee = 2000000;
-    renderTab({ safeClaimableNotes: [makeNote('dust', { amount: '1000000' })] });
+    renderTab({
+      safeClaimableNotes: [makeNote('dust', { amount: '1000000', faucetId: NATIVE_FAUCET })]
+    });
 
     expect(screen.getByText('notWorthClaiming')).toBeInTheDocument();
   });
 
-  it('does not mark a group worth more than the fee', () => {
+  it('does not mark a NATIVE group worth more than the fee', () => {
     mockBaseFee = 100;
-    renderTab({ safeClaimableNotes: [makeNote('rich', { amount: '1000000' })] });
+    renderTab({
+      safeClaimableNotes: [makeNote('rich', { amount: '1000000', faucetId: NATIVE_FAUCET })]
+    });
 
     expect(screen.queryByText('notWorthClaiming')).not.toBeInTheDocument();
+  });
+
+  it('never marks a NON-NATIVE group, whatever its base-unit total', () => {
+    // The fee is quoted in the native asset's base units. Comparing another asset's
+    // base units against it compares two different currencies, so a perfectly
+    // valuable token group was labelled unclaimable purely because its raw total
+    // happened to be a small number -- and auto-consume never touches non-native
+    // notes at all, so the label's premise does not even apply to them.
+    mockBaseFee = 2000000;
+    renderTab({ safeClaimableNotes: [makeNote('token-dust', { amount: '1' })] });
+
+    expect(screen.queryByText('notWorthClaiming')).not.toBeInTheDocument();
+  });
+
+  it('marks nothing while the native faucet is still unknown', () => {
+    // Discovery is async. Labelling before it lands would guess which asset is native.
+    mockBaseFee = 2000000;
+    mockNativeFaucetId = null;
+    renderTab({
+      safeClaimableNotes: [makeNote('dust', { amount: '1', faucetId: NATIVE_FAUCET })]
+    });
+
+    expect(screen.queryByText('notWorthClaiming')).not.toBeInTheDocument();
+    mockNativeFaucetId = NATIVE_FAUCET;
   });
 });
 

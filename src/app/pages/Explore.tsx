@@ -117,13 +117,15 @@ const Explore: FC = () => {
     // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
     // This consumer runs on Home and fires on render, so it usually WINS the race
     // against the others -- leaving it per-note meant the batching those two do was
-    // defeated in the common case. On failure each note is retried alone, which
-    // isolates an un-consumable note instead of letting it throttle its mates through
-    // the shared row's #215 backoff.
+    // defeated in the common case.
+    //
+    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // fails at generation time, long after this queue write returned, so the catch here
+    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
     try {
-      await initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled);
+      await initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled, false, true);
     } catch (batchErr) {
-      console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+      console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
       for (const note of notesToClaim) {
         try {
           await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);

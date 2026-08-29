@@ -676,12 +676,14 @@ async function runSync(force: boolean): Promise<void> {
           const delegate = await isDelegateProofEnabledAsync();
           // ONE transaction for the batch: each consume pays its own fee, so a backlog
           // claimed note-by-note charges N fees for what settles in one. A Miden tx is
-          // atomic, so on failure each note is retried alone -- that isolates the poison
-          // note rather than letting it throttle its mates via the shared #215 backoff.
+          // atomic, so a single un-consumable note fails the whole batch; the LAST
+          // argument isolates it on the following enqueue, so it cannot drag its healthy
+          // mates into the shared row's #215 backoff. NOT the catch below -- this call is
+          // a queue write and the real failure happens later, at generation time.
           try {
-            await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate);
+            await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate, false, true);
           } catch (batchErr) {
-            console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+            console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {
               try {
                 await initiateConsumeTransaction(accountPubKey, note, delegate);

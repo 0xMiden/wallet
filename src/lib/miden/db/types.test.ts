@@ -6,6 +6,7 @@ import {
   EarnWithdrawTransaction,
   formatTransactionStatus,
   ITransactionStatus,
+  nextQueuedSeq,
   SendTransaction,
   Transaction
 } from './types';
@@ -267,5 +268,53 @@ describe('transaction models', () => {
     const tx = new SendTransaction('acc', BigInt(5), 'recip', 'faucet', NoteTypeEnum.Private);
     expect(tx.extraInputs.recallBlocks).toBeUndefined();
     expect(tx.delegateTransaction).toBeUndefined();
+  });
+});
+
+describe('queuedSeq — FIFO tie-break', () => {
+  it('is strictly increasing even when the clock does not advance', () => {
+    // The whole point. `initiatedAt` is whole SECONDS, so rows queued in the same
+    // second tie and a stable sort then falls back to Dexie's primary-key order over
+    // random `uuid()`s -- silently randomizing any deliberate enqueue order. Claim All
+    // depends on that order: it queues the native-asset group first so the claim that
+    // funds the vault runs before the claims that must pay a fee out of it.
+    //
+    // `Date.now()` alone is not sufficient, because consecutive Dexie transactions can
+    // commit inside one millisecond.
+    const frozen = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    try {
+      const seqs = [nextQueuedSeq(), nextQueuedSeq(), nextQueuedSeq()];
+      expect(seqs[1]!).toBeGreaterThan(seqs[0]!);
+      expect(seqs[2]!).toBeGreaterThan(seqs[1]!);
+    } finally {
+      frozen.mockRestore();
+    }
+  });
+
+  it('stamps every queued row, in creation order', () => {
+    const claimable: ConsumableNote[] = [
+      { id: 'n1', faucetId: 'faucet', amount: '1', isBeingClaimed: false } as ConsumableNote
+    ];
+    const first = new ConsumeTransaction('acc', claimable, false);
+    const second = new SendTransaction('acc', BigInt(1), 'recip', 'faucet', NoteTypeEnum.Public);
+    const third = new Transaction('acc', new Uint8Array([1]));
+
+    expect(first.queuedSeq).toBeDefined();
+    expect(second.queuedSeq!).toBeGreaterThan(first.queuedSeq!);
+    expect(third.queuedSeq!).toBeGreaterThan(second.queuedSeq!);
+  });
+
+  it('sorts rows that predate the field ahead of stamped ones in the same second', () => {
+    // Legacy rows carry no `queuedSeq`; treated as 0 they sort first, which is true of
+    // them. Mirrors the comparator in the processing loop.
+    const rows = [
+      { initiatedAt: 10, queuedSeq: 1_700_000_000_000 },
+      { initiatedAt: 10, queuedSeq: undefined },
+      { initiatedAt: 9, queuedSeq: undefined }
+    ];
+    rows.sort((a, b) => a.initiatedAt - b.initiatedAt || (a.queuedSeq ?? 0) - (b.queuedSeq ?? 0));
+
+    expect(rows.map(r => r.initiatedAt)).toEqual([9, 10, 10]);
+    expect(rows[1]!.queuedSeq).toBeUndefined();
   });
 });

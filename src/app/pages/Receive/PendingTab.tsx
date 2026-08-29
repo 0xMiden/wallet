@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
@@ -169,6 +170,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   onClaimAll
 }) => {
   const verificationBaseFee = useVerificationBaseFee();
+  const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
   const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
@@ -226,7 +228,18 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               tokenPrices={tokenPrices}
               retriableNoteIds={retriableNoteIds}
               invalidNoteIds={invalidNoteIds}
-              notWorthClaiming={!isWorthClaiming(group.totalAmount, verificationBaseFee)}
+              // NATIVE groups only. The fee is quoted in the native asset's base units,
+              // so comparing another asset's base units against it compares two
+              // different currencies: a perfectly valuable token group was labelled
+              // "not worth claiming" purely because its raw base-unit total happened to
+              // be a small number. Auto-consume never touches non-native notes either,
+              // so the label's premise does not hold for them. Judging a token group
+              // properly needs a price conversion, which is a separate feature.
+              notWorthClaiming={
+                nativeFaucetId !== null &&
+                group.faucetId === nativeFaucetId &&
+                !isWorthClaiming(group.totalAmount, verificationBaseFee)
+              }
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />

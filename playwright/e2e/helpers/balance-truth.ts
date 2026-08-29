@@ -311,35 +311,6 @@ async function failedRowSummary(sender: Page): Promise<string> {
 }
 
 /**
- * The faucet id backing a symbol in the wallet's own balances projection.
- *
- * Needed to assert WHICH asset a fee was paid in. Protocol 0.16 does not force a
- * fee to be paid in the native asset: `fee::pay_fee` takes the faucet id and the
- * conversion rate from caller-supplied auth args, and only `no_auth` and
- * `network_account` read them from the reference block. So "the wallet paid its
- * fee in the native asset at the native rate" is a property of the WALLET, not of
- * the chain, and it has to be asserted rather than assumed.
- */
-export async function faucetIdForSymbol(page: Page, symbol: string): Promise<string | undefined> {
-  return page.evaluate(
-    ({ wanted }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const state = (window as any).__TEST_STORE__?.getState?.();
-      for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
-        if (!Array.isArray(tokenList)) continue;
-        for (const token of tokenList) {
-          if (String(token?.metadata?.symbol ?? '').toLowerCase() === wanted) {
-            return token?.faucetId === undefined ? undefined : String(token.faucetId);
-          }
-        }
-      }
-      return undefined;
-    },
-    { wanted: symbol.toLowerCase() }
-  );
-}
-
-/**
  * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
  * wallet has not discovered it.
  *
@@ -384,21 +355,30 @@ export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string
   });
 }
 
-/** Every asset row the store holds, for diagnostics when a lookup finds nothing. */
+/**
+ * Every asset row the store holds, for diagnostics when a lookup finds nothing.
+ *
+ * Field names match `TokenBalanceData` (`src/lib/miden/front/balance.ts`) deliberately.
+ * This previously read `token.faucetId` and `token.amountBaseUnits`, neither of which
+ * exists on that type, so every row printed `faucetId: '(none)'` and fell through to
+ * `balance` — a DECIMAL display number — under a key named `amount`. This output is
+ * what a failing fee assertion prints, so it was actively misdescribing the store at
+ * the one moment someone reads it.
+ */
 export async function listVaultAssets(
   page: Page
-): Promise<Array<{ faucetId: string; symbol: string; amount: string }>> {
+): Promise<Array<{ tokenId: string; symbol: string; balanceDecimal: string }>> {
   return page.evaluate(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const state = (window as any).__TEST_STORE__?.getState?.();
-    const out: Array<{ faucetId: string; symbol: string; amount: string }> = [];
+    const out: Array<{ tokenId: string; symbol: string; balanceDecimal: string }> = [];
     for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
       if (!Array.isArray(tokenList)) continue;
       for (const token of tokenList) {
         out.push({
-          faucetId: String(token?.faucetId ?? '(none)'),
+          tokenId: String(token?.tokenId ?? '(none)'),
           symbol: String(token?.metadata?.symbol ?? '(none)'),
-          amount: String(token?.amountBaseUnits ?? token?.balance ?? '(none)')
+          balanceDecimal: String(token?.balance ?? '(none)')
         });
       }
     }

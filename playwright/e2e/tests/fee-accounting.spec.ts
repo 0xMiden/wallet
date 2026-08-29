@@ -183,15 +183,23 @@ test.describe('Fee accounting', () => {
 
       // 3. RIGHT ASSET. Paid in the native asset, not some other fungible the caller
       //    could have named through the auth args.
-      // NOT a direct id comparison. The row stores `String(AccountId)` (canonical
-      // hex) while the wallet caches the native asset id as bech32, so comparing
-      // them compares two ENCODINGS of the same account and can never pass. The
-      // property that matters -- "the fee came out of the native asset" -- is
-      // established by the two balance deltas below instead: the native balance
-      // falls by exactly the recorded fee, and the transferred token falls by
-      // exactly the amount sent, so no third asset moved and the fee cannot have
-      // been taken in the transferred one.
+      //
+      //    Now a DIRECT id comparison. This used to assert only `toBeTruthy()`, on the
+      //    grounds that the row stored `String(AccountId)` (canonical hex) while the
+      //    wallet caches the native id as bech32, so the two could never compare equal.
+      //    That encoding split was itself the bug -- the receipt resolves the fee token
+      //    by the same string equality and so never rendered a fee line at all -- and
+      //    the row now records bech32 like every other faucet id in the wallet. With
+      //    that fixed, the property can be asserted directly rather than inferred from
+      //    the balance deltas below, which cannot distinguish the native asset from a
+      //    third asset that merely happens not to have moved.
       expect(send!.feeFaucetId, 'the row records no fee faucet').toBeTruthy();
+      // `nativeFaucetId` was captured in snapshot_before_send, which already asserted
+      // the wallet discovered it.
+      expect(
+        send!.feeFaucetId,
+        `the fee was recorded against ${send!.feeFaucetId}, not the native faucet ${nativeFaucetId}`
+      ).toBe(nativeFaucetId);
 
       // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
       //    rest of the suite cannot make: the sender's NATIVE balance falls by the

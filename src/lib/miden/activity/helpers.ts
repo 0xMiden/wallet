@@ -117,11 +117,14 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     inputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
     assets.forEach(asset => inputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
   });
-  outputNotes.forEach(outputNote => {
-    // The kernel's fee note is an output note too, but it is not value the user
-    // sent: folding it in inflates the amount and adds the native faucet to the
-    // set, which can flip a single-faucet send into the generic 'Executed' label.
-    if (isFeeNote(outputNote)) return;
+  // The kernel's fee note is an output note too, but it is not value the user sent:
+  // folding it into the totals inflates the amount and adds the native faucet to the
+  // set, which can flip a single-faucet send into the generic 'Executed' label. It is
+  // excluded from the recorded note ids for the same reason -- the row's
+  // `outputNoteIds` is rendered as the count of notes the transaction CREATED, so
+  // leaving the fee note in reported one note too many on every fee-charging chain.
+  const userOutputNotes = outputNotes.filter(outputNote => !isFeeNote(outputNote));
+  userOutputNotes.forEach(outputNote => {
     const assets = outputNote.assets()!.fungibleAssets();
     outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
     assets.forEach(asset => outputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
@@ -157,7 +160,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     transactionId: result.executedTransaction().id().toHex(),
     inputNoteIds: inputNotes.map(note => note.id().toString()),
     amount: absoluteTransactionAmount !== BigInt(0) ? absoluteTransactionAmount : undefined,
-    outputNoteIds: outputNotes.map(note => note.id().toString()),
+    outputNoteIds: userOutputNotes.map(note => note.id().toString()),
     faucetId,
     resultBytes: result.serialize()
   };

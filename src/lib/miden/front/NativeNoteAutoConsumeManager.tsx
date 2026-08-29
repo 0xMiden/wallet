@@ -71,15 +71,17 @@ export function NativeNoteAutoConsumeManager(): null {
         // claiming a backlog note-by-note charges the user N fees for what the chain
         // will settle for one.
         //
-        // A Miden tx is atomic, so a single un-consumable note fails the batch. That
-        // is what the split below is for: on failure each note is retried alone, which
-        // isolates the poison note instead of letting it throttle its healthy mates
-        // through the shared row's #215 backoff -- the regression the previous
-        // per-note-always design existed to avoid.
+        // A Miden tx is atomic, so a single un-consumable note fails the batch, and the
+        // backoff gate counts that shared row once per note id it carries -- so without
+        // isolation one poison note drags its healthy mates into the same doubling
+        // backoff, the regression the previous per-note-always design existed to avoid.
+        // The LAST argument is what isolates it, on the next enqueue after the batch row
+        // fails. NOT this catch: the call is a queue write, and an un-consumable note
+        // fails much later at generation time, so the catch only sees a DB error.
         try {
-          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate);
+          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate, false, true);
         } catch (batchErr) {
-          console.warn('[native-auto-consume] batch failed, retrying per note', batchErr);
+          console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
           for (const note of nativeNotes) {
             try {
               await initiateConsumeTransaction(publicKey, note, delegate);

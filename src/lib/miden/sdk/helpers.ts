@@ -204,6 +204,19 @@ export function resolveHeldFungibleAsset(
 }
 
 /**
+ * A fresh salt for a fee-conversion commitment.
+ *
+ * Four field elements from the CSPRNG, each masked to 63 bits so it is always below the
+ * field modulus (2^64 - 2^32 + 1) without rejection sampling -- the commitment only needs
+ * the salt to be unpredictable and non-repeating.
+ */
+export function randomFeeSalt(): Word {
+  const raw = new BigUint64Array(4);
+  crypto.getRandomValues(raw);
+  return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
+}
+
+/**
  * The single request builder for every P2ID/P2IDE wallet send: resolves the
  * outgoing asset from the sender's vault (callback flag included, see
  * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
@@ -228,19 +241,6 @@ export function resolveHeldFungibleAsset(
  * chain reads a P2ID attachment, but a reader that treats any attachment word
  * as a payload must skip this one — see `attachmentOrderAndDepth`.
  */
-/**
- * A fresh salt for a fee-conversion commitment.
- *
- * Four field elements from the CSPRNG, each masked to 63 bits so it is always below the
- * field modulus (2^64 - 2^32 + 1) without rejection sampling -- the commitment only needs
- * the salt to be unpredictable and non-repeating.
- */
-export function randomFeeSalt(): Word {
-  const raw = new BigUint64Array(4);
-  crypto.getRandomValues(raw);
-  return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
-}
-
 export function buildSendTransactionRequest(
   senderAccount: Account | undefined,
   sender: AccountId,

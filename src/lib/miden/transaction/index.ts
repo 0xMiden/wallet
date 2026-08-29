@@ -2393,7 +2393,16 @@ export const generateTransactionsLoop = async (
 
   // Find transactions waiting to process
   const queuedTransactions = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  queuedTransactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  // `initiatedAt` is whole SECONDS, so rows queued in the same second tie -- and a
+  // stable sort then preserves whatever order Dexie handed back, which is primary-key
+  // order over random `uuid()`s. FIFO was approximate and a deliberate enqueue order
+  // was silently randomized: Claim All queues the native-asset group first precisely
+  // so the claim that funds the vault runs before the claims that must pay a fee out
+  // of it, and that intent was being discarded here. `queuedSeq` breaks the tie
+  // monotonically; rows predating it sort as 0, i.e. ahead, which is true of them.
+  queuedTransactions.sort(
+    (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
+  );
   if (queuedTransactions.length === 0) {
     return;
   }
