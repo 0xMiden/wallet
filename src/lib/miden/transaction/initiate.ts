@@ -264,16 +264,24 @@ export const initiateConsumeNotesTransaction = async (
 
       // A shared row that failed is not evidence about THIS note — it names every note
       // it carried. Give the note its own row so its next outcome is its own.
-      const failedInBatch = sameAccount.some(
+      const failedBatchRow = sameAccount.find(
         tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
       );
-      if (isolateNotesWithFailedBatch && failedInBatch) {
+      if (isolateNotesWithFailedBatch && failedBatchRow) {
         // A row of its own means a fee of its own, so the note has to be worth one on
         // its own — the batch total that admitted it says nothing about that. Dropped
         // rather than left in the batch: leaving it is the poison-note stall isolation
         // exists to end, and claiming it alone spends more than it collects.
         if (isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
           isolate.push(note);
+        } else {
+          // Named as the blocker, like every other path that declines to queue a note.
+          // The early return below hands `blockingId` back as this call's row id, and
+          // EVERY existing skip (dedup, backoff) sets it before `continue` — so a drop
+          // that left it unset was the one way out of this loop that could return a null
+          // id typed as a string. This row is also the honest answer: its failure is why
+          // the note is being isolated, hence why it is not being queued.
+          blockingId = blockingId ?? failedBatchRow.id;
         }
       } else {
         queueable.push(note);

@@ -166,6 +166,30 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
     expect(queued.flatMap(row => row.noteIds ?? [])).toEqual(['rich']);
   });
 
+  it('returns an existing row id when EVERY note is dropped, never a null id', async () => {
+    // The return is typed `string` and produced by a non-null assertion on `blockingId`.
+    // Every other path that declines to queue a note sets it before continuing; a drop
+    // that skipped it was the one exit from the loop that could hand back `null` as a
+    // string. The failed batch row is the truthful answer — its failure is the reason.
+    const BASE_FEE = 10000;
+    // A real SHARED row (two note ids) is what makes `poor` an isolation candidate; the
+    // enqueue then offers only `poor`, which cannot pay for a transaction of its own.
+    const failed = await failedBatch(['poor', 'gone']);
+
+    const id = await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('poor', String(BASE_FEE * 5))],
+      false,
+      false,
+      true,
+      BASE_FEE
+    );
+
+    expect(id).toBe(failed.id);
+    const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
+    expect(queued).toHaveLength(0);
+  });
+
   it('keeps every isolated note when no fee is supplied', async () => {
     // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
     // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
