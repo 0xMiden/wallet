@@ -541,20 +541,32 @@ async function runSync(force: boolean): Promise<void> {
       // so we never act on read-miss defaults for a user who opted out of auto-consume or
       // remote proving (the frontend still covers the app-open case in the meantime).
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
+      // Hoisted alongside the notes because the enqueue below needs it too: isolation
+      // gives a note its own transaction, and only the fee can say whether that note is
+      // worth one on its own. See `initiateConsumeNotesTransaction`.
+      let nativeAutoConsumeBaseFee: number | null = null;
       try {
         if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
+            // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
+            // returns a cached value instantly but falls through to an RPC round trip
+            // while the fee is still unknown -- which against a parked node is every
+            // lap, for the full timeout, on the sync critical path. Nothing downstream
+            // needs the fee unless there is something to claim, and the overwhelmingly
+            // common case is nothing to claim.
+            const candidates = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
-            // `isWorthClaiming` fails open on an unknown fee.
-            const baseFee = await getVerificationBaseFee();
-            // Faucet filter FIRST, value check on the BATCH TOTAL second. These notes
-            // are claimed as one transaction paying one fee (see the batch call below),
-            // so the total is what has to clear the fee -- judged per note, twenty notes
-            // worth 5x the base fee each were all refused despite totalling 100x.
-            const candidates = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
-            if (isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), baseFee)) {
+            // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
+            // TOTAL because these are claimed as one transaction paying one fee (see the
+            // batch call below) -- judged per note, twenty notes worth 5x the base fee
+            // each were all refused despite totalling 100x.
+            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getVerificationBaseFee() : null;
+            if (
+              candidates.length > 0 &&
+              isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)
+            ) {
               nativeAutoConsumeNotes = candidates.map(n => {
                 const type: ConsumableNote['type'] =
                   n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
@@ -684,7 +696,14 @@ async function runSync(force: boolean): Promise<void> {
           // mates into the shared row's #215 backoff. NOT the catch below -- this call is
           // a queue write and the real failure happens later, at generation time.
           try {
-            await initiateConsumeNotesTransaction(accountPubKey, nativeAutoConsumeNotes, delegate, false, true);
+            await initiateConsumeNotesTransaction(
+              accountPubKey,
+              nativeAutoConsumeNotes,
+              delegate,
+              false,
+              true,
+              nativeAutoConsumeBaseFee
+            );
           } catch (batchErr) {
             console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
             for (const note of nativeAutoConsumeNotes) {

@@ -46,7 +46,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
-import { getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
+import { getNativeAssetIdSync, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -438,12 +438,24 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         // for a figure nothing displays).
         const resolvedFeeMetadata =
           tx.feeAmount !== undefined && tx.feeFaucetId ? await getTokenMetadata(tx.feeFaucetId) : undefined;
+        // The native fallback applies ONLY when the recorded fee faucet actually IS the
+        // native one. Applied unconditionally it formatted a non-native fee amount with
+        // MIDEN's decimals and symbol, i.e. displayed one asset's quantity as another's
+        // -- and the receipt, given the same row, renders nothing instead. Leaving it
+        // undefined suppresses the line, which is the honest answer for an amount whose
+        // scale the wallet cannot establish.
+        // Sync accessor deliberately: the async one REJECTS when discovery fails, and
+        // this loader renders the whole detail view. An undiscovered native id reads as
+        // "not established", which suppresses the fee line rather than losing the page.
+        const feeIsNative = tx.feeFaucetId !== undefined && tx.feeFaucetId === getNativeAssetIdSync();
         const feeMetadata =
           tx.feeAmount === undefined
             ? undefined
             : resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
               ? resolvedFeeMetadata
-              : ((await getNativeAssetMetadata()) ?? MIDEN_METADATA);
+              : feeIsNative
+                ? ((await getNativeAssetMetadata()) ?? MIDEN_METADATA)
+                : undefined;
         console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
         // Bridge metadata (route/provider, EVM destination, per-route status) lives
         // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from

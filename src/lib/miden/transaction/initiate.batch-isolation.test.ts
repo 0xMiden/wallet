@@ -43,10 +43,10 @@ const { initiateConsumeNotesTransaction } = require('./initiate');
 const ACCOUNT = 'mtst1account';
 
 /** A claimable native note. `amount` is base units, as the chain reports it. */
-const note = (id: string): ConsumableNote => ({
+const note = (id: string, amount = '1000000'): ConsumableNote => ({
   id,
   faucetId: 'native-faucet',
-  amount: '1000000',
+  amount,
   senderAddress: 'mtst1sender',
   isBeingClaimed: false,
   type: NoteTypeEnum.Public
@@ -139,6 +139,42 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
     const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
     expect(queued).toHaveLength(1);
     expect(queued[0]!.noteIds).toEqual(['a', 'b']);
+  });
+
+  it('drops a note that cannot pay for a transaction of its own', async () => {
+    // Isolation turns one transaction into N, each paying a full fee. Auto-consume
+    // admits a batch on what the notes are worth TOGETHER, so isolating blindly would
+    // claim notes separately at a loss on the wallet's own initiative. `poor` is worth
+    // less than one transaction alone and is dropped; `rich` gets its row.
+    //
+    // Dropped, not left in the batch: leaving it is the poison-note stall isolation
+    // exists to end. It stays claimable for a manual Claim, or for a later pass where
+    // it has company worth batching with.
+    const BASE_FEE = 10000;
+    await failedBatch(['poor', 'rich']);
+
+    await initiateConsumeNotesTransaction(
+      ACCOUNT,
+      [note('poor', String(BASE_FEE * 5)), note('rich', String(BASE_FEE * 500))],
+      false,
+      false,
+      true,
+      BASE_FEE
+    );
+
+    const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
+    expect(queued.flatMap(row => row.noteIds ?? [])).toEqual(['rich']);
+  });
+
+  it('keeps every isolated note when no fee is supplied', async () => {
+    // A manual retry passes no fee: the user asked, so nothing is second-guessed. Same
+    // fail-open contract `isWorthClaiming` has on an unknown fee everywhere else.
+    await failedBatch(['poor', 'rich']);
+
+    await initiateConsumeNotesTransaction(ACCOUNT, [note('poor', '1'), note('rich', '5000000')], false, false, true);
+
+    const queued = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued);
+    expect(queued.flatMap(row => row.noteIds ?? []).sort()).toEqual(['poor', 'rich']);
   });
 
   it('returns an id that names a row it actually created', async () => {

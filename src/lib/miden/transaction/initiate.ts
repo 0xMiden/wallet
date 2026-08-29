@@ -1,3 +1,4 @@
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import {
   getOrCreateMultisigService,
   isGuardianAccount,
@@ -167,7 +168,22 @@ export const initiateConsumeNotesTransaction = async (
   // Off by default, because it changes how many rows one call creates: the swap
   // settlement path links its returned id to a swap order, and manual Claim All
   // navigates to it.
-  isolateNotesWithFailedBatch?: boolean
+  isolateNotesWithFailedBatch?: boolean,
+  // The chain's base fee, when the caller is an unattended auto-consumer. Required for
+  // isolation to be SAFE, not merely for it to happen.
+  //
+  // Auto-consume admits a batch when the notes are worth one fee TOGETHER. Isolation
+  // then turns that one transaction into N, each paying its own fee -- so notes that
+  // only ever justified a shared claim would be claimed separately at a loss, on the
+  // wallet's initiative. With the fee in hand, a note that cannot pay for a transaction
+  // of its own is dropped from this enqueue instead: the healthy notes still get
+  // unblocked (which is the point of isolating), the wallet never spends more than it
+  // collects, and the note stays claimable for a manual Claim or for a later pass where
+  // it has company worth batching with.
+  //
+  // `null`/omitted keeps every isolated note, which is right for a manual retry: the
+  // user asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
+  verificationBaseFee?: number | null
 ): Promise<string> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -252,7 +268,13 @@ export const initiateConsumeNotesTransaction = async (
         tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
       );
       if (isolateNotesWithFailedBatch && failedInBatch) {
-        isolate.push(note);
+        // A row of its own means a fee of its own, so the note has to be worth one on
+        // its own — the batch total that admitted it says nothing about that. Dropped
+        // rather than left in the batch: leaving it is the poison-note stall isolation
+        // exists to end, and claiming it alone spends more than it collects.
+        if (isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
+          isolate.push(note);
+        }
       } else {
         queueable.push(note);
       }

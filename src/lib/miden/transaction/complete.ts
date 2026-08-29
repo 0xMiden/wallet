@@ -3,11 +3,12 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
-import { feeFieldsFromResult } from '../activity/fee';
+import { feeFieldsFromResult, partitionFeeNote } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -322,7 +323,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNote = executedTx.outputNotes().notes()[0];
+  // The kernel's fee note is an output note of this transaction too, and the order the
+  // notes come back in is the kernel's business, not ours. Taking index 0 blind means
+  // that on a fee-charging chain the `orderId` below -- the serial number this swap is
+  // tracked by for its entire lineage -- can be read off the FEE note instead of the
+  // PSWAP note, which points settlement at a note that will never be filled.
+  const { userNotes } = partitionFeeNote(executedTx.outputNotes().notes(), getNativeAssetIdSync());
+  const outputNote = userNotes[0];
 
   if (!outputNote) {
     throw new Error('Swap Transaction Failed');
@@ -570,9 +577,14 @@ export const completeSwitchGuardianTransaction = async (
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
-    const outputNotes = result.executedTransaction().outputNotes().notes();
+    // Excluding the kernel's fee note, which is an output note of this transaction like
+    // any other and whose position among them is the kernel's business. The note this
+    // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
+    // here would hand the transport the wrong note and leave the payment undeliverable
+    // while the row still completed.
+    const { userNotes } = partitionFeeNote(result.executedTransaction().outputNotes().notes(), getNativeAssetIdSync());
 
-    const firstOutput = outputNotes?.[0];
+    const firstOutput = userNotes[0];
     if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;

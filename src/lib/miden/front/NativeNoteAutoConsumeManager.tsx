@@ -83,7 +83,7 @@ export function NativeNoteAutoConsumeManager(): null {
         // fails. NOT this catch: the call is a queue write, and an un-consumable note
         // fails much later at generation time, so the catch only sees a DB error.
         try {
-          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate, false, true);
+          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate, false, true, baseFee);
         } catch (batchErr) {
           console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
           for (const note of nativeNotes) {

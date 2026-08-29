@@ -4,6 +4,7 @@ import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 /**
  * Tag carried by the TX_FEE note the kernel emits when a transaction pays a fee.
@@ -20,11 +21,20 @@ export type FeePaid = {
   faucetId: string;
 };
 
-/** Whether an output note carries the fee tag. NOT sufficient on its own — see below. */
+/**
+ * Whether an output note carries the fee tag. NOT sufficient on its own — see below.
+ *
+ * Tolerates a missing accessor but lets an EVICTION through, for the reason given on
+ * `feePaidFromResult`: these accessors borrow from the client's RefCell, so a swallowed
+ * poison error would answer this question from a client another flow is inside.
+ */
 function hasFeeTag(note: OutputNote): boolean {
   try {
     return note.metadata()?.tag()?.asU32() === TX_FEE_NOTE_TAG;
-  } catch {
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) {
+      throw err;
+    }
     return false;
   }
 }
@@ -38,7 +48,10 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
       return undefined;
     }
     return getBech32AddressFromAccountId(first.faucetId());
-  } catch {
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) {
+      throw err;
+    }
     return undefined;
   }
 }
@@ -90,9 +103,15 @@ export function partitionFeeNote(
  * magnitude. The vault delta is not usable either: the SDK exposes the post-state
  * absolutely, not as a difference.
  *
- * Never throws: this runs while recording a transaction the user has already sent,
- * and losing the whole row to a missing accessor would be worse than losing the
+ * Absorbs a missing or throwing accessor: this runs while recording a transaction the
+ * user has already sent, and losing the whole row to it would be worse than losing the
  * fee figure.
+ *
+ * An EVICTION is the one exception and propagates. Every accessor here borrows from the
+ * WASM client's RefCell, so once the watchdog has handed the mutex to a successor these
+ * reads are touching a client another flow is inside. Swallowing that would return a
+ * plausible `undefined` and let the caller run its NEXT WASM read on the same evicted
+ * client -- the double borrow the poison contract exists to prevent.
  */
 export function feePaidFromResult(result: TransactionResult): FeePaid | undefined {
   try {
@@ -113,7 +132,10 @@ export function feePaidFromResult(result: TransactionResult): FeePaid | undefine
     // unknown-token placeholder (`scaleIsUnknown: true`) and made `hasKnownScale`
     // false -- which meant the receipt's fee row was never rendered at all.
     return { amount: BigInt(first.amount()), faucetId: getBech32AddressFromAccountId(first.faucetId()) };
-  } catch {
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) {
+      throw err;
+    }
     return undefined;
   }
 }

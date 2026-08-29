@@ -5,6 +5,7 @@ import {
   feeTextFromTransaction,
   partitionFeeNote
 } from './fee';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
 // say what that is. `bech32-native` is what the helper mock below encodes 'native' to.
@@ -60,6 +61,21 @@ describe('feePaidFromResult', () => {
     // Reading the fee must never break the caller that is recording the row.
     const broken = { metadata: () => undefined, assets: () => ({ fungibleAssets: () => [] }) };
     expect(() => feePaidFromResult(result([broken as any]))).not.toThrow();
+  });
+
+  it('propagates an eviction instead of reporting no fee', () => {
+    // A missing accessor is absorbed; an EVICTION must not be. Every accessor here
+    // borrows from the WASM client's RefCell, so once the mutex has been handed to a
+    // successor these reads are touching a client another flow is inside. Swallowed, it
+    // returns a plausible "no fee" and lets the caller run its NEXT read on the same
+    // evicted client -- the double borrow the poison contract exists to prevent.
+    const evicted = {
+      metadata: () => {
+        throw new WasmClientPoisonedError('watchdog');
+      },
+      assets: () => ({ fungibleAssets: () => [] })
+    };
+    expect(() => feePaidFromResult(result([evicted as any]))).toThrow(WasmClientPoisonedError);
   });
 });
 

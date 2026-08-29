@@ -136,7 +136,14 @@ const Explore: FC = () => {
     // fails at generation time, long after this queue write returned, so the catch here
     // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
     try {
-      await initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled, false, true);
+      await initiateConsumeNotesTransaction(
+        account.publicKey,
+        notesToClaim,
+        isDelegatedProvingEnabled,
+        false,
+        true,
+        verificationBaseFee
+      );
     } catch (batchErr) {
       console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
       for (const note of notesToClaim) {
@@ -164,7 +171,8 @@ const Explore: FC = () => {
     account.publicKey,
     shouldAutoConsume,
     hasAutoConsumableNotes,
-    signTransaction
+    signTransaction,
+    verificationBaseFee
   ]);
 
   useEffect(() => {

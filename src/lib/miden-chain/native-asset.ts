@@ -56,6 +56,27 @@ let feeInflight: Promise<number | null> | null = null;
 // `verificationBaseFee` accessor, but must still retry after a read that threw.
 let feeProbedScope: string | null = null;
 
+/**
+ * Ceiling on a base fee the wallet will act on, in the native asset's smallest unit.
+ *
+ * The node returns a u32, so the harmful values are not NaN or negative but merely
+ * large — and everything downstream MULTIPLIES this. At the u32 maximum the send
+ * reserve is ~129,000 MIDEN, which zeroes the spendable balance for every native send,
+ * and the claim floor excludes every real note from all three unattended consumers. The
+ * value is persisted per endpoint with no TTL, so one hostile or buggy header would
+ * disable native sending and auto-claiming until the wallet is reset.
+ *
+ * 1e7 base units is 10 MIDEN at 6 decimals — four orders of magnitude above the 10000
+ * a charging devnet quotes, so a real fee schedule has room to grow into it, while the
+ * lockout values sit far above. Funds are never at risk either way: this only gates
+ * what the wallet does unprompted.
+ */
+const MAX_PLAUSIBLE_BASE_FEE = 1e7;
+
+function isPlausibleBaseFee(fee: number): boolean {
+  return Number.isFinite(fee) && fee >= 0 && fee <= MAX_PLAUSIBLE_BASE_FEE;
+}
+
 // The cache scope (RPC URL + network name; see `cacheScope`) the in-memory
 // caches were populated for. The persisted cache is scope-keyed (see
 // `idCacheKey`), but `memCache`/`metaMemCache` are single module-level values
@@ -116,7 +137,14 @@ async function hydrateFromStorage(): Promise<void> {
     if (metaKey === metaCacheKey() && storedMeta && !metaMemCache) metaMemCache = storedMeta;
     // Tested with `typeof`, not truthiness: a stored `0` is a real zero-fee chain
     // and the truthiness form used above would drop it and force a rediscovery.
-    if (feeKey === feeCacheKey() && typeof storedFee === 'number' && feeMemCache === null) {
+    // Range-checked on the way back IN as well as on the way out, so a value cached
+    // before that check existed cannot outlive it and keep sends disabled.
+    if (
+      feeKey === feeCacheKey() &&
+      typeof storedFee === 'number' &&
+      isPlausibleBaseFee(storedFee) &&
+      feeMemCache === null
+    ) {
       feeMemCache = storedFee;
     }
   } catch (err) {
@@ -145,13 +173,24 @@ async function discover(): Promise<string> {
   // fee is a passenger. An SDK build without the accessor must degrade to "fee
   // unknown" (null), never take faucet-id discovery down with it.
   let baseFee: number | null = null;
+  // A read that THREW is not the same as a node that reports no fee: the former should
+  // be retried, the latter must not be. Only the latter may latch `feeProbedScope`.
+  let feeReadThrew = false;
   try {
     const read = header.verificationBaseFee?.();
-    if (typeof read === 'number') {
+    if (typeof read === 'number' && isPlausibleBaseFee(read)) {
       baseFee = read;
+    } else if (typeof read === 'number') {
+      // Out of range. Caching it would be worse than not knowing: the send reserve is a
+      // multiple of this number, so one absurd header permanently zeroes the spendable
+      // balance and the claim floor excludes every real note, for this endpoint, with no
+      // TTL to heal it. Treat it as unread so a later block can supply a sane value.
+      console.warn('native-asset verification base fee out of plausible range, ignoring', read);
+      feeReadThrew = true;
     }
   } catch (err) {
     console.warn('native-asset verification base fee read failed', err);
+    feeReadThrew = true;
   }
   // Only publish to the in-memory cache / listeners if the effective endpoint
   // hasn't switched since we queried. Otherwise a slow discovery against the
@@ -165,10 +204,14 @@ async function discover(): Promise<string> {
     if (baseFee !== null) {
       feeMemCache = baseFee;
     }
-    // Records that a header was actually READ for this scope, whether or not it
-    // carried a fee, so the forced discovery in `getVerificationBaseFee` stops
-    // after one attempt against a node that reports none.
-    feeProbedScope = probedScope;
+    // Records that a header was actually read for this scope AND yielded a usable
+    // answer -- including the legitimate answer "this chain reports no fee", which is
+    // what stops the forced discovery in `getVerificationBaseFee` from re-fetching a
+    // header on every call against an SDK build with no accessor. A read that threw or
+    // returned an implausible value deliberately does NOT latch, so it is retried.
+    if (!feeReadThrew) {
+      feeProbedScope = probedScope;
+    }
     emit(bech32);
   }
   try {

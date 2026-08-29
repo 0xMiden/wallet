@@ -339,10 +339,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     this realm now writes to as well: the note-import pass runs in the service
       //     worker on the extension, so a fuse lit there would otherwise outlive the node
       //     it was earned against with nothing in this realm able to clear it.
+      //   - primeNativeAssetId() rediscovers the native faucet and its base fee for the
+      //     new node. The caches invalidate themselves lazily on the next read, but this
+      //     realm's auto-consume decides what to claim from that fee, so leaving the
+      //     rediscovery to whoever happens to ask next means the first sync after a
+      //     repoint judges notes against the old chain's fee.
       await loadEndpointOverrides();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
       await resetMidenClient();
+      primeNativeAssetId();
       await reloadOffscreenEndpointOverrides();
       return { type: WalletMessageType.ReloadEndpointOverridesResponse };
     case WalletMessageType.ImportNoteBytesRequest: {
