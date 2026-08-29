@@ -407,7 +407,23 @@ export class MidenCli {
    * claim is exactly the transaction the funding makes payable.
    */
   async fundAccountForFees(accountId: string): Promise<void> {
-    if (!this.chainChargesFees || this.fundedForFees.has(accountId)) {
+    if (this.fundedForFees.has(accountId)) {
+      return;
+    }
+    // `chainChargesFees` is normally learned from a deployment that failed for want of a
+    // fee, which only happens inside `createFaucet`. A spec that transacts WITHOUT minting
+    // -- guardian-seed-backup-verify rotates a hot key and never mints -- would otherwise
+    // find the flag still false and skip funding, and its first fee-paying transaction
+    // fails with "failed to remove the fungible asset from the vault since the amount ...
+    // is less than the amount to remove".
+    //
+    // Genesis funder wallets are the direct signal: `start-test-node.sh` only writes them
+    // when MIDEN_TEST_NODE_VERIFICATION_BASE_FEE is non-zero, so their presence means the
+    // chain charges, with no faucet deployment needed to find out.
+    if (!this.chainChargesFees && (await this.importFunders()).length > 0) {
+      this.chainChargesFees = true;
+    }
+    if (!this.chainChargesFees) {
       return;
     }
     const funders = await this.importFunders();
