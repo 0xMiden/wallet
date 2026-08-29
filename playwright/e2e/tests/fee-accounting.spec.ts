@@ -137,6 +137,14 @@ test.describe('Fee accounting', () => {
     });
 
     await steps.step('assert_fee_accounting', async () => {
+      // Which branch ran has to survive into the RESULT, not just a timeline event.
+      // This spec passes on a zero-fee chain too (asserting the zero case), so a bare
+      // green tells you nothing about whether fee behaviour was exercised -- and
+      // "the fee suite is green" is exactly the sentence someone will repeat.
+      test.info().annotations.push({
+        type: baseFee === 0 ? 'fee-assertions-NOT-exercised' : 'fee-assertions-exercised',
+        description: `verification_base_fee=${baseFee}`
+      });
       const rows = await readTransactionRows(walletA.page);
       const send = rows.find(r => r.type === 'send' && r.status === 2);
       expect(send, 'no completed send row on wallet A').toBeDefined();

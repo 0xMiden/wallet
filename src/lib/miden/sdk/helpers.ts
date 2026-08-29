@@ -279,11 +279,24 @@ export function buildSendTransactionRequest(
   // `accountRefToSdk`, not `AccountId.fromHex`: the wallet's native-asset id is a
   // bech32 address, and fromHex rejects it with "expected hex data to have length
   // 32 ... found 49". The shared resolver accepts both forms.
-  const builder =
-    feeFaucetId === undefined
-      ? base
-      : base.withFeeConversionInfo(FeeConversionInfo.oneToOne(accountRefToSdk(feeFaucetId)), randomFeeSalt());
-  return builder.build();
+  const step = <T>(label: string, fn: () => T): T => {
+    try {
+      return fn();
+    } catch (err) {
+      // A wasm-bindgen panic arrives as a bare `RuntimeError: unreachable` with no
+      // indication of which call trapped. Labelling each step is the difference
+      // between "something in the fee path panicked" and a named culprit.
+      throw new Error(`buildSendTransactionRequest: ${label} failed`, { cause: err });
+    }
+  };
+  let builder = base;
+  if (feeFaucetId !== undefined) {
+    const faucet = step(`accountRefToSdk(${feeFaucetId})`, () => accountRefToSdk(feeFaucetId));
+    const info = step('FeeConversionInfo.oneToOne', () => FeeConversionInfo.oneToOne(faucet));
+    const salt = step('randomFeeSalt', () => randomFeeSalt());
+    builder = step('withFeeConversionInfo', () => base.withFeeConversionInfo(info, salt));
+  }
+  return step('build', () => builder.build());
 }
 
 /**
