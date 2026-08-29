@@ -182,6 +182,8 @@ export class MidenCli {
   private lastFaucetId?: string;
   private binaryPath: string;
   private workDir: string;
+  /** Set once `init()` has run for this instance; see the guard in `init()`. */
+  private initialized = false;
   private env: EnvironmentConfig;
   private cliRunner: CLIRunner;
 
@@ -203,6 +205,13 @@ export class MidenCli {
    * Initialize the miden-client with --local for isolated state.
    */
   async init(): Promise<void> {
+    // "Ensure initialised", not "initialise". `workDir` is a fresh mkdtemp per TEST, so a
+    // second call can only be the same test initialising twice -- which happens whenever a
+    // spec inits and then calls a helper that also inits (`ensureFeeFunded` does, because
+    // two of its callers do not init themselves). Without this guard the CLI fails the whole
+    // test with `cli::config_already_exists`, which reads like a chain problem and is not one.
+    if (this.initialized) return;
+
     fs.mkdirSync(this.workDir, { recursive: true });
 
     let initArgs = `init --local --network ${this.env.networkFlag}`;
@@ -232,6 +241,8 @@ export class MidenCli {
 
     // Sync to fetch genesis block and chain tip (required before account creation)
     await this.sync();
+
+    this.initialized = true;
   }
 
   /**
