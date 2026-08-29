@@ -57,7 +57,7 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.LockResponse };
 
     case WalletMessageType.CreateAccountRequest:
-      await Actions.createHDAccount(req.walletType, req.name);
+      await Actions.createHDAccount(req.walletType, req.name, req.guardianEndpoint);
       return { type: WalletMessageType.CreateAccountResponse };
 
     case WalletMessageType.UpdateCurrentAccountRequest:

@@ -172,11 +172,12 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Account actions
-    createAccount: async (walletType, name) => {
+    createAccount: async (walletType, name, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.CreateAccountRequest,
         walletType,
-        name
+        name,
+        guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.CreateAccountResponse);
 
