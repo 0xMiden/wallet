@@ -6,7 +6,7 @@ import {
   type TransactionResult,
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
-import { type Proposal } from '@openzeppelin/miden-multisig-client';
+import { type Proposal, resolveAuthArg } from '@openzeppelin/miden-multisig-client';
 
 import {
   getOrCreateMultisigService,
@@ -91,6 +91,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
+  randomFeeSalt,
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
@@ -1455,6 +1456,17 @@ const ensureGuardianRecallableSendRequestBytes = async (
   // poisons the client. The value is a genesis-level constant, so reading it before
   // the lock costs nothing and cannot go stale within one build.
   const feeFaucetId = await getNativeAssetId();
+  // Prepared here, from the guardian package's own helper, so the request carries a
+  // plain auth arg rather than a request FLAGGED as declaring conversion info. The
+  // flagged form makes the client classify the account's auth component first, and a
+  // guarded multisig built by the JS package pins its own MASM's procedure roots while
+  // the client knows miden_standards' -- so it counts zero auth components and refuses
+  // the request outright. The package's typed proposals take this same route.
+  const feeSalt = randomFeeSalt();
+  // `accountRefToSdk`, not the raw id: the wallet's native-asset id is bech32 and the
+  // helper parses a bare string as HEX, rejecting it with "expected hex data to have
+  // length 32 ... found 49". The shared resolver accepts both forms.
+  const feeAuth = resolveAuthArg(feeSalt, accountRefToSdk(feeFaucetId));
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -1529,7 +1541,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       syncHeight + recallBlocks,
-      feeFaucetId
+      feeAuth
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
     // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already

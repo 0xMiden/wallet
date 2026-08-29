@@ -1,8 +1,8 @@
 import {
   Account,
   AccountId,
+  AdviceMap,
   Address,
-  FeeConversionInfo,
   Felt,
   FungibleAsset,
   Note,
@@ -231,11 +231,11 @@ export function resolveHeldFungibleAsset(
 /**
  * A fresh salt for a fee-conversion commitment.
  *
- * Four field elements from the CSPRNG, each masked to 63 bits so it is always
- * below the field modulus (2^64 - 2^32 + 1) without rejection sampling — the
- * commitment only needs the salt to be unpredictable and non-repeating.
+ * Four field elements from the CSPRNG, each masked to 63 bits so it is always below the
+ * field modulus (2^64 - 2^32 + 1) without rejection sampling -- the commitment only needs
+ * the salt to be unpredictable and non-repeating.
  */
-function randomFeeSalt(): Word {
+export function randomFeeSalt(): Word {
   const raw = new BigUint64Array(4);
   crypto.getRandomValues(raw);
   return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
@@ -249,7 +249,7 @@ export function buildSendTransactionRequest(
   amount: bigint,
   noteType: NoteType,
   reclaimAfter?: number,
-  feeFaucetId?: string
+  feeAuth?: { authArg: Word; adviceMap?: AdviceMap }
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -257,46 +257,27 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  const base = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and conversion rate
-  // from the AUTH ARGS, and aborts with "paying a non-zero fee requires conversion
-  // info committed via the auth args" when they are absent. The client injects that
-  // for accounts whose auth args it owns — but a multisig account's auth arg is the
-  // multisig's own, so a request built here for a Guardian proposal has to commit it
-  // explicitly or the transaction cannot execute on a fee-charging chain.
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and rate from the AUTH
+  // ARGS and aborts without them. The client injects that for accounts whose auth args
+  // it owns, but a multisig account's auth arg is the multisig's, so a request built
+  // here for a Guardian proposal has to carry it explicitly.
   //
-  // Only the Guardian CUSTOM-proposal path needs this: the typed proposal APIs
-  // commit their own conversion info. Generating the salt here (rather than taking
-  // it) is safe precisely because this request's bytes are built once, persisted on
-  // the row, and reused verbatim for both the proposal and its execution — so the
-  // commitment stays stable across the retry that reuses them.
-  // Reassigned, never called for its side effect: these builder methods are
-  // wasm-bindgen MOVES. They consume the handle and return a new one, so discarding
-  // the return value both drops the fee info AND leaves `base` moved-from -- the
-  // next call on it traps with a bare `RuntimeError` inside the WASM lock, which
-  // surfaces as "the wallet had to recover its transaction engine" and names nothing.
-  //
-  // `accountRefToSdk`, not `AccountId.fromHex`: the wallet's native-asset id is a
-  // bech32 address, and fromHex rejects it with "expected hex data to have length
-  // 32 ... found 49". The shared resolver accepts both forms.
-  const step = <T>(label: string, fn: () => T): T => {
-    try {
-      return fn();
-    } catch (err) {
-      // A wasm-bindgen panic arrives as a bare `RuntimeError: unreachable` with no
-      // indication of which call trapped. Labelling each step is the difference
-      // between "something in the fee path panicked" and a named culprit.
-      throw new Error(`buildSendTransactionRequest: ${label} failed`, { cause: err });
+  // Set as a plain auth arg + advice map, NOT via the SDK's `withFeeConversionInfo`.
+  // That method additionally flags the request as declaring conversion info, which makes
+  // the client classify the account's auth component before executing -- and a guarded
+  // multisig built by the JS package carries procedure roots the client cannot match
+  // (the package pins its own MASM's roots, the client knows miden_standards'), so it
+  // counts zero auth components and refuses the request. The guardian package's own
+  // typed proposals take this same route for the same reason; the kernel gets identical
+  // conversion info either way.
+  if (feeAuth !== undefined) {
+    builder = builder.withAuthArg(feeAuth.authArg);
+    if (feeAuth.adviceMap !== undefined) {
+      builder = builder.extendAdviceMap(feeAuth.adviceMap);
     }
-  };
-  let builder = base;
-  if (feeFaucetId !== undefined) {
-    const faucet = step(`accountRefToSdk(${feeFaucetId})`, () => accountRefToSdk(feeFaucetId));
-    const info = step('FeeConversionInfo.oneToOne', () => FeeConversionInfo.oneToOne(faucet));
-    const salt = step('randomFeeSalt', () => randomFeeSalt());
-    builder = step('withFeeConversionInfo', () => base.withFeeConversionInfo(info, salt));
   }
-  return step('build', () => builder.build());
+  return builder.build();
 }
 
 /**

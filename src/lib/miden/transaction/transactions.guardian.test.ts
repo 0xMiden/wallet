@@ -141,6 +141,15 @@ jest.mock('../sdk/miden-client', () => {
 // The Guardian custom-proposal build now reads the chain's fee faucet to commit
 // fee conversion info into the request's auth args. Mocked to a fixed id so the
 // argument assertions below can pin that it is actually passed through.
+// The Guardian custom-proposal build commits fee conversion info as a plain auth arg,
+// using the package's own helper rather than the SDK's `withFeeConversionInfo` (which
+// would flag the request and make miden-client reject a guarded account it cannot
+// classify). Mocked to fixed handles so the argument assertions can pin it through.
+jest.mock('@openzeppelin/miden-multisig-client', () => ({
+  ...jest.requireActual('@openzeppelin/miden-multisig-client'),
+  resolveAuthArg: jest.fn(() => ({ authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }))
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: jest.fn(async () => '0xfee0000000000000000000000000000000')
 }));
@@ -173,6 +182,9 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  // The salt only has to be a stable handle here: `resolveAuthArg` is mocked too, so
+  // nothing downstream inspects it.
+  randomFeeSalt: () => 'SALT',
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
@@ -925,7 +937,7 @@ describe('generateTransaction — Guardian routing', () => {
         1000n,
         expectedSdkNoteType,
         125,
-        '0xfee0000000000000000000000000000000'
+        { authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }
       );
       expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'recallable_send');
       expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -993,7 +1005,7 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      '0xfee0000000000000000000000000000000'
+      { authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }
     );
   });
 
@@ -1125,7 +1137,7 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       230,
-      '0xfee0000000000000000000000000000000'
+      { authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'bridged_send');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -1191,7 +1203,7 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       125,
-      '0xfee0000000000000000000000000000000'
+      { authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
     expect(multisigService.createSendProposal).not.toHaveBeenCalled();
@@ -1269,7 +1281,7 @@ describe('generateTransaction — Guardian routing', () => {
       1000n,
       'Public',
       225,
-      '0xfee0000000000000000000000000000000'
+      { authArg: 'AUTH_ARG', adviceMap: 'ADVICE_MAP' }
     );
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'earn_deposit');
   });
