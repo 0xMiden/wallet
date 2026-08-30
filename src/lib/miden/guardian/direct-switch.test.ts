@@ -107,6 +107,20 @@ jest.mock('./signer', () => ({
   }
 }));
 
+// The direct-switch builders now commit fee conversion info, so they resolve the
+// native asset id. Mocked here to keep this suite off the chain-reading path.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn().mockResolvedValue('mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph')
+}));
+
+// Only `accountRefToSdk` is stubbed: it parses bech32 through the wasm `Address`,
+// which this suite's SDK mock does not provide. The module's other exports stay real.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  accountRefToSdk: jest.fn((ref: string) => ({ __feeFaucetRef: ref }))
+}));
+
+
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.test',
   getEffectiveNetworkName: () => 'devnet'
@@ -462,13 +476,24 @@ describe('createDirectSwitchGuardianRequest', () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
-    expect(summaryBuild[2]).toEqual({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' });
+    const feeFaucetId = { __feeFaucetRef: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' };
+    expect(summaryBuild[2]).toEqual({
+      signatureScheme: 'ecdsa',
+      midenRpcEndpoint: 'https://rpc.test',
+      feeFaucetId
+    });
     expect(rebuild[2]).toEqual({
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
       signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test'
+      midenRpcEndpoint: 'https://rpc.test',
+      feeFaucetId
     });
+    // Asserted on BOTH calls deliberately: the fee faucet feeds the fee conversion
+    // info committed into the auth args, so a value that differed between the build
+    // and the rebuild would change the commitment and invalidate the signatures --
+    // the same failure mode this test already guards for scheme and endpoint.
+    expect(rebuild[2].feeFaucetId).toEqual(summaryBuild[2].feeFaucetId);
     expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',

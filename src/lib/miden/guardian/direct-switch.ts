@@ -17,6 +17,8 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -381,7 +383,12 @@ export const createDirectSwitchGuardianRequest = async (
     const { commitment: hotCommitment } = await getSignerDetailsFromAccount(account, false);
     const { commitment: coldCommitment } = await getSignerDetailsFromAccount(account, true);
     const webClient = midenClient.client;
+    // Without `feeFaucetId` the builder commits no fee conversion info and
+    // `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING on any chain whose
+    // verification base fee is non-zero. This path arrived with the offline-rotation
+    // work after the fee paths were swept, so it was never given the option.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
+      feeFaucetId: accountRefToSdk(await getNativeAssetId()),
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
@@ -479,7 +486,10 @@ export const createDirectSwitchGuardianRequest = async (
     const coldEntry = ecdsaSignatureAdviceEntry(built.coldCommitment, built.txCommitmentHex, coldSignature);
     signatureAdviceMap.insert(hotEntry.key, new FeltArray(hotEntry.values));
     signatureAdviceMap.insert(coldEntry.key, new FeltArray(coldEntry.values));
+    // Same fee-conversion-info requirement as the build above; the rebuild must
+    // reproduce the SAME auth args or the summary will not match what was signed.
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
+      feeFaucetId: accountRefToSdk(await getNativeAssetId()),
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
       signatureScheme: 'ecdsa',
