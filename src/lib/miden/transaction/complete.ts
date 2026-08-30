@@ -3,12 +3,11 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import * as Repo from 'lib/miden/repo';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
-import { feeFieldsFromResult, partitionFeeNote } from '../activity/fee';
+import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -44,7 +43,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
   // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
   // the requesting site, so a fee note reaching it would be sent to the user's
   // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
-  const { userNotes: outputNotes } = partitionFeeNote(executedTx.outputNotes().notes(), getNativeAssetIdSync());
+  const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
   // Every private note this transaction produced. Collected first so the relays
   // below are a flat sequence: the commit wait then happens ONCE, after them,
@@ -332,7 +331,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // that on a fee-charging chain the `orderId` below -- the serial number this swap is
   // tracked by for its entire lineage -- can be read off the FEE note instead of the
   // PSWAP note, which points settlement at a note that will never be filled.
-  const { userNotes } = partitionFeeNote(executedTx.outputNotes().notes(), getNativeAssetIdSync());
+  const { userNotes } = splitExecutedOutputNotes(executedTx);
   const outputNote = userNotes[0];
 
   if (!outputNote) {
@@ -586,7 +585,7 @@ const extractFullNote = (result: TransactionResult): Note | undefined => {
     // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
     // here would hand the transport the wrong note and leave the payment undeliverable
     // while the row still completed.
-    const { userNotes } = partitionFeeNote(result.executedTransaction().outputNotes().notes(), getNativeAssetIdSync());
+    const { userNotes } = splitExecutedOutputNotes(result.executedTransaction());
 
     const firstOutput = userNotes[0];
     if (!firstOutput) {

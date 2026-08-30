@@ -47,7 +47,10 @@ describe('summaryToView', () => {
         storage: () => ({ isEmpty: () => true })
       }),
       inputNotes: () => ({ numNotes: () => 1 }),
-      outputNotes: () => ({ numNotes: () => 2 })
+      // `notes()` too: the summary's output notes go through the fee split now, since
+      // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
+      // note is among them exactly as it is on an executed transaction.
+      outputNotes: () => ({ numNotes: () => 2, notes: () => [note([]), note([])] })
     };
     expect(summaryToView(ts as any)).toEqual({
       account: 'bech32:acctId',
@@ -67,7 +70,10 @@ describe('summaryToView', () => {
         storage: () => ({ isEmpty: () => true })
       }),
       inputNotes: () => ({ numNotes: () => 1 }),
-      outputNotes: () => ({ numNotes: () => 2 })
+      // `notes()` too: the summary's output notes go through the fee split now, since
+      // `fee::pay_fee` runs inside auth BEFORE the summary is built, so the kernel's fee
+      // note is among them exactly as it is on an executed transaction.
+      outputNotes: () => ({ numNotes: () => 2, notes: () => [note([]), note([])] })
     };
     (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce(ts);
     const view = summaryBytesToView('sumB64');

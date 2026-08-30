@@ -5,6 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { type SignCallbackReason } from './sign-callback';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
   INoteDeliveryState,
   ITransaction,
@@ -557,12 +558,17 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);
+            // The kernel's fee note is an output note too, and this array is the wallet's
+            // PUBLIC dApp API (`window.miden.waitForTransaction`). Handing it out unsplit
+            // invited the very bug this module's siblings were hardened against: a site
+            // doing `outputNotes[0]` -- the obvious "the note my transaction created" --
+            // would get the fee note whenever the kernel ordered it first, and every site
+            // reading `.length` counted one note too many. Silent at fee 0, since the
+            // kernel skips the fee branch entirely.
+            const { userNotes } = splitExecutedOutputNotes(txResult.executedTransaction());
             const res = {
               txHash: tx.transactionId!,
-              outputNotes: txResult
-                .executedTransaction()
-                .outputNotes()
-                .notes()
+              outputNotes: userNotes
                 .map(no => no.intoFull())
                 .filter(no => !!no)
                 .map(fullNote => u8ToB64(fullNote.serialize()))

@@ -1,9 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
-
-import { partitionFeeNote } from './fee';
+import { splitExecutedOutputNotes } from './fee-notes';
 import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -100,7 +98,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
   const inputNotes = result.executedTransaction().inputNotes().notes();
-  const outputNotes = result.executedTransaction().outputNotes().notes();
+  const { userNotes: userOutputNotes } = splitExecutedOutputNotes(result.executedTransaction());
 
   // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
   // the whole loop (not per note). A custom (`execute`) transaction can consume or
@@ -129,7 +127,6 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   // Identified by tag PLUS corroboration (see `partitionFeeNote`) rather than by tag
   // alone, so a dApp-supplied note carrying the fee tag cannot get itself erased from
   // the transaction it belongs to.
-  const { userNotes: userOutputNotes } = partitionFeeNote(outputNotes, getNativeAssetIdSync());
   userOutputNotes.forEach(outputNote => {
     const assets = outputNote.assets()!.fungibleAssets();
     outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));

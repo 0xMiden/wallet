@@ -3,7 +3,8 @@ import {
   feeFieldsFromResult,
   feePaidFromResult,
   feeTextFromTransaction,
-  partitionFeeNote
+  partitionFeeNote,
+  splitExecutedOutputNotes
 } from './fee';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -88,6 +89,35 @@ describe('partitionFeeNote', () => {
     const { feeNote, userNotes } = partitionFeeNote([user, fee] as any, native);
     expect(feeNote).toBe(fee);
     expect(userNotes).toEqual([user]);
+  });
+
+  // Emission order is the KERNEL's business, not ours. Every fixture here put the fee note
+  // LAST, which is precisely the assumption the whole bug class rested on: four separate
+  // sites indexed [0] and were correct only because the fee note happened not to be there.
+  // A fee-note-FIRST case is what fails if someone re-introduces the pattern.
+  it('separates the fee note when the kernel emits it FIRST', () => {
+    const user = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const { feeNote, userNotes } = partitionFeeNote([fee, user] as any, native);
+    expect(feeNote).toBe(fee);
+    expect(userNotes).toEqual([user]);
+    // The pick every caller makes, stated explicitly: index 0 of the SPLIT array is the
+    // user's note no matter where the kernel put the fee note.
+    expect(userNotes[0]).toBe(user);
+  });
+
+  it('splitExecutedOutputNotes yields the user note whichever order the kernel used', () => {
+    const user = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
+    const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    for (const order of [
+      [user, fee],
+      [fee, user]
+    ]) {
+      const executed = { outputNotes: () => ({ notes: () => order }) };
+      const { feeNote, userNotes } = splitExecutedOutputNotes(executed as any);
+      expect(feeNote).toBe(fee);
+      expect(userNotes).toEqual([user]);
+    }
   });
 
   it('does not mistake an ordinary note for the fee note', () => {

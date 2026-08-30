@@ -7,6 +7,7 @@ import {
   TransactionSummary
 } from '@miden-sdk/miden-sdk/lazy';
 
+import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 
@@ -23,7 +24,17 @@ export interface TxAssetView {
   /** Assets entering the account (consumed notes / added vault assets). */
   incoming: AssetAmount[];
   inputNotesConsumed: number;
+  /** User-created notes only. The kernel's fee note is reported in `fee`, not counted here. */
   outputNotesCreated: number;
+  /**
+   * The network fee this transaction pays, when it is knowable from what was decoded.
+   *
+   * Kept OUT of `outgoing`: the fee note leaves the account like any other output note, so
+   * folding it into the transfer total made the sheet show an unexplained extra asset the
+   * user never chose to send. It is a real cost and belongs on the sheet -- labelled as a
+   * fee, beside the transfer, not inside it.
+   */
+  fee?: AssetAmount;
   storageChanged: boolean;
 }
 
@@ -65,12 +76,23 @@ function importedNoteAssets(b64: string): AssetAmount[] {
 export function summaryToView(ts: TransactionSummary): TxAssetView {
   const delta = ts.accountDelta();
   const vault = delta.vault();
+  // `fee::pay_fee` runs INSIDE the auth procedure, before the summary is built, so the
+  // kernel's fee note is among the summary's output notes exactly as it is among an
+  // executed transaction's. Counting it claimed a note the user did not create.
+  const { feeNote, userNotes } = splitExecutedOutputNotes(ts);
+  const feeAmounts = feeNote ? noteAssets(feeNote) : [];
   return {
     account: getBech32AddressFromAccountId(delta.id()),
+    // NOTE: unlike the executed path, this total comes from the account DELTA, which is a
+    // net vault change and already has the fee withdrawn inside it. There is no note to
+    // exclude here, and subtracting `fee` would need faucet-matched arithmetic against the
+    // delta that nothing currently tests -- so the fee stays folded into `outgoing` on this
+    // path and is reported separately for display. Callers that show both must not add them.
     outgoing: toAmounts(vault.removedFungibleAssets()),
     incoming: toAmounts(vault.addedFungibleAssets()),
     inputNotesConsumed: ts.inputNotes().numNotes(),
-    outputNotesCreated: ts.outputNotes().numNotes(),
+    outputNotesCreated: userNotes.length,
+    fee: feeAmounts[0],
     storageChanged: !delta.storage().isEmpty()
   };
 }
@@ -97,13 +119,18 @@ export function summaryBytesToView(summaryB64: string): TxAssetView {
 export function executedBytesToView(executedB64: string): TxAssetView {
   const executed = TransactionResult.deserialize(b64ToU8(executedB64)).executedTransaction();
   const inputNotes = executed.inputNotes();
-  const outputNotes = executed.outputNotes();
+  // The kernel's fee note is an output note. Totalling it into `outgoing` showed the user
+  // an asset they never chose to send, and counting it in `outputNotesCreated` claimed a
+  // note they did not create -- both invisible on a zero-fee chain, where no fee note exists.
+  const { feeNote, userNotes } = splitExecutedOutputNotes(executed);
+  const feeAmounts = feeNote ? noteAssets(feeNote) : [];
   return {
     account: getBech32AddressFromAccountId(executed.accountId()),
-    outgoing: outputNotes.notes().flatMap(note => noteAssets(note)),
+    outgoing: userNotes.flatMap(note => noteAssets(note)),
     incoming: inputNotes.notes().flatMap(note => noteAssets(note.note())),
     inputNotesConsumed: inputNotes.numNotes(),
-    outputNotesCreated: outputNotes.numNotes(),
+    outputNotesCreated: userNotes.length,
+    fee: feeAmounts[0],
     storageChanged: !executed.accountPatch().storage().isEmpty()
   };
 }

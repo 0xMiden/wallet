@@ -117,6 +117,23 @@ export function installEarnTestHooks(): void {
         return felts;
       }
     }
+    // Nothing matched. To the fake allocator `null` reads as "note not found on-chain", which
+    // points at the chain rather than at this lookup -- so say what was actually scanned.
+    const seen: string[] = [];
+    for (const row of rows) {
+      try {
+        const req = TransactionRequest.deserialize(row.requestBytes!);
+        for (const n of req.expectedOutputOwnNotes()) {
+          seen.push(`${row.type}:${normalizeNoteId(n.id().toString())}`);
+        }
+      } catch {
+        seen.push(`${row.type}:<undeserializable>`);
+      }
+    }
+    console.warn('[earn-hook] no persisted request carries note', wanted, {
+      rowsScanned: rows.length,
+      noteIdsSeen: seen
+    });
     return null;
   };
 }
