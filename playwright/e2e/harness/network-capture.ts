@@ -151,6 +151,164 @@ export function attachNetworkCapture(
 }
 
 /**
+ * The fetch instrumentation itself, hoisted to module scope so it has exactly ONE
+ * definition. `attachServiceWorkerFetchCapture` installs it with `evaluate`, which ships
+ * this function's SOURCE into the realm -- so the same source can be installed over raw
+ * CDP into a realm Playwright will not hand out a handle for (the extension's offscreen
+ * document; see `offscreen-realm.ts`). Keep it free of closure references for that
+ * reason: it has to stand alone as source text.
+ */
+export const installFetchInstrumentation = (prefix: string): void => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const g = globalThis as any;
+  if (g.__e2e_fetch_wrapped) return;
+  g.__e2e_fetch_wrapped = true;
+
+  const origFetch: typeof fetch = g.fetch.bind(g);
+  // Mirrors ENDPOINT_PATTERNS / classifyUrl in this module, which is the
+  // canonical copy — this runs as source text inside evaluate() and cannot
+  // import it. Keep the two in step; `network-capture.test.ts` pins the
+  // behaviour they must agree on. The transport arm matches the gRPC SERVICE
+  // PATH rather than a host, so capture follows a build-time
+  // MIDEN_NOTE_TRANSPORT_URL override to any host or port.
+  const HOST_PATTERN =
+    /miden_note_transport\.MidenNoteTransport\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
+
+  function classify(url: string): string {
+    if (/rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/.test(url)) return 'rpc';
+    if (/tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/.test(url)) return 'prover';
+    if (/miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(url))
+      return 'transport';
+    return 'other';
+  }
+
+  g.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const method = init?.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET');
+    if (!HOST_PATTERN.test(url)) return origFetch(input, init);
+
+    const category = classify(url);
+
+    // --- Fault injection (resilience harness) ---
+    // context.route CANNOT reach node/prover/transport gRPC-web (it runs in
+    // this realm — the SW or the SDK's page-worker — not on a routable page
+    // request), so faults for those targets are applied HERE at the fetch
+    // layer. Gated on `__E2E_NET_FAULTS` (set by armFetchFaults): unarmed, this
+    // is a pure pass-through, so every non-resilience suite is unaffected.
+    const faults = (g.__E2E_NET_FAULTS as FetchFaultWire[] | undefined) || [];
+    if (faults.length) {
+      g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
+      const hits = g.__E2E_NET_FAULT_HITS as Record<string, number>;
+      for (const f of faults) {
+        if (!url.includes(f.host)) continue;
+        if (f.path && !url.includes(f.path)) continue;
+        const prior = hits[f.id] || 0;
+        if (f.mode === 'failFirstN' && prior >= (f.count || 1)) break; // recovered — pass through
+        hits[f.id] = prior + 1;
+        console.log(prefix + JSON.stringify({ url, method, status: 0, category, err: 'INJECTED:' + f.mode }));
+        if (f.mode === 'delay' || f.mode === 'slowStream') {
+          await new Promise(r => setTimeout(r, f.delayMs || (f.mode === 'slowStream' ? 8000 : 3000)));
+          break; // fall through to the real fetch below
+        }
+        if (f.mode === 'hang') return new Promise<Response>(() => {}); // never settles
+        if (f.mode === 'status500' || f.mode === 'failFirstN') {
+          return new Response('injected network fault', { status: 500 });
+        }
+        if (f.mode === 'status429RetryAfter') {
+          return new Response(JSON.stringify({ error: 'rate_limited', retryable: true }), {
+            status: 429,
+            headers: { 'retry-after': String(f.retryAfterSec || 1) }
+          });
+        }
+        if (f.mode === 'truncatedBody') return new Response('{', { status: 200 });
+        if (f.mode === 'malformedBody') return new Response('not a valid response body', { status: 200 });
+        // connectionRefused / abort / timeout → surface as a transport error
+        throw new TypeError('Failed to fetch (injected ' + f.mode + ')');
+      }
+    }
+
+    const realm = (g.location && g.location.href) || 'unknown';
+
+    // Carry the request body for transport pushes ONLY. It is the sole way to
+    // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
+    // other category would add real log volume for no diagnostic gain.
+    //
+    // The body has to be SECURED before the fetch but READ after it. The SDK's
+    // gRPC-web transport calls `fetch(request, initWithSignal)`, so the body
+    // lives on the Request rather than on `init`, and the fetch disturbs that
+    // stream — hence the `clone()`, which is synchronous and tees the stream so
+    // the bytes stay readable afterwards. Reading it only once the fetch has
+    // settled keeps capture out of the measured `durationMs`; it does NOT keep a
+    // slow read off the caller's critical path, which is what the ceiling in
+    // `encodeBody` is for. The URL pattern mirrors `isSendNoteUrl`, the canonical
+    // copy; this function cannot close over module scope.
+    // Held as `unknown` and narrowed by `instanceof` below on purpose: this file
+    // type-checks with both the DOM and the Node fetch typings in scope, so a
+    // written-out union naming `Request` picks one of the two declarations and
+    // then rejects the other one's `clone()`.
+    let bodySource: unknown;
+    try {
+      if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
+        const isRequest = typeof input !== 'string' && !(input instanceof URL);
+        bodySource = init?.body ?? (isRequest ? input.clone() : undefined);
+      }
+    } catch {
+      // capture is diagnostic; never let it disturb the fetch it wraps
+    }
+
+    const encodeBody = async (): Promise<string | undefined> => {
+      try {
+        if (!bodySource) return undefined;
+        let bytes: Uint8Array | undefined;
+        if (bodySource instanceof Uint8Array) bytes = bodySource;
+        else if (bodySource instanceof ArrayBuffer) bytes = new Uint8Array(bodySource);
+        else if (ArrayBuffer.isView(bodySource))
+          bytes = new Uint8Array(bodySource.buffer, bodySource.byteOffset, bodySource.byteLength);
+        else if (bodySource instanceof Request) {
+          // The only unbounded step here. A buffered body resolves in a
+          // microtask, but a streaming one need never finish arriving, and both
+          // call sites await this between the fetch settling and the wrapper
+          // returning — so an unbounded read would let the capture wedge the
+          // very request it is observing. Give it a ceiling and drop the body.
+          const buffered = await Promise.race([
+            bodySource.arrayBuffer(),
+            new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1000))
+          ]);
+          if (!buffered) return undefined;
+          bytes = new Uint8Array(buffered);
+        }
+        if (!bytes || bytes.length === 0 || bytes.length > 8192) return undefined;
+        let bin = '';
+        for (const b of bytes) bin += String.fromCharCode(b);
+        return btoa(bin);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const start = performance.now();
+    try {
+      const res = await origFetch(input, init);
+      const durationMs = Math.round(performance.now() - start);
+      const reqBody = await encodeBody();
+      console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody }));
+      return res;
+    } catch (err) {
+      const durationMs = Math.round(performance.now() - start);
+      const errStr = err instanceof Error ? err.message : String(err);
+      // A push that threw is at least as diagnostic as one that returned 200 —
+      // a real transport failure is exactly when you need to know which note —
+      // so the identity has to ride along here too.
+      const reqBody = await encodeBody();
+      console.log(
+        prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm, reqBody })
+      );
+      throw err;
+    }
+  };
+};
+
+/**
  * SW-scoped network capture. Most Miden RPC + prover traffic originates
  * in the extension's service worker (the SDK's WASM client runs there),
  * which page-level and context-level Playwright events do not surface.
@@ -243,157 +401,7 @@ export async function attachServiceWorkerFetchCapture(
   }
 
   try {
-    await serviceWorker.evaluate(prefix => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const g = globalThis as any;
-      if (g.__e2e_fetch_wrapped) return;
-      g.__e2e_fetch_wrapped = true;
-
-      const origFetch: typeof fetch = g.fetch.bind(g);
-      // Mirrors ENDPOINT_PATTERNS / classifyUrl in this module, which is the
-      // canonical copy — this runs as source text inside evaluate() and cannot
-      // import it. Keep the two in step; `network-capture.test.ts` pins the
-      // behaviour they must agree on. The transport arm matches the gRPC SERVICE
-      // PATH rather than a host, so capture follows a build-time
-      // MIDEN_NOTE_TRANSPORT_URL override to any host or port.
-      const HOST_PATTERN =
-        /miden_note_transport\.MidenNoteTransport\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
-
-      function classify(url: string): string {
-        if (/rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/.test(url)) return 'rpc';
-        if (/tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/.test(url)) return 'prover';
-        if (/miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(url))
-          return 'transport';
-        return 'other';
-      }
-
-      g.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        const method = init?.method || (typeof input !== 'string' && !(input instanceof URL) ? input.method : 'GET');
-        if (!HOST_PATTERN.test(url)) return origFetch(input, init);
-
-        const category = classify(url);
-
-        // --- Fault injection (resilience harness) ---
-        // context.route CANNOT reach node/prover/transport gRPC-web (it runs in
-        // this realm — the SW or the SDK's page-worker — not on a routable page
-        // request), so faults for those targets are applied HERE at the fetch
-        // layer. Gated on `__E2E_NET_FAULTS` (set by armFetchFaults): unarmed, this
-        // is a pure pass-through, so every non-resilience suite is unaffected.
-        const faults = (g.__E2E_NET_FAULTS as FetchFaultWire[] | undefined) || [];
-        if (faults.length) {
-          g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
-          const hits = g.__E2E_NET_FAULT_HITS as Record<string, number>;
-          for (const f of faults) {
-            if (!url.includes(f.host)) continue;
-            if (f.path && !url.includes(f.path)) continue;
-            const prior = hits[f.id] || 0;
-            if (f.mode === 'failFirstN' && prior >= (f.count || 1)) break; // recovered — pass through
-            hits[f.id] = prior + 1;
-            console.log(prefix + JSON.stringify({ url, method, status: 0, category, err: 'INJECTED:' + f.mode }));
-            if (f.mode === 'delay' || f.mode === 'slowStream') {
-              await new Promise(r => setTimeout(r, f.delayMs || (f.mode === 'slowStream' ? 8000 : 3000)));
-              break; // fall through to the real fetch below
-            }
-            if (f.mode === 'hang') return new Promise<Response>(() => {}); // never settles
-            if (f.mode === 'status500' || f.mode === 'failFirstN') {
-              return new Response('injected network fault', { status: 500 });
-            }
-            if (f.mode === 'status429RetryAfter') {
-              return new Response(JSON.stringify({ error: 'rate_limited', retryable: true }), {
-                status: 429,
-                headers: { 'retry-after': String(f.retryAfterSec || 1) }
-              });
-            }
-            if (f.mode === 'truncatedBody') return new Response('{', { status: 200 });
-            if (f.mode === 'malformedBody') return new Response('not a valid response body', { status: 200 });
-            // connectionRefused / abort / timeout → surface as a transport error
-            throw new TypeError('Failed to fetch (injected ' + f.mode + ')');
-          }
-        }
-
-        const realm = (g.location && g.location.href) || 'unknown';
-
-        // Carry the request body for transport pushes ONLY. It is the sole way to
-        // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
-        // other category would add real log volume for no diagnostic gain.
-        //
-        // The body has to be SECURED before the fetch but READ after it. The SDK's
-        // gRPC-web transport calls `fetch(request, initWithSignal)`, so the body
-        // lives on the Request rather than on `init`, and the fetch disturbs that
-        // stream — hence the `clone()`, which is synchronous and tees the stream so
-        // the bytes stay readable afterwards. Reading it only once the fetch has
-        // settled keeps capture out of the measured `durationMs`; it does NOT keep a
-        // slow read off the caller's critical path, which is what the ceiling in
-        // `encodeBody` is for. The URL pattern mirrors `isSendNoteUrl`, the canonical
-        // copy; this function cannot close over module scope.
-        // Held as `unknown` and narrowed by `instanceof` below on purpose: this file
-        // type-checks with both the DOM and the Node fetch typings in scope, so a
-        // written-out union naming `Request` picks one of the two declarations and
-        // then rejects the other one's `clone()`.
-        let bodySource: unknown;
-        try {
-          if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
-            const isRequest = typeof input !== 'string' && !(input instanceof URL);
-            bodySource = init?.body ?? (isRequest ? input.clone() : undefined);
-          }
-        } catch {
-          // capture is diagnostic; never let it disturb the fetch it wraps
-        }
-
-        const encodeBody = async (): Promise<string | undefined> => {
-          try {
-            if (!bodySource) return undefined;
-            let bytes: Uint8Array | undefined;
-            if (bodySource instanceof Uint8Array) bytes = bodySource;
-            else if (bodySource instanceof ArrayBuffer) bytes = new Uint8Array(bodySource);
-            else if (ArrayBuffer.isView(bodySource))
-              bytes = new Uint8Array(bodySource.buffer, bodySource.byteOffset, bodySource.byteLength);
-            else if (bodySource instanceof Request) {
-              // The only unbounded step here. A buffered body resolves in a
-              // microtask, but a streaming one need never finish arriving, and both
-              // call sites await this between the fetch settling and the wrapper
-              // returning — so an unbounded read would let the capture wedge the
-              // very request it is observing. Give it a ceiling and drop the body.
-              const buffered = await Promise.race([
-                bodySource.arrayBuffer(),
-                new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 1000))
-              ]);
-              if (!buffered) return undefined;
-              bytes = new Uint8Array(buffered);
-            }
-            if (!bytes || bytes.length === 0 || bytes.length > 8192) return undefined;
-            let bin = '';
-            for (const b of bytes) bin += String.fromCharCode(b);
-            return btoa(bin);
-          } catch {
-            return undefined;
-          }
-        };
-
-        const start = performance.now();
-        try {
-          const res = await origFetch(input, init);
-          const durationMs = Math.round(performance.now() - start);
-          const reqBody = await encodeBody();
-          console.log(
-            prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody })
-          );
-          return res;
-        } catch (err) {
-          const durationMs = Math.round(performance.now() - start);
-          const errStr = err instanceof Error ? err.message : String(err);
-          // A push that threw is at least as diagnostic as one that returned 200 —
-          // a real transport failure is exactly when you need to know which note —
-          // so the identity has to ride along here too.
-          const reqBody = await encodeBody();
-          console.log(
-            prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm, reqBody })
-          );
-          throw err;
-        }
-      };
-    }, SW_FETCH_LOG_PREFIX);
+    await serviceWorker.evaluate(installFetchInstrumentation, SW_FETCH_LOG_PREFIX);
   } catch (err) {
     timeline.emit({
       category: 'test_lifecycle',

@@ -17,6 +17,15 @@ import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
+/**
+ * The token this suite trades, and the ONLY asset its conservation identity covers.
+ *
+ * `midenCli.createFaucet()` defaults to this symbol. Scoping matters: the wallet's
+ * balance reads are cross-asset by default, and the native fee asset living inside the
+ * conserved total is what made a fee-charging run report its own fees as lost notes.
+ */
+const TOKEN = 'TST';
+
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
   if (raw == null || raw === '') return dflt;
@@ -152,8 +161,20 @@ test.describe('Stress - random send/claim', () => {
       await walletB.claimAllNotes(guardianSyncMs);
     });
 
-    const initialA = await walletA.getBalance();
-    const initialB = await walletB.getBalance();
+    // Conserve the TRADED token only. `getBalance()` and an unscoped
+    // `quickBalanceSnapshot()` sum EVERY asset the account holds, so on a fee-charging
+    // chain the native fee asset sits inside the conserved total and the fees this suite
+    // itself pays read back as lost value: the run that exposed this reported
+    // "balance conservation violated by -5.13; notes lost" with pending=0 and failed=0 --
+    // nothing was lost, ~2.56 MIDEN per wallet had been burned as fees. Worse, the settle
+    // loop below waits for `A + B === initialTotal`, a target that can never be reached on
+    // such a chain, so every run burned its full settle timeout before failing.
+    //
+    // Scoping to the token under test keeps the invariant EXACT on any chain, fee or not,
+    // and it is the honest statement of what this suite detects: lost NOTES. The fee is
+    // not a lost note, and `fee-accounting.spec.ts` proves fee correctness far better.
+    const initialA = (await walletA.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
+    const initialB = (await walletB.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);
@@ -290,7 +311,10 @@ test.describe('Stress - random send/claim', () => {
           // strict conservation reports a phantom loss (see refreshBalances()).
           await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
           // Read full snapshot so we can log *what's* pending if settle gets stuck.
-          const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+          const [snapA, snapB] = await Promise.all([
+            walletA.quickBalanceSnapshot({ symbol: TOKEN }),
+            walletB.quickBalanceSnapshot({ symbol: TOKEN })
+          ]);
           // `quickBalanceSnapshot` swallows its own failures and reports
           // `totalReportable: 0` with an `error` field rather than throwing, so
           // an unchecked read here would put a fabricated zero into the

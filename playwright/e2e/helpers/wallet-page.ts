@@ -168,7 +168,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(): Promise<{
+  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
@@ -740,7 +740,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(): Promise<{
+  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
@@ -750,62 +750,70 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     error?: string;
   }> {
     try {
-      return await this.page.evaluate(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const store = (window as any).__TEST_STORE__;
-        const state = store?.getState?.();
-        let balance = 0;
-        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) balance += amount;
-          }
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = await new Promise<any>(resolve => {
-          chrome.storage.local.get(['miden_sync_data'], resolve);
-        });
-        const notes = storage?.miden_sync_data?.notes ?? [];
-        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
-        let pendingSum = 0;
-        for (const note of notes) {
-          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-          const decimals = note.metadata?.decimals ?? 8;
-          const amount = baseUnits / Math.pow(10, decimals);
-          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
-          pendingSum += amount;
-        }
-
-        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
-        let pendingTxCount = 0;
-        let latestTxId: string | undefined;
-        const txs = state?.transactions;
-        if (txs && typeof txs === 'object') {
-          const list = Array.isArray(txs) ? txs : Object.values(txs);
-          pendingTxCount = list.length;
-          // Pick the most recent by timestamp if available
-          let mostRecent: { id?: string; timestamp?: number } | null = null;
-          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
-            const id = t.id ?? t.transactionId;
-            const ts = t.timestamp ?? 0;
-            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
-              mostRecent = { id, timestamp: ts };
+      return await this.page.evaluate(
+        async ({ wanted }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const store = (window as any).__TEST_STORE__;
+          const state = store?.getState?.();
+          let balance = 0;
+          for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+            if (!Array.isArray(tokenList)) continue;
+            for (const token of tokenList) {
+              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
+              // which silently includes the native fee asset -- so a caller conserving a
+              // total across a fee-charging chain measures its own fees as missing value.
+              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+              if (amount > 0) balance += amount;
             }
           }
-          latestTxId = mostRecent?.id;
-        }
 
-        return {
-          balance,
-          pendingNotes,
-          pendingSum,
-          totalReportable: balance + pendingSum,
-          pendingTxCount,
-          latestTxId
-        };
-      });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const storage = await new Promise<any>(resolve => {
+            chrome.storage.local.get(['miden_sync_data'], resolve);
+          });
+          const notes = storage?.miden_sync_data?.notes ?? [];
+          const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+          let pendingSum = 0;
+          for (const note of notes) {
+            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+            const decimals = note.metadata?.decimals ?? 8;
+            const amount = baseUnits / Math.pow(10, decimals);
+            pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+            pendingSum += amount;
+          }
+
+          // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+          let pendingTxCount = 0;
+          let latestTxId: string | undefined;
+          const txs = state?.transactions;
+          if (txs && typeof txs === 'object') {
+            const list = Array.isArray(txs) ? txs : Object.values(txs);
+            pendingTxCount = list.length;
+            // Pick the most recent by timestamp if available
+            let mostRecent: { id?: string; timestamp?: number } | null = null;
+            for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+              const id = t.id ?? t.transactionId;
+              const ts = t.timestamp ?? 0;
+              if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+                mostRecent = { id, timestamp: ts };
+              }
+            }
+            latestTxId = mostRecent?.id;
+          }
+
+          return {
+            balance,
+            pendingNotes,
+            pendingSum,
+            totalReportable: balance + pendingSum,
+            pendingTxCount,
+            latestTxId
+          };
+        },
+        { wanted: opts?.symbol?.toLowerCase() }
+      );
     } catch (e) {
       return {
         balance: 0,

@@ -587,7 +587,11 @@ async function launchWalletInstance(
   // worker — context.route can't reach it). Live SW via the context thunk so it
   // follows a relaunch; the worker hook re-applies to the SDK's lazily-spawned
   // worker. See harness/fetch-faults.ts.
-  const fetchFaults = installFetchFaultControls(() => context.serviceWorkers()[0], page);
+  const fetchFaults = installFetchFaultControls(
+    () => context.serviceWorkers()[0],
+    page,
+    () => context
+  );
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
