@@ -6,7 +6,7 @@ import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guar
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
-import { GuardianProbeState, WalletType } from '../types';
+import { GuardianProbeState } from '../types';
 
 // `react-i18next` drags in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key and we can assert against raw i18n keys.
@@ -30,10 +30,12 @@ jest.mock('lib/miden-chain/constants', () => {
 // Leaf UI components pull in framer-motion / Capacitor haptics /
 // react-currency-input-field / radix-slot which are irrelevant to this
 // screen's logic. Stub them to the smallest DOM that preserves the props the
-// screen actually drives.
+// screen actually drives. The screen renders TWO Buttons (Continue + skip), so
+// the stub must forward the real data-testid instead of inventing one.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, disabled, className }: any) => (
-    <button data-testid="continue-button" onClick={onClick} disabled={disabled} className={className}>
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
+  Button: ({ title, onClick, disabled, className, variant, 'data-testid': testId }: any) => (
+    <button data-testid={testId} data-variant={variant} onClick={onClick} disabled={disabled} className={className}>
       {title}
     </button>
   )
@@ -53,14 +55,6 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name, size }: any) => <span data-testid="chevron-icon" data-name={name} data-size={size} />
 }));
 
-jest.mock('lib/ui/badge', () => ({
-  Badge: ({ variant, className, children }: any) => (
-    <span data-testid="default-badge" data-variant={variant} className={className}>
-      {children}
-    </span>
-  )
-}));
-
 // Endpoint the component seeds `endpointInput` with (OpenZeppelin on the
 // test network pinned above.
 const DEFAULT_ENDPOINT = GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!;
@@ -71,39 +65,32 @@ const renderScreen = (overrides: Partial<React.ComponentProps<typeof ImportRecov
   return { onSubmit, ...utils };
 };
 
-const continueButton = () => screen.getByTestId('continue-button') as HTMLButtonElement;
+const continueButton = () => screen.getByTestId('recovery-method-continue') as HTMLButtonElement;
+const skipButton = () => screen.getByTestId('recovery-method-skip-guardian') as HTMLButtonElement;
 const guardianInput = () => screen.getByTestId('guardian-input') as HTMLInputElement;
 const ozPreset = () => screen.getByRole('button', { name: /OpenZeppelin/ });
 const gatewayPreset = () => screen.getByRole('button', { name: /Gateway Operator/ });
 const customToggle = () => screen.getByRole('button', { name: /useDifferentGuardian/ });
-const selectGuardian = () => fireEvent.click(screen.getByText('importViaGuardian'));
-const selectOnChain = () => fireEvent.click(screen.getByText('importPublicAccount'));
 
 beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('ImportRecoveryMethodScreen', () => {
-  it('renders the title, both options, and the default Guardian badge', () => {
+describe('ImportRecoveryMethodScreen (guardian-endpoint step)', () => {
+  it('renders the title, description, and both actions', () => {
     renderScreen();
 
     expect(screen.getByTestId('import-recovery-method')).toBeInTheDocument();
-    expect(screen.getByText('importRecoveryMethodTitle')).toBeInTheDocument();
-    expect(screen.getByText('chooseRecoveryMethodDescription')).toBeInTheDocument();
+    expect(screen.getByText('guardianEndpointStepTitle')).toBeInTheDocument();
+    expect(screen.getByText('guardianEndpointStepDescription')).toBeInTheDocument();
 
-    // Both option cards render, each with title + description.
-    expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
-    expect(screen.getByText('importViaGuardianDescription')).toBeInTheDocument();
-    expect(screen.getByText('importPublicAccount')).toBeInTheDocument();
-    expect(screen.getByText('importPublicAccountDescription')).toBeInTheDocument();
-
-    // Only the Guardian option is flagged as default.
-    const badge = screen.getByTestId('default-badge');
-    expect(badge).toHaveTextContent('default');
-    expect(badge).toHaveAttribute('data-variant', 'default');
+    expect(continueButton()).toBeInTheDocument();
+    expect(skipButton()).toBeInTheDocument();
+    expect(skipButton()).toHaveTextContent('noGuardianSkip');
+    expect(skipButton()).toHaveAttribute('data-variant', 'secondary');
   });
 
-  it('defaults to Guardian: shows presets, the endpoint readout, a down chevron, and no custom input', () => {
+  it('shows presets, the endpoint readout, a down chevron, and no custom input by default', () => {
     renderScreen();
 
     // All testnet Guardian providers are offered as presets.
@@ -128,32 +115,38 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(continueButton()).toBeEnabled();
   });
 
-  it('submits the Guardian wallet type with the sanitized default endpoint', () => {
+  it('submits the sanitized default endpoint on Continue (no wallet-type choice anymore)', () => {
     const { onSubmit } = renderScreen();
 
     fireEvent.click(continueButton());
 
-    expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
-      guardianEndpoint: DEFAULT_ENDPOINT
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: DEFAULT_ENDPOINT });
+    expect(onSubmit.mock.calls[0]![0]).not.toHaveProperty('walletType');
   });
 
-  it('shows the not-found error only when isError is set, not dirty, and Guardian is selected', () => {
+  it('submits an empty payload on skip — the user has no guardian', () => {
+    const { onSubmit } = renderScreen();
+
+    fireEvent.click(skipButton());
+
+    expect(onSubmit).toHaveBeenCalledWith({});
+  });
+
+  it('shows the no-accounts-found error only when isError is set and the form is not dirty', () => {
     renderScreen({ isError: true });
 
-    expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
+    expect(screen.getByText('noAccountsFoundForSeed')).toBeInTheDocument();
   });
 
   it('does not show the error when isError is unset', () => {
     renderScreen({ isError: false });
 
-    expect(screen.queryByText('guardianAccountNotFound')).not.toBeInTheDocument();
+    expect(screen.queryByText('noAccountsFoundForSeed')).not.toBeInTheDocument();
   });
 
   it('clears the error once the user interacts (dirty), e.g. picking a preset', () => {
     renderScreen({ isError: true });
-    expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
+    expect(screen.getByText('noAccountsFoundForSeed')).toBeInTheDocument();
 
     // Selecting a preset updates the endpoint, activates that preset, and marks
     // the form dirty so the stale error is suppressed.
@@ -163,7 +156,7 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(screen.getByText(gatewayEndpoint)).toBeInTheDocument();
     expect(gatewayPreset()).toHaveClass('border-primary-500');
     expect(ozPreset()).toHaveClass('border-grey-200');
-    expect(screen.queryByText('guardianAccountNotFound')).not.toBeInTheDocument();
+    expect(screen.queryByText('noAccountsFoundForSeed')).not.toBeInTheDocument();
   });
 
   it('toggles the custom endpoint editor open and closed', () => {
@@ -213,56 +206,20 @@ describe('ImportRecoveryMethodScreen', () => {
     expect(continueButton()).toBeEnabled();
     fireEvent.click(continueButton());
 
-    expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
-      guardianEndpoint: 'https://custom.example.com'
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: 'https://custom.example.com' });
   });
 
-  it('disables Continue when the custom Guardian endpoint is invalid', () => {
-    renderScreen();
+  it('disables Continue when the custom Guardian endpoint is invalid, but skip still works', () => {
+    const { onSubmit } = renderScreen();
 
     fireEvent.click(customToggle());
     // Plain http on a non-localhost host is rejected by isValidGuardianUrl.
     fireEvent.change(guardianInput(), { target: { value: 'http://example.com' } });
 
     expect(continueButton()).toBeDisabled();
-  });
-
-  it('switches to the on-chain option: hides the Guardian block and submits on-chain', () => {
-    const { onSubmit } = renderScreen();
-
-    selectOnChain();
-
-    // Guardian-only UI is gone.
-    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
-
-    // On-chain never needs an endpoint, so Continue is enabled.
-    expect(continueButton()).toBeEnabled();
-    fireEvent.click(continueButton());
-
-    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
-    expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit.mock.calls[0]![0]).not.toHaveProperty('guardianEndpoint');
-  });
-
-  it('collapses the custom editor when switching to on-chain, and restores Guardian on re-select', () => {
-    renderScreen();
-
-    // Open the custom editor first so we can prove on-chain collapses it.
-    fireEvent.click(customToggle());
-    expect(guardianInput()).toBeInTheDocument();
-
-    selectOnChain();
-    expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
-    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
-
-    // Re-selecting Guardian brings the Guardian block back, collapsed.
-    selectGuardian();
-    expect(screen.getByText('guardianEndpoint')).toBeInTheDocument();
-    expect(screen.getByTestId('chevron-icon')).toHaveAttribute('data-name', 'ChevronDown');
-    expect(ozPreset()).toBeInTheDocument();
+    expect(skipButton()).toBeEnabled();
+    fireEvent.click(skipButton());
+    expect(onSubmit).toHaveBeenCalledWith({});
   });
 });
 
@@ -306,6 +263,14 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     // No picker while we're still deciding what to preselect.
     expect(screen.queryByRole('button', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-input')).not.toBeInTheDocument();
+  });
+
+  it('lets the user skip while the probe is still running', () => {
+    const { onSubmit } = renderScreen({ probe: { status: 'probing' } });
+
+    expect(skipButton()).toBeEnabled();
+    fireEvent.click(skipButton());
+    expect(onSubmit).toHaveBeenCalledWith({});
   });
 
   it('treats an idle probe as not-running: classic picker, Continue enabled (post-reset state)', () => {
@@ -357,10 +322,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
       // A preset pick still works and wins over the in-flight probe.
       fireEvent.click(screen.getByRole('button', { name: /OpenZeppelin/ }));
       fireEvent.click(continueButton());
-      expect(onSubmit).toHaveBeenCalledWith({
-        walletType: WalletType.Guardian,
-        guardianEndpoint: OZ_ENDPOINT
-      });
+      expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: OZ_ENDPOINT });
     } finally {
       jest.useRealTimers();
     }
@@ -380,7 +342,6 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(screen.queryByTestId('guardian-detected')).not.toBeInTheDocument();
     fireEvent.click(continueButton());
     expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
       guardianEndpoint: expect.stringContaining('gateway')
     });
   });
@@ -396,10 +357,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
 
     fireEvent.click(continueButton());
 
-    expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
-      guardianEndpoint: 'https://detected.example.com'
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: 'https://detected.example.com' });
   });
 
   it('strips a trailing slash from the detected endpoint before submitting', () => {
@@ -407,10 +365,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
 
     fireEvent.click(continueButton());
 
-    expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
-      guardianEndpoint: 'https://detected.example.com'
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: 'https://detected.example.com' });
   });
 
   it("shows the operator's location and a note when more than one guardian answered", () => {
@@ -449,10 +404,7 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
 
     expect(screen.getByText(GATEWAY_OPTION.endpoint)).toBeInTheDocument();
     fireEvent.click(continueButton());
-    expect(onSubmit).toHaveBeenCalledWith({
-      walletType: WalletType.Guardian,
-      guardianEndpoint: GATEWAY_OPTION.endpoint
-    });
+    expect(onSubmit).toHaveBeenCalledWith({ guardianEndpoint: GATEWAY_OPTION.endpoint });
   });
 
   it('never clobbers a custom URL the user typed', () => {
@@ -512,17 +464,6 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
   it('still surfaces the post-register not-found error alongside a detected guardian', () => {
     renderScreen({ probe: detected(), isError: true });
 
-    expect(screen.getByText('guardianAccountNotFound')).toBeInTheDocument();
-  });
-
-  it('leaves the on-chain option untouched while a probe is running', () => {
-    const { onSubmit } = renderScreen({ probe: { status: 'probing' } });
-
-    selectOnChain();
-
-    expect(screen.queryByTestId('guardian-probe-spinner')).not.toBeInTheDocument();
-    expect(continueButton()).toBeEnabled();
-    fireEvent.click(continueButton());
-    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+    expect(screen.getByText('noAccountsFoundForSeed')).toBeInTheDocument();
   });
 });

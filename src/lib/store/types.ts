@@ -141,6 +141,7 @@ export interface WalletActions {
 
   // Account actions
   createAccount: (walletType: WalletType, name?: string, guardianEndpoint?: string) => Promise<void>;
+  scanForAccounts: (additionalCount: number, guardianEndpoint?: string) => Promise<WalletAccount[]>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;

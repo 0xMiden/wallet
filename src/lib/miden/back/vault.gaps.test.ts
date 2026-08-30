@@ -413,16 +413,23 @@ describe('Vault.spawn: Guardian recovery (lookup + adopt)', () => {
     const origGetClient = sdk.getMidenClient;
     let recoveredWithEndpoint: string | undefined;
     sdk.getMidenClient = jest.fn(async (_options: any) => ({
+      // The one-pass restore also scans public indices; every probe misses here.
+      importPublicMidenWalletFromSeed: async () => {
+        throw new Error('account not found on chain');
+      },
       recoverGuardianAccountsBySeed: async (_deriveColdSeed: any, endpoint: string) => {
         recoveredWithEndpoint = endpoint;
-        return [
-          {
-            accountId: 'guardian-pk',
-            hdIndex: 0,
-            coldPublicKey: 'bb'.repeat(33),
-            coldSecretKeyHex: 'dd'.repeat(32)
-          }
-        ];
+        return {
+          hits: [
+            {
+              accountId: 'guardian-pk',
+              hdIndex: 0,
+              coldPublicKey: 'bb'.repeat(33),
+              coldSecretKeyHex: 'dd'.repeat(32)
+            }
+          ],
+          scannedTo: 3
+        };
       },
       createGuardianMidenWallet: async (_seed: Uint8Array) => ({
         accountId: 'guardian-pk',

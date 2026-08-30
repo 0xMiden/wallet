@@ -7,12 +7,7 @@ import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { Icon, IconName } from 'app/icons/v2';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
-import {
-  getCardColor,
-  initializeAccountCardColors,
-  setCardColor,
-  useCardColor
-} from 'lib/settings/card-color';
+import { getCardColor, initializeAccountCardColors, setCardColor, useCardColor } from 'lib/settings/card-color';
 import { CARD_COLORS, CardColor } from 'lib/settings/constants';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
@@ -170,7 +165,9 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange, on
                           )}
                         />
                         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className="truncate text-sm font-bold font-heading text-heading-gray">{account.name}</span>
+                          <span className="truncate text-sm font-bold font-heading text-heading-gray">
+                            {account.name}
+                          </span>
                           <span className="truncate text-xs text-text-tertiary-token">
                             {truncateAddress(account.publicKey, false, 8)}
                           </span>

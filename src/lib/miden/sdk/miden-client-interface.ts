@@ -51,7 +51,12 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
+import {
+  getCurrentWasmLockHold,
+  withWasmClientLock,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock
+} from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveMarker, recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
@@ -91,11 +96,39 @@ export interface RecoveredGuardianAccount {
   coldSecretKeyHex: string;
 }
 
-const MAX_RECOVERY_HD_INDEX = 20;
+export const MAX_RECOVERY_HD_INDEX = 20;
 // Tolerate a few consecutive empty HD indices before concluding there are no
 // more accounts — handles a non-contiguous index set or a transient empty
 // guardian response, matching BIP-44 wallet gap-limit conventions.
-const RECOVERY_GAP_LIMIT = 3;
+export const RECOVERY_GAP_LIMIT = 3;
+// Absolute ceiling for user-requested scan extensions ("I have more accounts").
+// Each extension window is small (≤20 indices) but repeatable; this bounds the
+// total index space any wallet will ever walk.
+export const MAX_USER_SCAN_HD_INDEX = 100;
+
+/**
+ * Window a seed-recovery scan walks. `gapLimit: undefined` means exhaustive —
+ * every index in [startIndex, endIndex) is examined regardless of consecutive
+ * misses (used when the user explicitly asserted more accounts exist).
+ */
+export interface SeedScanOptions {
+  /** First HD index to examine (inclusive). */
+  startIndex: number;
+  /** One past the last HD index to examine. */
+  endIndex: number;
+  /** Stop after this many consecutive empty indices; undefined = exhaustive. */
+  gapLimit?: number;
+}
+
+export interface SeedScanOutcome<T> {
+  hits: T[];
+  /**
+   * One past the last index that returned a definitive answer. Lets a caller
+   * that aborts mid-scan (or stops at the gap limit) persist an accurate
+   * frontier for the next "scan more" extension.
+   */
+  scannedTo: number;
+}
 
 // E2E-build only. The per-step prove-timing markers are useful for the
 // Playwright harness (it polls __PROVE_TIMINGS__ to drive its step
@@ -498,7 +531,12 @@ export class MidenClientInterface {
       seed,
       ...(auth ? { auth } : {})
     });
-    return getBech32AddressFromAccountId(account.id());
+    const bech32 = getBech32AddressFromAccountId(account.id());
+    console.log(
+      `[importPublicMidenWalletFromSeed] reconstructed + found on chain (auth=${auth ?? 'default'}):`,
+      bech32
+    );
+    return bech32;
   }
 
   async importAccountBySeed(seed: Uint8Array): Promise<string> {
@@ -507,9 +545,10 @@ export class MidenClientInterface {
 
   /**
    * Discover and adopt all Guardian accounts authorized by the cold keys
-   * derived from `mnemonic` against `guardianEndpoint`. Iterates HD indices
-   * 0..MAX-1 and stops after RECOVERY_GAP_LIMIT consecutive empty indices (so a
-   * small gap doesn't silently drop later accounts).
+   * derived from `mnemonic` against `guardianEndpoint`. Walks HD indices
+   * across the given scan window; with a gap limit set it stops after that
+   * many consecutive empty indices (so a small gap doesn't silently drop
+   * later accounts), and without one it examines the whole window.
    *
    * Each match is adopted locally only: the on-chain Account state is
    * decoded and inserted into the WASM client + the cold key registered in
@@ -532,18 +571,17 @@ export class MidenClientInterface {
    */
   async recoverGuardianAccountsBySeed(
     deriveColdSeed: (hdIndex: number) => Uint8Array,
-    guardianEndpoint: string
-  ): Promise<RecoveredGuardianAccount[]> {
-    const [{ withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
-      import('../sdk/miden-client'),
-      import('@openzeppelin/miden-multisig-client')
-    ]);
+    guardianEndpoint: string,
+    opts: SeedScanOptions
+  ): Promise<SeedScanOutcome<RecoveredGuardianAccount>> {
+    const { MultisigClient, EcdsaSigner } = await import('@openzeppelin/miden-multisig-client');
 
     const recovered: RecoveredGuardianAccount[] = [];
     let consecutiveMisses = 0;
+    let scannedTo = opts.startIndex;
 
     registerGuardianOrigin(guardianEndpoint);
-    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+    for (let hdIndex = opts.startIndex; hdIndex < opts.endIndex; hdIndex++) {
       // The scan holds `this` across many independently-locked ops; a recovery
       // mid-scan replaces the singleton and leaves later iterations driving a
       // poisoned client (issue #775). Fail loudly at the next index instead of
@@ -564,10 +602,13 @@ export class MidenClientInterface {
       const matches = await lookupClient.recoverByKey(lookupSigner);
 
       if (matches.length === 0) {
+        scannedTo = hdIndex + 1;
         // Tolerate a small gap before giving up, so a non-contiguous index or a
         // transient empty guardian response doesn't silently drop later accounts.
+        // Exhaustive mode (no gapLimit) keeps walking the whole window — the
+        // user asserted more accounts exist past whatever gap stopped us before.
         consecutiveMisses++;
-        if (consecutiveMisses >= RECOVERY_GAP_LIMIT) break;
+        if (opts.gapLimit !== undefined && consecutiveMisses >= opts.gapLimit) break;
         continue;
       }
       consecutiveMisses = 0;
@@ -576,15 +617,18 @@ export class MidenClientInterface {
         // Decode the on-chain account state and adopt it locally so subsequent
         // SDK calls (.load, executeForSummary) can resolve the account.
         const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
-        const bech32 = await withWasmClientLock(async () => {
-          const acc = Account.deserialize(accountBytes);
-          // The same account matches at more than one HD index, so this runs
-          // twice per recovery; a plain overwrite lets whichever snapshot
-          // arrives last win, including a creation-time one.
-          await insertGuardianAccountMonotonically(this.client, acc);
-          await this.client.keystore.insert(acc.id(), coldSk);
-          return getBech32AddressFromAccountId(acc.id());
-        });
+        const bech32 = await withWasmClientLock(
+          async () => {
+            const acc = Account.deserialize(accountBytes);
+            // The same account matches at more than one HD index, so this runs
+            // twice per recovery; a plain overwrite lets whichever snapshot
+            // arrives last win, including a creation-time one.
+            await insertGuardianAccountMonotonically(this.client, acc);
+            await this.client.keystore.insert(acc.id(), coldSk);
+            return getBech32AddressFromAccountId(acc.id());
+          },
+          { label: 'guardian-account-scan' }
+        );
 
         recovered.push({
           accountId: bech32,
@@ -593,13 +637,16 @@ export class MidenClientInterface {
           coldSecretKeyHex
         });
       }
+      // Counted only once the matches are adopted: an abort during the adopt
+      // loop must leave this index outside the frontier so a later rescan
+      // re-examines it instead of silently skipping the account.
+      scannedTo = hdIndex + 1;
     }
 
-    if (recovered.length === 0) {
-      throw new Error('No Guardian accounts found at this guardian endpoint for this seed');
-    }
-
-    return recovered;
+    // Zero-found is a valid outcome now that the caller runs this alongside
+    // the public scan — the "nothing anywhere" policy lives in Vault.spawn,
+    // which is the only place that can see both results.
+    return { hits: recovered, scannedTo };
   }
 
   /**

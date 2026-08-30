@@ -549,6 +549,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // the SW. Do NOT reload afterwards: that kills the in-flight intercom request.
     await this.page.getByTestId('onboarding-confirmation-submit').click();
 
+    // A seed import pauses on the recovered-accounts overview (multi-account
+    // recovery) before entering the wallet — acknowledge it. Create flows
+    // navigate straight home and never render it.
+    if (opts.seed && opts.seed.length > 0) {
+      await this.page.getByTestId('recovered-accounts').waitFor({ timeout: 120_000 });
+      await this.page.getByTestId('recovered-accounts-continue').click();
+    }
+
     // Wait for the wallet to be ready. The new home (Explore) has no stable
     // "Send"/"Receive" text, so signal on the store's currentAccount.publicKey
     // (register() populates it in place — no reload) or the home page testid.
@@ -993,9 +1001,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       .waitFor({ timeout: 30_000 });
     await this.page.getByTestId('recovery-method-continue').click();
 
-    // Confirmation: submit runs register() (isImport=true, walletType=Guardian).
+    // Confirmation: submit runs register() (isImport=true; the scan restores
+    // public AND guardian accounts in one pass).
     await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
     await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // The import flow now pauses on the recovered-accounts overview.
+    await this.page.getByTestId('recovered-accounts').waitFor({ timeout: 120_000 });
+    await this.page.getByTestId('recovered-accounts-continue').click();
 
     // A seed-only recovery can never recover the device-bound hot key, so the
     // recovered account always carries requiresHotKeyRotation — see

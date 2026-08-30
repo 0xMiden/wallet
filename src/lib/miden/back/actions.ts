@@ -256,6 +256,21 @@ export function createHDAccount(walletType: WalletType, name?: string, guardianE
   );
 }
 
+export function scanForAccounts(additionalCount: number, guardianEndpoint?: string) {
+  // Serialized on the accounts write queue for the same read-modify-write
+  // reason as `createHDAccount`: the scan reads the accounts list, does
+  // seconds of network/WASM work, then appends to it.
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const { found, accounts } = await vault.scanForMoreAccounts(additionalCount, guardianEndpoint);
+      if (found.length > 0) {
+        accountsUpdated({ accounts });
+      }
+      return found;
+    })
+  );
+}
+
 // Stub implementations kept in the exported shape so the frontend's
 // action map stays stable. Parameters are `_`-prefixed to satisfy
 // noUnusedParameters without stripping the public signature.

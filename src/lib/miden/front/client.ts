@@ -53,6 +53,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
+  const storeScanForAccounts = useWalletStore(s => s.scanForAccounts);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
@@ -140,6 +141,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       await storeCreateAccount(walletType, name, guardianEndpoint);
     },
     [storeCreateAccount]
+  );
+
+  const scanForAccounts = useCallback(
+    async (additionalCount: number, guardianEndpoint?: string) => {
+      return storeScanForAccounts(additionalCount, guardianEndpoint);
+    },
+    [storeScanForAccounts]
   );
 
   const updateCurrentAccount = useCallback(
@@ -389,6 +397,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     unlock,
 
     createAccount,
+    scanForAccounts,
     updateCurrentAccount,
     revealViewKey,
     revealPrivateKey,
