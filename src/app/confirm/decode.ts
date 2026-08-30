@@ -29,10 +29,14 @@ export interface TxAssetView {
   /**
    * The network fee this transaction pays, when it is knowable from what was decoded.
    *
-   * Kept OUT of `outgoing`: the fee note leaves the account like any other output note, so
-   * folding it into the transfer total made the sheet show an unexplained extra asset the
-   * user never chose to send. It is a real cost and belongs on the sheet -- labelled as a
-   * fee, beside the transfer, not inside it.
+   * Kept OUT of `outgoing` ON BOTH PATHS, which is what makes the two comparable: the
+   * executed path never adds the fee note to the total, and the summary path subtracts it
+   * back out of the account delta (see `withoutFee`). Without that symmetry the same request
+   * rendered a transfer-plus-fee row for one account kind and a transfer-only row for
+   * another, through one renderer under one "verified" label.
+   *
+   * It is a real cost and belongs on the sheet — labelled as a fee, beside the transfer,
+   * never inside it. Rendered by `TransactionAssetView` and by `formatAssetViewRows`.
    */
   fee?: AssetAmount;
   storageChanged: boolean;
@@ -72,6 +76,27 @@ function importedNoteAssets(b64: string): AssetAmount[] {
   }
 }
 
+/**
+ * `outgoing` with the fee taken back out of its own faucet's row.
+ *
+ * Only the SUMMARY path needs this. Its total comes from the account DELTA, which is a net
+ * vault change with the fee already withdrawn inside it, so the fee arrives folded into the
+ * native row; the executed path builds its total from the user notes and never included it.
+ * Reporting the fee separately while leaving it folded in would show it twice.
+ *
+ * The filter does two jobs. A row the fee exactly accounts for is dropped rather than left
+ * at zero, so a fee-only transaction reads as moving nothing rather than as sending 0 — and
+ * because the delta is NET, an account that also received the native asset in the same
+ * transaction can show a removal smaller than the fee; that row goes negative here and is
+ * dropped for the same reason, since a negative amount would render as the user being paid.
+ */
+function withoutFee(outgoing: AssetAmount[], fee: AssetAmount | undefined): AssetAmount[] {
+  if (!fee) return outgoing;
+  return outgoing
+    .map(a => (a.faucetId === fee.faucetId ? { ...a, amount: a.amount - fee.amount } : a))
+    .filter(a => a.amount > 0n);
+}
+
 /** Ground-truth view from an executed TransactionSummary (authoritative). */
 export function summaryToView(ts: TransactionSummary): TxAssetView {
   const delta = ts.accountDelta();
@@ -80,19 +105,14 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   // kernel's fee note is among the summary's output notes exactly as it is among an
   // executed transaction's. Counting it claimed a note the user did not create.
   const { feeNote, userNotes } = splitExecutedOutputNotes(ts);
-  const feeAmounts = feeNote ? noteAssets(feeNote) : [];
+  const fee = (feeNote ? noteAssets(feeNote) : [])[0];
   return {
     account: getBech32AddressFromAccountId(delta.id()),
-    // NOTE: unlike the executed path, this total comes from the account DELTA, which is a
-    // net vault change and already has the fee withdrawn inside it. There is no note to
-    // exclude here, and subtracting `fee` would need faucet-matched arithmetic against the
-    // delta that nothing currently tests -- so the fee stays folded into `outgoing` on this
-    // path and is reported separately for display. Callers that show both must not add them.
-    outgoing: toAmounts(vault.removedFungibleAssets()),
+    outgoing: withoutFee(toAmounts(vault.removedFungibleAssets()), fee),
     incoming: toAmounts(vault.addedFungibleAssets()),
     inputNotesConsumed: ts.inputNotes().numNotes(),
     outputNotesCreated: userNotes.length,
-    fee: feeAmounts[0],
+    fee,
     storageChanged: !delta.storage().isEmpty()
   };
 }
@@ -123,14 +143,13 @@ export function executedBytesToView(executedB64: string): TxAssetView {
   // an asset they never chose to send, and counting it in `outputNotesCreated` claimed a
   // note they did not create -- both invisible on a zero-fee chain, where no fee note exists.
   const { feeNote, userNotes } = splitExecutedOutputNotes(executed);
-  const feeAmounts = feeNote ? noteAssets(feeNote) : [];
   return {
     account: getBech32AddressFromAccountId(executed.accountId()),
     outgoing: userNotes.flatMap(note => noteAssets(note)),
     incoming: inputNotes.notes().flatMap(note => noteAssets(note.note())),
     inputNotesConsumed: inputNotes.numNotes(),
     outputNotesCreated: userNotes.length,
-    fee: feeAmounts[0],
+    fee: (feeNote ? noteAssets(feeNote) : [])[0],
     storageChanged: !executed.accountPatch().storage().isEmpty()
   };
 }

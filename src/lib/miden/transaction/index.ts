@@ -1352,11 +1352,14 @@ export const generateTransaction = async (
         await assertEarnDepositIntentLive(transaction);
       }
       if (transaction.requestBytes) {
-        // Pre-built bytes need the fee auth here exactly as they do on the Guardian leaf.
-        // `bridged-send` (AggLayer) and `earn-deposit` build their request at INITIATE time, so
-        // the fee auth attached during a normal build never ran for them: on a fee-charging chain
-        // the request reached the chain carrying no conversion info and the row went Failed.
-        // Persisted because the commitment carries a fresh salt; the annotation is idempotent.
+        // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+        // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+        // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
+        // these bytes were never actually failing for want of it. The annotation is kept so both
+        // leaves take one code path, and it is safe because the client returns early rather than
+        // colliding when an auth arg is already present, and the commitment built here is the
+        // same shape it would have built. Persisted because the commitment carries a fresh salt;
+        // the annotation is idempotent.
         const annotated = await ensureFeeAuthOnRequestBytes(transaction.requestBytes);
         if (annotated !== transaction.requestBytes) {
           transaction.requestBytes = annotated;
@@ -1376,8 +1379,10 @@ export const generateTransaction = async (
       break;
     case 'execute':
     default: {
-      // Same pre-built-bytes gap as the branch above: a dApp `execute` carries bytes the wallet
-      // did not build, so the fee auth has to be attached before it is submitted.
+      // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
+      // carries bytes the wallet did not build, so if anything ever does need the auth arg
+      // attached post-hoc it is this one. For the wallet's own accounts the client still
+      // injects, so this pre-empts rather than repairs.
       const executeBytes = await ensureFeeAuthOnRequestBytes(transaction.requestBytes!);
       if (executeBytes !== transaction.requestBytes) {
         transaction.requestBytes = executeBytes;
@@ -2102,19 +2107,29 @@ const generateGuardianTransaction = async (
             client.terminate();
           }
         });
-        // Annotate BEFORE persisting: the fee auth arg carries a fresh salt, and
-        // `prepareCustomExecution` re-derives the commitment from whatever bytes it is given,
-        // so proposal creation and execution must see the identical request. Idempotent, so a
-        // request that already commits an auth arg is returned untouched.
-        const swapBytes = await ensureFeeAuthOnRequestBytes(requestBytes);
+        transaction.requestBytes = requestBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = requestBytes;
+        });
+      }
+      // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
+      // run on whatever bytes they are about to use; this one used to sit inside the `if`, so a
+      // row that ALREADY had bytes -- a second generation attempt, a process restart, or a swap
+      // queued before the annotation existed -- was proposed unannotated and died at
+      // `creating-proposal` on a fee-charging chain. Swap is also the one path that cannot heal
+      // itself: the PSWAP serial number IS the order id, so `requeueFailedTransaction` is
+      // forbidden from clearing these bytes and every retry re-proposed the same unannotated
+      // request. Annotate BEFORE the proposal and persist, because the commitment carries a
+      // fresh salt and `prepareCustomExecution` re-derives it from whatever bytes it is given,
+      // so proposal creation and execution must see the identical request.
+      const swapBytes = await ensureFeeAuthOnRequestBytes(transaction.requestBytes!);
+      if (swapBytes !== transaction.requestBytes) {
         transaction.requestBytes = swapBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(transaction.requestBytes!, 'swap')
-      );
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(swapBytes, 'swap'));
       break;
     }
     case 'update-procedure-threshold': {

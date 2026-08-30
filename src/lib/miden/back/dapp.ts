@@ -2528,6 +2528,15 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
     rows.push('Assets, no fungible asset moves');
   }
   rows.push(`Notes, ${view.inputNotesConsumed} consumed / ${view.outputNotesCreated} created`);
+  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths — so
+  // if it is not printed here it is not on this sheet at all. Off-extension has no other
+  // surface: these rows ARE the approval prompt.
+  if (view.fee) {
+    const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+    rows.push(
+      `Network fee, ${formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata))} ${getAssetSymbol(feeMetadata)}`
+    );
+  }
   return rows;
 }
 

@@ -11,13 +11,6 @@ export { TX_FEE_NOTE_TAG, partitionFeeNote, splitExecutedOutputNotes };
 export type { UserOutputNote, FeePaid } from './fee-notes';
 
 /**
- * Tag carried by the TX_FEE note the kernel emits when a transaction pays a fee.
- *
- * The fee leaves the account as a real output note, so it shows up alongside the
- * notes the user meant to create. Anything totalling output value has to exclude
- * it, or a send appears to move more than it did.
- */
-/**
  * The fee this transaction actually paid, or `undefined` if it paid none.
  *
  * Read from the emitted note rather than computed, because the charge is

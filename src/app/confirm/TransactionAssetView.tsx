@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -83,6 +83,10 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
   const { t } = useTranslation();
   const outgoing = useResolvedAssets(view.outgoing);
   const incoming = useResolvedAssets(view.incoming);
+  // Memoized because `useResolvedAssets` keys its effect on array identity: a literal built
+  // during render would re-resolve, re-render and re-resolve forever.
+  const feeAssets = useMemo(() => (view.fee ? [view.fee] : []), [view.fee]);
+  const [feeAsset] = useResolvedAssets(feeAssets);
   const hasAssets = view.outgoing.length > 0 || view.incoming.length > 0;
   const isVerified = mode === 'verified';
 
@@ -169,6 +173,20 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
           <span className="text-text-muted">{t('outputNotesCreated')}</span>
           <span>{view.outputNotesCreated}</span>
         </div>
+        {/*
+          A cost the user pays, so it is shown rather than merely subtracted. It sits here, in
+          the stats block, instead of among the asset rows: it is not an asset the user chose
+          to move, `outgoing` deliberately excludes it on both decode paths, and this block
+          renders even when a transaction moves nothing.
+        */}
+        {view.fee && (
+          <div className="flex flex-row w-full items-center justify-between pb-1">
+            <span className="text-text-muted">{t('networkFee')}</span>
+            <span data-testid="tx-network-fee">
+              {feeAsset ? `${quantityOf(feeAsset)} ${feeAsset.symbol ?? t('unknown')}` : t('loading')}
+            </span>
+          </div>
+        )}
         {mode === 'verified' && (
           <div className="flex flex-row w-full items-center justify-between">
             <span className="text-text-muted">{t('storageChanged')}</span>

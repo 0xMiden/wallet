@@ -41,22 +41,25 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * inject that -- the auth-arg slot belongs to the multisig -- so the request has
  * to carry it, and a request built elsewhere may not.
  *
- * KNOWN REACHABLE on a fee-charging chain, for the four Guardian flows whose
- * request bytes are serialized before any fee-auth code runs: Epoch bridged-send
- * and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer bridged-send
- * (`initiateB2AggBridge`), the swap's PSWAP note (`buildPswapCreateRequest`), and
- * a dApp `execute`. Annotating those bytes after the fact is not possible --
- * `TransactionRequest` has no `withAuthArg`, its readers do not cover input notes
- * or the script, and `serialize()` is not canonical, so a rebuild can neither
- * carry everything forward nor prove that it did. The fix has to reach each
- * producer's BUILDER (or gain an SDK method); until then this message is what the
- * user sees, and it correctly declines to blame the balance.
+ * The flows that produce request bytes before any fee-auth code runs -- Epoch
+ * bridged-send and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer
+ * bridged-send (`initiateB2AggBridge`), the swap's PSWAP note
+ * (`buildPswapCreateRequest`) and a dApp `execute` -- are now annotated after the
+ * fact by `ensureFeeAuthOnRequestBytes`. That became possible when the SDK gained
+ * `TransactionRequest.withAuthArg`, which sets the arg on a FINISHED request; the
+ * earlier attempt had to rebuild, and could not, because the request's readers do
+ * not cover input notes or the script and `serialize()` is not canonical, so a
+ * rebuild could neither carry everything forward nor prove that it did.
  *
- * Retrying the same row cannot fix it, so the copy does not invite one.
+ * So this message now means the annotation itself did not happen: bytes that could
+ * not be deserialized, or a chain read that failed, both of which
+ * `ensureFeeAuthOnRequestBytes` deliberately passes through rather than failing on.
+ * Both are transient, so the copy does NOT forbid a retry -- an earlier version
+ * did, from when no retry could have helped.
  */
 export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
   'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +
-  'the problem — update the wallet if an update is available, and report this if it keeps happening.';
+  'the problem — try again, and report this if it keeps happening.';
 
 export const TRANSACTION_STUCK_ERROR = 'Transaction took too long to process and was cancelled';
 

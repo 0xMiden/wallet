@@ -109,8 +109,11 @@ export function partitionFeeNote(
     return soleFungibleFaucet(note) === nativeFaucetId;
   });
   const feeNote = candidates.length === 1 ? candidates[0] : undefined;
-  // The cast is the ONE place the brand is minted, and it is sound exactly here: every
-  // note in the returned array has been checked against the fee predicate above.
+  // The ONE place the brand is minted. Sound when a fee note was identified: that note is
+  // the only one the predicate matched and it is filtered out. In the AMBIGUOUS branch the
+  // unresolved candidates are branded too -- deliberately, per the docblock above: two
+  // fee-tagged notes mean we cannot say which is real, so both stay in the totals rather
+  // than one being silently erased from them.
   const userNotes = (feeNote ? notes.filter(note => note !== feeNote) : notes) as UserOutputNote[];
   return { feeNote, userNotes };
 }
