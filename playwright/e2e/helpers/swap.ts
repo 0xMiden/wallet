@@ -221,24 +221,27 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
 /** Raw sent-note info for the maker (id + tag + noteType per output note). */
 async function readMakerSent(
   maker: Wallet
-): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string }>> {
+): Promise<
+  Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>
+> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string }> };
+  )) as {
+    sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>;
+  };
   return info?.sent ?? [];
 }
 
 /** The maker's swap note id (full hex). Single-order specs have exactly one sent note. */
-export async function readMakerNoteId(maker: Wallet, orderId?: string): Promise<string | undefined> {
+export async function readMakerNoteId(maker: Wallet, orderId: string): Promise<string | undefined> {
   const sent = await readMakerSent(maker);
-  const usable = sent.filter(s => s.fullId && s.fullId !== '?');
-  // A fee-charging chain makes the maker's create transaction emit a fee note
-  // as well as the swap note, so "the first sent note" is no longer the swap
-  // note — handing that one to the taker fails PSWAP's script-root check. The
-  // order id is carried in the PSWAP serial number, so match on it when the
-  // caller knows which order it is looking for.
-  if (orderId) return usable.find(s => s.orderId === orderId)?.fullId;
-  return usable[0]?.fullId;
+  // A discriminator is REQUIRED, not optional. A fee-charging chain makes the maker's create
+  // transaction emit a fee note alongside the swap note, so "the first sent note" is a coin
+  // flip — and handing the fee note to the taker fails PSWAP's script-root check with an error
+  // that points at the note script rather than at the selection. The optional-with-positional-
+  // fallback shape this replaced would have silently reintroduced exactly that whenever a
+  // caller omitted the id, which is how the bug arrived the first time.
+  return sent.filter(s => s.fullId && s.fullId !== '?' && !s.isFee).find(s => s.orderId === orderId)?.fullId;
 }
 
 /**
@@ -271,7 +274,9 @@ export async function exportMakerNote(maker: Wallet, noteId: string, timeoutMs =
 
 /** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
 export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
-  return (await readMakerSent(maker))[0]?.tag;
+  // Index 0 of the raw list is the kernel's fee note whenever it ordered that one first,
+  // and subscribing the taker to the FEE tag discovers nothing.
+  return (await readMakerSent(maker)).filter(s => !s.isFee)[0]?.tag;
 }
 
 /**
@@ -280,7 +285,10 @@ export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
  * every tag to be sure the swap note is among the synced notes.
  */
 export async function readMakerTags(maker: Wallet): Promise<string[]> {
-  const tags = (await readMakerSent(maker)).map(s => s.tag).filter((t): t is string => !!t && t !== '?');
+  const tags = (await readMakerSent(maker))
+    .filter(s => !s.isFee)
+    .map(s => s.tag)
+    .filter((t): t is string => !!t && t !== '?');
   return [...new Set(tags)];
 }
 
