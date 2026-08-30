@@ -9,8 +9,31 @@
  */
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import * as Bip39 from 'bip39';
+import { Buffer as NodeBuffer } from 'buffer';
 
 import { WalletType } from 'screens/onboarding/types';
+
+// `@demox-labs/aleo-hd-key` calls the bare GLOBAL `Buffer.allocUnsafe`
+// (dist/index.js:19) — node-style, no `require('buffer')` of its own — so it
+// only works when whatever claimed `globalThis.Buffer` first is a complete
+// implementation. The entry files' `globalThis.Buffer ||= Buffer` keeps a
+// partial first-comer, which surfaced as the guardian probe failing every
+// endpoint with "Buffer.allocUnsafe is not a function". Repair the global
+// here, next to the only consumer that needs it: overwrite ONLY when the
+// installed Buffer is missing pieces (node/jest and healthy realms are
+// untouched).
+const installedBuffer: unknown = Reflect.get(globalThis, 'Buffer');
+const installedBufferComplete =
+  typeof installedBuffer === 'function' &&
+  typeof Reflect.get(installedBuffer, 'from') === 'function' &&
+  typeof Reflect.get(installedBuffer, 'alloc') === 'function' &&
+  typeof Reflect.get(installedBuffer, 'allocUnsafe') === 'function';
+if (!installedBufferComplete) {
+  console.warn(
+    '[derive-seed] globalThis.Buffer is missing or incomplete (allocUnsafe absent) — installing the buffer polyfill'
+  );
+  Reflect.set(globalThis, 'Buffer', NodeBuffer);
+}
 
 // Maps a wallet type to its BIP-44 namespace index. hdIndex/accIndex is allocated
 // PER privacy bucket (public vs non-public), so distinct wallet types can share

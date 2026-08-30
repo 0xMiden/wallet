@@ -669,7 +669,7 @@ describe('actions', () => {
 
       await createHDAccount(WalletType.OnChain);
 
-      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, undefined);
+      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, undefined, undefined);
       expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts });
     });
 
@@ -679,7 +679,7 @@ describe('actions', () => {
 
       await createHDAccount(WalletType.OnChain, '  MyWallet  ');
 
-      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, 'MyWallet');
+      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, 'MyWallet', undefined);
       expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts });
     });
 

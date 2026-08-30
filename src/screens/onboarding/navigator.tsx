@@ -8,6 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
+import type { WalletAccount } from 'lib/shared/types';
 
 import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
@@ -22,6 +23,7 @@ import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransact
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
 import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryMethod';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
+import { RecoveredAccountsScreen } from './import-wallet-flow/RecoveredAccounts';
 import { GuardianProbeState, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
 
 export interface OnboardingFlowProps {
@@ -46,6 +48,13 @@ export interface OnboardingFlowProps {
   guardianProbe?: GuardianProbeState;
   /** Side panel handoff (Chrome): wallet is being created in the background. */
   confirmCreating?: boolean;
+  /** Live accounts list for the recovered-accounts overview step. */
+  recoveredAccounts?: WalletAccount[];
+  /** An "I have more accounts" extension scan is in flight. */
+  isScanning?: boolean;
+  scanError?: string | null;
+  /** The last extension scan completed without finding anything new. */
+  lastScanFoundNone?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -97,6 +106,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   recoveryError = null,
   guardianProbe,
   confirmCreating = false,
+  recoveredAccounts = [],
+  isScanning = false,
+  scanError = null,
+  lastScanFoundNone = false,
   onBiometricChange,
   onAction
 }) => {
@@ -238,6 +251,17 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         );
       case OnboardingStep.SelectTransactionType:
         return <SelectTransactionTypeScreen onSubmit={onSelectTransactionTypeSubmit} />;
+      case OnboardingStep.RecoveredAccounts:
+        return (
+          <RecoveredAccountsScreen
+            accounts={recoveredAccounts}
+            isScanning={isScanning}
+            scanError={scanError}
+            lastScanFoundNone={lastScanFoundNone}
+            onScanMore={count => onForwardAction?.({ id: 'scan-more-accounts', payload: { count } })}
+            onContinue={() => onForwardAction?.({ id: 'recovered-accounts-continue' })}
+          />
+        );
       case OnboardingStep.Confirmation:
         return (
           <ConfirmationScreen
@@ -270,7 +294,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
-    confirmCreating
+    confirmCreating,
+    // Same freeze gotcha as guardianProbe: the recovered-accounts overview
+    // must re-render as the scan progresses and the accounts list grows.
+    recoveredAccounts,
+    isScanning,
+    scanError,
+    lastScanFoundNone
   ]);
 
   const onBack = () => {
@@ -329,6 +359,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
               step !== OnboardingStep.SetupPasscode &&
               step !== OnboardingStep.SetupBiometric &&
               step !== OnboardingStep.ChooseGuardian &&
+              // Terminal: the wallet already exists once the overview shows,
+              // so there is nothing meaningful to go back to.
+              step !== OnboardingStep.RecoveredAccounts &&
               step !== OnboardingStep.Confirmation && (
                 <div className="px-4 pt-2 pb-4">
                   <Button title={t('back')} variant={ButtonVariant.Secondary} onClick={onBack} className="w-full" />

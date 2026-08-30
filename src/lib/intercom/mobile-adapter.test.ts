@@ -150,7 +150,7 @@ describe('MobileIntercomAdapter', () => {
         name: 'Test Account'
       } as any);
 
-      expect(Actions.createHDAccount).toHaveBeenCalledWith('public', 'Test Account');
+      expect(Actions.createHDAccount).toHaveBeenCalledWith('public', 'Test Account', undefined);
       expect(response).toEqual({ type: WalletMessageType.CreateAccountResponse });
     });
 

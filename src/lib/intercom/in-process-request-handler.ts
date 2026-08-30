@@ -60,6 +60,11 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       await Actions.createHDAccount(req.walletType, req.name, req.guardianEndpoint);
       return { type: WalletMessageType.CreateAccountResponse };
 
+    case WalletMessageType.ScanForAccountsRequest: {
+      const found = await Actions.scanForAccounts(req.additionalCount, req.guardianEndpoint);
+      return { type: WalletMessageType.ScanForAccountsResponse, found: found ?? [] };
+    }
+
     case WalletMessageType.UpdateCurrentAccountRequest:
       await Actions.updateCurrentAccount(req.accountPublicKey);
       return { type: WalletMessageType.UpdateCurrentAccountResponse };
