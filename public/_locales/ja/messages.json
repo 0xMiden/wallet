@@ -824,6 +824,10 @@
     "message": "アカウント名の編集",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "1～16文字を使用し、先頭にスペースやハイフンを入れず、一意の名前を選んでください。",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "委任者",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "GuardianのカスタムURLを使用してください",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Guardianをご利用ですか？",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "パブリックアカウントは常にネットワークから復元されます。もし、お持ちのアカウントのいずれかがguardianによってバックアップされている場合は、運営者を確認してください。そうすれば、それらも復元できます。",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "Guardianは使用しません",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "このseed phraseに対応するアカウントは見つかりませんでした。seed phraseおよびguardianオペレーターを確認してから、再度お試しください。",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "復旧されたアカウント",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "seed phrase に対応する $count$ アカウントを 1 つ以上確認しました。完全に非公開のローカルアカウントにはオンチェーン上の痕跡がなく、発見されることはありません。",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "公開",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "非公開",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "他にもアカウントを持っています",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "あとどれくらい検索すべきでしょうか？",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "検索",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "アカウントを検索中…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "追加のアカウントは見つかりませんでした。",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "$count$の追加アカウントを検出しました。",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "既存のアカウントを復元する",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "このseed phraseからのその他のアカウントについては、ネットワークおよびguardianで検索してください。",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "デフォルト",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "アカウントを追加（近日公開予定）",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "アカウントを切り替える",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "非公開",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "残高や取引履歴はオフチェーンに保持され、あなたにのみ表示されます",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "公開",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "アカウントの状態はオンチェーン上に存在し、公開されています",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian - バックアップ付きプライベート",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "Guardianのオペレーターが復旧のために連署したプライベートアカウント",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "理解しました",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "代わりに「Guardian」を使用してください",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$より",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "このアカウントは、このデバイス上にのみ存在します",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "このデバイスを紛失したり、アプリを削除したりした場合、Midenはこのアカウントのプライベート状態を復元することはできません。",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "seed phraseだけでは不十分です",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "完全にローカルなアカウントは、seed phraseだけでは復元できません。その状態はこのデバイス上にのみ存在するため、seed phraseを保存していても、資金は永久に失われてしまいます。",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "誰もそれを回復させる手助けはできません",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "このアカウントには、Guardianの連帯保証人は存在しません。このデバイスを紛失した場合、Midenを含め、誰もアクセス権を復元することはできません。",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet IDが更新されました",

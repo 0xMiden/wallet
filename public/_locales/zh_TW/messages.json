@@ -824,6 +824,10 @@
     "message": "編輯帳號名稱",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "請使用 1 至 16 個字元，名稱開頭不得為空格或連字號，並選擇一個獨特的名稱。",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "代表",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "請使用自訂的 Guardian 網址",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "您是否使用 Guardian？",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "公開帳戶總是從網路中恢復。若您的任何帳戶由 guardian 提供支援，請確認該營運商，以便我們也能恢復這些帳戶。",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "我不使用 Guardian",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "未找到此 seed phrase 的相關帳戶。請檢查 seed phrase 及 guardian 操作者，然後再試一次。",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "已恢復的帳戶",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "我們為您的 seed phrase 找到 $count$ 帳戶。完全私有的本地帳戶在區塊鏈上沒有任何痕跡，且無法被偵測到。",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "公開",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "私有",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "我還有其他帳戶",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "我們還應該再找出多少個這樣的詞彙？",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "搜尋",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "正在搜尋帳戶……",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "未發現其他帳戶。",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "發現 $count$ 之額外帳戶。",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "還原現有帳戶",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "請在網路及您的 guardian 上搜尋，以查看更多來自此 seed phrase 的帳戶",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "預設",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "新增帳戶（即將推出）",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "切換帳戶",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "私有",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "餘額與交易紀錄均存於鏈下，僅您本人可見",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "公開",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "帳戶狀態存於區塊鏈上，且對公眾可見",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian - 由私有區塊鏈支持",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "由 Guardian 營運商共同簽署的私人帳戶，用於帳戶恢復",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "我明白了",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "請改用「Guardian」",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "此帳戶僅存在於本裝置上",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "若您遺失此裝置或刪除應用程式，Miden 將無法恢復此帳戶的私有狀態。",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "您的 seed phrase 並不足夠",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "僅憑您的 seed phrase 無法還原一個完全本地的帳戶。該帳戶的狀態僅存在於此裝置上——即使保存了 seed phrase，您的資金仍將永久遺失。",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "沒有人能協助您取回它",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "此帳戶沒有 Guardian 的共同簽署人。若此裝置遺失，任何人——包括 Miden 在內——都無法恢復存取權限。",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet ID 已更新",

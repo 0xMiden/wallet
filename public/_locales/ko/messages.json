@@ -824,6 +824,10 @@
     "message": "계정 이름 편집",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "1~16자 이내로 입력하고, 공백이나 하이픈으로 시작하지 말며, 고유한 이름을 선택하십시오.",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "대표",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "Guardian 맞춤 URL을 사용하세요",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Guardian를 사용하시나요?",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "공개 계정은 항상 네트워크에서 복구됩니다. 만약 귀하의 계정 중 guardian에서 지원하는 계정이 있다면, 운영자를 확인해 주시면 해당 계정도 복구해 드리겠습니다.",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "저는 Guardian를 사용하지 않습니다.",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "이 seed phrase에 해당하는 계정이 발견되지 않았습니다. seed phrase 및 guardian 운영자를 확인한 후 다시 시도해 주세요.",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "복구된 계정",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "귀하의 seed phrase에 대해 $count$ 계정을 하나(들) 확인했습니다. 완전 비공개 로컬 계정은 온체인 기록이 없으며 검색될 수 없습니다.",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "공개",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "비공개",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "저는 더 많은 계정을 보유하고 있습니다",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "아직 몇 개나 더 찾아봐야 할까요?",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "검색",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "계정 검색 중…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "추가 계정은 발견되지 않았습니다.",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "$count$개의 추가 계정을 발견했습니다.",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "기존 계정 복원",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "네트워크와 guardian에서 이 seed phrase의 추가 계정을 검색해 보십시오.",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "기본값",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "계정 추가 (출시 예정)",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "계정 전환",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "비공개",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "잔액과 거래 내역은 오프체인에 저장되며, 본인만 확인할 수 있습니다",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "공개",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "계정 상태는 온체인에 저장되며 누구나 확인할 수 있습니다",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian -백업된 프라이빗",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "복구를 위해 Guardian 운영자가 공동 서명한 비공개 계정",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "알겠습니다",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "대신 'Guardian'를 사용하십시오",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "이 계정은 이 기기에서만 존재합니다",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "이 기기를 분실하거나 앱을 삭제할 경우, Miden은 해당 계정의 개인 정보를 복구할 수 없습니다.",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "seed phrase만으로는 충분하지 않습니다",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "완전히 로컬화된 계정은 seed phrase만으로는 복원할 수 없습니다. 해당 계정의 상태는 이 기기에만 존재하므로, seed phrase를 저장해 두었더라도 자금은 영구적으로 손실됩니다.",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "아무도 이를 복구하도록 도와줄 수 없습니다",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "이 계정에는 Guardian 공동 서명자가 없습니다. 이 기기를 분실할 경우, Miden을 포함하여 그 누구도 접근 권한을 복구할 수 없습니다.",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet ID 업데이트됨",
