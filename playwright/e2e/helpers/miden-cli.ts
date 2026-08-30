@@ -8,8 +8,20 @@ import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 /**
  * MIDEN sent to each account the harness creates so it can pay its own transaction fees.
  *
- * A fee runs to roughly 170,000 base units at `verification_base_fee = 10000`, and a faucet mints
- * repeatedly across a spec, so this is sized for a few thousand transactions rather than a handful.
+ * A fee is `verification_base_fee * (ilog2(cycles) + 1)`, capped at 30 multiples, so at
+ * `verification_base_fee = 10000` a transaction costs at most 300_000 and typically ~170_000.
+ * This buys roughly 66 transactions at the cap, ~117 at the typical figure — NOT the "few
+ * thousand" an earlier version of this comment claimed, which overstated it by ~20x.
+ *
+ * The number that matters for the genesis funders is not what a test SPENDS but what it KEEPS:
+ * an account is funded once, spends a few hundred thousand, and is then discarded still holding
+ * most of this. Every funding therefore strands ~85% of itself permanently, and a sweep's drain
+ * on the funders is `accounts_funded * FUNDING_MIDEN`, independent of how many fees were paid.
+ * That is why the funders emptied overnight at the old genesis balance, and why lowering this
+ * constant buys far more headroom than it looks like it should — 4x lower here is 4x more
+ * sweeps. It has not been lowered because no one has measured the busiest spec's transaction
+ * count, and under-funding fails indirectly: the account simply cannot pay, and the suite
+ * reports a product-looking error rather than an empty account.
  */
 const FUNDING_MIDEN = 20_000_000;
 
