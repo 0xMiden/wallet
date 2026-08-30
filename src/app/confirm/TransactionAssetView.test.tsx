@@ -57,6 +57,26 @@ it('renders outgoing and incoming asset rows with symbol + amount (verified)', a
   expect(screen.queryByText('unverified')).not.toBeInTheDocument();
 });
 
+it('renders the network fee as its own row, outside the asset totals', async () => {
+  // A cost the user pays. `decode.ts` deliberately keeps it OUT of `outgoing` on both paths,
+  // so if this row is missing the fee is not on the sheet at all — which is what shipped
+  // before: the value was decoded, threaded through `TxAssetView.fee`, and rendered nowhere.
+  render(<TransactionAssetView view={{ ...view, fee: { faucetId: 'fN', amount: 2n } } as any} mode="verified" />);
+
+  await waitFor(() => expect(screen.getByTestId('tx-network-fee')).toHaveTextContent('2/6 rETH'));
+  expect(screen.getByText('networkFee')).toBeInTheDocument();
+  // Not folded into the transfer: the outgoing row is still exactly what the user is sending.
+  expect(screen.getByText('10/6 miZK')).toBeInTheDocument();
+});
+
+it('renders no fee row when the transaction pays none', async () => {
+  render(<TransactionAssetView view={view as any} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  // An empty pill on a zero-fee chain is worse than no pill.
+  expect(screen.queryByTestId('tx-network-fee')).not.toBeInTheDocument();
+  expect(screen.queryByText('networkFee')).not.toBeInTheDocument();
+});
+
 it('renders declared (unverified) amounts with muted styling, not the confident verified styling', async () => {
   render(<TransactionAssetView view={{ ...view, account: undefined } as any} mode="declared" />);
   await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());

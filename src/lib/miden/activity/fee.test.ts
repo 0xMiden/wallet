@@ -11,8 +11,13 @@ import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 // The fee note is corroborated against the chain's NATIVE faucet, so the suite has to
 // say what that is. `bech32-native` is what the helper mock below encodes 'native' to.
 let mockNativeAssetId: string | null = 'bech32-native';
+let mockVerificationBaseFee: number | null = 10000;
+/** A chain that charges, which is the precondition for a fee note existing at all. */
+const CHARGING = 10000;
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: () => mockNativeAssetId
+  getNativeAssetIdSync: () => mockNativeAssetId,
+  // A fee note only EXISTS on a chain that charges, so the split reads the base fee too.
+  getVerificationBaseFeeSync: () => mockVerificationBaseFee
 }));
 
 jest.mock('lib/shared/format', () => ({
@@ -86,7 +91,7 @@ describe('partitionFeeNote', () => {
   it('separates the kernel fee note from the notes the user created', () => {
     const user = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
     const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
-    const { feeNote, userNotes } = partitionFeeNote([user, fee] as any, native);
+    const { feeNote, userNotes } = partitionFeeNote([user, fee] as any, native, CHARGING);
     expect(feeNote).toBe(fee);
     expect(userNotes).toEqual([user]);
   });
@@ -98,7 +103,7 @@ describe('partitionFeeNote', () => {
   it('separates the fee note when the kernel emits it FIRST', () => {
     const user = outputNote(0x0, [asset(500n, 'tkn-faucet')]);
     const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
-    const { feeNote, userNotes } = partitionFeeNote([fee, user] as any, native);
+    const { feeNote, userNotes } = partitionFeeNote([fee, user] as any, native, CHARGING);
     expect(feeNote).toBe(fee);
     expect(userNotes).toEqual([user]);
     // The pick every caller makes, stated explicitly: index 0 of the SPLIT array is the
@@ -122,7 +127,7 @@ describe('partitionFeeNote', () => {
 
   it('does not mistake an ordinary note for the fee note', () => {
     const user = outputNote(0x0, [asset(1n, 'native')]);
-    const { feeNote, userNotes } = partitionFeeNote([user] as any, native);
+    const { feeNote, userNotes } = partitionFeeNote([user] as any, native, CHARGING);
     expect(feeNote).toBeUndefined();
     expect(userNotes).toEqual([user]);
   });
@@ -133,14 +138,14 @@ describe('partitionFeeNote', () => {
     // recorded as the network fee AND erased from the transaction's amount and note
     // list. A fee is only ever paid in the native asset.
     const spoof = outputNote(TX_FEE_NOTE_TAG, [asset(999n, 'attacker-faucet')]);
-    const { feeNote, userNotes } = partitionFeeNote([spoof] as any, native);
+    const { feeNote, userNotes } = partitionFeeNote([spoof] as any, native, CHARGING);
     expect(feeNote).toBeUndefined();
     expect(userNotes).toEqual([spoof]);
   });
 
   it('rejects a fee-tagged note carrying more than one asset', () => {
     const multi = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native'), asset(2n, 'other')]);
-    expect(partitionFeeNote([multi] as any, native).feeNote).toBeUndefined();
+    expect(partitionFeeNote([multi] as any, native, CHARGING).feeNote).toBeUndefined();
   });
 
   it('trusts NEITHER note when two candidates appear', () => {
@@ -149,17 +154,37 @@ describe('partitionFeeNote', () => {
     // than they spent rather than hiding a real note of theirs.
     const a = outputNote(TX_FEE_NOTE_TAG, [asset(1n, 'native')]);
     const b = outputNote(TX_FEE_NOTE_TAG, [asset(2n, 'native')]);
-    const { feeNote, userNotes } = partitionFeeNote([a, b] as any, native);
+    const { feeNote, userNotes } = partitionFeeNote([a, b] as any, native, CHARGING);
     expect(feeNote).toBeUndefined();
     expect(userNotes).toEqual([a, b]);
   });
 
-  it('falls back to the tag alone before the native faucet is discovered', () => {
-    // A fresh install before its first successful discovery. Counting the kernel's fee
-    // note as user value there would reintroduce the inflated-amount bug the tag check
-    // exists to prevent, and nothing in that window is attacker-selected.
+  it('identifies NOTHING as the fee before the native faucet is discovered', () => {
+    // Reversed deliberately. This used to fall back to the tag alone, on the reasoning that
+    // the window was a fresh install and nothing in it was attacker-selected. That was wrong
+    // once `decode.ts` began calling this for the dApp APPROVAL sheet: the confirm popup is
+    // its own JS realm whose sync cache starts empty on every open, the tagged note is
+    // supplied by the site asking for approval, and being called the fee REMOVES the note
+    // from the sheet's totals. Failing closed costs an inflated amount for one realm-warm;
+    // trusting the tag lets a site hide a transfer.
     const fee = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'anything')]);
-    expect(partitionFeeNote([fee] as any, null).feeNote).toBe(fee);
+    expect(partitionFeeNote([fee] as any, null, 10000).feeNote).toBeUndefined();
+  });
+
+  it('identifies NOTHING as the fee on a chain that charges nothing', () => {
+    // Structural, not a heuristic: at `verification_base_fee` 0 the kernel emits no fee note,
+    // so a note wearing the tag cannot be one. Without this a single native tagged note
+    // satisfies every OTHER corroboration on testnet -- no race and no cold cache needed,
+    // just a dApp asking a fee-free chain to erase a transfer from the approval sheet.
+    const forged = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    const split = partitionFeeNote([forged] as any, 'bech32-native', 0);
+    expect(split.feeNote).toBeUndefined();
+    expect(split.userNotes).toHaveLength(1);
+  });
+
+  it('identifies NOTHING as the fee before the base fee is discovered', () => {
+    const forged = outputNote(TX_FEE_NOTE_TAG, [asset(163840n, 'native')]);
+    expect(partitionFeeNote([forged] as any, 'bech32-native', null).feeNote).toBeUndefined();
   });
 });
 

@@ -1,6 +1,6 @@
 import type { OutputNote } from '@miden-sdk/miden-sdk';
 
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { getNativeAssetIdSync, getVerificationBaseFeeSync } from 'lib/miden-chain/native-asset';
 
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
@@ -79,35 +79,41 @@ function soleFungibleFaucet(note: OutputNote): string | undefined {
  *
  * The tag ALONE is not evidence. `0xfee` is a plain u32 that anything constructing a
  * `NoteMetadata` can set, and a dApp's `transactionRequest` reaches
- * `requestCustomTransaction` verbatim — so a website could add an output note carrying
- * that tag and have the wallet record it as this transaction's "Network Fee" while
- * ERASING it from the transaction's amount and note list. The user still approves that
- * note on the confirmation sheet (which does not consult this code), so it is history
- * forgery rather than an unauthorized spend, but a wallet should not be the one
- * mislabelling it.
+ * `requestCustomTransaction` verbatim — so a website can add an output note carrying that
+ * tag. Being identified as the fee is not a cosmetic relabel: the note is REMOVED from the
+ * output-note list and its value is taken back out of the amounts, so this is how a
+ * transfer disappears from a screen the user is approving. THIS MODULE IS THAT SCREEN'S
+ * SPLIT — `decode.ts` calls it for both verified views — so the note is attacker-chosen and
+ * the corroborations below are a security boundary, not tidiness.
  *
- * Two corroborations, both cheap:
- *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet,
- *     which is the only asset a fee is ever paid in;
- *   - exactly ONE candidate exists. The kernel emits one. If a second appears, we cannot
- *     say which is real, so NEITHER is treated as the fee: the fee figure is dropped and
- *     both notes stay in the totals. That errs toward showing the user more than they
- *     spent rather than hiding a real note, which is the right direction for a receipt.
+ * Every condition must hold, and each closes a way the tag alone was forgeable:
+ *   - the CHAIN CHARGES. On a chain whose `verification_base_fee` is 0 the kernel emits no
+ *     fee note at all, so any note wearing the tag is by construction not one. Without this
+ *     a single native tagged note passes every other check on testnet — no race, no cold
+ *     cache, just a dApp asking a fee-free chain to hide a transfer.
+ *   - the note holds exactly ONE fungible asset, drawn on the chain's NATIVE faucet, which
+ *     is the only asset the wallet ever commits a fee in (it always commits `one_to_one`).
+ *   - exactly ONE candidate exists. The kernel emits one. If a second appears we cannot say
+ *     which is real, so NEITHER is treated as the fee and both stay in the totals.
  *
- * When the native faucet is not yet discovered the tag is all there is, so it is used
- * alone rather than counting the kernel's fee note as user value — the inflated-amount
- * bug the tag check exists to prevent. That window is a fresh install before its first
- * successful discovery, and nothing in it is attacker-selected.
+ * UNKNOWN FAILS CLOSED. When the base fee or the native faucet has not been discovered
+ * yet, nothing is identified as the fee. The cost is that the kernel's real fee note is
+ * briefly counted as user value — an inflated amount, in the same direction as the
+ * two-candidate case, and the direction a receipt should err. The alternative, trusting the
+ * tag alone, is what let an attacker-chosen note erase itself from an approval sheet
+ * whenever a realm had not primed its cache — and the confirm popup is a SEPARATE realm
+ * whose sync cache starts empty on every open.
  */
 export function partitionFeeNote(
   notes: OutputNote[],
-  nativeFaucetId: string | null
+  nativeFaucetId: string | null,
+  verificationBaseFee: number | null
 ): { feeNote: OutputNote | undefined; userNotes: UserOutputNote[] } {
-  const candidates = notes.filter(note => {
-    if (!hasFeeTag(note)) return false;
-    if (nativeFaucetId === null) return true;
-    return soleFungibleFaucet(note) === nativeFaucetId;
-  });
+  const chainCharges = verificationBaseFee !== null && verificationBaseFee > 0;
+  const candidates =
+    chainCharges && nativeFaucetId !== null
+      ? notes.filter(note => hasFeeTag(note) && soleFungibleFaucet(note) === nativeFaucetId)
+      : [];
   const feeNote = candidates.length === 1 ? candidates[0] : undefined;
   // The ONE place the brand is minted. Sound when a fee note was identified: that note is
   // the only one the predicate matched and it is filtered out. In the AMBIGUOUS branch the
@@ -132,5 +138,5 @@ export function splitExecutedOutputNotes(executed: { outputNotes: () => { notes:
   feeNote: OutputNote | undefined;
   userNotes: UserOutputNote[];
 } {
-  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync());
+  return partitionFeeNote(executed.outputNotes().notes(), getNativeAssetIdSync(), getVerificationBaseFeeSync());
 }

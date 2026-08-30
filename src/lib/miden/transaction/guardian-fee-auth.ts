@@ -72,10 +72,12 @@ export async function ensureFeeAuthOnRequestBytes(requestBytes: Uint8Array): Pro
   // WASM module, and re-entering that under the client lock traps.
   //
   // Both reads are network-dependent and BOTH are caught, for the same reason the
-  // deserialization above is: this function must not be the thing that fails a transaction.
-  // Without the catch a transient RPC blip took down a dApp `execute`, an AggLayer bridged-send
-  // and an earn-deposit -- three flows that reached the chain with no header read at all before
-  // this helper was inserted into their path.
+  // deserialization above is: a transient RPC blip must not fail a transaction. Without the
+  // catch it took down a dApp `execute`, an AggLayer bridged-send and an earn-deposit -- three
+  // flows that reached the chain with no header read at all before this helper was inserted
+  // into their path. Scoped to the two READS deliberately: the annotation calls below are not
+  // caught, because a failure there is a genuine bug and swallowing it would ship a request
+  // that silently cannot pay.
   let feeFaucetId: string;
   try {
     // ONLY skip on a POSITIVE zero. `null` is "not discovered yet", and annotating then is the

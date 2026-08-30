@@ -77,24 +77,39 @@ function importedNoteAssets(b64: string): AssetAmount[] {
 }
 
 /**
- * `outgoing` with the fee taken back out of its own faucet's row.
+ * The summary path's incoming/outgoing with the fee taken back out of the account delta.
  *
- * Only the SUMMARY path needs this. Its total comes from the account DELTA, which is a net
- * vault change with the fee already withdrawn inside it, so the fee arrives folded into the
- * native row; the executed path builds its total from the user notes and never included it.
- * Reporting the fee separately while leaving it folded in would show it twice.
+ * Only the SUMMARY path needs this. Its totals come from the account DELTA — a NET vault
+ * change with the fee already withdrawn inside it — while the executed path builds its
+ * totals from note flows and never included the fee at all. Reporting the fee separately
+ * while leaving it folded into the delta would show it twice.
  *
- * The filter does two jobs. A row the fee exactly accounts for is dropped rather than left
- * at zero, so a fee-only transaction reads as moving nothing rather than as sending 0 — and
- * because the delta is NET, an account that also received the native asset in the same
- * transaction can show a removal smaller than the fee; that row goes negative here and is
- * dropped for the same reason, since a negative amount would render as the user being paid.
+ * Done on the SIGNED net, not on the removed side alone, because the fee faucet can land on
+ * either side of the delta. An account that consumes a 10-native note and pays a 2 fee nets
+ * +8 RECEIVED; subtracting only from removals leaves that as `incoming: 8` while the
+ * executed path calls the same transaction `incoming: 10, fee: 2`. Adding the fee back to
+ * the signed value and re-deciding the direction makes the two agree: -2 + 2 = 0 for a plain
+ * send, +8 + 2 = +10 for that consume. A component that nets to zero is dropped rather than
+ * emitted at 0, so a fee-only transaction reads as moving nothing rather than sending 0.
  */
-function withoutFee(outgoing: AssetAmount[], fee: AssetAmount | undefined): AssetAmount[] {
-  if (!fee) return outgoing;
-  return outgoing
-    .map(a => (a.faucetId === fee.faucetId ? { ...a, amount: a.amount - fee.amount } : a))
-    .filter(a => a.amount > 0n);
+function reconcileFee(
+  added: AssetAmount[],
+  removed: AssetAmount[],
+  fee: AssetAmount | undefined
+): { incoming: AssetAmount[]; outgoing: AssetAmount[] } {
+  if (!fee) return { incoming: added, outgoing: removed };
+  const signed = new Map<string, bigint>();
+  for (const a of added) signed.set(a.faucetId, (signed.get(a.faucetId) ?? 0n) + a.amount);
+  for (const a of removed) signed.set(a.faucetId, (signed.get(a.faucetId) ?? 0n) - a.amount);
+  signed.set(fee.faucetId, (signed.get(fee.faucetId) ?? 0n) + fee.amount);
+
+  const incoming: AssetAmount[] = [];
+  const outgoing: AssetAmount[] = [];
+  for (const [faucetId, amount] of signed) {
+    if (amount > 0n) incoming.push({ faucetId, amount });
+    else if (amount < 0n) outgoing.push({ faucetId, amount: -amount });
+  }
+  return { incoming, outgoing };
 }
 
 /** Ground-truth view from an executed TransactionSummary (authoritative). */
@@ -106,10 +121,15 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   // executed transaction's. Counting it claimed a note the user did not create.
   const { feeNote, userNotes } = splitExecutedOutputNotes(ts);
   const fee = (feeNote ? noteAssets(feeNote) : [])[0];
+  const { incoming, outgoing } = reconcileFee(
+    toAmounts(vault.addedFungibleAssets()),
+    toAmounts(vault.removedFungibleAssets()),
+    fee
+  );
   return {
     account: getBech32AddressFromAccountId(delta.id()),
-    outgoing: withoutFee(toAmounts(vault.removedFungibleAssets()), fee),
-    incoming: toAmounts(vault.addedFungibleAssets()),
+    outgoing,
+    incoming,
     inputNotesConsumed: ts.inputNotes().numNotes(),
     outputNotesCreated: userNotes.length,
     fee,

@@ -2675,6 +2675,16 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
       ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
       ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
     ];
+    // BEFORE the "nothing moves" check, and separate from it. `summaryToView` subtracts the
+    // fee out of `outgoing` so it is not double-counted against the transfer, which means a
+    // transaction whose ONLY movement is the fee arrives here with two empty lists -- and
+    // "No assets move" is exactly the reading most likely to get an approval for something
+    // that does in fact cost the user money.
+    if (view.fee) {
+      const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+      const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
+      effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
+    }
     if (effects.length === 0) {
       effects.push('No assets move');
     }

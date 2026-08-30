@@ -51,7 +51,10 @@ jest.mock('lib/shared/helpers', () => ({
 // id has to be controllable here — with it left `null` the split falls back to tag-alone and
 // the corroboration itself is what goes untested.
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetIdSync: jest.fn(() => 'bech32:native')
+  getNativeAssetIdSync: jest.fn(() => 'bech32:native'),
+  // A fee note only exists on a chain that charges, so the split reads this too — and both
+  // readers failing closed is what stops a dApp's tagged note erasing itself from the sheet.
+  getVerificationBaseFeeSync: jest.fn(() => 10000)
 }));
 
 describe('summaryToView', () => {
@@ -184,21 +187,55 @@ describe('the network fee, on both decode paths', () => {
     expect(view.fee).toEqual({ faucetId: 'bech32:native', amount: 2n });
   });
 
-  it('never renders the user as being PAID when the delta is smaller than the fee', () => {
-    // The delta is net, so an account that also received the native asset in the same
-    // transaction can show a removal below the fee. The subtraction goes negative there,
-    // and a negative amount left in `outgoing` renders as the user receiving money.
+  it('reports a net RECEIPT as incoming when the fee made the delta look like a send', () => {
+    // The delta is NET. An account that consumed a 1-native note and paid a 9 fee nets 8
+    // REMOVED — but only 9 of that is the fee, so the transaction received 1. Adjusting the
+    // removed side alone left this as `outgoing: []`, silently dropping a receipt; the
+    // executed path calls the same transaction `incoming: 1`.
     const ts = {
       accountDelta: () => ({
         id: () => 'acctId',
-        vault: () => ({ removedFungibleAssets: () => [fa(NATIVE_FAUCET, 1n)], addedFungibleAssets: () => [] }),
+        vault: () => ({ removedFungibleAssets: () => [fa(NATIVE_FAUCET, 8n)], addedFungibleAssets: () => [] }),
         storage: () => ({ isEmpty: () => true })
       }),
       inputNotes: () => ({ numNotes: () => 1 }),
       outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(9n)] })
     };
 
-    expect(summaryToView(ts as any).outgoing).toEqual([]);
+    const view = summaryToView(ts as any);
+
+    expect(view.outgoing).toEqual([]);
+    expect(view.incoming).toEqual([{ faucetId: 'bech32:native', amount: 1n }]);
+  });
+
+  it('agrees with the executed path on a consume that also paid a fee', () => {
+    // The case that adjusting only the removed side got wrong: consume a 10-native note,
+    // pay 2. The delta nets +8 RECEIVED; the executed path sees the whole 10 arrive as an
+    // input note. Both must say the same thing, because one renderer shows both under one
+    // "verified" label and the account kind is what decides which path runs.
+    const summary = summaryToView({
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => ({ removedFungibleAssets: () => [], addedFungibleAssets: () => [fa(NATIVE_FAUCET, 8n)] }),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 1 }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] })
+    } as any);
+
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 1, notes: () => [{ note: () => note([fa(NATIVE_FAUCET, 10n)]) }] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(2n)] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+      })
+    });
+    const executed = executedBytesToView('execB64');
+
+    expect(summary.incoming).toEqual(executed.incoming);
+    expect(summary.outgoing).toEqual(executed.outgoing);
+    expect(summary.fee).toEqual(executed.fee);
   });
 
   it('excludes the fee note from the executed path total and reports it separately', () => {
@@ -217,6 +254,47 @@ describe('the network fee, on both decode paths', () => {
     expect(view.fee).toEqual({ faucetId: 'bech32:native', amount: 2n });
     expect(view.outgoing).toEqual([{ faucetId: 'bech32:fA', amount: 10n }]);
     expect(view.outputNotesCreated).toBe(1);
+  });
+
+  it('identifies NOTHING as the fee when the realm has not discovered the native faucet', () => {
+    // The confirm popup is its OWN JS realm and `getNativeAssetIdSync` reads a module-scope
+    // cache with no synchronous hydration, so it starts null on every open. Trusting the tag
+    // in that window let a site's tagged note delete itself from the sheet's totals.
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    nativeAsset.getNativeAssetIdSync.mockReturnValueOnce(null);
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(500n)] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+      })
+    });
+
+    const view = executedBytesToView('execB64');
+
+    expect(view.fee).toBeUndefined();
+    expect(view.outgoing).toEqual([{ faucetId: 'bech32:native', amount: 500n }]);
+  });
+
+  it('identifies NOTHING as the fee on a chain that charges nothing', () => {
+    // No race and no cold cache needed: at base fee 0 the kernel emits no fee note, so a
+    // single NATIVE tagged note satisfies every other corroboration. Testnet is such a chain.
+    const nativeAsset = jest.requireMock('lib/miden-chain/native-asset');
+    nativeAsset.getVerificationBaseFeeSync.mockReturnValueOnce(0);
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [feeNote(500n)] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+      })
+    });
+
+    const view = executedBytesToView('execB64');
+
+    expect(view.fee).toBeUndefined();
+    expect(view.outgoing).toEqual([{ faucetId: 'bech32:native', amount: 500n }]);
   });
 
   it('does not let a dApp note wearing the fee tag erase itself from the totals', () => {

@@ -423,7 +423,7 @@ export async function getNativeAssetMetadata(): Promise<NativeAssetChainMetadata
 }
 
 /**
- * Kick off discovery of BOTH the ID and its metadata eagerly at app bootstrap.
+ * Kick off discovery of the ID, its metadata AND the base fee eagerly at app bootstrap.
  * Errors are swallowed — lazy consumers surface them on their own awaited call.
  */
 export function primeNativeAssetId(): void {
@@ -435,6 +435,15 @@ export function primeNativeAssetId(): void {
   // resolution and writes chain-truth symbol+decimals to cache
   getNativeAssetMetadata().catch(err => {
     console.warn('primeNativeAssetId (metadata) failed', err);
+  });
+  // The FEE, separately, because `getNativeAssetId()` above does NOT reach it. An
+  // installation whose faucet id is already cached — the normal state, since the fee key was
+  // deliberately not a version bump — returns from that cache before `discover()` runs, so
+  // the fee stays null however many times the id is primed. Anything reading the fee
+  // SYNCHRONOUSLY then sees "not discovered yet" forever, and `partitionFeeNote` fails
+  // closed on that, which would silently stop identifying the kernel's fee note at all.
+  getVerificationBaseFee().catch(err => {
+    console.warn('primeNativeAssetId (base fee) failed', err);
   });
 }
 

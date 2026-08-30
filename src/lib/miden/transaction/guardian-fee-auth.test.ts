@@ -11,18 +11,26 @@
  *
  * So the division of labour here is deliberate:
  *
- *   - The SDK's own behaviour was probed against the shipped wasm, not asserted here. Those
+ *   - The SDK's own behaviour was PROBED against the shipped wasm, not asserted here. Those
  *     measurements: `withAuthArg` round-trips through serialize/deserialize; it consumes
  *     neither its receiver nor its `Word` argument; `extendAdviceMap` preserves the auth arg;
- *     the advice preimage survives serialization; the annotation adds 32 bytes and preserves
- *     scriptArg, input notes and own output notes; `authArg()` is `undefined` (not a zero
- *     word) on a request built without one; and `Word.toHex()` is `0x` + 64 lowercase hex
- *     digits, so `/^0x0*$/` identifies the empty word exactly.
+ *     `adviceMap().get(commitment)` returns the preimage after a full round trip, and an
+ *     entry the request ALREADY carried survives both calls intact (the dApp `execute` case);
+ *     the annotation adds 32 bytes and preserves scriptArg, input notes and own output notes;
+ *     a builder handed an explicit zero word yields that zero word from `authArg()` rather
+ *     than `undefined`, so the `/^0x0*$/` branch is load-bearing and not defensive; and
+ *     `Word.toHex()` is `0x` + 64 lowercase hex digits, so that pattern matches the empty
+ *     word exactly.
  *   - THIS file asserts only the module's own decisions — which branch it takes, what it
- *     passes through, what it persists — over a fake that is honest about being one. The
- *     fake below carries a mutable record and does NOT pretend that serialization is
- *     canonical: `serialize()` returns a fresh array every time, so no assertion here can
- *     accidentally depend on byte stability the real SDK does not offer.
+ *     passes through, what it returns.
+ *
+ * WHAT THE FAKE BELOW DOES NOT ESTABLISH, so nobody reads more into it than is there. Its
+ * `serialize()` returns a fresh ARRAY each call, which is identity-freshness only: the
+ * content is `JSON.stringify` of a record and so IS byte-stable, while the real serializer
+ * provably is not (that non-canonicality is what sank the previous attempt's rebuild). No
+ * test here leans on byte stability, and none may start to. The fake also cannot speak to
+ * advice-map MERGE semantics, commitment contents, or anything else on the probed list —
+ * for those, extend the probe, not this file.
  */
 import { resolveAuthArg } from '@openzeppelin/miden-multisig-client';
 
@@ -107,7 +115,14 @@ describe('ensureFeeAuthOnRequestBytes', () => {
     expect(decode(out).authArg).toBe('0xc0mm1tment');
   });
 
-  it('leaves a request that already commits an auth arg untouched', async () => {
+  it('leaves a request whose auth arg is already set untouched — WITHOUT checking what it is', async () => {
+    // Named for what the module does, not what it ought to do. ANY non-zero word counts as
+    // "already committed", so a caller that set an auth arg for its own purposes — a bare
+    // salt, say — suppresses the annotation, and on a guardian account, where this is the
+    // only annotation point, `fee::pay_fee` then aborts. The multisig package ships
+    // `detectAuthArgConvention` to tell a commitment from a bare salt and this module does
+    // not use it. Pre-existing and not fund-relevant (a DoS on the dApp `execute` path);
+    // recorded here so the test is not misread as proof that the distinction is made.
     const input = encode({ payload: 'p', authArg: '0xdeadbeef' });
     const out = await ensureFeeAuthOnRequestBytes(input);
     expect(out).toBe(input);

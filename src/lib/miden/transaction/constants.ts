@@ -51,11 +51,15 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * not cover input notes or the script and `serialize()` is not canonical, so a
  * rebuild could neither carry everything forward nor prove that it did.
  *
- * So this message now means the annotation itself did not happen: bytes that could
- * not be deserialized, or a chain read that failed, both of which
- * `ensureFeeAuthOnRequestBytes` deliberately passes through rather than failing on.
- * Both are transient, so the copy does NOT forbid a retry -- an earlier version
- * did, from when no retry could have helped.
+ * So this message now means the annotation did not take. `ensureFeeAuthOnRequestBytes`
+ * passes bytes through rather than failing on several conditions, any of which
+ * lands here -- bytes it could not deserialize, a chain read that failed, a base
+ * fee still cached as 0 from a previous genesis at the same endpoint, or a request
+ * that already carried an auth arg set for some other purpose. Not an exhaustive
+ * list, and the module is the place to read for the current one.
+ *
+ * What they share is that a retry can plausibly help, so the copy does NOT forbid
+ * one -- an earlier version did, from when no retry could have.
  */
 export const TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR =
   'This transaction could not be set up to pay the network fee, so nothing was submitted. Your balance is not ' +
