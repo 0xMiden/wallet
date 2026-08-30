@@ -618,10 +618,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         guardianSyncStatus: driftStatus
       };
     case WalletMessageType.ApplyUserGuardianEndpointRequest:
-      const applied = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
+      const outcome = await Actions.applyUserGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.ApplyUserGuardianEndpointResponse,
-        applied
+        outcome
       };
     case WalletMessageType.StartGuardianRecoveryRequest:
       const recoveryStarted = await Actions.startGuardianRecovery(req.accountPublicKey);

@@ -50,10 +50,7 @@ export type { SignCallbackReason };
  * already moved forward and the guardian's reply looks stale. The transaction
  * itself is fine; the next sync tick will reconcile. Treat as success.
  */
-export function isGuardianCanonicalizationError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
-  return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
-}
+export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
 
 /**
  * Detect a co-signature that no longer authorizes the transaction being executed:

@@ -104,12 +104,11 @@ jobs:
       - name: Bring up guardians (Tier-2 + Tier-3)
         working-directory: playwright/e2e/local-stack
         run: |
-          # Guardian resilience specs (17-19) need BOTH operators; the
+          # The guardian resilience specs need BOTH operators; the
           # guardian-switch profile implies Tier-2, so this starts guardian (:3000)
           # + guardian-b (:3001) and their postgres backends.
-          # Those three specs are currently quarantined on SDK 0.16
-          # (playwright.resilience.config.ts testIgnore, #522) — the bring-up stays
-          # so the suite is whole again the moment the quarantine is lifted.
+          # (These specs were quarantined on SDK 0.16 — #522 — until the 0.17
+          # guardian client re-enabled them in #766.)
           docker compose --env-file versions.env -f docker-compose.local.yml \
             --profile guardian-switch up -d guardian guardian-postgres guardian-b guardian-b-postgres
       - name: Wait for guardians

@@ -45,7 +45,13 @@ const SUCCESS_RECEIPT_KEYS = [
   'guardianSwitchSuccessInfo1',
   'guardianSwitchSuccessInfo2',
   'guardianSwitchSuccessInfo3',
-  'guardianSwitchSuccessInfo4'
+  'guardianSwitchSuccessInfo4',
+  // The two bullets the unconfirmed receipt SUBSTITUTES for info1 and info3.
+  // They are the same claims about the same subject, differing only in tense,
+  // so leaving them out of the sweep meant the replacement text was held to a
+  // weaker standard than the text it replaces.
+  'guardianSwitchUnconfirmedInfo1',
+  'guardianSwitchUnconfirmedInfo3'
 ] as const;
 
 // The whole receipt surface, labels included — every string that tells the user
@@ -79,6 +85,26 @@ const GUARDIAN_RECEIPT_KEYS = [
  * address did not change" bullet has to survive.
  */
 const ROTATION_WARNING_KEYS = ['oldGuardianCantBlockTitle', 'oldGuardianCantBlockBody'] as const;
+const CONNECTIVITY_GUARDIAN_KEYS = [
+  'connectivityGuardianTitle',
+  'connectivityGuardianBody',
+  'connectivityGuardianCta'
+] as const;
+const GUARDIAN_SETUP_WARNING_KEYS = [
+  'guardianSwitchSetupIncompleteTitle',
+  'guardianSwitchEndpointNotSavedBody',
+  'guardianSwitchRegistrationPendingBody',
+  // The unconfirmed variant of the same alert. Omitting these is how the six
+  // strings added in rounds 22-23 reached a release candidate present in
+  // `en.json` and absent from every `messages.json`: the general parity tests
+  // compare each locale against `en/messages.json`, so a key missing from THAT
+  // file is missing from the comparison set as well, and only this list's
+  // explicit per-locale presence check can see it.
+  'guardianSwitchUnconfirmedHeading',
+  'guardianSwitchUnconfirmedTitle',
+  'guardianSwitchUnconfirmedBody',
+  'guardianSwitchUnconfirmedEndpointNotSaved'
+] as const;
 
 /**
  * Per-language wording that misdescribes the Guardian. Two families:
@@ -663,6 +689,57 @@ describe('Guardian explainer copy accuracy (#479)', () => {
     }
   });
 
+  it('does not promise indefinite background retrying for a pending post-commit registration', () => {
+    // The self-heal for a stuck `/configure` registration is a BOUNDED retry
+    // with backoff, not an unbounded background loop — "the wallet keeps
+    // retrying in the background" overstated that indefinitely. The copy must
+    // both bound the claim and tell the user what to do if the bounded retry
+    // doesn't land.
+    const body = message('guardianSwitchRegistrationPendingBody');
+    expect(body).not.toMatch(/keeps retrying/i);
+    expect(body).toMatch(/limited number of times|a few times/i);
+    expect(body).toMatch(/contact support/i);
+  });
+
+  it('does not steer the user into rotating again to repair an unsaved Guardian endpoint', () => {
+    // "Open Guardian settings and select the new Guardian to finish" starts a
+    // SECOND on-chain `update_guardian` write — Rotate Guardian is the only
+    // Settings affordance and it always initiates a new switch. The verified
+    // pointer-repair path is automatic drift detection + the home "needs your
+    // input" prompt (`GuardianNeedsUrlBanner`), not a Settings selection.
+    const body = message('guardianSwitchEndpointNotSavedBody');
+    expect(body).not.toMatch(/select the new Guardian/i);
+    expect(body).not.toMatch(/open Guardian settings/i);
+    expect(body).toMatch(/won'?t start another switch/i);
+  });
+
+  it('does not offer a Guardian-settings check that cannot detect an unconfirmed switch', () => {
+    // Sibling rule to the one above, and a sharper trap. Completion persists the
+    // new endpoint FIRST and unconditionally (`complete.ts`), Settings renders
+    // the name from exactly that stored value, and drift short-circuits on a
+    // baseline that still matches on chain — so Settings names the new Guardian
+    // and the pill reads Online whether or not the rotation actually landed.
+    // "Check Settings; if it still shows the previous Guardian, retry" therefore
+    // instructs a check that CONFIRMS THE WRONG ANSWER, on the one screen that
+    // exists to warn about that exact silent failure.
+    const body = message('guardianSwitchUnconfirmedBody');
+    expect(body).not.toMatch(/if it still shows/i);
+    expect(body).not.toMatch(/check settings/i);
+    // It has to leave the user something they can actually act on.
+    expect(body).toMatch(/activity|explorer/i);
+    expect(body).toMatch(/run the switch again|try again/i);
+  });
+
+  it('does not claim the old Guardian has no role at all after a direct switch', () => {
+    // The direct-switch path never contacts the outgoing operator, so the
+    // wallet has no way to know whether it retains state from before the
+    // switch — only that its on-chain CO-SIGNING authority is gone. "No longer
+    // has any role" overstated a state the wallet cannot observe.
+    const info1 = message('guardianSwitchSuccessInfo1');
+    expect(info1).not.toMatch(/no longer has any role/i);
+    expect(info1).toMatch(/can no longer co-sign/i);
+  });
+
   it('ships the whole receipt surface in every locale', () => {
     for (const locale of LOCALES) {
       const localeMessages = readMessages(locale);
@@ -784,6 +861,53 @@ describe('Guardian explainer copy accuracy (#479)', () => {
 
   it('sweeps every locale the wallet ships, so a green run cannot mean an empty sweep', () => {
     expect([...LOCALES].sort()).toEqual([...EXPECTED_LOCALES].sort());
+  });
+
+  // The guardian-unreachable banner. DeepL only re-translates a key when its
+  // ENGLISH source changes, so a bad machine translation is permanent until
+  // someone corrects it by hand — and a hand correction is just as permanent
+  // until someone reverts it by hand. These pin the corrections.
+  describe('connectivity banner translations', () => {
+    it('translates the unreachable title instead of shipping the English source', () => {
+      // de shipped the English string verbatim, which reads as an untranslated
+      // app rather than as a fallback.
+      const de = readMessages('de')['connectivityGuardianTitle']?.message ?? '';
+      expect(de).not.toBe(message('connectivityGuardianTitle'));
+      expect(de).toBe('Guardian nicht erreichbar');
+    });
+
+    it('says "change the Guardian", not "switch to Guardian"', () => {
+      // The CTA's object is the Guardian itself. Several locales rendered it as
+      // navigation TO something called Guardian ("Wechseln Sie zu Guardian",
+      // "Перейти на Guardian") or as a noun phrase ("Guardian de troca"), which
+      // describes a different action than the button performs.
+      const cta = (locale: string) => readMessages(locale)['connectivityGuardianCta']?.message ?? '';
+      expect(cta('de')).toBe('Guardian wechseln');
+      expect(cta('pt')).toBe('Trocar Guardian');
+      // "d’Guardian" elides before a consonant, which is ungrammatical; the
+      // wallet's own "Changer de portefeuille" is the pattern.
+      expect(cta('fr')).toBe('Changer de Guardian');
+      expect(cta('tr')).toBe('Guardian’ı değiştir');
+      expect(cta('uk')).toBe('Змінити Guardian');
+    });
+
+    it('ships and keeps the Guardian connectivity and setup warnings in sync in every locale', () => {
+      // The flat bundle is what the UI renders; messages.json is what the
+      // generator reads. The latter must have an englishSource equal to the
+      // current English so format-locales emits the real translation into the
+      // former rather than silently omitting it as stale.
+      for (const locale of LOCALES) {
+        const localeMessages = readMessages(locale);
+        const flat: Record<string, string> = JSON.parse(
+          fs.readFileSync(path.join(LOCALES_DIR, locale, `${locale}.json`), 'utf8')
+        );
+        for (const key of [...CONNECTIVITY_GUARDIAN_KEYS, ...GUARDIAN_SETUP_WARNING_KEYS]) {
+          expect(localeMessages[key]?.message).toBeTruthy();
+          expect(flat[key]).toBeTruthy();
+          expect(flat[key]).toBe(localeMessages[key]?.message);
+        }
+      }
+    });
   });
 
   it('keeps en/messages.json and en/en.json in sync for the changed keys (generator source of truth)', () => {

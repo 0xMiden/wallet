@@ -1,4 +1,3 @@
-import { SendTransaction, SignKind } from '@demox-labs/miden-wallet-adapter-base';
 import {
   AccountBuilder,
   AccountComponent,
@@ -7,6 +6,7 @@ import {
   SigningInputs,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
+import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import * as Bip39 from 'bip39';
 import { parseTransaction, toHex } from 'viem';
 import type { Hex } from 'viem';

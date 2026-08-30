@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { ReactComponent as GuardianSwitchArt } from 'app/icons/guardian-switch-success.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
@@ -35,10 +36,37 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     : undefined;
   const newName = extra ? guardianEndpointDisplayName(extra.newGuardianEndpoint, unknown) : undefined;
 
+  // A rotation can COMMIT on chain and still leave a post-commit step undone:
+  // the completion handler records that in `endpointPersistFailed` (this device
+  // never saved the new address, so it is still pointed at the old operator) and
+  // `registerFailed` (the new operator holds no state for the account yet). Both
+  // are deliberately Completed rather than Failed — the switch really did
+  // happen — but rendering the same unconditional "you're protected" receipt
+  // over either one tells the user the opposite of what the row says, on the
+  // last screen they will ever look at for this operation. The unsaved-address
+  // case needs them; the pending-registration case self-heals from the sync
+  // loop, so it explains rather than instructs.
+  const endpointNotSaved = extra?.endpointPersistFailed === true;
+  const registrationPending = extra?.registerFailed === true;
+  // A third, sharper case: the direct path SUBMITTED the rotation and never
+  // established that it committed. It outranks the other two, because both of
+  // their bodies open by asserting the switch is confirmed on chain — the one
+  // thing this state means the wallet does not know. If it did not land, the OLD
+  // operator is still the guardian and nothing downstream detects that, so this
+  // receipt is the user's only notice.
+  const commitUnconfirmed = extra?.commitUnconfirmed === true;
+
+  // Two of the four bullets assert the rotation took effect, and both are
+  // INVERTED when it may not have landed: info1 says the old guardian can no
+  // longer co-sign, and info3 says new transactions need the NEW guardian
+  // reachable — when in fact, if the switch did not land, they still need the
+  // old one, which is the operator this path already found unreachable. Both
+  // are swapped for "once the switch is confirmed" phrasings. info2 (nothing
+  // moved) and info4 (you can rotate again) hold either way.
   const infoKeys = [
-    'guardianSwitchSuccessInfo1',
+    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo1' : 'guardianSwitchSuccessInfo1',
     'guardianSwitchSuccessInfo2',
-    'guardianSwitchSuccessInfo3',
+    commitUnconfirmed ? 'guardianSwitchUnconfirmedInfo3' : 'guardianSwitchSuccessInfo3',
     'guardianSwitchSuccessInfo4'
   ] as const;
 
@@ -46,7 +74,7 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     <TransactionSuccessLayout
       headerTitle=""
       hero={<GuardianSwitchArt className="h-40 w-auto" aria-hidden="true" />}
-      title={t('guardianSwitchSuccessTitle')}
+      title={t(commitUnconfirmed ? 'guardianSwitchUnconfirmedHeading' : 'guardianSwitchSuccessTitle')}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
       secondaryAction={{
         label: t('viewInActivities'),
@@ -79,6 +107,34 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
           <span className="sr-only">{t('newGuardianLabel')}: </span>
           <span className="break-all">{newName}</span>
         </div>
+      )}
+
+      {(commitUnconfirmed || endpointNotSaved || registrationPending) && (
+        <Alert
+          className="mt-3 w-full text-left"
+          variant={AlertVariant.Warning}
+          title={
+            <>
+              <span className="font-semibold">
+                {t(commitUnconfirmed ? 'guardianSwitchUnconfirmedTitle' : 'guardianSwitchSetupIncompleteTitle')}
+              </span>{' '}
+              {commitUnconfirmed
+                ? t('guardianSwitchUnconfirmedBody')
+                : t(endpointNotSaved ? 'guardianSwitchEndpointNotSavedBody' : 'guardianSwitchRegistrationPendingBody')}
+              {/* `commitUnconfirmed` outranks the other two because their bodies
+                  open by asserting the commit. But outranking them dropped the
+                  one INSTRUCTION on this screen: the unsaved-address case needs
+                  the user to re-enter the address, and needs them to know that
+                  prompt is not a second rotation. Without it, a user reading
+                  "run the switch again" above and then seeing the OLD operator
+                  in Settings has been walked into starting one. Appended rather
+                  than substituted, so the unconfirmed framing still leads.
+                  `registerFailed` has no equivalent line: it self-heals from the
+                  sync loop and asks nothing of the user. */}
+              {commitUnconfirmed && endpointNotSaved && <> {t('guardianSwitchUnconfirmedEndpointNotSaved')}</>}
+            </>
+          }
+        />
       )}
 
       <SuccessDivider />

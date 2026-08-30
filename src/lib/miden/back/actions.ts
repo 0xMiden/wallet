@@ -476,13 +476,13 @@ export function checkGuardianDrift(accountPublicKey: string) {
  */
 export function applyUserGuardianEndpoint(accountPublicKey: string, endpoint: string) {
   return withUnlocked(async ({ vault }) => {
-    const applied = await applyVerifiedGuardianEndpoint(queuedDriftVaultAdapter(vault), accountPublicKey, endpoint);
-    if (applied) {
+    const outcome = await applyVerifiedGuardianEndpoint(queuedDriftVaultAdapter(vault), accountPublicKey, endpoint);
+    if (outcome === 'applied') {
       const accounts = await vault.fetchAccounts();
       const currentAccount = await vault.getCurrentAccount();
       accountsUpdated({ accounts, currentAccount });
     }
-    return applied;
+    return outcome;
   });
 }
 

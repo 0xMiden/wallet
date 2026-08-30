@@ -1,4 +1,4 @@
-import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
+import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -35,13 +35,60 @@ export const getStepDurationsMs = (
   stageTimestamps: Partial<Record<ITransactionStage, number>> | undefined
 ): (number | undefined)[] =>
   steps.map((step, index) => {
-    const start = stageTimestamps?.[step.startStage];
+    const start = stepStartStamp(step, stageTimestamps);
     const nextStep = steps[index + 1];
-    const endStage: ITransactionStage = nextStep ? nextStep.startStage : 'complete';
-    const end = stageTimestamps?.[endStage];
+    const end = nextStep ? stepStartStamp(nextStep, stageTimestamps) : stageTimestamps?.['complete'];
     if (start === undefined || end === undefined || end < start) return undefined;
     return end - start;
   });
+
+/**
+ * When does this step begin? `startStage` first, then `fallbackStartStage` for a
+ * path that stamps a different opening stage (see the field's docs). Used for
+ * both ends of a span, so the boundary a step's duration ENDS on is resolved the
+ * same way the next step's own start is — otherwise the two would disagree and a
+ * step could be timed against a stamp the following step does not use.
+ */
+const stepStartStamp = (
+  step: TransactionStepDef,
+  stageTimestamps: Partial<Record<ITransactionStage, number>> | undefined
+): number | undefined =>
+  stageTimestamps?.[step.startStage] ??
+  (step.fallbackStartStage === undefined ? undefined : stageTimestamps?.[step.fallbackStartStage]);
+
+/**
+ * Did this row rotate its guardian by signing locally, rather than through the
+ * outgoing operator? Reads the `switchedDirectly` marker the direct path stamps
+ * on the row before it signs, so the step labels are right while the steps are
+ * happening and not only on the receipt.
+ *
+ * The `signing-locally` STAGE counts as the same evidence, because the marker
+ * write is deliberately non-fatal: the direct path logs and continues when the
+ * dexie `modify` fails (the flow it protects reads its own in-memory copy), and
+ * the stage stamp that follows is a separate write that still lands. Without this
+ * the screen would read the marker as absent and label a direct rotation with the
+ * coordinated step "Guardian approved" — while its own title said "Signing
+ * locally" — which is the contradiction these labels exist to remove. The
+ * TIMESTAMP rather than the live stage, so it keeps holding once the row moves on
+ * to executing/proving. `signing-locally` has exactly one producer.
+ */
+export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
+  tx?.type === 'switch-guardian' &&
+  (tx.extraInputs?.switchedDirectly === true ||
+    tx.stage === 'signing-locally' ||
+    tx.stageTimestamps?.['signing-locally'] !== undefined);
+
+/**
+ * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that
+ * the rotation committed. The row still completes — it is not a failure, and
+ * there is no honest way to call it one — so every surface that reads
+ * "completed" as "confirmed on chain" has to consult this instead. The receipt
+ * was the first to do so; the in-progress screen and the Activity row title
+ * followed, because a receipt that is careful for 1.5 seconds after two screens
+ * have already certified the opposite is not careful at all.
+ */
+export const isUnconfirmedGuardianSwitch = (tx: ITransaction | undefined): boolean =>
+  tx?.type === 'switch-guardian' && tx.extraInputs?.commitUnconfirmed === true;
 
 export const getTransactionStepState = (
   index: number,
@@ -68,6 +115,7 @@ export const getStageTitleKey = (stage?: ITransactionStage, type?: ITransactionT
   if (stage === 'syncing') return 'transactionStageSyncing';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposal';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposal';
+  if (stage === 'signing-locally') return 'transactionStageSigningLocally';
   if (stage === 'proving') return 'transactionStageProving';
   if (stage === 'submitting') return 'transactionStageSubmitting';
   if (stage === 'guardian-syncing') return 'transactionStageGuardianSyncing';
@@ -87,6 +135,7 @@ export const getStageDescriptionKey = (stage?: ITransactionStage): string => {
   if (stage === 'syncing') return 'transactionStageSyncingDescription';
   if (stage === 'creating-proposal') return 'transactionStageCreatingProposalDescription';
   if (stage === 'signing-proposal') return 'transactionStageSigningProposalDescription';
+  if (stage === 'signing-locally') return 'transactionStageSigningLocallyDescription';
   if (stage === 'executing') return 'transactionStageExecutingDescription';
   if (stage === 'proving') return 'transactionStageProvingDescription';
   if (stage === 'submitting') return 'transactionStageSubmittingDescription';

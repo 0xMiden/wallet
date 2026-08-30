@@ -1,4 +1,4 @@
-import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { MidenDAppMetadata } from 'lib/adapter/types';
 import { ReadyWalletState, WalletMessageBase, WalletNetwork, WalletState } from 'lib/shared/types';

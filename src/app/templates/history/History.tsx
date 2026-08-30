@@ -5,6 +5,7 @@ import {
   cancelTransactionById,
   getCompletedTransactions,
   getUncompletedTransactions,
+  isCancellableTransaction,
   isUserCancelledTransaction,
   suppressingLinkedTxIds,
   USER_CANCELLED_TRANSACTION_REASON
@@ -109,6 +110,11 @@ const History = memo<HistoryProps>(
     const pendingTransactions = useMemo(
       () =>
         latestPendingTransactions?.map(tx => {
+          // A structural op already in flight gets no Cancel — see
+          // `isCancellableTransaction`. The pending list is Queued +
+          // GeneratingTransaction, so this is the only place the distinction can
+          // be made before the affordance is attached.
+          if (!isCancellableTransaction({ status: tx.status, type: tx.txType })) return tx;
           tx.cancel = async () => {
             if (tx.txId) {
               await cancelTransactionById(tx.txId, USER_CANCELLED_TRANSACTION_REASON);

@@ -892,6 +892,10 @@
     "message": "Guardian 승인됨",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "이 기기에서 서명됨",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "생성된 증명",
     "englishSource": "Proof generated"
@@ -972,6 +976,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "귀하의 guardian가 제안서에 서명하고 있습니다.",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "로컬 서명",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "지갑 키로 서명",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "거래 제출",
@@ -2040,6 +2052,22 @@
     "message": "위치:",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "오프라인",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "연결되지 않음",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "조치 필요",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "확인 중",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
@@ -2424,9 +2452,45 @@
     "message": "현재 변경 사항",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Guardian 변경을 제출했습니다",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "아직 확인되지 않았습니다.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "변경이 제출되었지만 이 기기에서는 온체인에서 처리되었는지 확인할 수 없었습니다. 지갑에서는 확인해 드릴 수 없습니다. Guardian 설정과 이 거래의 활동 항목은 어느 쪽이든 새 Guardian을 표시합니다. 이후 거래가 공동 서명되지 않아 거부되면 변경을 다시 실행하세요.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "이 기기는 새 Guardian의 주소도 저장하지 못해 이전 주소가 계속 표시됩니다. 지갑이 다시 입력하도록 요청하지만, 그 요청으로 또 다른 변경이 시작되지는 않습니다.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "변경이 확인되면 새 거래는 완료되기 전에 새 Guardian에 연결할 수 있어야 합니다.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "변경이 온체인에서 확인되면 새 Guardian이 모든 트랜잭션에 공동 서명하며, 이전 Guardian은 더 이상 계정에 공동 서명할 수 없습니다.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "설정이 완료되지 않았습니다.",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "전환은 온체인에서 확인되었지만 이 기기에서 새 Guardian의 주소를 저장하지 못했습니다. 지갑이 이를 자동으로 확인하고 필요하면 다시 입력하라는 안내를 표시합니다. 이로 인해 다른 전환이 시작되지는 않습니다. 안내가 표시되지 않으면 지원팀에 문의하세요.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "전환은 온체인에서 확인되었습니다. 새 Guardian에 계정을 등록하는 작업이 아직 완료되지 않았습니다. 지갑이 자동으로 제한된 횟수만 재시도합니다. 그래도 완료되지 않으면 지원팀에 문의하세요.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 어떠한 역할도 수행하지 않습니다.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "이제부터 모든 거래에는 새로운 Guardian가 공동 서명하게 되며, 기존 Guardian는 더 이상 귀하의 계정 거래에 공동 서명할 수 없습니다.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "사용자의 지갑 주소, 자금 및 내역은 변함이 없습니다. 로테이션 과정에서 이동된 항목은 없습니다.",
@@ -2508,9 +2572,29 @@
     "message": "guardian가 변경되었으며, 새로운 운영자를 확인할 수 없었습니다. URL을 입력하여 다시 연결하십시오.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlUnreachable": {
+    "message": "해당 운영자에 연결할 수 없습니다. URL과 네트워크 연결을 확인한 후 다시 시도하세요.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
   "guardianUrlMismatch": {
     "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian 접근 불가",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "guardian가 응답하지 않아 거래를 공동 서명할 수 없습니다.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Guardian 전환",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "기기 키 표시",
@@ -2711,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "트랜잭션이 생성될 때까지 이 창을 닫지 마십시오.",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "거래가 제출되었지만 이 기기에서는 네트워크에서 확인할 수 없었습니다.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "귀하의 거래가 성공적으로 처리되었으며 네트워크에서 확인되었습니다.",

@@ -565,24 +565,24 @@ describe('actions', () => {
       const currentAccount = accounts[0];
       mockVault.fetchAccounts.mockResolvedValue(accounts);
       mockVault.getCurrentAccount.mockResolvedValue(currentAccount);
-      applyVerified.mockResolvedValueOnce(true);
+      applyVerified.mockResolvedValueOnce('applied');
 
       const result = await applyUserGuardianEndpoint('pk1', 'https://mine');
 
-      expect(result).toBe(true);
+      expect(result).toBe('applied');
       expect(applyVerified).toHaveBeenCalledWith(expect.any(Object), 'pk1', 'https://mine');
       expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts, currentAccount });
     });
 
     it('does not re-read or broadcast account state when the endpoint fails verification', async () => {
       const { applyUserGuardianEndpoint: applyVerified } = jest.requireMock('lib/miden/back/guardian-drift');
-      applyVerified.mockResolvedValueOnce(false);
+      applyVerified.mockResolvedValueOnce('mismatch');
       mockAccountsUpdated.mockClear();
       mockVault.fetchAccounts.mockReset();
 
       const result = await applyUserGuardianEndpoint('pk1', 'https://wrong');
 
-      expect(result).toBe(false);
+      expect(result).toBe('mismatch');
       expect(mockAccountsUpdated).not.toHaveBeenCalled();
     });
 

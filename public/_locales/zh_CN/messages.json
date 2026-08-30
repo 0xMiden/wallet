@@ -892,6 +892,10 @@
     "message": "Guardian 已审核",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "已在此设备上签名",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "已生成证明",
     "englishSource": "Proof generated"
@@ -972,6 +976,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "您的guardian正在签署该提案。",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "本地签名",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "使用您的钱包密钥签名",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "提交交易",
@@ -2040,6 +2052,22 @@
     "message": "地点：",
     "englishSource": "Location:"
   },
+  "guardianOfflineLabel": {
+    "message": "离线",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "未连接",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "需要处理",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "检查中",
+    "englishSource": "Checking"
+  },
   "whatIsAGuardian": {
     "message": "什么是Guardian？",
     "englishSource": "What is a Guardian?"
@@ -2424,9 +2452,45 @@
     "message": "当前有哪些变化",
     "englishSource": "What changes now"
   },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "已提交 Guardian 更换",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "尚未确认。",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "切换已提交，但本设备无法确认它已在链上生效。钱包无法为你确认——无论结果如何，Guardian 设置和该交易的活动记录都会显示新的 Guardian。如果后续交易因无法联合签名而被拒绝，请重新执行切换。",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "本设备也未能保存新 Guardian 的地址，因此仍显示上一个地址。钱包会请你重新输入——该提示不会启动另一次切换。",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "切换确认后，新交易需要能够连接到你的新 Guardian 才能完成。",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "更换在链上确认后，新的 Guardian 将联合签名你的每一笔交易，原先的 Guardian 将无法再为你的账户联合签名。",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "设置未完成。",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "切换已在链上确认，但此设备无法保存新 Guardian 的地址。钱包会自动检查，并在需要时提示您重新输入；这不会发起另一次切换。如果没有出现提示，请联系支持团队。",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "切换已在链上确认。使用新 Guardian 注册您的账户尚未完成；钱包会自动重试有限次数。如果仍未完成，请联系支持团队。",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将不再承担任何职能。",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "从即日起，您的新 Guardian 将对每笔交易进行联署——您旧的 Guardian 将无法再对您账户的交易进行联署。",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "您的钱包地址、资金及交易记录均保持不变。轮换过程中没有任何资产被转移。",
@@ -2508,9 +2572,29 @@
     "message": "您的 guardian 已更换，且我们无法识别新运营商。请输入其 URL 以重新连接。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlUnreachable": {
+    "message": "无法连接该运营方。请检查网址和网络连接后重试。",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "此账户尚未设置可用于核对的链上 Guardian。",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
   "guardianUrlMismatch": {
     "message": "该操作者与您账户的链上guardian不匹配。",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian 无法访问",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "您的 guardian 未响应，因此无法对交易进行联署。",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "切换 Guardian",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "显示设备密钥",
@@ -2711,6 +2795,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "在生成交易之前，请勿关闭此窗口",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "你的交易已提交，但本设备无法在网络上确认它。",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "您的交易已成功处理并在网络上得到确认。",

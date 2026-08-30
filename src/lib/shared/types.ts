@@ -825,9 +825,19 @@ export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
   guardianEndpoint: string;
 }
 
+/**
+ * Why applying a user-typed guardian endpoint did or did not stick.
+ *
+ * Not a boolean, because the banner that offers this repair accuses the URL
+ * the user typed when it fails, and only `'mismatch'` is evidence against it.
+ * `'unreachable'` (no answer, or an answer carrying no commitment) is a fact
+ * about the network, not about the URL.
+ */
+export type ApplyUserEndpointOutcome = 'applied' | 'mismatch' | 'unreachable' | 'no-onchain-guardian';
+
 export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.ApplyUserGuardianEndpointResponse;
-  applied: boolean;
+  outcome: ApplyUserEndpointOutcome;
 }
 
 export interface StartGuardianRecoveryRequest extends WalletMessageBase {

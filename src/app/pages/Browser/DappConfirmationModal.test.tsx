@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { PrivateDataPermission, AllowedPrivateData } from '@demox-labs/miden-wallet-adapter-base';
+import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
@@ -9,13 +9,13 @@ import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 import { DappConfirmationModal } from './DappConfirmationModal';
 
 // The wallet-adapter package ships as ESM and is not transformed by jest, so the
-// repo-level manual mock (`__mocks__/@demox-labs/miden-wallet-adapter-base.ts`)
+// repo-level manual mock (`__mocks__/@miden-sdk/miden-wallet-adapter-base.ts`)
 // stands in for it — but that stub exports `AllowedPrivateData` as `{}`, which
 // makes every member `undefined`: the bit masking in `formatAllowedPrivateData`
 // degrades to `NaN` and the `=== PrivateDataPermission.Auto` check degrades to
 // `undefined === undefined`, i.e. always true. Restore the real values so these
 // assertions describe production behaviour instead of the stub's.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

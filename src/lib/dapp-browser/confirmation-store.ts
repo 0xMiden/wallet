@@ -21,7 +21,7 @@
  *    "default" key. Their behavior is unchanged.
  */
 
-import { PrivateDataPermission, AllowedPrivateData } from '@demox-labs/miden-wallet-adapter-base';
+import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { DappMetadata } from 'lib/miden/types';
 

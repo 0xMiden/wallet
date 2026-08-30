@@ -2,6 +2,8 @@ import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
+import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
+import { withTimeout } from 'lib/miden/guardian/discover';
 import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
@@ -372,6 +374,33 @@ const POST_ROTATION_REREGISTER_ATTEMPTS = 3;
 /** Linear backoff base between those attempts. */
 const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
 
+/**
+ * Ceiling on the post-commit endpoint write, which is a local vault write behind
+ * (on the frontend) an intercom request that cannot time out on its own.
+ *
+ * Generous, because exceeding it books an audit flag rather than retrying: this
+ * only has to be longer than any healthy round trip to a busy service worker,
+ * and the cost of being wrong in the short direction is a false "may not have
+ * persisted" on a write that did land.
+ */
+export const ENDPOINT_PERSIST_TIMEOUT_MS = 15_000;
+
+/**
+ * How many times to try writing the terminal status of a rotation that has
+ * ALREADY committed on chain, and how long to space the attempts.
+ *
+ * Only reached when the first write already failed, so the cost is paid only on a
+ * path that is going wrong. The point of more than one retry is that the failures
+ * worth surviving here (an IndexedDB transaction abort under contention) recur
+ * immediately and then clear, which is precisely the shape a single immediate
+ * retry cannot survive. Small and bounded because the alternative to giving up is
+ * not waiting forever: past this the row is reaped into Failed, which for a
+ * committed rotation is a lie, so the budget exists to make that outcome rare
+ * rather than to eliminate it (see the residual noted at the call site).
+ */
+export const TERMINAL_STATUS_WRITE_ATTEMPTS = 4;
+export const TERMINAL_STATUS_WRITE_BACKOFF_MS = 250;
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -532,49 +561,232 @@ export const completeUpdateProcedureThresholdTransaction = async (
   }
 };
 
+/**
+ * Extract the persistable fields of a {@link TransactionResult} without letting
+ * a WASM-handle failure propagate. Returns `undefined` when there is no result
+ * (the apply-after-submit reconcile path) or when the handle can no longer be
+ * read, so callers can spread it into a status payload unconditionally.
+ */
+const readTransactionResultFields = (
+  result: TransactionResult | undefined
+): { transactionId: string; resultBytes: Uint8Array } | undefined => {
+  if (!result) return undefined;
+  try {
+    return { transactionId: result.executedTransaction().id().toHex(), resultBytes: result.serialize() };
+  } catch (error) {
+    console.warn('Could not read the transaction result for the guardian switch row (completing without it):', error);
+    return undefined;
+  }
+};
+
 export const completeSwitchGuardianTransaction = async (
   tx: SwitchGuardianTransaction,
   result: TransactionResult | undefined,
-  multisigService: MultisigService,
-  guardianProvider: GuardianAccountProvider
+  // Undefined on the DIRECT-switch fallback (outgoing guardian unreachable):
+  // no MultisigService exists — building one loads from the old guardian —
+  // so registration on the new guardian runs standalone instead.
+  multisigService: MultisigService | undefined,
+  guardianProvider: GuardianAccountProvider,
+  // True when the caller submitted but could never establish that the rotation
+  // COMMITTED. Recorded on the row so the receipt can decline to claim a
+  // confirmation the code never obtained.
+  //
+  // Two callers pass it: the direct path when `didDirectSwitchLand` answers
+  // `undefined`, and `reconcileStructuralApplyFailure` always — an
+  // apply-after-submit failure proves the node accepted the transaction and
+  // nothing beyond that.
+  //
+  // The default is `false` for the paths that WAITED for the commit and got it.
+  // That is a claim about the commit wait, not about which path called: do not
+  // read this default as "coordinated means confirmed" and add a caller without
+  // checking which of the two it is.
+  commitUnconfirmed = false
 ) => {
+  // Read the WASM-backed result fields ONCE, up front, before anything that can
+  // select a terminal status depends on them.
+  //
+  // `executedTransaction()` and `serialize()` reach into a WASM handle that by
+  // now has been idle across the commit wait, an optional node-state read, and
+  // up to eight registration attempts with backoff — long enough for a #775
+  // poison eviction to have replaced the client and disposed the module
+  // underneath it. Read inline in the status payload, that throw landed INSIDE
+  // the post-commit section, where it selected the Failed path for a rotation
+  // that had already committed — the exact state the ordering below exists to
+  // prevent. Worse, the catch's own payload called `serialize()` again, so it
+  // threw a second time and escaped this function entirely, leaving the row with
+  // no terminal status at all.
+  const resultFields = readTransactionResultFields(result);
+  // Declared OUT here, not in the try, because the fallback write in the catch
+  // needs them: they are the only record that a post-commit step did not land,
+  // and `GuardianSwitchSuccess` renders its "setup incomplete" warning off
+  // exactly these two. Scoped inside, the fallback wrote a row that claimed a
+  // clean switch on the two states the user most needs told about.
+  let endpointPersistFailed = false;
+  let registerFailed = false;
   try {
     const { newGuardianEndpoint } = tx.extraInputs;
 
     // Mirror upstream `multisig.executeProposal`'s post-submit block for
-    // switch_guardian proposals: register on the new guardian with the
-    // updated account state before anything else touches the local cache
-    // or storage. If this throws, storage + status stay untouched so the
-    // user can retry.
-    await setTransactionStage(tx.id, 'registering-guardian');
-    await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+    // switch_guardian proposals: register on the new guardian with the updated
+    // account state, so the new operator holds the post-switch blob.
+    //
+    // Best-effort, like `replace-hot-key`'s post-rotation re-register: by the
+    // time this runs, `update_guardian` has COMMITTED, so the account's guardian
+    // IS the new operator and a vault still naming the old one is simply wrong.
+    // Aborting here used to leave exactly that state, and the comment claiming
+    // "the user can retry" was not true — `switch-guardian` is in no requeue set
+    // and `isRequeueableTransaction` excludes it, so the row was terminal.
+    //
+    // On the DIRECT path that stranding is unrecoverable rather than merely
+    // untidy, because the direct path's whole premise is that the OLD operator is
+    // unreachable: `syncGuardianAccounts` builds its service from the STORED
+    // endpoint, so a vault pointing at the dead operator can never reach the new
+    // one. Persisting the endpoint is what restores recoverability — the next
+    // tick talks to the new operator, and an account it has no record of is
+    // repaired by `guardian-sync`'s missing-registration self-heal.
+    //
+    // So the endpoint write goes FIRST, ahead of the registration it used to
+    // follow. It is the load-bearing anti-stranding write and it is idempotent,
+    // while registration is the step allowed to fail; ordering it second put the
+    // only unguarded call after a multi-minute rotation, where an auto-lock makes
+    // `setGuardianEndpoint` throw `Wallet is locked` — and the outer catch then
+    // marked a COMMITTED rotation Failed with the dead operator still stored,
+    // which is precisely the state this ordering exists to prevent. Both steps
+    // now record their outcome instead of aborting the completion.
+    //
+    // The same reasoning extends to the BOOKKEEPING either side of them. Past the
+    // commit, the rotation is a fact on chain, so the only honest terminal status
+    // is Completed — and every remaining call here is incidental: a progress stamp
+    // and a cache eviction. Leaving them unguarded meant a Dexie rejection on a
+    // stage write, before the endpoint had been persisted, produced the identical
+    // stranded-and-Failed state through a purely cosmetic call. Nothing between
+    // here and the status write may select the Failed path.
+    await setTransactionStage(tx.id, 'registering-guardian').catch(stageError => {
+      console.warn(
+        'Could not stamp the registering-guardian stage (non-fatal, the switch has already committed):',
+        stageError
+      );
+    });
 
     // Persist the endpoint PER-ACCOUNT (not the legacy global key) so other
     // Guardian accounts on different operators aren't clobbered. Backend
     // providers implement setGuardianEndpoint; the optional-call guard keeps a
     // frontend provider without it from throwing.
-    await guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint);
-    clearGuardianServiceFor(tx.accountId);
+    try {
+      // BOUNDED, because a hang here is worse than a rejection. On the frontend
+      // this provider method is an intercom request, and `request()` in
+      // lib/intercom/client.ts has no timeout while its `onDisconnect` reconnects
+      // the port WITHOUT settling anything in flight — so an MV3 worker recycle
+      // at this moment strands the promise. Every other step in this sequence
+      // records its outcome and moves on precisely so the row always reaches a
+      // terminal status; an unbounded await defeats that from the inside, leaving
+      // a committed rotation parked at GeneratingTransaction forever, with the
+      // audit flags never written because the status write is never reached.
+      //
+      // A timeout is NOT evidence the write did not land, so it books the same
+      // flag as a rejection: "may not have landed, reconcile it". If it did land,
+      // the flag is a harmless false positive — drift reconciliation reads the
+      // stored endpoint, finds it correct, and affirms in-sync.
+      await withTimeout(
+        Promise.resolve(guardianProvider.setGuardianEndpoint?.(tx.accountId, newGuardianEndpoint)),
+        ENDPOINT_PERSIST_TIMEOUT_MS,
+        'persisting the new guardian endpoint'
+      );
+    } catch (persistError) {
+      endpointPersistFailed = true;
+      console.error(
+        'On-chain guardian switch committed but persisting the new endpoint failed — the vault still names the ' +
+          'previous operator; guardian drift reconciliation is the remaining repair path:',
+        persistError
+      );
+    }
+
+    try {
+      if (multisigService) {
+        await multisigService.finalizeGuardianSwitch(newGuardianEndpoint);
+      } else {
+        await finalizeDirectGuardianSwitch(tx.accountId, newGuardianEndpoint, guardianProvider);
+      }
+    } catch (registerError) {
+      registerFailed = true;
+      console.error(
+        'On-chain guardian switch committed but registering on the new guardian failed — the account stays ' +
+          'unknown to the new operator until the guardian-sync self-heal lands a registration:',
+        registerError
+      );
+    }
+
+    try {
+      clearGuardianServiceFor(tx.accountId);
+    } catch (evictError) {
+      console.warn('Could not evict the cached guardian service (non-fatal):', evictError);
+    }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       ...feeFieldsFromResult(result),
-      displayMessage: 'Guardian switched',
+      // The Activity list renders this string as the row title, so it is a
+      // claim about the chain, not a log line. "Guardian switched" is one the
+      // unconfirmed path cannot make — and the receipt's recovery copy used to
+      // send the user to Activity to check, where this asserted the opposite.
+      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      // `result` is absent on the apply-after-submit-failed reconcile path: the
-      // switch is already on chain, we just lack the local TransactionResult.
-      ...(result && {
-        transactionId: result.executedTransaction().id().toHex(),
-        resultBytes: result.serialize()
-      })
+      // Preserve the audit fields (updateTransactionStatus Object.assigns the
+      // whole extraInputs) and record which post-commit steps landed.
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
+      // Absent on the apply-after-submit-failed reconcile path (no local
+      // TransactionResult), and absent if reading the handle threw — the switch
+      // is on chain either way, so the row completes without them.
+      ...resultFields
     });
   } catch (error) {
-    console.error('Error completing switch guardian transaction:', error);
-    await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
-      displayMessage: 'Failed to switch guardian',
+    // Past the commit, Failed is not an honest terminal status: the rotation IS
+    // on chain. Every step above records its own outcome instead of throwing, so
+    // reaching here means the status write itself failed — and answering that by
+    // writing the OPPOSITE status would tell the user their rotation failed when
+    // it succeeded, with no Retry available (`switch-guardian` is in no requeue
+    // set). Retry the honest status instead, and leave the row alone if even
+    // that fails: the transaction page's own reaper is a better fallback than a
+    // lie.
+    //
+    // The retry carries the SAME payload as the primary write. An earlier
+    // version dropped `resultFields` here "in case those were the problem",
+    // which stopped being possible once the handle reads were hoisted above the
+    // try — `resultFields` is inert plain data by this point, so omitting it
+    // only cost the row its on-chain transaction id and the receipt's explorer
+    // link.
+    //
+    // RETRIED MORE THAN ONCE, and spaced. A single retry made the honest status
+    // depend on two consecutive IndexedDB writes, and the reachable cause of the
+    // first failure — a transaction abort under contention, a storage hiccup — is
+    // exactly the kind that recurs immediately and then clears. What happens if
+    // both fail is not "the row is left alone": it stays at
+    // `GeneratingTransaction`, and `cancelStuckTransactions` reaps an in-progress
+    // row into FAILED, so the fallback IS the lie this block refuses to write,
+    // just delivered later and with a generic reason. Spacing the attempts costs
+    // nothing on the happy path (it is only reached when a write has already
+    // failed) and removes the single-retry coincidence.
+    console.error('Error completing switch guardian transaction (the switch itself has already committed):', error);
+    const completedPayload = {
+      displayMessage: commitUnconfirmed ? 'Guardian switch submitted' : 'Guardian switched',
       completedAt: Math.floor(Date.now() / 1000), // seconds
-      ...(result && { resultBytes: result.serialize() }),
-      error: error instanceof Error ? error.message : String(error)
-    });
+      extraInputs: { ...tx.extraInputs, registerFailed, endpointPersistFailed, commitUnconfirmed },
+      ...resultFields
+    };
+    for (let attempt = 1; attempt <= TERMINAL_STATUS_WRITE_ATTEMPTS; attempt++) {
+      try {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, completedPayload);
+        return;
+      } catch (retryError) {
+        console.error(
+          `Could not record the completed status for the guardian switch row ` +
+            `(attempt ${attempt}/${TERMINAL_STATUS_WRITE_ATTEMPTS}):`,
+          retryError
+        );
+        if (attempt < TERMINAL_STATUS_WRITE_ATTEMPTS) {
+          await new Promise(resolve => setTimeout(resolve, TERMINAL_STATUS_WRITE_BACKOFF_MS * attempt));
+        }
+      }
+    }
   }
 };
 

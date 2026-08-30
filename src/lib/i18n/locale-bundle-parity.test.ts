@@ -96,6 +96,20 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat(locale)).toEqual(expected);
   });
 
+  it('every key in the en.json SOURCE reaches en/messages.json', () => {
+    // The comparison set for every other test in this file is
+    // `Object.keys(en/messages.json)`. So a key added to the hand-authored
+    // `en.json` source and never propagated is not merely untested — it is
+    // absent from the thing the tests compare against, and the whole suite
+    // reads green while the UI renders the raw key name.
+    //
+    // That is not hypothetical: six guardian strings shipped in exactly this
+    // state for two rounds. `format-locales.js` cannot catch it either, since
+    // it skips `en` by design (en.json is its source, not its output).
+    const unpropagated = Object.keys(enSource).filter(key => !(key in en));
+    expect(unpropagated).toEqual([]);
+  });
+
   it.each(RUNTIME_LOCALES)('%s translates every shipped English key it has a current translation for', locale => {
     const bundle = loadFlat(locale);
     const missing = Object.keys(en).filter(key => !(key in bundle));

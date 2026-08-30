@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { useConnectivityState } from 'lib/miden/activity/use-connectivity-state';
 import { requestImmediateSync } from 'lib/miden/front/useSyncTrigger';
@@ -40,11 +40,30 @@ jest.mock('lib/miden/front/useSyncTrigger', () => ({
 
 // The SW poke goes through the store's intercom client. Expose a spyable
 // `request` so we can assert the SyncRequest payload and drive its resolve /
-// reject paths.
+// reject paths. `useWalletStore` feeds the current-account pubkey the
+// guardian-outage lookup keys on.
 const mockRequest = jest.fn();
+// Mutable so a test can switch accounts mid-session — the guardian outage flag
+// is per-account, so which account is current decides which banner shows and
+// which dismiss applies.
+const currentAccount = { publicKey: 'acct-1' };
 jest.mock('lib/store', () => ({
-  getIntercom: () => ({ request: mockRequest })
+  getIntercom: () => ({ request: mockRequest }),
+  useWalletStore: (selector: (s: { currentAccount: { publicKey: string } }) => unknown) => selector({ currentAccount })
 }));
+
+// Guardian-outage flag: a mutable holder so tests can arm/clear it and fire
+// the subscription like the real sync loop does.
+const guardianOutage = { accounts: new Set<string>(), listeners: new Set<() => void>() };
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  isGuardianSyncOutage: (pk: string) => guardianOutage.accounts.has(pk),
+  subscribeGuardianSyncOutage: (listener: () => void) => {
+    guardianOutage.listeners.add(listener);
+    return () => guardianOutage.listeners.delete(listener);
+  }
+}));
+
+jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 // Message-type enum: only `SyncRequest` is referenced by the component.
 jest.mock('lib/shared/types', () => ({
@@ -106,6 +125,9 @@ function setState(active: Partial<Record<Category, boolean>> = {}) {
 describe('ConnectivityIssueBanner', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    guardianOutage.accounts.clear();
+    guardianOutage.listeners.clear();
+    currentAccount.publicKey = 'acct-1';
     mockIsExtension.mockReturnValue(false);
     mockRequest.mockResolvedValue(undefined);
     setState({});
@@ -161,11 +183,27 @@ describe('ConnectivityIssueBanner', () => {
     expect(screen.getByTestId('icon-Refresh')).toBeInTheDocument();
   });
 
-  // -- pickActiveCategory priority: network > node > prover > resolving -----
+  // -- pickActiveCategory priority: network > node > guardian > prover > resolving
+  //
+  // `guardian` sits above prover deliberately: a co-signer that cannot be reached
+  // blocks every transaction, while a prover problem has a fallback.
   it('prefers network over every other active category', () => {
     setState({ network: true, node: true, prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-network')).toBeInTheDocument();
+  });
+
+  it('announces the banner as a polite live region', () => {
+    // The outage can arm from a background sync tick while Explore is already up,
+    // so the banner appears with no other signal to assistive tech. Polite, not
+    // assertive: every category here is a degraded-service notice, not something
+    // worth cutting off whatever is being read.
+    setState({ network: true });
+    render(<ConnectivityIssueBanner />);
+
+    const banner = screen.getByTestId('connectivity-banner-network');
+    expect(banner).toHaveAttribute('role', 'status');
+    expect(banner).toHaveAttribute('aria-live', 'polite');
   });
 
   it('prefers node when network is clear but node/prover/resolving are active', () => {
@@ -178,6 +216,158 @@ describe('ConnectivityIssueBanner', () => {
     setState({ prover: true, resolving: true });
     render(<ConnectivityIssueBanner />);
     expect(screen.getByTestId('connectivity-banner-prover')).toBeInTheDocument();
+  });
+
+  // -- guardian outage ------------------------------------------------------
+  it('renders the guardian banner with the Switch Guardian CTA when the current account is flagged', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.getByText('connectivityGuardianTitle')).toBeInTheDocument();
+    expect(screen.getByText('connectivityGuardianBody')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'connectivityGuardianCta' }));
+    expect(mockHapticLight).toHaveBeenCalled();
+    expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/rotate-guardian');
+    // The guardian CTA is a route, never a sync poke.
+    expect(mockRequestImmediateSync).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('does not render the guardian banner for an outage on a DIFFERENT account', () => {
+    guardianOutage.accounts.add('someone-else');
+    const { container } = render(<ConnectivityIssueBanner />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('node outranks guardian (a dead node masks the guardian signal); guardian outranks prover', () => {
+    guardianOutage.accounts.add('acct-1');
+    setState({ node: true, prover: true });
+    const { rerender } = render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-node')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    setState({ prover: true });
+    guardianOutage.listeners.forEach(listener => listener());
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-node')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('connectivity-banner-prover')).not.toBeInTheDocument();
+  });
+
+  it('guardian dismiss is banner-local (no shared-category dismiss) and the banner clears with the flag', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The dismiss is keyed by ACCOUNT, not a bare boolean. Two guardian accounts
+  // on two dead operators keep `guardianOutage` true across the switch, so a
+  // boolean's reset effect would never fire and the first dismiss would silently
+  // suppress the second account's banner.
+  it('does not carry a guardian dismiss across an account switch to another flagged account', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('keeps the guardian dismiss when switching back to the account it was made on', () => {
+    guardianOutage.accounts.add('acct-1');
+    guardianOutage.accounts.add('acct-2');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'acct-2';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The commonest switch of all: one guardian account in outage plus a healthy
+  // (or non-guardian) second account. Expiring the dismiss on the CURRENT
+  // account's flag threw it away the moment the healthy account was selected,
+  // so coming back re-surfaced a banner the user had already dismissed — and
+  // this view stays mounted across account switches, so nothing else reset it.
+  it('keeps the guardian dismiss across a switch to a HEALTHY account and back', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+
+    fireEvent.click(screen.getByLabelText('close'));
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+    });
+    rerender(<ConnectivityIssueBanner />);
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
+  });
+
+  // The other half of keying the expiry on the dismissed account: a recovery
+  // that lands while the user is elsewhere must still expire the dismiss, so a
+  // later, genuinely new outage is not suppressed by a stale one.
+  it('expires the dismiss when the dismissed account recovers while another account is selected', () => {
+    guardianOutage.accounts.add('acct-1');
+    const { rerender } = render(<ConnectivityIssueBanner />);
+    fireEvent.click(screen.getByLabelText('close'));
+
+    act(() => {
+      currentAccount.publicKey = 'healthy-acct';
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+
+    act(() => {
+      currentAccount.publicKey = 'acct-1';
+      guardianOutage.accounts.add('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    rerender(<ConnectivityIssueBanner />);
+
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+  });
+
+  it('clears the guardian banner when the sync loop stands the flag down', () => {
+    guardianOutage.accounts.add('acct-1');
+    render(<ConnectivityIssueBanner />);
+    expect(screen.getByTestId('connectivity-banner-guardian')).toBeInTheDocument();
+
+    act(() => {
+      guardianOutage.accounts.delete('acct-1');
+      guardianOutage.listeners.forEach(listener => listener());
+    });
+    expect(screen.queryByTestId('connectivity-banner-guardian')).not.toBeInTheDocument();
   });
 
   // -- onRetry --------------------------------------------------------------
@@ -211,12 +401,26 @@ describe('ConnectivityIssueBanner', () => {
     setState({ node: true });
     render(<ConnectivityIssueBanner />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
+    // The assertion is the absence of an unhandled rejection, and that has to be
+    // OBSERVED — the previous version awaited two microtasks and asserted
+    // nothing, so deleting the `.catch` left it green. Node reports an unhandled
+    // rejection on the process, which is where this listens.
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'connectivityRetrySync' }));
 
-    await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
-    // Let the rejected promise settle so the `.catch(() => {})` handler runs.
-    await Promise.resolve();
-    await Promise.resolve();
+      await waitFor(() => expect(mockRequest).toHaveBeenCalledWith({ type: 'SyncRequest', force: true }));
+      // Let the rejected promise settle so the `.catch(() => {})` handler runs,
+      // then give the runtime a macrotask to report anything left unhandled.
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   // -- onDismiss ------------------------------------------------------------

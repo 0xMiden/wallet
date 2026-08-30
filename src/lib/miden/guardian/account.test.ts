@@ -8,11 +8,13 @@
  */
 
 import {
+  assertGuardianKeyCommitment,
   createGuardianAccount,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
   guardianProviderFromEndpoint,
   insertGuardianAccountMonotonically,
+  resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
 
@@ -270,6 +272,22 @@ describe('getGuardianCommitmentFromAccount', () => {
     expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
+  // The inspector's return value is not type-checked at runtime, and a slot that
+  // yields a non-string does NOT throw inside the try above — so without the type
+  // guard, `stripHexPrefix` calls `.startsWith` on it and a bare TypeError escapes
+  // a function whose contract is `string | undefined`. Every caller reads
+  // `undefined` as "no guardian key, do nothing"; a throw instead strands the
+  // drift reconciler mid-status and can spend a self-heal attempt.
+  it.each([[1234], [true], [null], [{ nested: 1 }], [undefined]])(
+    'returns undefined rather than throwing for a %p commitment',
+    raw => {
+      mockGetGuardianCommitment.mockReturnValue(raw);
+
+      expect(() => getGuardianCommitmentFromAccount({} as never)).not.toThrow();
+      expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
+    }
+  );
+
   it('does not read the multisig signer commitments', () => {
     // The guardian key lives in its own storage slot; reading the signer
     // accessor here would return a device key and silently mis-report the
@@ -279,6 +297,44 @@ describe('getGuardianCommitmentFromAccount', () => {
     getGuardianCommitmentFromAccount({} as never);
 
     expect(mockGetSignerCommitments).not.toHaveBeenCalled();
+  });
+});
+
+// This is the trust boundary for the one guardian response that becomes code:
+// the switch-guardian paths hand `GET /pubkey`'s commitment to
+// `buildUpdateGuardianTransactionRequest`, which splices it into MASM source
+// after a `normalizeHexWord` that validates neither charset nor length.
+describe('assertGuardianKeyCommitment', () => {
+  const word = 'ab'.repeat(32);
+
+  it.each([
+    ['a 0x-prefixed word', `0x${word}`],
+    ['an unprefixed word', word],
+    ['an uppercase word', `0x${word.toUpperCase()}`]
+  ])('accepts %s and returns it 0x-prefixed and lowercased', (_label, commitment) => {
+    expect(assertGuardianKeyCommitment(commitment, 'https://g.test')).toBe(`0x${word}`);
+  });
+
+  it.each([
+    // The one that matters: `padStart(64, '0')` is a no-op on an over-long
+    // string, so everything after the word survives into the script source.
+    ['MASM appended after a valid word', `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}\npush.0`],
+    ['a truncated word', '0xdeadbeef'],
+    ['an over-long word', `0x${word}ab`],
+    ['non-hex characters', `0x${'z'.repeat(64)}`],
+    ['an empty string', ''],
+    ['only the prefix', '0x'],
+    ['internal whitespace', `0x${word.slice(0, 60)} abc`],
+    ['a number', 1234],
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', { commitment: word }]
+  ])('rejects %s', (_label, commitment) => {
+    expect(() => assertGuardianKeyCommitment(commitment, 'https://g.test')).toThrow('malformed key commitment');
+  });
+
+  it('names the endpoint that served the bad value', () => {
+    expect(() => assertGuardianKeyCommitment('nope', 'https://rogue.test')).toThrow('https://rogue.test');
   });
 });
 
@@ -466,6 +522,51 @@ describe('resolveGuardianEndpoint', () => {
     mockFetchFromStorage.mockResolvedValueOnce(undefined);
     const endpoint = await resolveGuardianEndpoint({} as never);
     expect(endpoint).toBe('https://default.guardian.test');
+  });
+
+  it('propagates a failed storage read rather than answering with the default', async () => {
+    // The default arm must be reachable ONLY by a proven-empty pointer. If a read
+    // failure resolved to the default instead, every caller would be handed a
+    // guessed operator dressed as the account's own choice.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveGuardianEndpoint({} as never)).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('resolveChosenGuardianEndpoint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('prefers the per-account guardianEndpoint without reading storage', async () => {
+    const endpoint = await resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' });
+    expect(endpoint).toBe('https://per-account.guardian');
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the legacy global key, the only pointer a pre-per-account account has', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBe('https://global.guardian');
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['an empty string', '']
+  ])('returns undefined rather than the network default when the global key is %s', async (_label, stored) => {
+    // The distinguishing property against `resolveGuardianEndpoint`: callers that
+    // POST private account state, or that accuse an account of naming no
+    // operator, must be able to tell "chose nothing" from "was given a guess".
+    mockFetchFromStorage.mockResolvedValueOnce(stored);
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBeUndefined();
+  });
+
+  it('propagates a failed storage read instead of reporting no chosen endpoint', async () => {
+    // `undefined` is a VERDICT here ("named no operator"). A swallowed read error
+    // would forge that verdict out of a transient failure, which is what lets the
+    // drift reconciler accuse a healthy account.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveChosenGuardianEndpoint({})).rejects.toThrow('storage unavailable');
   });
 });
 

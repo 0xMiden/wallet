@@ -1,4 +1,4 @@
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
 /**
  * Human-readable list of the private-data categories an `AllowedPrivateData`

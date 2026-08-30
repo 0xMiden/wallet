@@ -16,6 +16,7 @@ import {
   cancelTransactionById,
   getSwapSettlementNotes,
   getTransactionById,
+  isCancellableTransaction,
   isRequeueableTransaction,
   isUnverifiableSendRetryError,
   isUserCancelledTransaction,
@@ -1172,6 +1173,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
+  // Cancel is offered on a narrower set than "pending": a structural op that has
+  // already been picked up cannot be stopped, retried, or completed afterwards,
+  // so the button only mislabels a rotation that is going to land anyway.
+  const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
   // Retry only makes sense when there's something recoverable: a re-queueable
   // failed Miden tx (structural Guardian ops and earn deposits are excluded — the
   // user re-initiates those from Settings / the Earn flow), or a failed Smart
@@ -1674,7 +1679,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         )}
 
-        {isPending && (
+        {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
             <Button

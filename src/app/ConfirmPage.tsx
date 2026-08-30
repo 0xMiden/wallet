@@ -2,8 +2,8 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 

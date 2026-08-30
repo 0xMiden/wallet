@@ -93,6 +93,42 @@ export function errorMessageParts(err: unknown): string[] {
 }
 
 /**
+ * Detect the eventually-consistent guardian canonicalization refusal:
+ *
+ *   "Refusing to overwrite local state: incoming nonce 0 is not greater
+ *    than local nonce 1 for account 0x..."
+ *
+ * The SDK raises this when asked to import a guardian's view of an account that
+ * is NOT ahead of the local one — a nonce no greater than local, or a commitment
+ * that does not match the chain. It says something specific: the guardian is
+ * behind or holding a diverged blob. It does NOT say the read failed.
+ *
+ * Two callers depend on that distinction. The transaction loop treats it as
+ * success (the on-chain tx landed; only the local sync refused, and the next
+ * tick reconciles). The guardian self-heal treats it as permission to proceed:
+ * a device that had been rotated out would be looking at a guardian holding the
+ * NEWER state, so a guardian that is behind is the stale registration the
+ * re-register repairs. Both need the same test, so it lives in this leaf rather
+ * than in either of them.
+ */
+export function isGuardianCanonicalizationError(error: unknown): boolean {
+  // Same ordering rationale as the two classifiers below, and the stakes are the
+  // higher of the three: an eviction's `message` is a closed wallet set but its
+  // `cause` carries the raw realm error verbatim, and this walks the chain. The
+  // transaction loop's verdict on this classifier is "mark the row Completed
+  // with a success message" for ANY type, send and swap included — so a trap
+  // whose cause happened to be an SDK canonicalization refusal (the guardian
+  // sync that raises that refusal runs fire-and-forget on a 3s tick, and an
+  // uncaught realm rejection is precisely what the recovery listener evicts on)
+  // would report an ABANDONED pipeline as landed money. Poison is never a
+  // statement about the guardian's view of the account.
+  if (isWasmClientPoisonedError(error)) return false;
+  return errorMessageParts(error).some(
+    part => /Refusing to overwrite local state/i.test(part) || /is not greater than local nonce/i.test(part)
+  );
+}
+
+/**
  * True when the SDK reports "the node accepted this transaction but the LOCAL
  * store update failed" (miden-client's `ApplyTransactionAfterSubmitFailed`).
  *
@@ -131,4 +167,29 @@ export function isApplyAfterSubmitError(err: unknown): boolean {
   return errorMessageParts(err).some(part =>
     /accepted into the node's mempool[\s\S]*local store update failed/i.test(part)
   );
+}
+
+/**
+ * True when a commit wait ended because the node DISCARDED the transaction —
+ * a definitive "this will never land", as opposed to the indeterminate
+ * timeout the same call throws when the poll window simply expires.
+ *
+ * The distinction is what lets a caller decide whether "submitted, outcome
+ * unknown" is a safe assumption. A timeout leaves the transaction possibly on
+ * chain, so optimistically finalizing is the better trade; a discard means the
+ * chain state provably did NOT change, so finalizing would report a failure as
+ * a success and persist local state describing a rotation that never happened.
+ *
+ * Both realms produce the same text, from the same `isDiscarded()` branch:
+ * flag-off the SDK's `TransactionsResource.waitFor` throws
+ * `Transaction rejected: <id>`, and the offscreen realm's in-realm poll loop
+ * (`offscreen/main.ts`) reproduces it verbatim for exactly that reason — so one
+ * matcher covers extension, mobile and desktop.
+ */
+export function isTransactionDiscardedError(err: unknown): boolean {
+  // Same ordering rationale as isApplyAfterSubmitError: an eviction carries the
+  // raw realm error in its `cause`, and this walks the chain, so a trap whose
+  // text happened to embed the phrase must not be read as a node verdict.
+  if (isWasmClientPoisonedError(err)) return false;
+  return errorMessageParts(err).some(part => /transaction rejected/i.test(part));
 }
