@@ -124,6 +124,12 @@ test.describe('Fee accounting', () => {
       nativeBeforeB = await vaultBalance(walletB.page, NATIVE);
       tokenBefore = await vaultBalance(walletA.page, TOKEN);
 
+      // PRECONDITION on the fixture, not the transfer under test. The rule bans `> 0` as a
+      // stand-in for an exact transfer check; here there is no expected amount to assert (the
+      // funding note's size is the harness's business) and the only question is whether the
+      // baseline is real. Every exact assertion in this spec is a delta AGAINST this value, so
+      // a silent 0n here is what would make THEM unfalsifiable — this line stops that.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- fixture precondition
       expect(
         nativeBefore,
         `wallet A holds no ${NATIVE} balance — the lookup found nothing, so the fee deltas below ` +
@@ -177,7 +183,13 @@ test.describe('Fee accounting', () => {
             'verification_base_fee is 0: no fee is charged on this chain, so the fee assertions ' +
             'below were NOT exercised. This run is not evidence that fees work.'
         });
+        // Branches on the CHAIN'S configured base fee, read before the test ran, not on
+        // anything the code under test produced — that is the distinction the rule polices.
+        // The branch is annotated into the result above, so a green run on a zero-fee chain
+        // cannot be mistaken for evidence about fees.
+        // eslint-disable-next-line no-conditional-expect -- run-mode flag, not a behaviour check
         expect(send!.feeAmount, 'a zero-fee chain must not record a fee').toBeUndefined();
+        // eslint-disable-next-line no-conditional-expect -- same run-mode branch as above
         expect(await vaultBalance(walletA.page, NATIVE), 'a zero-fee chain must not move the native balance').toBe(
           nativeBefore
         );
@@ -188,6 +200,10 @@ test.describe('Fee accounting', () => {
       //    vacuous, and the fee column in history is decoration.
       expect(send!.feeAmount, 'completed send recorded no fee on a fee-charging chain').toBeDefined();
       const feePaid = BigInt(send!.feeAmount!);
+      // Not a balance, and not the assertion doing the work: the exact floor is asserted two
+      // lines down against the chain's own `verification_base_fee`. This one only separates
+      // "recorded zero" from "recorded something too small", so the failure names which.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- diagnostic split, exact floor below
       expect(feePaid, 'a fee-charging chain must charge more than nothing').toBeGreaterThan(0n);
 
       // 2. The fee is at least one base fee. The kernel charges
@@ -238,6 +254,10 @@ test.describe('Fee accounting', () => {
       //    The non-zero guard is what makes the equality mean something: with B
       //    unfunded this compared 0n to 0n and could not fail, so a regression that
       //    debited the recipient would still have gone green.
+      // The rule's own argument, applied one level up: the EXACT assertion that FOLLOWS this
+      // one (B's native balance is unchanged) is what cannot fail when B holds nothing,
+      // because 0n equals 0n. Guarding it here is what makes it falsifiable.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- guards the exact check below
       expect(
         nativeBeforeB,
         'wallet B holds no native balance, so the assertion below would compare 0n to 0n and prove nothing; ' +

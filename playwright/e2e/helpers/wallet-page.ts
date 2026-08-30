@@ -175,6 +175,8 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /** Rows a SYMBOL scope dropped for having no metadata — see the implementation. */
+    unidentified: number;
     error?: string;
   }>;
   /**
@@ -747,6 +749,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /**
+     * Rows a SYMBOL scope excluded because they carry no metadata at all.
+     *
+     * `metadata` is attached only when `fetchTokenMetadata` succeeded (`sync-manager.ts`
+     * swallows the failure), so a symbol filter cannot tell "a different token" from "the
+     * token under test, whose metadata call failed this lap" — it drops both. In a strict
+     * conservation identity that reads as value vanishing. Reported rather than guessed at:
+     * a caller asserting an equality can say "metadata missing" instead of "notes lost".
+     */
+    unidentified: number;
     error?: string;
   }> {
     try {
@@ -756,12 +768,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           const store = (window as any).__TEST_STORE__;
           const state = store?.getState?.();
           let balance = 0;
+          let unidentified = 0;
           for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
             if (!Array.isArray(tokenList)) continue;
             for (const token of tokenList) {
               // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
               // which silently includes the native fee asset -- so a caller conserving a
               // total across a fee-charging chain measures its own fees as missing value.
+              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
               if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
               const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
               if (amount > 0) balance += amount;
@@ -776,6 +790,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
           let pendingSum = 0;
           for (const note of notes) {
+            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
             if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
             const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
             const decimals = note.metadata?.decimals ?? 8;
@@ -809,7 +824,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             pendingSum,
             totalReportable: balance + pendingSum,
             pendingTxCount,
-            latestTxId
+            latestTxId,
+            unidentified
           };
         },
         { wanted: opts?.symbol?.toLowerCase() }
@@ -821,6 +837,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         pendingSum: 0,
         totalReportable: 0,
         pendingTxCount: 0,
+        unidentified: 0,
         error: e instanceof Error ? e.message : String(e)
       };
     }

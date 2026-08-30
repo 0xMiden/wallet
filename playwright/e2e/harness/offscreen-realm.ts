@@ -293,6 +293,21 @@ export function installOffscreenFaultRealm(
    *
    * `__E2E_NET_FAULT_HITS` is preserved across a re-arm and zeroed only by
    * `clear()`, exactly as `applyToRealm` does for the other realms.
+   *
+   * THIS REALM CONTRIBUTES COUNTERS ONLY, not timeline events. The instrumentation's
+   * sole reporting channel is `console.log(prefix + ...)`, and the consumer of that is
+   * `attachServiceWorkerFetchCapture`'s `serviceWorker.on('console')` — which cannot see
+   * this document. Nothing here sends `Runtime.enable` or subscribes to
+   * `Runtime.consoleAPICalled`, so every `network_request` and `INJECTED:` line the
+   * wrapper emits in here is discarded. `hits()` is unaffected: it reads
+   * `__E2E_NET_FAULT_HITS` directly over the same tunnel.
+   *
+   * Recovering those events means enabling `Runtime` on the tunnelled session, demuxing
+   * `consoleAPICalled` in the `Target.receivedMessageFromTarget` handler (which already
+   * discards id-less protocol events, so the seam exists), and threading a timeline in
+   * from `installFetchFaultControls`. Deliberately NOT done here: this module's callers
+   * do not currently hold a timeline, and the plumbing is a wider change to a resilience
+   * harness than a diagnostics gap justifies alongside the fee work.
    */
   const installAndArmExpression = (wire: FetchFaultWire[]): string =>
     `(() => {

@@ -231,6 +231,14 @@ export class MidenCli {
       throw new Error(`miden-client init failed: ${result.stderr}`);
     }
 
+    // Latched HERE, not at the end of the method. The config file exists from this line
+    // onward, so a failure in either of the two awaits below would leave the flag false with
+    // the config already written -- and the next `init()` would re-run `init --local`, get a
+    // non-zero exit and throw the very `config_already_exists` this guard exists to prevent,
+    // burying the real failure. The remaining steps are idempotent, so re-entering after one
+    // of them failed is safe; re-entering the CLI init is not.
+    this.initialized = true;
+
     // Import the funder wallets BEFORE the first sync. `import` writes each account at the state
     // recorded in its .mac snapshot, and `sync` only walks blocks newer than the store's
     // checkpoint -- so importing into a store already at the chain tip leaves no blocks to walk and
@@ -241,8 +249,6 @@ export class MidenCli {
 
     // Sync to fetch genesis block and chain tip (required before account creation)
     await this.sync();
-
-    this.initialized = true;
   }
 
   /**

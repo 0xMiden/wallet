@@ -61,12 +61,21 @@ export async function ensureFeeFunded(
       // Not visible yet; the poll below decides whether to keep waiting.
     });
     balance = await vaultBalance(wallet.page, NATIVE_SYMBOL);
+    // A spacer BETWEEN polls, not a wait for a condition: the loop re-reads `balance` at the
+    // top of each lap, so this bounds how hard we hammer `claimAllNotes` rather than standing
+    // in for a web-first assertion. Shorter just means more page reloads per funding note.
+    // eslint-disable-next-line no-long-bare-wait -- inter-poll spacer, loop re-checks the condition
     if (balance === 0n) await wallet.page.waitForTimeout(5_000);
   }
 
   // Assert rather than proceed hopefully: an unfunded account fails much later, at whatever
   // transaction first cannot pay, with an error that points nowhere near the cause. The
   // zero-fee case returned above, so reaching here means the chain charges.
+  // A FIXTURE postcondition, and there is no exact amount to assert against: the funding
+  // note's size is the funder's choice, and this helper's contract is only "the account can
+  // now pay a fee". Asserting it here is what stops an unfunded account from failing much
+  // later, at whatever transaction first cannot pay, pointing nowhere near the cause.
+  // eslint-disable-next-line no-unfalsifiable-balance-assertion -- fixture postcondition, no exact target
   expect(balance, `account ${accountId} was never funded for fees; its next transaction cannot pay`).toBeGreaterThan(
     0n
   );
