@@ -2452,6 +2452,10 @@
     "message": "現在の変更点",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "設定が完了していません。",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian の変更を送信しました",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "変更がオンチェーンで確認されると、新しい Guardian がすべてのトランザクションに共同署名し、以前の Guardian はあなたのアカウントに対して共同署名できなくなります。",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "設定が完了していません。",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "切り替えはオンチェーンで確認されましたが、このデバイスでは新しいGuardianのアドレスを保存できませんでした。ウォレットが自動的に確認し、必要に応じて再入力を求めます。これによって別の切り替えが開始されることはありません。表示されない場合は、サポートにお問い合わせください。",
@@ -2572,6 +2572,10 @@
     "message": "guardianが切り替わりましたが、新しい運営者を特定できませんでした。再接続するには、そのURLを入力してください。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "その事業者に接続できませんでした。URL と接続状況を確認してから、もう一度お試しください。",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian アクセス不可",
@@ -2676,6 +2676,18 @@
     "message": "自分の住所宛てには送れません",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "insufficientFeeAsset": {
+    "message": "ネットワーク手数料の支払いにMIDENが必要です。続行するには、MIDENを受け取ってください。",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金額は残高より少なければなりません",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2697,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "受信したMIDEN（notes）を自動的に残高に反映します。これは「Claim」をタップするのと同じ動作です。資金が消費されたり、手数料が加算されたりすることはありません。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "受信したMIDEN（notes）を自動的に残高に反映します。これは「Claim」をタップするのと同じです。自分で「Claim」をタップする場合と比べて、請求の頻度が増えたり、手数料が高くなったりすることはありません。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "ウォレットファイルの作成中…",
@@ -4428,17 +4440,5 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "insufficientFeeAsset": {
-    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
-  },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "networkFee": {
-    "message": "Network Fee",
-    "englishSource": "Network Fee"
   }
 }

@@ -2452,6 +2452,10 @@
     "message": "Was sich nun ändert",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Einrichtung nicht abgeschlossen.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian-Wechsel übermittelt",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Sobald der Wechsel on-chain bestätigt ist, signiert dein neuer Guardian jede Transaktion mit, und dein alter Guardian kann für dein Konto nicht mehr mitsignieren.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Einrichtung nicht abgeschlossen.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Der Wechsel wurde on-chain bestätigt, aber dieses Gerät konnte die Adresse des neuen Guardian nicht speichern. Die Wallet prüft dies automatisch und fordert Sie bei Bedarf auf, sie erneut einzugeben — dadurch wird kein weiterer Wechsel gestartet. Erscheint keine Aufforderung, wenden Sie sich an den Support.",
@@ -2572,6 +2572,10 @@
     "message": "Ihr „guardian“ wurde gewechselt, und wir konnten den neuen Betreiber nicht identifizieren. Geben Sie dessen URL ein, um die Verbindung wiederherzustellen.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Dieser Betreiber war nicht erreichbar. Prüfe die URL und deine Verbindung und versuche es erneut.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian nicht erreichbar",
@@ -2676,6 +2676,18 @@
     "message": "Du kannst nicht an deine eigene Adresse senden.",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "insufficientFeeAsset": {
+    "message": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2697,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Führt automatisch die Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Dabei werden weder Ihre Gelder ausgegeben noch Gebühren erhoben.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Führt die automatische Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Es erfolgt keine häufigere Einlösung und es fallen keine höheren Gebühren an als beim manuellen Antippen von „Einlösen“.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Erstellen Ihrer Wallet-Datei…",
@@ -4428,17 +4440,5 @@
   "devEndpointResetConfirm": {
     "message": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "insufficientFeeAsset": {
-    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
-  },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "networkFee": {
-    "message": "Network Fee",
-    "englishSource": "Network Fee"
   }
 }

@@ -2452,6 +2452,10 @@
     "message": "当前有哪些变化",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "设置未完成。",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "已提交 Guardian 更换",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "更换在链上确认后，新的 Guardian 将联合签名你的每一笔交易，原先的 Guardian 将无法再为你的账户联合签名。",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "设置未完成。",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "切换已在链上确认，但此设备无法保存新 Guardian 的地址。钱包会自动检查，并在需要时提示您重新输入；这不会发起另一次切换。如果没有出现提示，请联系支持团队。",
@@ -2572,6 +2572,10 @@
     "message": "您的 guardian 已更换，且我们无法识别新运营商。请输入其 URL 以重新连接。",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "该操作者与您账户的链上guardian不匹配。",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "无法连接该运营方。请检查网址和网络连接后重试。",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "此账户尚未设置可用于核对的链上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "该操作者与您账户的链上guardian不匹配。",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 无法访问",
@@ -2676,6 +2676,18 @@
     "message": "你不能寄到自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "insufficientFeeAsset": {
+    "message": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2697,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "会自动将收到的 MIDEN notes 计入您的余额——这与点击“Claim”的效果相同。该操作不会消耗您的资金，也不会产生任何费用。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "会自动将收到的 MIDEN notes 计入您的余额——这与点击“领取”的效果相同。其领取频率和手续费成本均与您手动点击“领取”时一致。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "正在创建您的钱包文件……",
@@ -4428,17 +4440,5 @@
   "devEndpointResetConfirm": {
     "message": "这将永久删除该钱包，包括您的密钥和交易记录。您需要使用恢复短语才能将其恢复。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "insufficientFeeAsset": {
-    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
-  },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "networkFee": {
-    "message": "Network Fee",
-    "englishSource": "Network Fee"
   }
 }

@@ -2452,6 +2452,10 @@
     "message": "O que muda agora",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Configuração não concluída.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Mudança de Guardian enviada",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Assim que a mudança for confirmada on-chain, o seu novo Guardian coassina todas as transações e o seu Guardian anterior deixa de poder coassinar pela sua conta.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Configuração não concluída.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "A troca foi confirmada na cadeia, mas este dispositivo não conseguiu salvar o endereço do novo Guardian. A carteira verifica isso automaticamente e solicitará que você o informe novamente se necessário — isso não iniciará outra troca. Se nenhum aviso aparecer, entre em contato com o suporte.",
@@ -2572,6 +2572,10 @@
     "message": "Seu guardian foi alterado e não conseguimos identificar o novo provedor. Insira a URL para se reconectar.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Esse operador não corresponde ao endereço “guardian” da sua conta na blockchain.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Não foi possível contactar esse operador. Verifique o URL e a sua ligação e tente novamente.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Esta conta ainda não tem um Guardian on-chain com que verificar.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Esse operador não corresponde ao endereço “guardian” da sua conta na blockchain.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian inacessível",
@@ -2676,6 +2676,18 @@
     "message": "Você não pode enviar para o seu próprio endereço",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "insufficientFeeAsset": {
+    "message": "Você precisa de MIDEN para pagar a taxa de rede. Receba alguns MIDEN para continuar.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2697,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Reclama automaticamente os MIDEN notes que chegam ao seu saldo — da mesma forma que ao tocar em “Reclamar”. Isso não gasta seus fundos nem acrescenta nenhuma taxa.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Reclama automaticamente os MIDEN notes recebidos para o seu saldo — da mesma forma que ao tocar em “Reclamar”. Isso não aumenta a frequência das reclamações nem gera mais taxas do que quando você mesmo toca em “Reclamar”.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Criando seu arquivo de carteira…",
@@ -4428,17 +4440,5 @@
   "devEndpointResetConfirm": {
     "message": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
-  },
-  "insufficientFeeAsset": {
-    "message": "You need MIDEN to pay the network fee. Receive some MIDEN before sending.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN before sending."
-  },
-  "notWorthClaiming": {
-    "message": "Worth less than the network fee to claim",
-    "englishSource": "Worth less than the network fee to claim"
-  },
-  "networkFee": {
-    "message": "Network Fee",
-    "englishSource": "Network Fee"
   }
 }
