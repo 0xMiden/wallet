@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Pending notes",
-    "englishSource": "Pending notes"
+    "message": "Pending Notes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "What are pending notes?",
@@ -4334,6 +4334,72 @@
   "depositBridgeSelectAsset": {
     "message": "Select asset",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Enter the amount you want to bridge",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "How do you want to send it?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Scan to deposit",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Connect a wallet",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Bridge from a wallet via WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Open in wallet app",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR code or address",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Scan or copy the deposit address",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Choose a wallet",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Default wallet",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Opens with the send pre-filled",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Whichever app handles Ethereum links",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "Amount to bridge",

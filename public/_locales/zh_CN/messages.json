@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "待处理 notes",
-    "englishSource": "Pending notes"
+    "message": "待处理 Notes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "什么是待处理的notes？",
@@ -4322,9 +4322,84 @@
       }
     }
   },
+  "daysAgo": {
+    "message": "$value$ d 之前",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "depositBridgeSelectAsset": {
     "message": "选择资产",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "请输入您希望桥接的金额",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "您希望通过何种方式发送？",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "扫描以存入",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "连接钱包",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "通过 WalletConnect 从钱包进行跨链转账",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "在钱包应用中打开",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "在已安装的以太坊钱包中预填 $amount$ 的转账信息",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "二维码或地址",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "扫描或复制存款地址",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "请使用以太坊钱包扫描二维码，将$amount$发送至您在Sepolia上的存款地址。",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "选择一个钱包",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "默认钱包",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "打开时已预填发送信息",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "无论哪个应用处理以太坊链接",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "桥接金额",
@@ -4398,6 +4473,18 @@
   "bridgedReceiveOnTheWay": {
     "message": "资金正在路上（约 20 分钟）——活动跟踪",
     "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ 已送达",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
   },
   "depositArrivalDrawerDescription": {
     "message": "立即将其桥接到您的 Miden 帐户，或者稍后通过 Receive 进行桥接。",

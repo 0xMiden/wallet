@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Bekleyen notes",
-    "englishSource": "Pending notes"
+    "message": "Bekleyen Notes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "Bekleyen \"notes\" nedir?",
@@ -4304,9 +4304,102 @@
     "message": "Şu anda",
     "englishSource": "Just now"
   },
+  "minutesAgo": {
+    "message": "$value$ m önce",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$ h önce",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "daysAgo": {
+    "message": "$value$ d önce",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "depositBridgeSelectAsset": {
     "message": "Varlık seçin",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Köprülemek istediğiniz tutarı girin",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Nasıl göndermek istersiniz?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Para yatırmak için tarayın",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Bir cüzdan bağlayın",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "WalletConnect aracılığıyla bir cüzdandan köprü kurma",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Cüzdan uygulamasında aç",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Yüklü bir Ethereum cüzdanında $amount$ adresine gönderim bilgilerini önceden doldurun",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR kodu veya adres",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Para yatırma adresini tarayın veya kopyalayın",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Bir Ethereum cüzdanıyla tarayarak $amount$ adresini Sepolia’daki para yatırma adresinize gönderin.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Bir cüzdan seçin",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Varsayılan cüzdan",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Önceden doldurulmuş gönderim formuyla açılır",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Ethereum bağlantılarını hangi uygulama işliyorsa",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "Köprü tutarı",

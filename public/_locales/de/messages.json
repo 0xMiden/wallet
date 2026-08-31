@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Ausstehende „notes“",
-    "englishSource": "Pending notes"
+    "message": "Ausstehende „Notes“",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "Was sind ausstehende „notes“?",
@@ -4334,6 +4334,72 @@
   "depositBridgeSelectAsset": {
     "message": "Asset auswählen",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Geben Sie den Betrag ein, den Sie über die Bridge übertragen möchten",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Wie möchten Sie die Nachricht versenden?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Scannen, um eine Einzahlung vorzunehmen",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Eine Wallet verbinden",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Brücke von einer Wallet über WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "In der Wallet-App öffnen",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Füllen Sie die Absenderadresse $amount$ in einer installierten Ethereum-Wallet vorab aus",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR-Code oder Adresse",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Scannen oder kopieren Sie die Einzahlungsadresse",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Scannen Sie den Code mit einer Ethereum-Wallet, um „$amount$“ an Ihre Einzahlungsadresse bei Sepolia zu senden.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Wählen Sie eine Wallet aus",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Standard-Wallet",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Öffnet mit dem vorbelegten Absenderfeld",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Unabhängig davon, welche App Ethereum-Links verarbeitet",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "Zu überbrückender Betrag",

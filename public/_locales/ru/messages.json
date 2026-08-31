@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Ожидающие выплаты (notes)",
-    "englishSource": "Pending notes"
+    "message": "Ожидающие платежные уведомления (Notes)",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "Что такое ожидающие платежные уведомления (notes)?",
@@ -4335,6 +4335,72 @@
     "message": "Выберите актив",
     "englishSource": "Select asset"
   },
+  "depositAmountEntryTitle": {
+    "message": "Введите сумму, которую вы хотите перевести",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Как вы хотите отправить это?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Отсканируйте, чтобы внести средства",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Подключить кошелек",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Мост из кошелька через WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Открыть в приложении кошелька",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Заранее заполните форму отправки $amount$ в установленном кошельке Ethereum",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR-код или адрес",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Отсканируйте или скопируйте адрес для пополнения счета",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Отсканируйте с помощью кошелька Ethereum, чтобы отправить $amount$ на ваш адрес пополнения на Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Выберите кошелек",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Кошелек по умолчанию",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Открывается с предварительно заполненной формой отправки",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Независимо от того, какое приложение обрабатывает ссылки Ethereum",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
   "depositBridgeAmountTitle": {
     "message": "Сумма для моста",
     "englishSource": "Amount to bridge"
@@ -4407,6 +4473,18 @@
   "bridgedReceiveOnTheWay": {
     "message": "Средства на пути (~20 минут) — отслеживайте в разделе «Активность».",
     "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ прибыл",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
   },
   "depositArrivalDrawerDescription": {
     "message": "Подключите его к своей учетной записи Miden сейчас или сделайте это позже из Receive.",

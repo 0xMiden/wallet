@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Очікують на обробку notes",
-    "englishSource": "Pending notes"
+    "message": "Очікують на обробку (Notes)",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "Що таке «notes, що очікують на обробку»?",
@@ -4334,6 +4334,72 @@
   "depositBridgeSelectAsset": {
     "message": "Виберіть актив",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Введіть суму, яку ви хочете перевести",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Як ви хочете це надіслати?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Відскануйте, щоб внести кошти",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Підключіть гаманець",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Переказ з гаманця через WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Відкрити в додатку гаманця",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Заздалегідь заповніть форму відправлення на адресу $amount$ у встановленому гаманці Ethereum",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR-код або адреса",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Відскануйте або скопіюйте адресу для поповнення рахунку",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Відскануйте за допомогою гаманця Ethereum, щоб надіслати $amount$ на вашу адресу для депозиту на Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Оберіть гаманець",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Гаманець за замовчуванням",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Відкривається з попередньо заповненим полем відправника",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Незалежно від того, який додаток обробляє посилання на Ethereum",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "Сума для мосту",

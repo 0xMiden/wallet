@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "notes pendientes",
-    "englishSource": "Pending notes"
+    "message": "Notes pendientes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "¿Qué son las «notes» pendientes?",
@@ -4304,9 +4304,102 @@
     "message": "En este momento",
     "englishSource": "Just now"
   },
+  "minutesAgo": {
+    "message": "$value$ hace m",
+    "englishSource": "$value$m ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "hoursAgo": {
+    "message": "$value$ h hace",
+    "englishSource": "$value$h ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
+  "daysAgo": {
+    "message": "$value$ hace d",
+    "englishSource": "$value$d ago",
+    "placeholders": {
+      "value": {
+        "content": "$1"
+      }
+    }
+  },
   "depositBridgeSelectAsset": {
     "message": "Seleccionar activo",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Introduce la cantidad que deseas transferir",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "¿Cómo quieres enviarlo?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Escanea para realizar un ingreso",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Conecta un monedero",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Realizar un puente desde una cartera a través de WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Abrir en la aplicación de monedero",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Rellena previamente un envío de $amount$ en un monedero de Ethereum instalado",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "Código QR o dirección",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Escanea o copia la dirección de depósito",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Escanea con una cartera de Ethereum para enviar $amount$ a tu dirección de depósito en Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Elige un monedero",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Cartera predeterminada",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Se abre con el campo de envío ya rellenado",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Cualquier aplicación que gestione enlaces de Ethereum",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "Monto a puentear",
@@ -4380,6 +4473,18 @@
   "bridgedReceiveOnTheWay": {
     "message": "Los fondos están en camino (~20 min): seguimiento en Actividad",
     "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ llegado",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
   },
   "depositArrivalDrawerDescription": {
     "message": "Conéctelo a su cuenta Miden ahora o hágalo más tarde desde Recibir.",

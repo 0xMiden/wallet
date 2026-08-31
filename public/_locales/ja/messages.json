@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "保留中のnotes",
-    "englishSource": "Pending notes"
+    "message": "保留中のNotes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "「notes」とは何ですか？",
@@ -4335,6 +4335,72 @@
     "message": "アセットの選択",
     "englishSource": "Select asset"
   },
+  "depositAmountEntryTitle": {
+    "message": "ブリッジしたい金額を入力してください",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "どのように送信しますか？",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "スキャンして入金",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "ウォレットを接続する",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "WalletConnect経由でウォレットからブリッジする",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "ウォレットアプリで開く",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "インストール済みのイーサリアムウォレットで、$amount$の送金を事前入力してください",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QRコードまたはアドレス",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "入金アドレスをスキャンまたはコピーしてください",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "イーサリアムウォレットでスキャンし、$amount$をSepolia上の入金アドレスへ送金してください。",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "ウォレットを選択してください",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "デフォルトのウォレット",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "送信フォームが事前入力された状態で開きます",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "イーサリアムのリンクを扱うアプリはどれであっても",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
   "depositBridgeAmountTitle": {
     "message": "ブリッジする金額",
     "englishSource": "Amount to bridge"
@@ -4407,6 +4473,18 @@
   "bridgedReceiveOnTheWay": {
     "message": "資金は準備中です (約 20 分) — アクティビティで追跡します",
     "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ 到着しました",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
   },
   "depositArrivalDrawerDescription": {
     "message": "今すぐ Miden アカウントにブリッジするか、後で Receive から実行してください。",

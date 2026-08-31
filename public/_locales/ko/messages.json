@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "대기 중인 notes",
-    "englishSource": "Pending notes"
+    "message": "대기 중인 Notes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "보류 중인 지급 통지서(notes)란 무엇인가요?",
@@ -4334,6 +4334,72 @@
   "depositBridgeSelectAsset": {
     "message": "자산 선택",
     "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "브리지할 금액을 입력하세요",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "어떤 방식으로 보내시겠습니까?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "입금하려면 스캔하세요",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "지갑 연결",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "WalletConnect를 통해 지갑에서 브리지하기",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "지갑 앱에서 열기",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "설치된 이더리움 지갑에서 $amount$ 주소로 전송할 내용을 미리 입력해 두세요.",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR 코드 또는 주소",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "입금 주소를 스캔하거나 복사하세요",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "이더리움 지갑으로 스캔하여 $amount$를 Sepolia의 입금 주소로 보내주십시오.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "지갑 선택",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "기본 지갑",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "보내기 양식이 미리 채워진 상태로 열립니다",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "이더리움 링크를 처리하는 앱이라면 어떤 앱이든",
+    "englishSource": "Whichever app handles Ethereum links"
   },
   "depositBridgeAmountTitle": {
     "message": "브릿지할 금액",

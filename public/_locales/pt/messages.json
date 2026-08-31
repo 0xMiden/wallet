@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "notes pendentes",
-    "englishSource": "Pending notes"
+    "message": "Notes pendentes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "O que são “notes pendentes”?",
@@ -4335,6 +4335,72 @@
     "message": "Selecione o ativo",
     "englishSource": "Select asset"
   },
+  "depositAmountEntryTitle": {
+    "message": "Insira o valor que você deseja transferir",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Como você deseja enviar?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Digitalize para depositar",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Conecte uma carteira",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Fazer a ponte a partir de uma carteira via WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Abrir no aplicativo da carteira",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Preencha previamente uma transação de $amount$ em uma carteira Ethereum instalada",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "Código QR ou endereço",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Digitalize ou copie o endereço de depósito",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Escaneie com uma carteira Ethereum para enviar $amount$ para seu endereço de depósito na Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Escolha uma carteira",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Carteira padrão",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Abre com o campo de envio pré-preenchido",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Qualquer que seja o aplicativo que lide com links do Ethereum",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
   "depositBridgeAmountTitle": {
     "message": "Valor para ponte",
     "englishSource": "Amount to bridge"
@@ -4407,6 +4473,18 @@
   "bridgedReceiveOnTheWay": {
     "message": "Os fundos estão a caminho (cerca de 20 min) — acompanhe em Atividade",
     "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ chegou",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
   },
   "depositArrivalDrawerDescription": {
     "message": "Conecte-o à sua conta Miden agora ou faça-o mais tarde em Receber.",
