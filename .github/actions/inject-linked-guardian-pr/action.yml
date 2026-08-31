@@ -1,0 +1,231 @@
+name: Inject linked guardian PR
+description: >
+  If the current PR's body contains a "Guardian PR: #N" marker, clone the
+  linked guardian PR's head, build @openzeppelin/miden-multisig-client from
+  source, and rewrite the wallet's package.json to point at the local build
+  via a `file:` dep. Runs only on `pull_request` events (silent no-op on
+  `push`). Fails fast if the linked PR is closed without merge.
+
+  Marker syntax (anywhere in the body, first match wins):
+    Guardian PR: #440
+    Guardian PR: OpenZeppelin/guardian#440       (cross-repo / forks)
+
+  WHY THIS EXISTS. The wallet consumes the multisig client as a published
+  npm package. A wallet change that needs an unreleased guardian export —
+  `resolveAuthArg`, say — cannot compile in CI until that package ships,
+  and OpenZeppelin owns the release. Without this action the only options
+  were to leave the compile jobs red or to stop importing the new API.
+
+  Mirrors `inject-linked-web-sdk-pr`; it is deliberately the same shape so
+  the two read alike. The differences are all simplifications: the multisig
+  client is plain TypeScript, so there is no Rust toolchain to pre-install,
+  no wasm target, and no second package to build. Its `packages/miden-
+  multisig-client` directory carries its own pnpm-lock.yaml and every
+  dependency it needs is published, so a plain `pnpm install` there is
+  enough — the rest of the guardian repo is not built.
+
+inputs:
+  github-token:
+    description: Token for gh CLI calls (defaults to GITHUB_TOKEN).
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  patched:
+    description: "true if a patch was injected, false otherwise."
+    value: ${{ steps.parse.outputs.patched }}
+  guardian_pr:
+    description: The linked guardian PR number, or empty.
+    value: ${{ steps.parse.outputs.num }}
+  guardian_repo:
+    description: The linked PR's repo (owner/repo), or empty.
+    value: ${{ steps.parse.outputs.repo }}
+  guardian_head_sha:
+    description: The linked PR's head SHA, or empty.
+    value: ${{ steps.parse.outputs.head_sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        EVENT_NAME: ${{ github.event_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+
+        if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=inject-linked-guardian-pr::Skipping on event=$EVENT_NAME (only pull_request triggers patch injection)."
+          exit 0
+        fi
+
+        if [ -z "${PR_NUMBER:-}" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          echo "::notice title=inject-linked-guardian-pr::No PR number in event payload."
+          exit 0
+        fi
+
+        body=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.body // ""')
+
+        # Anchored to start-of-line so a mention in prose ("see Guardian PR: #440")
+        # does not trigger the patch — the marker must be on its own line.
+        marker=$(printf '%s' "$body" \
+          | grep -ioE '^[[:space:]]*Guardian PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
+          | head -1 || true)
+        if [ -z "$marker" ]; then
+          echo "patched=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        repo=$(printf '%s' "$marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "OpenZeppelin/guardian")
+        num=$(printf '%s' "$marker" | grep -oE '[0-9]+$')
+
+        meta=$(gh api "repos/${repo}/pulls/${num}" \
+          --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)\t\(.state)\t\(.merged)"' 2>/dev/null \
+          || { echo "::error title=inject-linked-guardian-pr::Failed to fetch ${repo}#${num}. Does the PR exist? Is GH_TOKEN scoped to read it? A PR raised from a fork resolves to the fork, which must be readable by this token."; exit 1; })
+
+        IFS=$'\t' read -r head_owner head_repo head_ref head_sha state merged <<< "$meta"
+
+        # Closed without merge → loud failure. A merged PR is fine: the build
+        # uses the head sha, which outlives the branch.
+        state_lc=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
+        if [ "$state_lc" != "open" ] && [ "$merged" != "true" ]; then
+          {
+            echo "## ❌ Linked guardian PR is closed without merge"
+            echo
+            echo "PR description marker: \`Guardian PR: ${repo}#${num}\`"
+            echo
+            echo "[\`${repo}#${num}\`](https://github.com/${repo}/pull/${num}) is in state \`${state}\` (not merged)."
+            echo
+            echo "Re-open it, point \`Guardian PR:\` at a different one, or remove the marker (the wallet will install the published @openzeppelin/miden-multisig-client version pinned in package.json)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=Linked PR closed::${repo}#${num} is closed without merge."
+          exit 1
+        fi
+
+        echo "patched=true" >> "$GITHUB_OUTPUT"
+        echo "repo=${repo}" >> "$GITHUB_OUTPUT"
+        echo "num=${num}" >> "$GITHUB_OUTPUT"
+        echo "head_owner=${head_owner}" >> "$GITHUB_OUTPUT"
+        echo "head_repo=${head_repo}" >> "$GITHUB_OUTPUT"
+        echo "head_ref=${head_ref}" >> "$GITHUB_OUTPUT"
+        echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+        echo "state=${state}" >> "$GITHUB_OUTPUT"
+        echo "merged=${merged}" >> "$GITHUB_OUTPUT"
+
+    - if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        GUARDIAN_DIR="${RUNNER_TEMP:-/tmp}/guardian-pr"
+        PKG_SUBDIR="packages/miden-multisig-client"
+
+        # Fetch by SHA, not by branch: the head branch is usually deleted when
+        # the PR merges, which breaks `clone --branch`. GitHub allows fetching
+        # an arbitrary SHA (uploadpack.allowAnySHA1InWant), so this keeps
+        # working for a merged PR — which is the common case here, since the
+        # guardian change usually lands before its npm release ships.
+        echo "::group::Fetch ${HEAD_OWNER}/${HEAD_REPO}@${HEAD_SHA:0:8} (PR was on ${HEAD_REF})"
+        rm -rf "$GUARDIAN_DIR"
+        mkdir -p "$GUARDIAN_DIR"
+        git -C "$GUARDIAN_DIR" init -q
+        git -C "$GUARDIAN_DIR" remote add origin "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git"
+        git -C "$GUARDIAN_DIR" fetch --depth 1 origin "${HEAD_SHA}"
+        git -C "$GUARDIAN_DIR" checkout --detach FETCH_HEAD
+        echo "::endgroup::"
+
+        if [ ! -d "$GUARDIAN_DIR/$PKG_SUBDIR" ]; then
+          echo "::error title=inject-linked-guardian-pr::${REPO}#${NUM} has no ${PKG_SUBDIR} directory. Is the marker pointing at the right repo?"
+          exit 1
+        fi
+
+        # The package is self-contained: its own pnpm-lock.yaml, and every
+        # dependency published. Nothing else in the guardian repo is built.
+        echo "::group::Install @openzeppelin/miden-multisig-client deps"
+        cd "$GUARDIAN_DIR/$PKG_SUBDIR"
+        if command -v corepack >/dev/null 2>&1; then
+          corepack enable >/dev/null 2>&1 || true
+          PNPM="corepack pnpm"
+        elif command -v pnpm >/dev/null 2>&1; then
+          PNPM="pnpm"
+        else
+          npm install -g pnpm@9 >/dev/null
+          PNPM="pnpm"
+        fi
+        # Not --frozen-lockfile: the lockfile is resolved against the guardian
+        # branch's own dep set, and a wallet runner may carry a different npm
+        # registry mirror. A drifted lockfile should not fail the wallet's CI.
+        $PNPM install --no-frozen-lockfile
+        echo "::endgroup::"
+
+        echo "::group::Build @openzeppelin/miden-multisig-client"
+        $PNPM run build
+        echo "::endgroup::"
+
+        if [ ! -f "$GUARDIAN_DIR/$PKG_SUBDIR/dist/index.js" ]; then
+          echo "::error title=inject-linked-guardian-pr::Build produced no dist/index.js — the wallet would resolve an empty package."
+          exit 1
+        fi
+
+        # Point the wallet at the local build. $GITHUB_WORKSPACE, not
+        # `git rev-parse --show-toplevel`: the CWD is inside the cloned
+        # guardian repo, so rev-parse would silently rewrite ITS package.json
+        # and leave the wallet on the published version.
+        echo "::group::Rewrite wallet package.json"
+        cd "$GITHUB_WORKSPACE"
+        node <<EOF
+        const fs = require('fs');
+        const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        const target = 'file:' + "${GUARDIAN_DIR}/${PKG_SUBDIR}";
+        const name = '@openzeppelin/miden-multisig-client';
+        const orig = {};
+        for (const field of ['dependencies', 'devDependencies']) {
+          if (pkg[field] && pkg[field][name] !== undefined) {
+            orig[field] = pkg[field][name];
+            pkg[field][name] = target;
+          }
+        }
+        if (Object.keys(orig).length === 0) {
+          console.error('::error::' + name + ' is not a dependency of the wallet — nothing was patched.');
+          process.exit(1);
+        }
+        // A resolution would pin the published version straight back through a
+        // transitive edge, silently undoing the injection.
+        if (pkg.resolutions) {
+          for (const k of Object.keys(pkg.resolutions)) {
+            if (k.includes('miden-multisig-client')) {
+              orig['(resolution) ' + k] = pkg.resolutions[k];
+              delete pkg.resolutions[k];
+            }
+          }
+        }
+        fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+        console.log('Replaced:', JSON.stringify(orig, null, 2), '->', target);
+        EOF
+        echo "::endgroup::"
+
+        {
+          echo "## 🔗 Linked guardian PR injected"
+          echo
+          echo "| Field | Value |"
+          echo "| --- | --- |"
+          echo "| PR | [\`${REPO}#${NUM}\`](https://github.com/${REPO}/pull/${NUM}) |"
+          echo "| Head | \`${HEAD_OWNER}/${HEAD_REPO}\` |"
+          echo "| Pin (head sha) | \`${HEAD_SHA}\` |"
+          echo "| Merged | \`${MERGED}\` |"
+          echo
+          echo "\`@openzeppelin/miden-multisig-client\` was built from source and injected as a \`file:\` dep. This is a runner-local mutation; nothing is committed."
+        } >> "$GITHUB_STEP_SUMMARY"
