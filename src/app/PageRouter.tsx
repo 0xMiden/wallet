@@ -4,6 +4,8 @@ import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
 import FullScreenPage from 'app/layouts/FullScreenPage';
 import TabLayout from 'app/layouts/TabLayout';
+import { DepositApprove } from 'app/pages/DepositBridge/DepositApprove';
+import { DepositReview } from 'app/pages/DepositBridge/DepositReview';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
@@ -242,6 +244,25 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ tokenId }) => (
       <FullScreenPage>
         <TokenDetail tokenId={tokenId!} />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    // Cross-chain deposit: wait for the funding transfer, then review the
+    // bridge. Both take their inputs as query params from the Receive
+    // Cross-chain tab; neither is a step inside a sheet.
+    '/deposit-bridge/approve',
+    onlyReady(() => (
+      <FullScreenPage>
+        <DepositApprove />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/deposit-bridge/review',
+    onlyReady(() => (
+      <FullScreenPage>
+        <DepositReview />
       </FullScreenPage>
     ))
   ],

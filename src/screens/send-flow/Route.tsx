@@ -6,10 +6,11 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
 import { BridgeRoute } from './types';
 
-export interface RouteStepProps {
+export interface RouteCardsProps {
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -37,6 +38,11 @@ export interface RouteStepProps {
   etaLabels?: { fast?: string; slow?: string };
   /** Extra message rendered below the cards (e.g. a route-specific notice). When set, it replaces the default slow-disabled hint. */
   notice?: React.ReactNode;
+  /** Layout classes for the card stack — merged over the default spacing. */
+  className?: string;
+}
+
+export interface RouteStepProps extends RouteCardsProps {
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
   /** Padding classes for the confirm-button footer. The `pb-24` default clears
@@ -82,12 +88,12 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, caption, selected, disable
 );
 
 /**
- * Cross-chain route picker, shown after the destination network is chosen for a
- * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, only the
- * dedicated bridgeable token — disabled otherwise).
+ * The Fast/Slow card pair on its own, without the page chrome or a confirm CTA.
+ * Split out of `Route` so surfaces that pick a route inline — the Receive
+ * Cross-chain tab, which chooses one before the deposit is even funded — get the
+ * same cards and fee/ETA rules under their own heading and CTA.
  */
-export const Route: React.FC<RouteStepProps> = ({
+export const RouteCards: React.FC<RouteCardsProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
@@ -98,9 +104,7 @@ export const Route: React.FC<RouteStepProps> = ({
   providerLabels,
   etaLabels,
   notice,
-  confirmDisabled,
-  footerClassName = 'pt-4 pb-24',
-  onConfirm
+  className
 }) => {
   const { t } = useTranslation();
 
@@ -120,39 +124,58 @@ export const Route: React.FC<RouteStepProps> = ({
   );
 
   return (
+    <div className={cn('flex flex-col gap-6', className)}>
+      <RouteCard
+        emoji="⚡"
+        label={t('fast')}
+        caption={providerLabels?.fast}
+        selected={route === 'epoch'}
+        disabled={!fastEnabled}
+        onSelect={() => select('epoch')}
+        fee={fastFee}
+        eta={etaLabels?.fast ?? t('fastArrival')}
+        testId="bridge-route-fast"
+      />
+      <RouteCard
+        emoji="🕐"
+        label={t('slow')}
+        caption={providerLabels?.slow}
+        selected={route === 'agglayer'}
+        disabled={!slowEnabled}
+        onSelect={() => select('agglayer')}
+        fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
+        eta={etaLabels?.slow ?? t('slowArrival')}
+        testId="bridge-route-slow"
+      />
+      {notice ? (
+        <p className="text-xs text-heading-gray/60">{notice}</p>
+      ) : (
+        !slowEnabled && <p className="text-xs text-heading-gray/50">{t('onlyBridgeableTokenSupported')}</p>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Cross-chain route picker, shown after the destination network is chosen for a
+ * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
+ * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, only the
+ * dedicated bridgeable token — disabled otherwise).
+ */
+export const Route: React.FC<RouteStepProps> = ({
+  confirmDisabled,
+  footerClassName = 'pt-4 pb-24',
+  onConfirm,
+  ...cards
+}) => {
+  const { t } = useTranslation();
+
+  return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
 
-        <div className="mt-6 flex flex-col gap-6">
-          <RouteCard
-            emoji="⚡"
-            label={t('fast')}
-            caption={providerLabels?.fast}
-            selected={route === 'epoch'}
-            disabled={!fastEnabled}
-            onSelect={() => select('epoch')}
-            fee={fastFee}
-            eta={etaLabels?.fast ?? t('fastArrival')}
-            testId="bridge-route-fast"
-          />
-          <RouteCard
-            emoji="🕐"
-            label={t('slow')}
-            caption={providerLabels?.slow}
-            selected={route === 'agglayer'}
-            disabled={!slowEnabled}
-            onSelect={() => select('agglayer')}
-            fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
-            eta={etaLabels?.slow ?? t('slowArrival')}
-            testId="bridge-route-slow"
-          />
-          {notice ? (
-            <p className="text-xs text-heading-gray/60">{notice}</p>
-          ) : (
-            !slowEnabled && <p className="text-xs text-heading-gray/50">{t('onlyBridgeableTokenSupported')}</p>
-          )}
-        </div>
+        <RouteCards {...cards} className="mt-6" />
       </div>
 
       <div className={clsx('shrink-0', footerClassName)}>

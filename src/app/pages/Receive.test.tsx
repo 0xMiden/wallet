@@ -21,7 +21,8 @@ const mockDepositState = {
 };
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string) => key }),
+  Trans: ({ i18nKey }: { i18nKey: string }) => <>{i18nKey}</>
 }));
 
 jest.mock('@capacitor/share', () => ({
@@ -55,11 +56,6 @@ jest.mock('app/pages/BridgeDeposit', () => ({
   default: () => <div data-testid="bridge-deposit" />
 }));
 
-jest.mock('app/templates/DepositBridge', () => ({
-  DepositBridgeDrawer: ({ open, initialToken }: { open: boolean; initialToken?: string }) =>
-    open ? <div data-testid="deposit-bridge-drawer" data-token={initialToken ?? 'any'} /> : null
-}));
-
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: jest.fn()
 }));
@@ -73,14 +69,6 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>
-}));
-
-// The amount field is the shared SelectAmount input; stub it to a plain input so
-// the test drives the value contract directly.
-jest.mock('screens/send-flow/SelectAmount', () => ({
-  SelectAmount: ({ amount, onAmountChange }: { amount: string; onAmountChange: (v: string) => void }) => (
-    <input data-testid="deposit-amount-input" value={amount} onChange={e => onAmountChange(e.target.value)} />
-  )
 }));
 
 jest.mock('components/Button', () => ({
@@ -130,6 +118,16 @@ jest.mock('components/TabPicker', () => ({
   )
 }));
 
+// The route the Cross-chain tab picks is persisted, so these are the two ends of
+// that contract; the quote drives the Fast card's fee and the Bridge gate.
+const mockReadPreferredRoute = jest.fn<Promise<string>, [string, string]>(async (_address, token) =>
+  token === 'ETH' ? 'agglayer' : 'epoch'
+);
+const mockWritePreferredRoute = jest.fn<Promise<void>, [string, string, string]>(async () => {});
+const mockQuoteDepositViaEpoch = jest.fn<Promise<{ quoteResult: { tokenOut: string } }>, [unknown]>(async () => ({
+  quoteResult: { tokenOut: (10n ** 18n).toString() }
+}));
+
 jest.mock('lib/deposit-bridge', () => ({
   DEPOSIT_TOKEN_IDS: ['ETH', 'USDC'],
   DEPOSIT_WALLETS: [],
@@ -139,8 +137,13 @@ jest.mock('lib/deposit-bridge', () => ({
     id,
     symbol: id,
     decimals: 18,
+    route: id === 'ETH' ? 'agglayer' : 'epoch',
     dustFloor: id === 'ETH' ? 100_000_000_000_000n : 10_000_000_000_000_000n
   }),
+  availableRoutes: (id: string) => (id === 'ETH' ? ['agglayer', 'epoch'] : ['epoch']),
+  readPreferredRoute: (address: string, id: string) => mockReadPreferredRoute(address, id),
+  writePreferredRoute: (address: string, id: string, route: string) => mockWritePreferredRoute(address, id, route),
+  quoteDepositViaEpoch: (args: unknown) => mockQuoteDepositViaEpoch(args),
   isDepositTokenId: (value: string) => value === 'ETH' || value === 'USDC',
   formatBalance: (value: bigint) => value.toString(),
   useDepositAddressStore: (selector: (state: typeof mockDepositState) => unknown) => selector(mockDepositState)
@@ -178,8 +181,9 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
   useEvmWalletConnection: () => ({ address: undefined, connected: false })
 }));
 
+const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn(),
+  navigate: (path: string) => mockNavigate(path),
   useLocation: () => ({ search: mockSearch })
 }));
 
@@ -216,6 +220,12 @@ describe('Receive - Address', () => {
     mockDepositState.balances = { ETH: null, USDC: null };
     mockDepositState.status = 'watching';
     mockDepositState.recentTxs = [];
+    mockReadPreferredRoute
+      .mockClear()
+      .mockImplementation(async (_address, token) => (token === 'ETH' ? 'agglayer' : 'epoch'));
+    mockWritePreferredRoute.mockClear().mockResolvedValue(undefined);
+    mockQuoteDepositViaEpoch.mockClear().mockResolvedValue({ quoteResult: { tokenOut: (10n ** 18n).toString() } });
+    mockNavigate.mockClear();
   });
 
   afterEach(async () => {
@@ -282,32 +292,72 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('0xabc0000000000000000000000000000000000001');
   });
 
-  it('opens the bridge drawer from ?bridge=1&token=ETH', async () => {
+  it('offers both routes for ETH, restoring the one this address last chose', async () => {
+    mockDepositBridgeEnabled = true;
+    mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
+    mockSearch = '?tab=crosschain';
+    mockReadPreferredRoute.mockResolvedValue('epoch');
+
+    const container = await render();
+
+    expect(mockReadPreferredRoute).toHaveBeenCalledWith(mockAccount.evmAddress, 'ETH');
+    const fast = container.querySelector('[data-testid="bridge-route-fast"]');
+    const slow = container.querySelector('[data-testid="bridge-route-slow"]');
+    expect(fast?.hasAttribute('disabled')).toBe(false);
+    expect(slow?.hasAttribute('disabled')).toBe(false);
+    // The stored Fast choice is the selected one, not the ETH default.
+    expect(fast?.className).toContain('border-primary-500');
+  });
+
+  it('remembers the route the user picks, so the later bridge uses it', async () => {
+    mockDepositBridgeEnabled = true;
+    mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
+    mockSearch = '?tab=crosschain';
+
+    const container = await render();
+
+    const fast = container.querySelector('[data-testid="bridge-route-fast"]');
+    await act(async () => {
+      fast?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(mockWritePreferredRoute).toHaveBeenCalledWith(mockAccount.evmAddress, 'ETH', 'epoch');
+  });
+
+  it('holds Bridge closed until the Fast quote lands', async () => {
+    mockDepositBridgeEnabled = true;
+    mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
+    mockSearch = '?tab=crosschain';
+    mockReadPreferredRoute.mockResolvedValue('epoch');
+    mockQuoteDepositViaEpoch.mockRejectedValue(new Error('no liquidity'));
+
+    const container = await render();
+
+    const input = container.querySelector<HTMLInputElement>('[data-testid="deposit-amount-input"]');
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, '1');
+      input?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    // Guards the assertion below: without a parsable amount the CTA would be
+    // disabled for that reason alone and the quote gate would go untested.
+    expect(input?.value).toBe('1');
+
+    // An unquotable Fast route must not hand the user a funding request it
+    // cannot honour, so the CTA stays disabled rather than failing later.
+    expect(container.querySelector('[data-testid="deposit-entry-bridge"]')?.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('sends ?bridge=1&token=ETH to the full-screen review page', async () => {
     mockDepositBridgeEnabled = true;
     mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
     mockSearch = '?tab=crosschain&bridge=1&token=ETH';
 
-    const container = await render();
+    await render();
 
-    expect(container.querySelector('[data-testid="deposit-bridge-drawer"]')?.getAttribute('data-token')).toBe('ETH');
-  });
-
-  it('renders a bridge row for a funded token above its dust floor', async () => {
-    mockDepositBridgeEnabled = true;
-    mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
-    mockSearch = '?tab=crosschain';
-    mockDepositState.balances = { ETH: 500_000_000_000_000_000n, USDC: null };
-
-    const container = await render();
-
-    expect(container.querySelector('[data-testid="deposit-balance-ETH"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="deposit-balance-USDC"]')).toBeNull();
-
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-testid="deposit-bridge-ETH"]')?.click();
-    });
-
-    expect(container.querySelector('[data-testid="deposit-bridge-drawer"]')?.getAttribute('data-token')).toBe('ETH');
+    // Review is a route, not a sheet — the deep link has to navigate, not
+    // open something inside Receive.
+    expect(mockNavigate).toHaveBeenCalledWith('/deposit-bridge/review?token=ETH');
   });
 
   it('keeps the WalletConnect entry on the address tab when the account has no EVM address', async () => {
@@ -316,22 +366,5 @@ describe('Receive - Address', () => {
     const container = await render();
 
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
-  });
-
-  it('offers a retry when the balance check failed', async () => {
-    mockDepositBridgeEnabled = true;
-    mockAccount.evmAddress = '0xabc0000000000000000000000000000000000001';
-    mockSearch = '?tab=crosschain';
-    mockDepositState.status = 'error';
-
-    const container = await render();
-
-    const retry = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'retry');
-    expect(retry).toBeDefined();
-
-    await act(async () => {
-      retry!.click();
-    });
-    expect(mockDepositState.poll).toHaveBeenCalled();
   });
 });

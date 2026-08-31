@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
+import { type DepositApproveMethod } from 'app/pages/Receive/ApproveInWallet';
 import { useShareAddress } from 'app/pages/Receive/useShareAddress';
 import { QRCode } from 'components/QRCode';
 import {
@@ -19,6 +20,7 @@ import {
 import { hapticLight } from 'lib/mobile/haptics';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
 export interface DepositMethodDrawerProps {
@@ -34,6 +36,18 @@ export interface DepositMethodDrawerProps {
 }
 
 type MethodStep = 'options' | 'wallets' | 'qr';
+
+/** Hands off to the full-screen waiting page; every method ends up there. */
+function goToApprove(
+  token: DepositTokenId,
+  amount: bigint,
+  method: DepositApproveMethod,
+  wallet: string | undefined
+): void {
+  const params = new URLSearchParams({ token, amount: amount.toString(), method });
+  if (wallet) params.set('wallet', wallet);
+  navigate(`/deposit-bridge/approve?${params.toString()}`);
+}
 
 const QR_FILE_NAME = 'miden-deposit-request.png';
 
@@ -96,14 +110,21 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
 
   const handleConnect = useCallback(() => {
     onOpenChange(false);
+    // The tab owns the connect modal; it lands on the same waiting page once a
+    // session exists, so all three methods converge there.
     onConnectWallet?.();
   }, [onConnectWallet, onOpenChange]);
 
+  // Handing the request off is not the end of the flow: the wallet has no way to
+  // know whether the user actually signed, so every method leaves for the
+  // waiting page and watches the chain from there.
   const handleWallet = useCallback(
     (wallet: DepositWalletOption) => {
       openPaymentDeeplink(wallet.buildUri(token, evmAddress, amount));
+      onOpenChange(false);
+      goToApprove(token, amount, 'deeplink', wallet.name || undefined);
     },
-    [token, evmAddress, amount]
+    [token, evmAddress, amount, onOpenChange]
   );
 
   const handleBack = useCallback(() => {
@@ -198,6 +219,20 @@ export const DepositMethodDrawer: React.FC<DepositMethodDrawerProps> = ({
             <button type="button" onClick={share} className="flex items-center gap-3 text-accent-primary">
               <Icon name={IconName.Share} size="md" className="shrink-0" />
               <span className="font-heading text-2xl font-bold leading-none text-heading-gray">{t('share')}</span>
+            </button>
+            {/* Nothing was handed to a wallet here, so the only way forward is
+                the chain — leave for the waiting page and watch for it. */}
+            <button
+              type="button"
+              data-testid="deposit-method-qr-sent"
+              onClick={() => {
+                hapticLight();
+                onOpenChange(false);
+                goToApprove(token, amount, 'address', undefined);
+              }}
+              className="font-heading text-base font-bold text-accent-primary"
+            >
+              {t('depositSentTheFunds')}
             </button>
           </div>
         )}

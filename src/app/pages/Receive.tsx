@@ -5,23 +5,17 @@ import { useTranslation } from 'react-i18next';
 
 import { AddressTab } from 'app/pages/Receive/AddressTab';
 import { CrossChainTab } from 'app/pages/Receive/CrossChainTab';
-import { DepositBridgeDrawer } from 'app/templates/DepositBridge';
 import { TabPicker } from 'components/TabPicker';
 import { isDepositTokenId, type DepositTokenId } from 'lib/deposit-bridge';
 import { isBridgeDepositEnabled, isDepositAddressBridgeEnabled } from 'lib/feature-flags';
 import { useAccount } from 'lib/miden/front';
 import { hapticSelection } from 'lib/mobile/haptics';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { navigate, useLocation } from 'lib/woozie';
 
 export interface ReceiveProps {}
 
 type ReceiveTab = 'miden' | 'crosschain';
-
-interface BridgeRequest {
-  token?: DepositTokenId;
-}
 
 /** Parses `?tab=crosschain&bridge=1&token=ETH` off the Woozie search string. */
 function parseReceiveIntent(search: string): { tab: ReceiveTab; bridge: boolean; token?: DepositTokenId } {
@@ -52,35 +46,23 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
   const intent = useMemo(() => parseReceiveIntent(search), [search]);
 
   const [tab, setTab] = useState<ReceiveTab>(() => (showCrossChain ? intent.tab : 'miden'));
-  const [bridgeRequest, setBridgeRequest] = useState<BridgeRequest | null>(null);
 
+  // `?bridge=1` is a request to review a bridge for funds already on the
+  // address — a full-screen page, so it is a navigation, not local state.
   useEffect(() => {
     if (!showCrossChain) return;
     setTab(intent.tab);
-    if (intent.bridge) setBridgeRequest({ token: intent.token });
+    if (intent.bridge && intent.token) navigate(`/deposit-bridge/review?token=${intent.token}`);
   }, [intent, showCrossChain]);
 
   const openBridgeDeposit = useCallback(() => {
     navigate('/bridge/deposit');
   }, []);
 
-  const handleBridge = useCallback((token?: DepositTokenId) => {
-    setBridgeRequest({ token });
-  }, []);
-
   const handleTabChange = useCallback((index: number) => {
     hapticSelection();
     setTab(index === 1 ? 'crosschain' : 'miden');
   }, []);
-
-  // Hardware/swipe back closes the bridge sheet before the page-level default runs.
-  useMobileBackHandler(() => {
-    if (bridgeRequest !== null) {
-      setBridgeRequest(null);
-      return true;
-    }
-    return false;
-  }, [bridgeRequest]);
 
   // Receive is a HomeSwipeContainer pane — another horizontal Framer Motion drag
   // surface. Let the tab picker take its own pointer sequence, then stop
@@ -111,12 +93,7 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
             />
           </div>
           {tab === 'crosschain' ? (
-            <CrossChainTab
-              evmAddress={evmAddress}
-              midenAddress={address}
-              onBridge={handleBridge}
-              onBridgeDeposit={openBridgeDeposit}
-            />
+            <CrossChainTab evmAddress={evmAddress} midenAddress={address} />
           ) : (
             <AddressTab address={address} />
           )}
@@ -125,16 +102,6 @@ const ReceiveManager: React.FC<ReceiveProps> = () => {
         <AddressTab
           address={address}
           onCrossChain={!isExtension() && isBridgeDepositEnabled() ? openBridgeDeposit : undefined}
-        />
-      )}
-      {showCrossChain && (
-        <DepositBridgeDrawer
-          open={bridgeRequest !== null}
-          onOpenChange={open => {
-            if (!open) setBridgeRequest(null);
-          }}
-          account={account}
-          initialToken={bridgeRequest?.token}
         />
       )}
     </div>

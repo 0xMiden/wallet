@@ -22,6 +22,14 @@ export {
 } from './balances';
 
 export {
+  preferredRouteKey,
+  readPreferredRoute,
+  readPreferredRoutes,
+  writePreferredRoute,
+  type DepositPreferredRouteStore
+} from './preferred-route';
+
+export {
   patchWatermark,
   readWatermark,
   readWatermarks,

@@ -14,8 +14,15 @@ interface DepositAddressState {
   address: string | null;
   status: DepositWatchStatus;
   balances: DepositBalances;
-  /** Confirmed, unacknowledged arrivals. */
+  /** Confirmed, unacknowledged arrivals — the money is final and bridgeable. */
   arrivals: DepositArrival[];
+  /**
+   * Arrivals the moment they are visible on-chain, BEFORE the confirmation
+   * ticks. The wait for finality is something to show the user, not something
+   * to hide from them, so the approve screen opens on this and moves on to the
+   * bridge once the same arrival appears in `arrivals`.
+   */
+  detectedArrivals: DepositArrival[];
   /** The arrival the drawer should open for, if any. */
   pendingDrawer: DepositArrival | null;
   lastPolledAt: number | null;
@@ -54,6 +61,7 @@ const INITIAL_STATE: DepositAddressState = {
   status: 'idle',
   balances: EMPTY_DEPOSIT_BALANCES,
   arrivals: [],
+  detectedArrivals: [],
   pendingDrawer: null,
   lastPolledAt: null,
   error: null,
@@ -85,7 +93,10 @@ function confirm(token: DepositTokenId, raw: bigint): boolean {
 
 /** Highest-value arrival the drawer hasn't been shown for (both tokens are 18-decimal). */
 function pickDrawer(arrivals: DepositArrival[]): DepositArrival | null {
-  return arrivals.filter(a => !a.drawerShown).sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0))[0] ?? null;
+  return (
+    arrivals.filter(a => !a.drawerShown).sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0))[0] ??
+    null
+  );
 }
 
 export const useDepositAddressStore = create<DepositAddressStore>((set, get) => ({
@@ -129,11 +140,11 @@ export const useDepositAddressStore = create<DepositAddressStore>((set, get) => 
         if (balance === null || entry.raw !== balance) observed.delete(token);
       }
 
-      const balanceChanged =
-        get().balances.ETH !== balances.ETH || get().balances.USDC !== balances.USDC;
+      const balanceChanged = get().balances.ETH !== balances.ETH || get().balances.USDC !== balances.USDC;
       set({
         balances,
         arrivals: confirmed,
+        detectedArrivals: arrivals,
         pendingDrawer: pickDrawer(confirmed),
         status: 'watching',
         error: null,
@@ -187,14 +198,16 @@ export const useDepositAddressStore = create<DepositAddressStore>((set, get) => 
     observed.delete(token);
     set({
       arrivals: arrivals.filter(a => a.token !== token),
+      detectedArrivals: get().detectedArrivals.filter(a => a.token !== token),
       pendingDrawer: pendingDrawer?.token === token ? null : pendingDrawer
     });
   },
 
   dismiss(token) {
-    const { arrivals, pendingDrawer } = get();
+    const { arrivals, detectedArrivals, pendingDrawer } = get();
     set({
       arrivals: arrivals.filter(a => a.token !== token),
+      detectedArrivals: detectedArrivals.filter(a => a.token !== token),
       pendingDrawer: pendingDrawer?.token === token ? null : pendingDrawer
     });
   },
