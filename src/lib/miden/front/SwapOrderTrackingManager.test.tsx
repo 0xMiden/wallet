@@ -2,14 +2,13 @@ import React from 'react';
 
 import { render, act } from '@testing-library/react';
 
-import type { SwapOrderTracking } from '../transaction/get';
-
 import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import {
   clearSwapOrderSchedulesForTests,
   getSwapOrderSchedule,
   useSwapOrderTrackingStore
 } from '../swap/order-tracking-store';
+import type { SwapOrderTracking } from '../transaction/get';
 
 const mockTrackOrderId = jest.fn();
 jest.mock('../transaction/get', () => ({

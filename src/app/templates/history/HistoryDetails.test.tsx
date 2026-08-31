@@ -32,14 +32,12 @@ const setMockRow = (row: Tx) => {
   mockRow = row;
 };
 
-const setMockSettlementNotes = (
-  notes: {
-    settled: string[];
-    reclaimed: string[];
-    settledTransactions: Tx[];
-    reclaimedTransactions: Tx[];
-  }
-) => {
+const setMockSettlementNotes = (notes: {
+  settled: string[];
+  reclaimed: string[];
+  settledTransactions: Tx[];
+  reclaimedTransactions: Tx[];
+}) => {
   mockSettlementNotes = notes;
 };
 
@@ -850,9 +848,7 @@ describe('HistoryDetails', () => {
     });
 
     it('keeps the fiat estimate when the claim is a single faucet', async () => {
-      setMockRow(
-        consumeTx({ amount: 20n, assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] })
-      );
+      setMockRow(consumeTx({ amount: 20n, assetTotals: [{ faucetId: 'faucet-1', amount: 20n }] }));
       await renderAndLoad();
 
       expect(screen.getByText('historyDetailsFiatApprox_$40.00')).toBeInTheDocument();
@@ -885,9 +881,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
@@ -948,9 +942,7 @@ describe('HistoryDetails', () => {
         remainingRequested: 0n
       });
       setMockSettlementNotes(settlementNotes([]));
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -969,9 +961,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 400n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');
@@ -1008,9 +998,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1058,9 +1046,7 @@ describe('HistoryDetails', () => {
         remainingRequested: 0n
       });
       setMockSettlementNotes(settlementNotes(['note-x'], []));
-      setMockRow(
-        swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
-      );
+      setMockRow(swapTx({ orderId: 9n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }));
 
       await renderAndLoad();
 
@@ -1089,9 +1075,7 @@ describe('HistoryDetails', () => {
       });
       // ...but this wallet has already observed the settlement consume note.
       setMockSettlementNotes(settlementNotes(['note-x'], []));
-      setMockRow(
-        swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 10n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1112,9 +1096,7 @@ describe('HistoryDetails', () => {
         remainingRequested: 1000n
       });
       setMockSettlementNotes(settlementNotes([], ['note-r']));
-      setMockRow(
-        swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 11n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1135,9 +1117,7 @@ describe('HistoryDetails', () => {
       // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
       // so this row must agree rather than showing "Reclaimed".
       setMockSettlementNotes(settlementNotes(['note-s'], ['note-r']));
-      setMockRow(
-        swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 12n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1282,9 +1262,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1322,9 +1300,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1366,9 +1342,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1405,9 +1379,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1472,9 +1444,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1515,9 +1485,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1540,9 +1508,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 600n,
         remainingRequested: 600n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }));
 
       await renderAndLoad();
 
@@ -1586,9 +1552,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 1500n,
         remainingRequested: 1500n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1605,9 +1569,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1620,9 +1582,7 @@ describe('HistoryDetails', () => {
       // than saying nothing; the status line already reads "Not available".
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedUnavailable('42');
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1664,9 +1624,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 1000n,
         remainingRequested: 1000n
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n, autoConsume: false }));
 
       await renderAndLoad();
 
@@ -1695,9 +1653,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1731,9 +1687,7 @@ describe('HistoryDetails', () => {
         ],
         reclaimedTransactions: []
       });
-      setMockRow(
-        swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n })
-      );
+      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
 
       await renderAndLoad();
 
@@ -1871,7 +1825,6 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('note-late');
     });
-
   });
 
   describe('failed transactions: error card, retry & cancel', () => {
@@ -2016,9 +1969,7 @@ describe('HistoryDetails', () => {
     });
 
     it('renders a user-cancelled tx with the cancelled pill and no retry button', async () => {
-      setMockRow(
-        failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined })
-      );
+      setMockRow(failedSendTx({ error: 'Transaction was cancelled by user', rawError: undefined }));
       await renderAndLoad();
 
       expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
@@ -2207,9 +2158,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('switches to the delivered destination amount once the note is received', async () => {
-    setMockRow(
-      earnWithdrawTx({ phase: 'received', outputSymbol: 'MDN' }, { amount: 999n })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'received', outputSymbol: 'MDN' }, { amount: 999n }));
     await renderAndLoad();
 
     // The source figure is no longer what the hero claims.
@@ -2217,9 +2166,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('offers retry on a failed withdrawal that never recorded a nonce', async () => {
-    setMockRow(
-      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: undefined }));
     await renderAndLoad();
 
     fireEvent.click(screen.getByText('retry'));
@@ -2233,9 +2180,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   it('offers retry on a failed withdrawal that does have a nonce', async () => {
-    setMockRow(
-      earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' })
-    );
+    setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' }));
     await renderAndLoad();
 
     fireEvent.click(screen.getByText('retry'));
@@ -2405,5 +2350,4 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', '1');
   });
-
 });
