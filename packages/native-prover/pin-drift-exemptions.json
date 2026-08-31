@@ -37,6 +37,13 @@
       "sdkVersion": "0.15.9",
       "sdkMidenClient": "0.15.5",
       "reason": "web-sdk 0.15.9 bumped miden-client 0.15.4->0.15.5 (and miden-client-web/-sqlite-store/-idxdb-store) only; every transaction-kernel crate (miden-protocol/tx/core-lib/assembly/core/mast-package/prover) is unchanged, so the =0.15.4 prover produces the same procedure set as SDK 0.15.9. Verified by diffing the web-sdk 0.15.8/0.15.9 Cargo.lock in #594."
+    },
+    {
+      "pin": "0.16.0-rc.2",
+      "sdkVersion": "0.16.0-rc.5",
+      "sdkMidenClient": "0.16.0-rc.3",
+      "kernelDrift": [],
+      "reason": "#798 moved the SDK stack to 0.16.0-rc.5, whose miden-client is 0.16.0-rc.3, while the native prover still pins =0.16.0-rc.2. The checker reports NO transaction-kernel drift for this pair: miden-protocol, miden-tx, miden-core-lib, miden-assembly, miden-core, miden-mast-package and miden-prover all resolve to the same versions on both sides, so the procedure roots the committed prover binaries were built against are unchanged and the client version is the only thing that moved. Inherited from next rather than introduced here \u2014 the same check fails on next's own package.json and native-prover directory. Drop this entry when the prover is next rebuilt against rc.3."
     }
   ]
 }
