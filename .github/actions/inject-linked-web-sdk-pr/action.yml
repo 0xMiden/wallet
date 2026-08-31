@@ -40,6 +40,16 @@ inputs:
     required: false
     default: "false"
 
+  build-node-module:
+    description: >-
+      Build the SDK's napi module and point MIDEN_MODULE_PATH at it. The published
+      package ships that binary through platform optionalDependencies
+      (@miden-sdk/node-linux-x64-gnu and friends); a `file:` source build has none, so
+      any spec that imports the SDK under node dies with "Miden napi module not found".
+      Off by default because it is a full native release build — opt in from the one
+      job that runs those specs.
+    required: false
+    default: 'false'
 outputs:
   patched:
     description: "true if a patch was injected, false otherwise."
@@ -328,6 +338,18 @@ runs:
         cd "$SDK_DIR/crates/web-client"
         MIDEN_FAST_BUILD=true $PNPM run build
         echo "::endgroup::"
+
+        if [ "${{ inputs.build-node-module }}" = "true" ]; then
+          echo "::group::Build the napi module (nodejs feature)"
+          cd "$SDK_DIR"
+          cargo build -p miden-client-web --no-default-features --features nodejs --release
+          lib="$(ls "$SDK_DIR"/target/release/libmiden_client_web.* 2>/dev/null | head -1)"
+          [ -n "$lib" ] || { echo "::error::napi build produced no libmiden_client_web"; exit 1; }
+          # The loader requires a .node extension.
+          cp "$lib" "$SDK_DIR/target/release/miden_client_web.node"
+          echo "MIDEN_MODULE_PATH=$SDK_DIR/target/release/miden_client_web.node" >> "$GITHUB_ENV"
+          echo "::endgroup::"
+        fi
 
         echo "::group::Build @miden-sdk/react"
         cd "$SDK_DIR/packages/react-sdk"

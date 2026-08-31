@@ -148,6 +148,11 @@ jobs:
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          # This job runs playwright/tests/mock-web-client.spec.ts, which imports the SDK under
+          # node and so needs the napi binary the published package supplies through its platform
+          # optionalDependencies; a `file:` source build has none.
+          build-node-module: 'true'
       - name: Inject linked guardian PR
         uses: ./.github/actions/inject-linked-guardian-pr
 
