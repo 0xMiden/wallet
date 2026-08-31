@@ -92,6 +92,8 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
         with:
           comment: 'true'
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -146,6 +148,8 @@ jobs:
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -203,6 +207,8 @@ jobs:
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -241,6 +247,8 @@ jobs:
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Install dependencies
         # When the inject action has rewritten package.json, --frozen-lockfile
