@@ -39,7 +39,14 @@ jobs:
     # are heavier than the Tier-2 happy-path spec; sized like the other
     # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather
     # than pr-e2e-local.yml's 45m. Revisit once real spec timings exist.
-    timeout-minutes: 60
+    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
+    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
+    # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
+    # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
+    # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
+    # binds on a cold build; a warm run is unaffected by raising it.
+    timeout-minutes: 120
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
