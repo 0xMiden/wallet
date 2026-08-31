@@ -4284,53 +4284,6 @@
     "message": "Ethereum Sepolia",
     "englishSource": "Ethereum Sepolia"
   },
-  "depositAddressExplainer": {
-    "message": "ETH veya USDC'yi Ethereum Sepolia'daki bu adrese gönderin, ardından bunu Miden hesabınıza bağlayın.",
-    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
-  },
-  "depositAddressWarning": {
-    "message": "Yalnızca Ethereum Sepolia'ya ETH veya USDC gönderin; diğer varlıklar kaybolacaktır.",
-    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
-  },
-  "depositWaitingForFunds": {
-    "message": "Fon bekleniyor…",
-    "englishSource": "Waiting for funds…"
-  },
-  "depositBalanceCheckFailed": {
-    "message": "Para kontrolü yapılamadı",
-    "englishSource": "Couldn't check for funds"
-  },
-  "justNow": {
-    "message": "Şu anda",
-    "englishSource": "Just now"
-  },
-  "minutesAgo": {
-    "message": "$value$ m önce",
-    "englishSource": "$value$m ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "hoursAgo": {
-    "message": "$value$ h önce",
-    "englishSource": "$value$h ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "daysAgo": {
-    "message": "$value$ d önce",
-    "englishSource": "$value$d ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "depositBridgeSelectAsset": {
     "message": "Varlık seçin",
     "englishSource": "Select asset"
@@ -4439,12 +4392,140 @@
     "englishSource": "via Agglayer"
   },
   "depositFastArrival": {
-    "message": "~1 dk",
-    "englishSource": "~1 min"
+    "message": "~30 sn",
+    "englishSource": "~30 sec"
   },
   "depositSlowArrival": {
-    "message": "~20 dk",
-    "englishSource": "~20 min"
+    "message": "~1 saat",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "Yol seçin",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "Köprüleme rotasını seçin",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "Köprüyü incele",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "Köprü kuruyorsunuz",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "Köprü ücreti",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "Toplam maliyet",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "Köprüyü onayla",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "Onaylanıyor…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "$eta$'da kullanıma sunulacak",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "Köprü aktarım devam ederken oranlar değişebilir. Alacağınız tutar, işlem sonuçlanana kadar tahmini bir rakamdır.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Hızlı · Epoch aktarıcısı",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Yavaş · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "Adımlar",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "İptal İsteği",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "Cüzdanda Onayla",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "$wallet$'da onaylayın",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread talebi hazırlar — siz orada inceleyip imzalarsınız. Bread asla sizin adınıza imza atmaz.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "$wallet$'i açın",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "Fonları gönderdim",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "Tespit edilen fonlar",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "Transferinizi bekliyoruz",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "Tutarınızı herhangi bir cüzdandan veya borsadan para yatırma adresinize gönderin. Bread, adresi takip eder ve otomatik olarak algılar.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Bread para yatırma adresiniz",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "Onayınızı bekliyoruz",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "$wallet$ adresini açın ve gönderimi onaylayın.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "Aktarımı bekliyorum",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Sepolia’da Onaylama",
+    "englishSource": "Confirming on Sepolia"
   },
   "transactionStepSendingToEthereum": {
     "message": "Ethereum'a Gönderme",

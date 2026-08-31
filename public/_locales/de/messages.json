@@ -4284,53 +4284,6 @@
     "message": "Ethereum Sepolia",
     "englishSource": "Ethereum Sepolia"
   },
-  "depositAddressExplainer": {
-    "message": "Senden Sie ETH oder USDC an diese Adresse auf Ethereum Sepolia und überbrücken Sie es dann mit Ihrem Miden-Konto.",
-    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
-  },
-  "depositAddressWarning": {
-    "message": "Senden Sie ETH oder USDC nur über Ethereum Sepolia – andere Vermögenswerte gehen verloren.",
-    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
-  },
-  "depositWaitingForFunds": {
-    "message": "Warten auf Mittel…",
-    "englishSource": "Waiting for funds…"
-  },
-  "depositBalanceCheckFailed": {
-    "message": "Es konnte nicht nach Geldmitteln gesucht werden",
-    "englishSource": "Couldn't check for funds"
-  },
-  "justNow": {
-    "message": "Soeben",
-    "englishSource": "Just now"
-  },
-  "minutesAgo": {
-    "message": "vor $value$m",
-    "englishSource": "$value$m ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "hoursAgo": {
-    "message": "vor $value$h",
-    "englishSource": "$value$h ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "daysAgo": {
-    "message": "vor $value$d",
-    "englishSource": "$value$d ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "depositBridgeSelectAsset": {
     "message": "Asset auswählen",
     "englishSource": "Select asset"
@@ -4439,12 +4392,140 @@
     "englishSource": "via Agglayer"
   },
   "depositFastArrival": {
-    "message": "~1 Min",
-    "englishSource": "~1 min"
+    "message": "~30 Sek.",
+    "englishSource": "~30 sec"
   },
   "depositSlowArrival": {
-    "message": "~20 Min",
-    "englishSource": "~20 min"
+    "message": "~1 Stunde",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "Route auswählen",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "Wählen Sie die Brückenroute",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "Brücke überprüfen",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "Sie führen eine Bridge durch",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "Brückengebühr",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "Gesamtkosten",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "Brücke bestätigen",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "Bestätigung…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "Erhältlich unter $eta$",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "Die Kurse können sich ändern, während die Bridge läuft. Der Betrag, den Sie erhalten, ist eine Schätzung, bis die Transaktion abgeschlossen ist.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Schnell · Epoch-Relayer",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Langsam · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "Schritte",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "Anfrage stornieren",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "In der Wallet genehmigen",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "Genehmigen Sie dies unter $wallet$",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread hat den Antrag vorbereitet – Sie prüfen ihn dort und unterschreiben ihn. Bread unterschreibt niemals in Ihrem Namen.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "Öffnen Sie $wallet$",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "Ich habe das Geld überwiesen",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "Guthaben erkannt",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "Warten auf Ihre Überweisung",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "Senden Sie den Betrag von einer beliebigen Wallet oder Börse an Ihre Einzahlungsadresse. Bread überwacht die Adresse und erfasst den Betrag automatisch.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Ihre Bread-Einzahlungsadresse",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "Warten auf Ihre Genehmigung",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "Öffnen Sie $wallet$ und bestätigen Sie die Überweisung.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "Warten auf die Überweisung",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Bestätigung auf Sepolia",
+    "englishSource": "Confirming on Sepolia"
   },
   "transactionStepSendingToEthereum": {
     "message": "Senden an Ethereum",

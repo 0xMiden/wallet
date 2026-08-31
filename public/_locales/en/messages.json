@@ -4284,53 +4284,6 @@
     "message": "Ethereum Sepolia",
     "englishSource": "Ethereum Sepolia"
   },
-  "depositAddressExplainer": {
-    "message": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account.",
-    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
-  },
-  "depositAddressWarning": {
-    "message": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost.",
-    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
-  },
-  "depositWaitingForFunds": {
-    "message": "Waiting for funds…",
-    "englishSource": "Waiting for funds…"
-  },
-  "depositBalanceCheckFailed": {
-    "message": "Couldn't check for funds",
-    "englishSource": "Couldn't check for funds"
-  },
-  "justNow": {
-    "message": "Just now",
-    "englishSource": "Just now"
-  },
-  "minutesAgo": {
-    "message": "$value$m ago",
-    "englishSource": "$value$m ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "hoursAgo": {
-    "message": "$value$h ago",
-    "englishSource": "$value$h ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "daysAgo": {
-    "message": "$value$d ago",
-    "englishSource": "$value$d ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "depositBridgeSelectAsset": {
     "message": "Select asset",
     "englishSource": "Select asset"
@@ -4439,12 +4392,140 @@
     "englishSource": "via Agglayer"
   },
   "depositFastArrival": {
-    "message": "~1 min",
-    "englishSource": "~1 min"
+    "message": "~30 sec",
+    "englishSource": "~30 sec"
   },
   "depositSlowArrival": {
-    "message": "~20 min",
-    "englishSource": "~20 min"
+    "message": "~1 hour",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "Choose route",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "Choose the bridging route",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "Review bridge",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "You bridge",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "Bridge fee",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "Total cost",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "Confirm bridge",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "Confirming…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "Arrives in $eta$",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Fast · Epoch relayer",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "Steps",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "Cancel Request",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "Approve in Wallet",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "Approve in $wallet$",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread prepared the request — you review and sign it there. Bread never signs for you.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "Open $wallet$",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "I have sent the funds",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "Funds detected",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "Waiting for your transfer",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Your Bread deposit address",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "Waiting for you to approve",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "Open $wallet$ and confirm the send.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "Waiting for the transfer",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Confirming on Sepolia",
+    "englishSource": "Confirming on Sepolia"
   },
   "transactionStepSendingToEthereum": {
     "message": "Sending to Ethereum",

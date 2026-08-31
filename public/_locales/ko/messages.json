@@ -4284,53 +4284,6 @@
     "message": "에테리움 세폴리아",
     "englishSource": "Ethereum Sepolia"
   },
-  "depositAddressExplainer": {
-    "message": "Ethereum Sepolia의 이 주소로 ETH 또는 USDC를 보낸 다음 Miden 계정에 연결하세요.",
-    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
-  },
-  "depositAddressWarning": {
-    "message": "Ethereum Sepolia에서는 ETH 또는 USDC만 보내십시오. 다른 자산은 손실됩니다.",
-    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
-  },
-  "depositWaitingForFunds": {
-    "message": "자금을 기다리는 중…",
-    "englishSource": "Waiting for funds…"
-  },
-  "depositBalanceCheckFailed": {
-    "message": "자금을 확인할 수 없습니다.",
-    "englishSource": "Couldn't check for funds"
-  },
-  "justNow": {
-    "message": "방금",
-    "englishSource": "Just now"
-  },
-  "minutesAgo": {
-    "message": "$value$분 전",
-    "englishSource": "$value$m ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "hoursAgo": {
-    "message": "$value$h 전",
-    "englishSource": "$value$h ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "daysAgo": {
-    "message": "$value$d 전",
-    "englishSource": "$value$d ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "depositBridgeSelectAsset": {
     "message": "자산 선택",
     "englishSource": "Select asset"
@@ -4439,12 +4392,140 @@
     "englishSource": "via Agglayer"
   },
   "depositFastArrival": {
-    "message": "~1분",
-    "englishSource": "~1 min"
+    "message": "~30초",
+    "englishSource": "~30 sec"
   },
   "depositSlowArrival": {
-    "message": "~20분",
-    "englishSource": "~20 min"
+    "message": "~1시간",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "경로 선택",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "브리지 경로를 선택하세요",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "브리지 검토",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "브리지 수행",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "브리지 수수료",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "총 비용",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "브리지 확인",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "확인 중…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "$eta$에 게시됨",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "브릿지가 진행 중일 때 환율이 변동될 수 있습니다. 결제가 완료되기 전까지는 수령 금액은 예상치일 뿐입니다.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Fast · Epoch 중계자",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "단계",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "요청 취소",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "지갑에서 승인하기",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "$wallet$에서 승인하기",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread가 요청서를 작성하며, 귀하는 이를 검토한 후 서명합니다. Bread는 귀하를 대신해 서명하지 않습니다.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "$wallet$ 열기",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "자금을 송금했습니다.",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "자금 감지됨",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "이체 완료를 기다리고 있습니다",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "어떤 지갑이나 거래소에서든 입금 주소로 금액을 전송하세요. Bread가 해당 주소를 모니터링하여 자동으로 인식합니다.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "귀하의 Bread 입금 주소",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "승인을 기다리고 있습니다",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "$wallet$을 열고 송금을 확인하십시오.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "이체 대기 중",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Sepolia에서 확인",
+    "englishSource": "Confirming on Sepolia"
   },
   "transactionStepSendingToEthereum": {
     "message": "이더리움으로 보내기",

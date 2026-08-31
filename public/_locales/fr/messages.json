@@ -4284,53 +4284,6 @@
     "message": "Ethereum Sépolia",
     "englishSource": "Ethereum Sepolia"
   },
-  "depositAddressExplainer": {
-    "message": "Envoyez ETH ou USDC à cette adresse sur Ethereum Sepolia, puis reliez-le à votre compte Miden.",
-    "englishSource": "Send ETH or USDC to this address on Ethereum Sepolia, then bridge it to your Miden account."
-  },
-  "depositAddressWarning": {
-    "message": "Envoyez uniquement ETH ou USDC sur Ethereum Sepolia – les autres actifs seront perdus.",
-    "englishSource": "Only send ETH or USDC on Ethereum Sepolia — other assets will be lost."
-  },
-  "depositWaitingForFunds": {
-    "message": "En attente de fonds…",
-    "englishSource": "Waiting for funds…"
-  },
-  "depositBalanceCheckFailed": {
-    "message": "Impossible de vérifier les fonds",
-    "englishSource": "Couldn't check for funds"
-  },
-  "justNow": {
-    "message": "Tout à l' heure",
-    "englishSource": "Just now"
-  },
-  "minutesAgo": {
-    "message": "il y a $value$m",
-    "englishSource": "$value$m ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "hoursAgo": {
-    "message": "il y a $value$h",
-    "englishSource": "$value$h ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
-  "daysAgo": {
-    "message": "il y a $value$d",
-    "englishSource": "$value$d ago",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "depositBridgeSelectAsset": {
     "message": "Sélectionnez l'actif",
     "englishSource": "Select asset"
@@ -4439,12 +4392,140 @@
     "englishSource": "via Agglayer"
   },
   "depositFastArrival": {
-    "message": "~1 min",
-    "englishSource": "~1 min"
+    "message": "~30 sec",
+    "englishSource": "~30 sec"
   },
   "depositSlowArrival": {
-    "message": "~20 minutes",
-    "englishSource": "~20 min"
+    "message": "~1 heure",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "Choisissez un itinéraire",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "Choisissez l’itinéraire de pontage",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "Vérifier le pont",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "Vous effectuez un « bridge »",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "Frais de pont",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "Coût total",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "Confirmer le pont",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "Confirmation…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "Disponible sur $eta$",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "Les taux peuvent fluctuer pendant que le transfert est en cours. Le montant que vous recevez est une estimation jusqu’à ce que la transaction soit finalisée.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Rapide · Relais Epoch",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Lent · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "Étapes",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "Annuler la demande",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "Approuver dans le portefeuille",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "Approuver dans l’$wallet$",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread a préparé la demande — vous la vérifiez et la signez sur place. Bread ne signe jamais à votre place.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "$wallet$ ouverte",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "J'ai envoyé les fonds",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "Fonds détectés",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "En attente de votre transfert",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "Envoyez le montant vers votre adresse de dépôt depuis n’importe quel portefeuille ou plateforme d’échange. Bread surveille l’adresse et la détecte automatiquement.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Votre adresse de dépôt Bread",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "En attente de votre validation",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "Ouvrez $wallet$ et confirmez l'envoi.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "En attente du transfert",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Confirmation sur Sepolia",
+    "englishSource": "Confirming on Sepolia"
   },
   "transactionStepSendingToEthereum": {
     "message": "Envoi vers Ethereum",
