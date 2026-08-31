@@ -23,6 +23,10 @@ import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
+// Imported from the module rather than the `components/ui` barrel: the barrel
+// pulls in siblings that touch `lib/platform` at module scope, which this
+// page's test suite mocks only partially.
+import { TabHeader } from 'components/ui/TabHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -402,7 +406,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           />
         )
       ) : (
-        <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
+        // Settings root is a primary tab destination, so it wears the same
+        // header as Activity and Explore: a plain title, no back chevron.
+        // Sub-pages above keep NavigationHeader — that back arrow is their only
+        // way out.
+        <TabHeader title={t('settings')} />
       )}
 
       {/* Keyed so the scroller remounts per page. `/settings` and

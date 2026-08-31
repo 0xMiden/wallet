@@ -73,12 +73,18 @@ jest.mock('app/icons/v2', () => ({
     Home: 'Home',
     Explore: 'Explore',
     Activity: 'Activity',
+    Settings: 'Settings',
     Wallet: 'Wallet',
     Send: 'Send',
     Receive: 'Receive',
     Earn: 'Earn',
     Convert: 'Convert'
   }
+}));
+
+// Tab labels are localized; echo the key back so assertions read as keys.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 // The home-group carousel is E2E territory; a marker div is enough to assert it
@@ -182,8 +188,22 @@ describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'activity');
   });
 
-  it('maps an unrelated path (e.g. /settings) to the home tab', () => {
+  it('maps /settings to the settings tab', () => {
     mockLocation.pathname = '/settings';
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+  });
+
+  it('keeps the settings tab active on a settings sub-page', () => {
+    // Matched on the path segment, so a `/settings/<slug>` drill-in doesn't
+    // drop the tab back to home.
+    mockLocation.pathname = '/settings/general-settings';
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+  });
+
+  it('maps an unrelated path (e.g. /token-detail) to the home tab', () => {
+    mockLocation.pathname = '/token-detail/0xabc';
     renderLayout();
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
   });
@@ -248,20 +268,42 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
 });
 
 describe('TabLayout — tabs list composition', () => {
-  it('includes the Explore tab off-extension (3 tabs)', () => {
+  it('includes the Explore tab off-extension (4 tabs)', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.getByTestId('nav-explore')).toBeInTheDocument();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (2 tabs)', () => {
+  it('drops the Explore tab on the extension (3 tabs)', () => {
     mockPlatform.isExtension = true;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.queryByTestId('nav-explore')).toBeNull();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+  });
+
+  it('orders Settings last, after Activity', () => {
+    mockPlatform.isExtension = false;
+    renderLayout();
+    const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
+      el.getAttribute('data-testid')
+    );
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
+  });
+
+  it('localizes every tab label', () => {
+    // The `react-i18next` stub echoes the key, so a hardcoded English literal
+    // would show up here as 'Home'/'Settings' rather than 'home'/'settings'.
+    mockPlatform.isExtension = false;
+    renderLayout();
+    expect(screen.getByTestId('nav-home')).toHaveTextContent('home');
+    expect(screen.getByTestId('nav-explore')).toHaveTextContent('explore');
+    expect(screen.getByTestId('nav-activity')).toHaveTextContent('activity');
+    expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
   });
 
   it('shows the unclaimed-notes dot on the Activity tab when notes are pending', () => {
@@ -321,6 +363,30 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     fireEvent.click(screen.getByTestId('nav-unknown'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
+  });
+
+  it('navigates to /settings and fires haptics when tapping the Settings tab', () => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-settings'));
+    expect(mockHaptic).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings');
+  });
+
+  it('is a silent no-op when re-tapping Settings while already on /settings', () => {
+    mockLocation.pathname = '/settings';
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-settings'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockHaptic).not.toHaveBeenCalled();
+  });
+
+  it('returns to the Settings root when tapping Settings from a sub-page', () => {
+    mockLocation.pathname = '/settings/general-settings';
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-settings'));
+    expect(mockHaptic).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings');
   });
 });
 

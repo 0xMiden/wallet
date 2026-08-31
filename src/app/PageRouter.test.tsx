@@ -380,9 +380,19 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  it('/settings renders Settings with no tab slug', () => {
+  // The Settings root is a primary tab destination, so it gets the persistent
+  // footer; its sub-pages keep the FullScreenPage drill-in asserted above.
+  it('/settings renders Settings with no tab slug inside TabLayout', () => {
     renderAt('/settings', ready);
-    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('tab-layout')).toContainElement(el);
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', '');
+  });
+
+  it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
   });
 
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it
