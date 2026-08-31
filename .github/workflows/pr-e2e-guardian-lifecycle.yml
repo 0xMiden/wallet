@@ -92,7 +92,20 @@ jobs:
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
-      - run: yarn install --frozen-lockfile
+      # These suites drive a real extension build, so they need the same unreleased
+      # dependencies the compile surfaces do: the fee APIs from the linked web-sdk PR and
+      # `resolveAuthArg` from the linked guardian PR. Without them the suite builds against
+      # the published packages and fails on missing exports — which reads as a product
+      # failure rather than an unshipped dependency. Both are no-ops when the PR body
+      # carries no marker.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      # Plain `yarn install`: the injections rewrite package.json to `file:` deps, which the
+      # committed lockfile cannot match, so `--frozen-lockfile` would fail by construction.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
         run: |
           # The harness auto-installs the CLI lazily on first use, but that ~7min
