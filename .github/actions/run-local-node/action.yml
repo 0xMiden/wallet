@@ -115,7 +115,9 @@ runs:
         MIDEN_PROVER_CAPACITY: '4'
         # Read by miden-client's test-node-genesis when it renders genesis.toml.
         # Unset (or 0) means `verification_base_fee = 0` and a fee-free chain.
-        MIDEN_TEST_NODE_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
+        # The name start-test-node.sh actually reads; MIDEN_TEST_NODE_VERIFICATION_BASE_FEE
+        # is read by nothing, so the requested fee never reached genesis.
+        MIDEN_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
       run: |
         cd "${{ runner.temp }}/miden-client"
         # Retried because bring-up has a startup race we do not own. The script

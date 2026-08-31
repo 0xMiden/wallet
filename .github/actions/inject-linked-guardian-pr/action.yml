@@ -237,6 +237,21 @@ runs:
             }
           }
         }
+        // Pin ONE @openzeppelin/guardian-client. The injected package declares its own
+        // dependency on it, and a \`file:\` dep resolves that edge separately from the wallet's
+        // own — yielding a second copy under the injected package's node_modules. Two copies
+        // means two declarations of RequestAuthPayload, whose private \`canonicalJson\` field
+        // makes them nominally distinct, and every signer handed across the boundary fails to
+        // typecheck. Only this package is built from source (see the header), so the wallet's
+        // published version is the one to converge on.
+        const guardian = '@openzeppelin/guardian-client';
+        const pinned = (pkg.dependencies && pkg.dependencies[guardian])
+          || (pkg.devDependencies && pkg.devDependencies[guardian]);
+        if (pinned) {
+          pkg.resolutions = pkg.resolutions || {};
+          pkg.resolutions['**/' + guardian] = pinned;
+          console.log('Pinned **/' + guardian + ' ->', pinned);
+        }
         fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
         console.log('Replaced:', JSON.stringify(orig, null, 2), '->', target);
         EOF

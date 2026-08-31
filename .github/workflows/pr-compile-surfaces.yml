@@ -30,7 +30,12 @@ jobs:
   android:
     name: Compile Android
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Both linked-dependency injections build from source before yarn install: the
+    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
+    # platform build even starts — Android's own gradle step takes 4 minutes and was
+    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
+    # The ceiling only binds while those markers are present.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,7 +69,12 @@ jobs:
   desktop:
     name: Compile desktop (Tauri)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Both linked-dependency injections build from source before yarn install: the
+    # guardian client and the web-sdk. On a cold runner that is ~26 minutes before the
+    # platform build even starts — Android's own gradle step takes 4 minutes and was
+    # being cut off at the 30-minute mark having already printed BUILD SUCCESSFUL.
+    # The ceiling only binds while those markers are present.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -119,7 +129,7 @@ jobs:
     # "cannot find 'UIGlassEffect' in scope" while compiling fine on a machine
     # with Xcode 26. A compile gate on the wrong toolchain tests the wrong thing.
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
