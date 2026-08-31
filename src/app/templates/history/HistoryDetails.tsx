@@ -426,9 +426,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
           const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
           const requestedMeta =
-            !swapToken && extra.requestedFaucetId
-              ? await getCachedTokenMetadata(extra.requestedFaucetId)
-              : undefined;
+            !swapToken && extra.requestedFaucetId ? await getCachedTokenMetadata(extra.requestedFaucetId) : undefined;
           if (cancelled) return;
           setRequestedToken({
             amount: extra.requestedAmount,
@@ -1031,10 +1029,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection
-                  entry={entry}
-                  restoredFromBackup={transaction?.restoredFromBackup === true}
-                />
+                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
               </>
             )}
 

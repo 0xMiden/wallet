@@ -89,10 +89,7 @@ function pendingWithdrawNonce(extraInputs: IEarnWithdrawExtraInputs | undefined)
 async function findUncoveredEarnRows(): Promise<{ deposits: boolean; withdrawals: boolean }> {
   const Repo = await import('lib/miden/repo');
   const rows = await Repo.transactions
-    .filter(
-      tx =>
-        (tx.type === 'earn-deposit' || tx.type === 'earn-withdraw') && tx.restoredFromBackup !== true
-    )
+    .filter(tx => (tx.type === 'earn-deposit' || tx.type === 'earn-withdraw') && tx.restoredFromBackup !== true)
     .toArray();
 
   let deposits = false;
