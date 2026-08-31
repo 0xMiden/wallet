@@ -46,6 +46,7 @@ const ActivityGroupDetail: FC<ActivityGroupDetailProps> = ({ groupId }) => {
           renderEntries={(entries, { initialLoading }) => {
             const group = groupActivity(entries, {
               contacts: allContacts,
+              protocolNames: { swap: t('swap') },
               pendingClaims: (claimableNotes ?? []).map(note => ({ id: note.id, senderAddress: note.senderAddress }))
             }).find(candidate => candidate.id === decodedId);
 

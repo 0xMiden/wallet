@@ -60,7 +60,12 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
               title={title}
               subtitle={subtitle}
               iconLeft={
-                group.kind === 'dapp' ? (
+                // The in-protocol DEX gets its own glyph — the same one the
+                // Swap action uses — so a swap group reads as the app it is
+                // rather than as a generic dApp.
+                group.protocol === 'swap' ? (
+                  <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+                ) : group.kind === 'dapp' ? (
                   <Icon name={IconName.Apps} className="w-5 h-5" />
                 ) : isUnknown ? (
                   <Icon name={IconName.Users} className="w-5 h-5" />

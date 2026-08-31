@@ -190,6 +190,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
                     <ActivityGroupList
                       groups={groupActivity(entries, {
                         contacts: allContacts,
+                        protocolNames: { swap: t('swap') },
                         // Claims are not history entries — an unclaimed note has
                         // no transaction — so they are folded in separately and
                         // can bring a group into existence on their own.

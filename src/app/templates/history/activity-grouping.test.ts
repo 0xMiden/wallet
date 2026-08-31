@@ -151,3 +151,63 @@ describe('groupActivity — empty state', () => {
     expect(groupActivity([], { contacts: [{ address: ALICE, name: 'Alice' }] })).toEqual([]);
   });
 });
+
+describe('groupActivity — in-protocol flows', () => {
+  const swap = (over: Partial<IHistoryEntry> & { key: string; timestamp: number }) =>
+    entry({ txType: 'swap', ...over });
+
+  it('groups swaps under the in-protocol DEX, flagged as a protocol group', () => {
+    const [group] = groupActivity([swap({ key: 's1', timestamp: 1 })], { protocolNames: { swap: 'Swap' } });
+
+    expect(group!.id).toBe('protocol:swap');
+    expect(group!.kind).toBe('dapp');
+    expect(group!.protocol).toBe('swap');
+    expect(group!.name).toBe('Swap');
+  });
+
+  it('collects every swap into one group regardless of counterparty', () => {
+    const groups = groupActivity([
+      swap({ key: 's1', timestamp: 3, secondaryAddress: ALICE }),
+      swap({ key: 's2', timestamp: 2, secondaryAddress: BOB }),
+      swap({ key: 's3', timestamp: 1 })
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.entries.map(e => e.key)).toEqual(['s1', 's2', 's3']);
+  });
+
+  it('prefers the protocol over a saved contact', () => {
+    // A swap's counterparty is the matching order, not a person — filing it
+    // under Alice would invent a relationship the user never had.
+    const [group] = groupActivity([swap({ key: 's1', timestamp: 1, secondaryAddress: ALICE })], {
+      contacts: [{ address: ALICE, name: 'Alice' }],
+      protocolNames: { swap: 'Swap' }
+    });
+
+    expect(group!.protocol).toBe('swap');
+    expect(group!.name).toBe('Swap');
+  });
+
+  it('still yields to durable dApp attribution', () => {
+    const [group] = groupActivity([swap({ key: 's1', timestamp: 1 })], {
+      dappByEntryKey: { s1: { origin: 'https://dex.test', name: 'Some DEX' } },
+      protocolNames: { swap: 'Swap' }
+    });
+
+    expect(group!.name).toBe('Some DEX');
+    expect(group!.protocol).toBeUndefined();
+  });
+
+  it('leaves non-protocol transactions ungrouped by protocol', () => {
+    const [group] = groupActivity([entry({ key: 'a1', timestamp: 1, secondaryAddress: ALICE })]);
+
+    expect(group!.protocol).toBeUndefined();
+    expect(group!.kind).toBe('contact');
+  });
+
+  it('falls back to the protocol id when no display name is supplied', () => {
+    const [group] = groupActivity([swap({ key: 's1', timestamp: 1 })]);
+
+    expect(group!.name).toBe('swap');
+  });
+});
