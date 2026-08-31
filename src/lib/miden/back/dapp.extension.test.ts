@@ -24,6 +24,9 @@ _g.__dappExtTest = {
     getInputNote: jest.fn(),
     getInputNoteDetails: jest.fn(),
     getConsumableNotes: jest.fn(),
+    // Slice-4: dapp reads consumable notes as DTOs via the proxy (flag-off →
+    // getMidenClient().getConsumableNoteDtos()).
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(),
     importNoteBytes: jest.fn(),
     on: jest.fn()
@@ -123,6 +126,10 @@ jest.mock('lib/miden/back/vault', () => ({
   }
 }));
 
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
@@ -130,11 +137,15 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
@@ -264,6 +275,24 @@ describe('requestConfirm window-position fallback', () => {
   });
 });
 
+/**
+ * `sourcePublicKey` on a sign request is a signer COMMITMENT, not an account id.
+ * `connect` hands the page b64 of `Word.serialize()`, and the vault keys its
+ * secret blobs by those same 32 bytes in hex — which is the form `signData`
+ * looks up by. A fixture that is neither (an account id, say) cannot exercise
+ * the key binding, and worse, would pass a check that only compared strings.
+ */
+const SIGNER_COMMITMENT = new Uint8Array(32).fill(0xab);
+const SIGNER_COMMITMENT_HEX = 'ab'.repeat(32);
+const FOREIGN_COMMITMENT_HEX = 'cd'.repeat(32);
+
+/** Make the session's account authenticate with SIGNER_COMMITMENT and nothing else. */
+const arrangeSignerAccount = () => {
+  _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
+    getPublicKeyCommitments: () => [{ serialize: () => SIGNER_COMMITMENT }]
+  });
+};
+
 describe('requestSign — extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -285,9 +314,10 @@ describe('requestSign — extension flow', () => {
   });
 
   it('resolves with a signature when the user confirms', async () => {
+    arrangeSignerAccount();
     const sigPromise = dapp.requestSign('https://miden.xyz', {
       type: MidenDAppMessageType.SignRequest,
-      sourcePublicKey: 'miden-account-1',
+      sourcePublicKey: SIGNER_COMMITMENT_HEX,
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
       kind: 'word'
@@ -430,7 +460,7 @@ describe('requestPrivateNotes — extension flow', () => {
 
 describe('requestConsumableNotes — extension flow', () => {
   it('opens a confirmation window on call (non-Auto branch)', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     const p = dapp.requestConsumableNotes('https://miden.xyz', {
       type: MidenDAppMessageType.ConsumableNotesRequest,
@@ -614,7 +644,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes resolves when confirmed', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -628,27 +658,28 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes maps full notes and skips partial (id-less) ones', async () => {
-    const partialNote = { id: () => undefined, nullifier: () => undefined };
-    const fullNote = {
-      id: () => ({ toString: () => 'note-full' }),
-      metadata: () => ({
-        noteType: () => 'public',
-        sender: () => ({ toBech32: () => 'sender-bech32' })
-      }),
-      nullifier: () => 'nullifier-1',
-      state: () => 'committed',
-      details: () => ({
-        assets: () => ({
-          fungibleAssets: () => [
-            {
-              amount: () => ({ toString: () => '7' }),
-              faucetId: () => ({ toBech32: () => 'faucet-bech32' })
-            }
-          ]
-        })
-      })
+    // Slice-4: the proxy returns already-reduced ConsumableNoteDtos. A partial
+    // note reduces to noteId/nullifier null (dapp skips it); a full note carries
+    // the fields dapp maps 1:1 to InputNoteDetails.
+    const partialNote = {
+      noteId: null,
+      nullifier: null,
+      noteType: undefined,
+      senderAccountId: undefined,
+      state: 0,
+      assets: [],
+      swapAttachment: null
     };
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([partialNote, fullNote]);
+    const fullNote = {
+      noteId: 'note-full',
+      nullifier: 'nullifier-1',
+      noteType: 1,
+      senderAccountId: 'sender-bech32',
+      state: 2,
+      assets: [{ amount: '7', faucetId: 'faucet-bech32' }],
+      swapAttachment: null
+    };
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([partialNote, fullNote]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     const res = await driveConfirmation(
       () =>
@@ -765,7 +796,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestConsumableNotes rejects when user declines (covers onDecline at L765)', async () => {
-    _g.__dappExtTest.midenClient.getConsumableNotes = jest.fn().mockResolvedValue([]);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn().mockResolvedValue([]);
     _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
     await expect(
       driveConfirmation(
@@ -902,6 +933,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestSign rejects with InvalidParams when signData throws inside the confirmed branch', async () => {
+    arrangeSignerAccount();
     mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
       fn({
         vault: {
@@ -916,7 +948,7 @@ describe('Full confirmation cycles in extension mode', () => {
         () =>
           dapp.requestSign('https://miden.xyz', {
             type: MidenDAppMessageType.SignRequest,
-            sourcePublicKey: 'miden-account-1',
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
             kind: 'word'
@@ -925,6 +957,74 @@ describe('Full confirmation cycles in extension mode', () => {
         { confirmed: true }
       )
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  /**
+   * The signing key is a separate field from the account the session is resolved
+   * by, and the vault's lookup is keyed by commitment alone with no
+   * back-reference to an account — so every key in the wallet is reachable from
+   * that one string. A page connected to its own account puts its own id in
+   * `sourceAccountId` (so the permission check passes) and somebody else's
+   * commitment in `sourcePublicKey`, and gets a signature from a key it was
+   * never granted. Approving the sheet does not help: the sheet shows the
+   * payload, not whose key will sign it.
+   */
+  describe('requestSign — the key must belong to the account the session authorized', () => {
+    const signWith = (sourcePublicKey: string) =>
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          } as never),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      );
+
+    it('refuses a commitment the session account does not authenticate with', async () => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signWith(FOREIGN_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      // Refused, not merely reported: the key is never touched.
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it('accepts the b64 form the wallet itself handed out at connect', async () => {
+      arrangeSignerAccount();
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
+        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+      );
+
+      const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
+      expect((res as any).signature).toBe('fake-signature-base64');
+    });
+
+    it.each([
+      ['an account id, which denotes no key at all', 'miden-account-1'],
+      ['a short hex string', '0xdeadbeef'],
+      ['a 32-byte value that is neither hex nor b64', 'not a commitment at all']
+    ])('refuses %s', async (_label, sourcePublicKey) => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signWith(sourcePublicKey)).rejects.toThrow();
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the account cannot be resolved, rather than signing anyway', async () => {
+      _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signWith(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(signData).not.toHaveBeenCalled();
+    });
   });
 
   it('requestPermission rejects when user declines', async () => {

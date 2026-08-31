@@ -2,16 +2,13 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { t } from 'i18next';
-import { useForm } from 'react-hook-form';
 
-import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
+import { AddNewContactForm } from 'app/templates/AddNewContactForm';
 import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
-import { useContacts, isAddressValid } from 'lib/miden/front';
+import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useConfirm } from 'lib/ui/dialog';
-import { withErrorHumanDelay } from 'lib/ui/humanDelay';
 import { truncateAddress } from 'utils/string';
 
 const AddressBook: React.FC = () => {
@@ -43,7 +40,7 @@ const AddressBook: React.FC = () => {
   }, [allContacts, searchQuery]);
 
   return (
-    <div className="w-full mx-auto">
+    <div className="w-full mx-auto" data-testid="address-book">
       <AddNewContactForm />
 
       <hr className="border-border-light my-8" />
@@ -59,7 +56,10 @@ const AddressBook: React.FC = () => {
           className={classNames(
             'w-full h-14 px-4',
             'bg-gray-25 border border-gray-100 rounded-10',
-            'text-base placeholder:text-text-muted placeholder:font-medium',
+            // `font-sans` because Preflight sets `font: inherit` on form controls
+            // and Settings wraps its sub-pages in `font-heading`, which would put
+            // typed wallet addresses in the rounded display face.
+            'font-sans text-base placeholder:text-text-muted placeholder:font-medium',
             'outline-none focus:border-gray-100'
           )}
         />
@@ -72,6 +72,7 @@ const AddressBook: React.FC = () => {
           filteredContacts.map(contact => (
             <CardItem
               key={contact.address}
+              data-testid={`address-book-contact-${contact.address}`}
               title={contact.name}
               subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
               iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
@@ -87,91 +88,3 @@ const AddressBook: React.FC = () => {
 };
 
 export default AddressBook;
-
-type ContactFormData = {
-  address: string;
-  name: string;
-};
-
-const SUBMIT_ERROR_TYPE = 'submit-error';
-
-const AddNewContactForm: React.FC<{ className?: string }> = ({ className }) => {
-  const { addContact } = useContacts();
-
-  const {
-    register,
-    reset: resetForm,
-    handleSubmit,
-    clearErrors,
-    setError,
-    watch,
-    formState: { errors, isSubmitting }
-  } = useForm<ContactFormData>();
-
-  const addressValue = watch('address');
-  const nameValue = watch('name');
-  const isFormEmpty = !addressValue || !nameValue;
-
-  const onAddContactSubmit = useCallback(
-    async ({ address, name }: ContactFormData) => {
-      if (isSubmitting) return;
-
-      try {
-        clearErrors();
-
-        if (!isAddressValid(address)) {
-          throw new Error(t('invalidAddress'));
-        }
-
-        await addContact({ address, name, addedAt: Date.now() });
-        resetForm();
-      } catch (err: any) {
-        await withErrorHumanDelay(err, () => setError('address', { type: SUBMIT_ERROR_TYPE, message: err.message }));
-      }
-    },
-    [isSubmitting, clearErrors, addContact, resetForm, setError]
-  );
-
-  return (
-    <form className={classNames('flex flex-col', className)} onSubmit={handleSubmit(onAddContactSubmit)}>
-      <div className="flex flex-col gap-4">
-        <span className="text-heading-gray font-medium text-base">{t('addContact')}</span>
-        <FormField
-          {...register('name', {
-            required: t('required'),
-            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-          })}
-          id="name"
-          name="name"
-          placeholder={t('enterUsername')}
-          errorCaption={errors.name?.message}
-          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
-          maxLength={50}
-          className="bg-gray-25 h-14 active:border-none focus:border-none  placeholder:text-text-muted placeholder:font-medium rounded-10"
-          fieldWrapperBottomMargin={false}
-        />
-        <FormField
-          {...register('address', {
-            required: t('required'),
-            maxLength: { value: 50, message: t('maximalAmount', { amount: '50' }) }
-          })}
-          id="address"
-          name="address"
-          placeholder={t('enterAddress')}
-          errorCaption={errors.address?.message}
-          className="bg-gray-25 h-14 active:border-none focus:border-none placeholder:text-text-muted rounded-10"
-          fieldWrapperBottomMargin={false}
-          containerClassName="bg-gray-25 border-gray-100 border rounded-10"
-        />
-      </div>
-      <FormSubmitButton
-        className="capitalize w-full justify-center mt-7 rounded-10 text-base font-semibold h-14"
-        loading={isSubmitting}
-        disabled={isFormEmpty}
-        testID="AddressBook/AddNewContact"
-      >
-        {t('addContact')}
-      </FormSubmitButton>
-    </form>
-  );
-};

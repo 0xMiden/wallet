@@ -1,0 +1,9 @@
+# Auto-request @WiktorStarczewski to review every PR into this branch.
+#
+# GitHub reads CODEOWNERS from the PR's base branch, so this file is kept on
+# `main` and `next` to scope the auto-request to those two branches (PRs into
+# other branches don't trigger it). This only REQUESTS a review — it does not
+# block merging unless "Require review from Code Owners" is enabled in this
+# branch's protection rules. GitHub never requests the PR's own author, so this
+# adds the reviewer on everyone else's PRs, not your own.
+* @WiktorStarczewski

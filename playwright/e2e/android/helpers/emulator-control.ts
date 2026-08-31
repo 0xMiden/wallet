@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 
@@ -16,7 +17,34 @@ const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
 // installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
 const BASE_AVD = 'Pixel_API_34';
 
-const BOOT_TIMEOUT_MS = 120_000;
+/**
+ * Boot budget. 120s was tuned on a 10-core M-series host, where a cold arm64
+ * boot is 30-60s. A GitHub ubuntu runner has ~4 vCPUs and boots TWO emulators,
+ * so the second one lost the race: `Emulator miden_e2e_B on port 5556 did not
+ * boot within 120000ms`, with its log showing an ordinary boot still in
+ * progress rather than a crash. A generous deadline costs nothing when the boot
+ * succeeds — the poll below exits the moment it does — and only spends time on
+ * a genuine failure, so this is sized for the slowest host rather than the
+ * fastest.
+ */
+const BOOT_TIMEOUT_MS = 300_000;
+
+/**
+ * Cores per emulator: up to the host's core count, capped at 8.
+ *
+ * Deliberately NOT halved for the two emulators. Halving was tried and made
+ * things worse, not better: on a 4-vCPU runner it gave 2 cores each, both
+ * emulators booted cleanly — and then `create_wallets` hung for the full 30
+ * minute test budget with the wallet logging `polls=0 iters=0`, because WASM
+ * account creation has nowhere near enough CPU on 2 cores. The two runs that
+ * PASSED asked for 8 (clamped by the emulator to 6) on the same 4 vCPUs.
+ *
+ * So oversubscribing two emulators across the host is fine — the guest is idle
+ * most of the time and bursts during proving — while starving them is not. The
+ * boot contention that this was originally meant to fix is handled by
+ * BOOT_TIMEOUT_MS instead, which costs nothing when the boot succeeds.
+ */
+const EMULATOR_CORES = Math.max(2, Math.min(8, os.cpus().length));
 const BOOT_POLL_MS = 1_000;
 
 interface DevicePair {
@@ -105,11 +133,29 @@ export class EmulatorControl {
     // app that bound to its FontsProvider (we saw com.miden.wallet killed
     // this way during a rerun). Poll until it's been seen running for 5
     // consecutive seconds before we proceed.
+    //
+    // SKIPPED on images without Play Services. The AOSP (`default`) image has
+    // no `com.google.android.gms` at all, so this poll could never succeed — it
+    // spun out the whole budget and threw "did not stabilize", every run, the
+    // moment the workflow switched images. The wait exists to dodge a GMS crash
+    // taking the app with it; with no GMS there is neither a process to wait for
+    // nor a crash to dodge.
+    if (!(await deviceHasPackage(serial, 'com.google.android.gms'))) {
+      console.log(`[emulator] ${serial}: no Play Services on this image — skipping the GMS settle wait`);
+      return;
+    }
     const GMS_STABLE_MS = 5_000;
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
+        const { stdout } = await execFileAsync('adb', [
+          '-s',
+          serial,
+          'shell',
+          'pgrep',
+          '-f',
+          'com.google.android.gms.persistent'
+        ]);
         if (stdout.trim().length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
           if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
@@ -124,12 +170,35 @@ export class EmulatorControl {
     throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
   }
 
-  async install(serial: string, apkPath: string): Promise<void> {
+  async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
     if (!fs.existsSync(apkPath)) {
       throw new Error(`APK not found at ${apkPath}`);
     }
     // `install -r -t` allows replacing + accepting test packages.
     await execFileAsync('adb', ['-s', serial, 'install', '-r', '-t', apkPath]);
+
+    // Pre-grant the runtime permissions whose system dialogs would otherwise
+    // appear over the app on first launch (Android 13+ gates POST_NOTIFICATIONS
+    // behind a prompt). That dialog is modal: it swallows taps meant for the
+    // wallet AND dims everything behind it, which is how it first showed up
+    // here — a dApp-browser screenshot where the dApp had loaded correctly but
+    // the whole screen was greyed out under "Allow Bread to send you
+    // notifications?".
+    //
+    // Granting rather than dismissing keeps it deterministic: there is no
+    // dialog to race. Failures are swallowed because the permission does not
+    // exist below API 33, where `pm grant` errors instead of no-op'ing.
+    if (packageName) {
+      await execFileAsync('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pm',
+        'grant',
+        packageName,
+        'android.permission.POST_NOTIFICATIONS'
+      ]).catch(() => {});
+    }
   }
 
   async uninstall(serial: string, packageName: string): Promise<void> {
@@ -181,13 +250,44 @@ export class EmulatorControl {
     await execFileAsync('adb', ['-s', serial, 'shell', 'am', 'force-stop', packageName]);
   }
 
+  /**
+   * Pre-grant the POST_NOTIFICATIONS runtime permission (Android 13+/API 33+)
+   * so the wallet's `checkPermissions()` returns granted and the OS
+   * notification-permission dialog never appears — otherwise it covers the
+   * centre of every composited screenshot. This changes no app behaviour: the
+   * real permission code path still runs, the OS just answers immediately.
+   *
+   * Must be re-run before every launch, not once after install: `pm clear`
+   * (wipeAppState, used for per-test isolation on warm emulators) resets granted
+   * runtime permissions along with app data.
+   *
+   * Best-effort — on a pre-33 image or an AOSP build that doesn't declare the
+   * permission, `pm grant` exits non-zero, and there is no dialog to suppress
+   * there anyway.
+   */
+  async grantNotifications(serial: string, packageName: string): Promise<void> {
+    try {
+      await execFileAsync('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pm',
+        'grant',
+        packageName,
+        'android.permission.POST_NOTIFICATIONS'
+      ]);
+    } catch {
+      // permission not declared / pre-33 image — no prompt to dodge
+    }
+  }
+
   async screenshot(serial: string, outPath: string): Promise<void> {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     // `screencap -p` writes PNG to stdout. We use `exec-out` to get raw
     // binary without adb's CRLF mangling.
     const { stdout } = await execFileAsync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
       encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024,
+      maxBuffer: 50 * 1024 * 1024
     });
     fs.writeFileSync(outPath, stdout);
   }
@@ -216,7 +316,7 @@ export class EmulatorControl {
       serial,
       'forward',
       `tcp:${hostPort}`,
-      `localabstract:webview_devtools_remote_${pid}`,
+      `localabstract:webview_devtools_remote_${pid}`
     ]);
   }
 
@@ -241,12 +341,57 @@ export class EmulatorControl {
 
 // ── Internals ───────────────────────────────────────────────────────────────
 
+/**
+ * Is this AVD actually usable, as opposed to merely NAMED?
+ *
+ * `emulator -list-avds` reports an AVD if its `<name>.ini` exists — it never
+ * looks inside. So an interrupted clone that wrote the `.ini` but not the
+ * `.avd/` directory is listed forever, and the emulator then boots a phantom:
+ * it cannot read `config.ini`, so it cannot resolve the ABI, and it dies with
+ *
+ *     FATAL | CPU Architecture 'arm' is not supported by the QEMU2 emulator
+ *
+ * which says nothing about the actual problem. Worse, the old name-only check
+ * treated the phantom as present and skipped the re-clone, so the state was
+ * self-perpetuating: every later run failed the same way. Check the two files
+ * that actually have to be there.
+ */
+function avdIsUsable(avdHome: string, avd: string): boolean {
+  return (
+    fs.existsSync(path.join(avdHome, `${avd}.ini`)) && fs.existsSync(path.join(avdHome, `${avd}.avd`, 'config.ini'))
+  );
+}
+
+/** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
+async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
+    return stdout.includes(pkg);
+  } catch {
+    return false;
+  }
+}
+
 async function ensureAvdsExist(): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
-  const present = new Set(stdout.split('\n').map(s => s.trim()).filter(Boolean));
+  const present = new Set(
+    stdout
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+  );
+
+  const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
 
   for (const avd of [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]) {
-    if (present.has(avd)) continue;
+    if (avdIsUsable(avdHome, avd)) continue;
+    // Listed but not usable = a half-written clone. Clear both sides before
+    // re-cloning, or the stale `.ini` keeps the phantom alive.
+    if (present.has(avd)) {
+      console.log(`[emulator] AVD "${avd}" is listed but incomplete (no config.ini) — re-cloning from ${BASE_AVD}`);
+      fs.rmSync(path.join(avdHome, `${avd}.ini`), { force: true });
+      fs.rmSync(path.join(avdHome, `${avd}.avd`), { recursive: true, force: true });
+    }
     if (!present.has(BASE_AVD)) {
       throw new Error(
         `Base AVD "${BASE_AVD}" not found and harness AVD "${avd}" is missing. ` +
@@ -255,7 +400,6 @@ async function ensureAvdsExist(): Promise<void> {
     }
     // avdmanager move/copy/create AVD doesn't have a clean clone, but
     // copying the directory works on all current AGP versions.
-    const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
     const srcDir = path.join(avdHome, `${BASE_AVD}.avd`);
     const srcIni = path.join(avdHome, `${BASE_AVD}.ini`);
     const dstDir = path.join(avdHome, `${avd}.avd`);
@@ -274,9 +418,19 @@ async function ensureAvdsExist(): Promise<void> {
       const cfg = fs.readFileSync(dstConfig, 'utf8').replace(/^AvdId=.*$/m, `AvdId=${avd}`);
       fs.writeFileSync(dstConfig, cfg);
     }
-    const iniText = fs.readFileSync(dstIni, 'utf8')
-      .replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
+    const iniText = fs.readFileSync(dstIni, 'utf8').replace(new RegExp(`${BASE_AVD}\\.avd`, 'g'), `${avd}.avd`);
     fs.writeFileSync(dstIni, iniText);
+
+    // Prove the clone is usable before returning. Leaving a half-written AVD
+    // behind is what produced the phantom described on `avdIsUsable`, and the
+    // failure only surfaced two minutes later as an unrelated-looking boot
+    // timeout.
+    if (!avdIsUsable(avdHome, avd)) {
+      throw new Error(
+        `Cloned AVD "${avd}" is incomplete: expected ${path.join(avdHome, `${avd}.avd`, 'config.ini')} to exist. ` +
+          `Delete ${path.join(avdHome, `${avd}.ini`)} and the matching .avd directory, then re-run.`
+      );
+    }
   }
 }
 
@@ -318,25 +472,35 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       '-no-window',
       // Override config.ini's `hw.ramSize` — emulator silently clamps the
       // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
-      // 4 GB is the sweet spot: 3 GB OOM-killed the Chromium sandboxed
-      // renderer (wallet WASM + Chromium + Android system bumped against
-      // the lowmem killer); 6 GB inflated qemu RSS to ~22 GB per emulator.
-      // 4 GB keeps host RSS ~5 GB per emulator and gives the WebView
-      // enough headroom to load the SDK WASM and run consume.
+      //
+      // 4 GB, measured — do not raise this without re-measuring.
+      //
+      // Origin: chosen on an Apple Silicon host (3 GB OOM-killed the Chromium
+      // sandboxed renderer; 6 GB inflated qemu RSS to ~22 GB per emulator under
+      // HVF). On the Linux CI runner the guest's own low-memory killer still
+      // reaps the wallet sometimes, so 5 GB was tried — and made it strictly
+      // WORSE: at 5 GB x 2 the host is short enough that the emulator no longer
+      // even finishes starting.
+      //
+      //   4 GB x 2:  passes ~half the time; guest LMK kills the app on the rest
+      //   5 GB x 2:  "Emulator emulator-5556 did not stabilize within 300000ms"
+      //
+      // Two full emulators are simply close to what a 16 GB runner can host.
+      // The lever that helps is giving the HOST more room (see the workflow's
+      // gradle-daemon stop), not giving each guest a bigger share of it.
       '-memory',
       '4096',
-      // Keep `cores` at 8 — Rayon-backed native prove benefits from all
-      // host cores per emulator (we have headroom on a 10-core M-series
-      // host) and rebuilding the JNI lib on the host is unaffected.
+      // Sized from the host — see EMULATOR_CORES.
       '-cores',
-      '8',
+      String(EMULATOR_CORES)
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
   child.unref();
 
-  // Poll adb until the serial appears + boot_completed flips. Total budget
-  // ~120s — cold-boot of an arm64 emulator on Apple Silicon is ~30-60s.
+  // Poll adb until the serial appears + boot_completed flips. See
+  // BOOT_TIMEOUT_MS for why the budget is sized for a contended CI runner
+  // rather than the Apple Silicon host this was first written on.
   const start = Date.now();
   while (Date.now() - start < BOOT_TIMEOUT_MS) {
     const present = await EmulatorControl.listBootedSerials();
@@ -354,7 +518,10 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
 }
 
 function getEmulatorBin(): string {
-  const home = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(process.env.HOME ?? '', 'Library/Android/sdk');
+  const home =
+    process.env.ANDROID_HOME ??
+    process.env.ANDROID_SDK_ROOT ??
+    path.join(process.env.HOME ?? '', 'Library/Android/sdk');
   return path.join(home, 'emulator', 'emulator');
 }
 

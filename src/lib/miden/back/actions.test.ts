@@ -15,6 +15,7 @@ import {
   getAuthSecretKey,
   setGuardianOperatorCommitment,
   setGuardianSyncStatus,
+  startGuardianRecovery,
   checkGuardianDrift,
   applyUserGuardianEndpoint,
   getAllDAppSessions,
@@ -77,6 +78,10 @@ jest.mock('lib/miden/back/guardian-drift', () => ({
   applyUserGuardianEndpoint: jest.fn()
 }));
 
+jest.mock('lib/miden/back/guardian-recovery', () => ({
+  maybeStartGuardianRecovery: jest.fn()
+}));
+
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     isExist: jest.fn(),
@@ -126,6 +131,11 @@ jest.mock('./dapp', () => ({
 }));
 
 jest.mock('webextension-polyfill', () => ({
+  runtime: {
+    onMessage: {
+      addListener: jest.fn()
+    }
+  },
   storage: {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true })
@@ -214,6 +224,30 @@ describe('actions', () => {
     });
   });
 
+  describe('startGuardianRecovery', () => {
+    it('starts recovery for the matching account', async () => {
+      const account = { publicKey: 'account-a' };
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([account]);
+      maybeStartGuardianRecovery.mockResolvedValueOnce(true);
+
+      await expect(startGuardianRecovery(account.publicKey)).resolves.toBe(true);
+      // No vault argument: the detached run resolves the live vault per use so
+      // a lock mid-run cannot be signed through.
+      expect(maybeStartGuardianRecovery).toHaveBeenCalledWith(account);
+    });
+
+    it('returns false without starting recovery when the account is missing', async () => {
+      const { maybeStartGuardianRecovery } = jest.requireMock('lib/miden/back/guardian-recovery');
+      maybeStartGuardianRecovery.mockClear();
+      mockVault.fetchAccounts.mockResolvedValueOnce([]);
+
+      await expect(startGuardianRecovery('missing-account')).resolves.toBe(false);
+      expect(maybeStartGuardianRecovery).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getFrontState', () => {
     it('returns state when inited is true', async () => {
       mockStoreState.inited = true;
@@ -246,11 +280,22 @@ describe('actions', () => {
   describe('unlock', () => {
     it('calls Vault.setup and unlocked with password', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // The guardian-endpoint backfill makes external HTTP and must NOT gate the
+      // unlock UI: model it as a promise that never settles and assert unlock()
+      // still resolves (fired detached), while still proving it ran at unlock.
+      let backfillStarted = false;
       const mockVaultInstance = {
         migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
         // Unlock also backfills wallet-derived EVM addresses onto legacy HD
         // accounts (needed by the earn flow) before reading the accounts list.
         backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        // ...and stamps a per-account guardianEndpoint onto legacy Guardian
+        // accounts that predate the field (#408 stage 2) — detached, so a
+        // hanging operator probe can't stall unlock.
+        backfillGuardianEndpoints: jest.fn(() => {
+          backfillStarted = true;
+          return new Promise<void>(() => {}); // never resolves
+        }),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -258,6 +303,7 @@ describe('actions', () => {
       };
       Vault.setup.mockResolvedValueOnce(mockVaultInstance);
 
+      // Resolves even though backfillGuardianEndpoints never settles.
       await unlock('password123');
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
@@ -266,6 +312,9 @@ describe('actions', () => {
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.fetchSettings).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
+      // Backfill was kicked off at unlock but did not block it.
+      expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
+      expect(backfillStarted).toBe(true);
     });
   });
 
@@ -280,9 +329,15 @@ describe('actions', () => {
       };
       Vault.spawn.mockResolvedValueOnce(mockVaultInstance);
 
-      await registerNewWallet(WalletType.Guardian, 'password123', 'mnemonic words', true);
+      await registerNewWallet(WalletType.Guardian, 'password123', 'mnemonic words', true, 'https://guardian.example');
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, 'password123', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        'password123',
+        'mnemonic words',
+        true,
+        'https://guardian.example'
+      );
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
     });
@@ -301,7 +356,7 @@ describe('actions', () => {
 
       await registerNewWallet(WalletType.Guardian, undefined, 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true);
+      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true, undefined);
     });
   });
 
@@ -942,6 +997,7 @@ describe('actions', () => {
             waitForTransaction: jest.fn()
           }));
           jest.doMock('webextension-polyfill', () => ({
+            runtime: { onMessage: { addListener: jest.fn() } },
             storage: { local: { get: jest.fn().mockResolvedValue({ DAppEnabled: true }) } }
           }));
 

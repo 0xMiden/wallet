@@ -3,13 +3,16 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
+import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import * as Repo from 'lib/miden/repo';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedReceiveTransaction,
   BridgedSendTransaction,
@@ -18,6 +21,7 @@ import {
   EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
+  ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
   SendTransaction,
@@ -26,8 +30,9 @@ import {
   Transaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
+import { sameWalletAccountId } from '../sdk/helpers';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { ConsumableNote, NoteType as NoteTypeString } from '../types';
 
 export const requestCustomTransaction = async (
@@ -56,22 +61,21 @@ export const initiateConsumeTransactionFromId = async (
   noteId: string,
   delegateTransaction?: boolean
 ): Promise<string> => {
-  const sdkNote = await withWasmClientLock(async () => {
-    const midenClient = await getMidenClient();
-
-    return midenClient.getInputNote(noteId);
-  });
-  if (!sdkNote) {
+  // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
+  // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
+  // dormant then and may not have it → a spurious "not found"); flag-OFF is the
+  // byte-identical inline `getInputNote(noteId)` reduction under the caller lock.
+  const summary = await withWasmClientLock(async () => midenClientProxy.getInputNoteSummary(noteId));
+  if (!summary) {
     throw new Error(`Note with id ${noteId} not found`);
   }
-  const noteMeta = sdkNote.metadata();
   const note: ConsumableNote = {
     id: noteId,
     faucetId: '',
     amount: '',
     senderAddress: '',
     isBeingClaimed: false,
-    type: noteMeta ? toNoteTypeString(noteMeta.noteType()) : 'unknown'
+    type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
   return await initiateConsumeTransaction(accountId, note, delegateTransaction);
@@ -106,8 +110,9 @@ export const initiateConsumeTransaction = async (
  * tx every 5s until the sync catches up. Notes that are already covered by a live row
  * (scalar `noteId` or batch `noteIds` index) are dropped from the batch. Failed txs are
  * excluded by the existing-non-Failed dedup so retries can recover from transient
- * failures, but bounded by the MAX_CONSECUTIVE_CONSUME_FAILURES + RETRY_COOLDOWN_SEC
- * policy to prevent unbounded retry storms when the failure is deterministic (#215).
+ * failures, but bounded by the terminal-safe exponential-backoff policy
+ * (RETRY_COOLDOWN_SEC · 2^(n-1), capped at MAX_RETRY_BACKOFF_SEC) so a deterministic
+ * failure decays to a daily probe instead of an endless drip (#215, #313).
  *
  * The check-and-add is wrapped in a Dexie `rw` transaction so concurrent callers for the
  * same noteId are serialized at the DB layer. Without this, two callers that slip past
@@ -143,20 +148,37 @@ export const initiateConsumeNotesTransaction = async (
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
       // index for legacy/single rows, multi-entry `noteIds` for batch rows),
-      // then partition. We need both non-Failed (dedup) and recent Failed
-      // (bounded-retry gate) inside the same rw transaction so the
+      // then partition. We need both non-Failed (dedup) and every lifetime Failed
+      // (exponential-backoff gate) inside the same rw transaction so the
       // check-and-add stays atomic.
       const byScalar = await Repo.transactions.where('noteId').equals(note.id).toArray();
       const byBatch = await Repo.transactions.where('noteIds').equals(note.id).toArray();
       const dedupedRows = new Map([...byScalar, ...byBatch].map(tx => [tx.id, tx]));
       const sameAccount = [...dedupedRows.values()].filter(
-        tx => tx.type === 'consume' && compareAccountIds(tx.accountId, accountId)
+        // `restoredFromBackup` rows are excluded: dedup asks "did THIS wallet
+        // already claim this note", and a restored row is not evidence of that —
+        // it is whatever the backup's author wrote. Counting one would let a
+        // dump naming a note id block that note from ever being claimed, for
+        // auto-consume and for an explicit Claim alike.
+        tx => tx.type === 'consume' && !tx.restoredFromBackup && compareAccountIds(tx.accountId, accountId)
       );
 
       // Existing non-Failed dedup: a Queued / GeneratingTransaction / Completed row wins.
       const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
+        // An explicit user retry must take effect NOW, even when the blocking row
+        // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
+        // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
+        // wins — we never queue a second row for the same note — but clearing the
+        // cooldown lets the existing row be picked on the next cycle instead of
+        // making a deliberate tap look like it did nothing. Same reasoning as
+        // `requeueFailedTransaction`, which clears it for the Failed-row path.
+        if (manualRetry && liveOrCompleted.status === ITransactionStatus.Queued && liveOrCompleted.nextEligibleAt) {
+          await Repo.transactions.where({ id: liveOrCompleted.id }).modify((dbTx: ITransaction) => {
+            dbTx.nextEligibleAt = undefined;
+          });
+        }
         continue;
       }
 
@@ -166,21 +188,20 @@ export const initiateConsumeNotesTransaction = async (
       // auto-consume backoff.
       if (!manualRetry) {
         const nowSec = Math.floor(Date.now() / 1000);
-        const recentFailures = sameAccount
+        const failures = sameAccount
           .filter(tx => tx.status === ITransactionStatus.Failed)
-          .filter(tx => {
-            const completed = tx.completedAt ?? tx.initiatedAt;
-            return nowSec - completed <= RECENT_FAILURE_WINDOW_SEC;
-          })
           .sort((a, b) => (b.completedAt ?? b.initiatedAt) - (a.completedAt ?? a.initiatedAt));
-        if (recentFailures.length > 0) {
-          const mostRecentFailed = recentFailures[0]!;
+        if (failures.length > 0) {
+          const mostRecentFailed = failures[0]!;
           const mostRecentCompletedAt = mostRecentFailed.completedAt ?? mostRecentFailed.initiatedAt;
           const secsSinceLastFailure = nowSec - mostRecentCompletedAt;
-          // Two gates compose: cap on consecutive failures inside the recent window
-          // AND a cooldown since the most recent failure. Either one being unsatisfied
-          // suppresses the new attempt.
-          if (recentFailures.length >= MAX_CONSECUTIVE_CONSUME_FAILURES || secsSinceLastFailure < RETRY_COOLDOWN_SEC) {
+          // Exponential backoff keyed on the note+account's LIFETIME failure count:
+          // the required idle gap doubles with every failure (RETRY_COOLDOWN_SEC ·
+          // 2^(n-1)), capped at MAX_RETRY_BACKOFF_SEC. Counting lifetime failures —
+          // not a sliding window — is what terminates the storm; see the policy note
+          // on the constants below (#215, #313).
+          const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
+          if (secsSinceLastFailure < backoffSec) {
             blockingId = blockingId ?? mostRecentFailed.id;
             continue;
           }
@@ -218,27 +239,36 @@ export const initiateConsumeNotesTransaction = async (
  * Background: the consume dedup at `initiateConsumeTransaction` excludes
  * `Failed` rows by design so retries can recover from *transient* failures
  * (e.g., kernel `auth::request` errors that clear once chain state
- * advances). But without a cap, an upstream deterministic failure
+ * advances). But without a brake, an upstream deterministic failure
  * combined with auto-consume's polling cadence + tab-switch remounts
  * produces an unbounded retry storm — one user empirically observed 122+
- * consume/Failed rows for 2 notes in 38 minutes. Issue #215 documents
- * this in detail. The follow-up shows the kernel error eventually clears
- * (both notes consumed within 10s of each other after a 65min idle), so
- * we must keep retrying *eventually*, just not on every single tick.
+ * consume/Failed rows for 2 notes in 38 minutes (#215).
  *
- * Policy:
- *   - Cap at MAX_CONSECUTIVE_CONSUME_FAILURES failures inside RECENT_FAILURE_WINDOW_SEC.
- *   - Once capped, require RETRY_COOLDOWN_SEC to elapse since the most
- *     recent Failed `completedAt` before allowing a new attempt.
+ * The original #215 fix was a sliding *window* throttle (cap N failures per
+ * 30 min, then one attempt per 5 min). That bounds the *rate* but never the
+ * *lifetime*: old failures age out of the window, so a note that
+ * `getConsumableNotes` keeps offering yet that fails on-chain every time (a
+ * deterministic rejection the consumability annotation misses, a `mock`
+ * network, an "already consumed" race) drips one failure every 5 min
+ * forever — 49 failures over 4 days in the captured profile (#313).
  *
- * The combined effect: a deterministic failure caps at ~5 retries within
- * ~30 min, then re-attempts at most once every ~5 min. A transient
- * failure that succeeds within the window still retries normally because
- * a Completed row reactivates the existing-non-Failed dedup branch.
+ * Policy (terminal-safe exponential backoff):
+ *   - n = the note+account's LIFETIME Failed rows.
+ *   - Require RETRY_COOLDOWN_SEC · 2^(n-1) of idle since the most recent
+ *     Failed `completedAt` before allowing another attempt, capped at
+ *     MAX_RETRY_BACKOFF_SEC.
+ *
+ * The interval therefore grows without bound (5 min → 10 → 20 → … → 24 h),
+ * so the storm decays to at most a daily probe. It stays a *probe*, not a
+ * permanent give-up: a note that later becomes consumable (its reclaim
+ * height is reached, chain state advances) is retried at the next expiry and
+ * recovers on its own — no failure-class parsing, no stuck-forever state. A
+ * transient failure that clears early still retries promptly because a
+ * Completed row reactivates the existing-non-Failed dedup branch, and an
+ * explicit user Retry (`manualRetry`) bypasses the backoff entirely.
  */
-export const MAX_CONSECUTIVE_CONSUME_FAILURES = 5;
-export const RECENT_FAILURE_WINDOW_SEC = 30 * 60; // 30 minutes
-export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes
+export const RETRY_COOLDOWN_SEC = 5 * 60; // 5 minutes — base backoff after the first failure
+export const MAX_RETRY_BACKOFF_SEC = 24 * 60 * 60; // 24 hours — backoff ceiling
 
 /**
  * Queue a swap (PSWAP-create) transaction: the account offers `offeredAmount`
@@ -280,6 +310,16 @@ export const initiateSendTransaction = async (
   recallBlocks?: number,
   delegateTransaction?: boolean
 ): Promise<string> => {
+  // Every send funnels through here — the wallet's own review screen and the
+  // dApp boundary both — so this is where the reclaim window has to be sound.
+  // It is stored on chain as a 32-bit block height, and a value that does not
+  // fit is truncated rather than refused: a window just past the limit wraps to
+  // zero and the note becomes reclaimable the moment it lands, while the screen
+  // that asked for consent says years. The review screen reaches this by
+  // `parseInt`ing a date the user picked from a calendar, so an out-of-range
+  // choice is a couple of taps away and needs no hostile page at all.
+  assertValidRecallBlocks(recallBlocks);
+
   const dbTransaction = new SendTransaction(
     senderAccountId,
     amount,
@@ -297,9 +337,12 @@ export const initiateSendTransaction = async (
 /**
  * Queue a cross-chain Miden→EVM send (`bridged-send`). For the agglayer (Slow)
  * route, `requestBytes` is a pre-built B2AGG `TransactionRequest` (own output
- * note) and the standard pipeline proves + submits it via `newTransaction`, then
- * `completeBridgedSendTransaction` records it. For the epoch (Fast) route there
- * are no `requestBytes` — `bridgeEpochSend` drives the row out-of-band.
+ * note). For the epoch (Fast) route, `requestBytes` is the pre-built P2IDE
+ * collateral request carrying the mandate-binding attachment (smallocator
+ * PR #38, built by `buildEpochCollateralRequestBytes`) and `bridgeEpochSend`
+ * drives the surrounding intent out-of-band. Either way the standard pipeline
+ * proves + submits the request via `newTransaction`, then
+ * `completeBridgedSendTransaction` records it.
  */
 export const initiateBridgedSendTransaction = async (
   accountId: string,
@@ -328,7 +371,12 @@ export const initiateBridgedSendTransaction = async (
   return dbTransaction.id;
 };
 
-/** Queue the recallable Miden P2IDE note that collateralizes an Earn deposit. */
+/**
+ * Queue the recallable Miden P2IDE note that collateralizes an Earn deposit.
+ * `requestBytes` is the pre-built P2IDE collateral request carrying the
+ * mandate-binding attachment (smallocator PR #38, built by
+ * `buildEpochCollateralRequestBytes`); the pipeline submits it verbatim.
+ */
 export const initiateEarnDepositTransaction = async (
   accountId: string,
   amount: bigint,
@@ -336,7 +384,8 @@ export const initiateEarnDepositTransaction = async (
   marketUid: string,
   faucetId: string,
   sendParams: IBridgedSendNoteParams,
-  delegateTransaction?: boolean
+  delegateTransaction?: boolean,
+  requestBytes?: Uint8Array
 ): Promise<string> => {
   const dbTransaction = new EarnDepositTransaction(
     accountId,
@@ -345,7 +394,8 @@ export const initiateEarnDepositTransaction = async (
     marketUid,
     faucetId,
     sendParams,
-    delegateTransaction
+    delegateTransaction,
+    requestBytes
   );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
@@ -416,10 +466,18 @@ export const initiateSwitchGuardianTransaction = async (
   delegateTransaction: boolean | undefined,
   guardianProvider: GuardianAccountProvider
 ): Promise<string> => {
-  if (!(await isGuardianAccount(accountId, guardianProvider))) {
+  const accounts = await guardianProvider.getAccounts();
+  const account = accounts.find(candidate => sameWalletAccountId(candidate.publicKey, accountId));
+  if (!account || account.type !== WalletType.Guardian) {
     throw new Error('Switch guardian is only supported for Guardian accounts');
   }
-  const dbTransaction = new SwitchGuardianTransaction(accountId, newGuardianEndpoint, delegateTransaction);
+  const previousGuardianEndpoint = await resolveGuardianEndpoint(account);
+  const dbTransaction = new SwitchGuardianTransaction(
+    accountId,
+    newGuardianEndpoint,
+    delegateTransaction,
+    previousGuardianEndpoint
+  );
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

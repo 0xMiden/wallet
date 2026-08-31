@@ -5,6 +5,7 @@ import { useWalletStore } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
+  guardianEndpointDisplayName,
   guardianEndpointHost,
   guardianOptionForEndpoint,
   useCurrentGuardianEndpoint
@@ -31,6 +32,10 @@ jest.mock('lib/settings/constants', () => ({
   GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
 }));
 
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.example'
+}));
+
 const mockFetchFromStorage = fetchFromStorage as jest.MockedFunction<typeof fetchFromStorage>;
 const mockOnStorageChanged = onStorageChanged as jest.MockedFunction<typeof onStorageChanged>;
 
@@ -51,12 +56,24 @@ it('loads the stored endpoint and refreshes it on demand', async () => {
   expect(mockFetchFromStorage).toHaveBeenCalledTimes(2);
 });
 
-it('falls back to an empty endpoint when storage rejects', async () => {
+// Third branch of the backend's `resolveGuardianEndpoint`, which this hook is
+// documented to mirror. Stopping at '' made the UI disagree with the record the
+// switch was about to write: the current provider showed as "Unknown" and the
+// same-endpoint guards compared against '' and never fired, so a pre-#408
+// Guardian account could queue a switch onto the Guardian it already had.
+it('falls back to the effective default endpoint when neither source has one', async () => {
+  const { result } = renderHook(() => useCurrentGuardianEndpoint());
+
+  await waitFor(() => expect(mockFetchFromStorage).toHaveBeenCalled());
+  expect(result.current.endpoint).toBe('https://default.guardian.example');
+});
+
+it('falls back to the effective default when storage rejects', async () => {
   mockFetchFromStorage.mockRejectedValue(new Error('storage unavailable'));
   const { result } = renderHook(() => useCurrentGuardianEndpoint());
 
   await waitFor(() => expect(mockFetchFromStorage).toHaveBeenCalled());
-  expect(result.current.endpoint).toBe('');
+  expect(result.current.endpoint).toBe('https://default.guardian.example');
 });
 
 it('reacts to storage changes and unsubscribes on unmount', async () => {
@@ -72,7 +89,7 @@ it('reacts to storage changes and unsubscribes on unmount', async () => {
   act(() => onChange?.('https://changed.guardian'));
   expect(result.current.endpoint).toBe('https://changed.guardian');
   act(() => onChange?.(undefined));
-  expect(result.current.endpoint).toBe('');
+  expect(result.current.endpoint).toBe('https://default.guardian.example');
 
   unmount();
   expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -104,4 +121,12 @@ it('matches guardian options across network endpoints', () => {
 it('formats guardian hosts and preserves invalid custom values', () => {
   expect(guardianEndpointHost('https://guardian.example/path')).toBe('guardian.example');
   expect(guardianEndpointHost('custom guardian')).toBe('custom guardian');
+});
+
+it('formats known, custom, and missing endpoints for Guardian transitions', () => {
+  expect(guardianEndpointDisplayName('https://test.guardian.example', 'Unknown')).toBe('Guardian One');
+  expect(guardianEndpointDisplayName('https://custom.guardian.example/path', 'Unknown')).toBe(
+    'custom.guardian.example'
+  );
+  expect(guardianEndpointDisplayName(undefined, 'Unknown')).toBe('Unknown');
 });

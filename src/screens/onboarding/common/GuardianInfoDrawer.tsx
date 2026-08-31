@@ -41,7 +41,7 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
   const { t } = useTranslation();
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="guardian-info">
       <DrawerContent
         className="max-h-[78vh] overflow-hidden rounded-t-[28px] border-t-[6px] border-primary-500 bg-surface-solid"
         overlayClassName="bg-transparent backdrop-blur-0 dark:bg-transparent"

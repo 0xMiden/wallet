@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { BridgeRoute } from './types';
@@ -111,7 +112,7 @@ export const Route: React.FC<RouteStepProps> = ({
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
-  const feeText = fastFeeText ?? (fastFeeUsd != null ? `$${fastFeeUsd.toFixed(2)}` : '—');
+  const feeText = fastFeeText ?? (fastFeeUsd != null ? `$${toAdaptiveFixed(fastFeeUsd)}` : '—');
   const fastFee = fastQuoteLoading ? (
     <div className="h-4 w-12 animate-pulse rounded bg-heading-gray/10" />
   ) : (

@@ -36,7 +36,7 @@ jest.mock('./assets', () => ({
   TokensMetadataProvider: ({ children }: any) => <>{children}</>
 }));
 
-jest.mock('lib/fiat-curency', () => ({
+jest.mock('lib/fiat-currency', () => ({
   FiatCurrencyProvider: ({ children }: any) => <>{children}</>
 }));
 

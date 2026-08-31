@@ -1,27 +1,13 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as ExtensionIcon } from 'app/icons/extension.svg';
-import { ReactComponent as AddressBookIconDevnet } from 'app/icons/settings/address-book-devnet.svg';
-import { ReactComponent as AddressBookIconOrange } from 'app/icons/settings/address-book.svg';
-import { ReactComponent as ToolIconDevnet } from 'app/icons/settings/advanced-settings-devnet.svg';
-import { ReactComponent as ToolIconOrange } from 'app/icons/settings/advanced-settings.svg';
-import { ReactComponent as AppsIconDevnet } from 'app/icons/settings/dapp-devnet.svg';
-import { ReactComponent as AppsIconOrange } from 'app/icons/settings/dapp.svg';
-import { ReactComponent as SettingsIconDevnet } from 'app/icons/settings/general-devnet.svg';
-import { ReactComponent as SettingsIconOrange } from 'app/icons/settings/general.svg';
-import { ReactComponent as LanguageIconDevnet } from 'app/icons/settings/language-devnet.svg';
-import { ReactComponent as LanguageIconOrange } from 'app/icons/settings/language.svg';
-import { ReactComponent as PrivacyPolicyIconDevnet } from 'app/icons/settings/privacy-policy-devnet.svg';
-import { ReactComponent as PrivacyPolicyIconOrange } from 'app/icons/settings/privacy-policy.svg';
-import { ReactComponent as SecretKeyIconDevnet } from 'app/icons/settings/secret-key-devnet.svg';
-import { ReactComponent as SecretKeyIconOrange } from 'app/icons/settings/secret-key.svg';
-import { ReactComponent as SeedPhraseIconDevnet } from 'app/icons/settings/seed-phrase-devnet.svg';
-import { ReactComponent as SeedPhraseIconOrange } from 'app/icons/settings/seed-phrase.svg';
-import { ReactComponent as TosIconDevnet } from 'app/icons/settings/tos-devnet.svg';
-import { ReactComponent as TosIconOrange } from 'app/icons/settings/tos.svg';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
+import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
+import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
+import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
@@ -38,31 +24,19 @@ import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
-import { DEFAULT_NETWORK, MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { openExternalUrl } from 'lib/mobile/external-browser';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
-import { goBack, navigate } from 'lib/woozie';
+import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
-import { PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
-
-const isDevnet = DEFAULT_NETWORK === MIDEN_NETWORK_NAME.DEVNET;
-const AddressBookIcon = isDevnet ? AddressBookIconDevnet : AddressBookIconOrange;
-const ToolIcon = isDevnet ? ToolIconDevnet : ToolIconOrange;
-const AppsIcon = isDevnet ? AppsIconDevnet : AppsIconOrange;
-const SettingsIcon = isDevnet ? SettingsIconDevnet : SettingsIconOrange;
-const LanguageIcon = isDevnet ? LanguageIconDevnet : LanguageIconOrange;
-const PrivacyPolicyIcon = isDevnet ? PrivacyPolicyIconDevnet : PrivacyPolicyIconOrange;
-const SecretKeyIcon = isDevnet ? SecretKeyIconDevnet : SecretKeyIconOrange;
-const SeedPhraseIcon = isDevnet ? SeedPhraseIconDevnet : SeedPhraseIconOrange;
-const TosIcon = isDevnet ? TosIconDevnet : TosIconOrange;
+import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
   tabSlug?: string | null;
@@ -97,16 +71,31 @@ function getCurrentLanguageLabel(): string {
 type Tab = {
   slug: string;
   titleI18nKey: string;
-  Icon: React.FC<{ style?: React.CSSProperties }>;
-  Component: React.FC<{ onClose?: () => void }>;
+  pageTitleI18nKey?: string;
+  // Sub-pages are routed, so they own their own exit — none of them takes a host
+  // close handler any more.
+  Component: React.FC;
   testID?: SettingsSelectors;
-  iconStyle?: React.CSSProperties;
   hasOwnLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
-  isDrawer?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  /**
+   * Set when the sub-page focuses a field on mount in a `useLayoutEffect`, which
+   * runs BEFORE the host's title focus and would therefore lose the caret to it.
+   *
+   * Prefer not to need this. A page whose focus call is a passive `useEffect`
+   * lands after the title focus and wins on its own, which is strictly better:
+   * the title is announced, and the field is only claimed if it actually rendered.
+   * Declaring the flag makes the host guess, and a page whose field is
+   * conditional will guess wrong — `RevealSecret` renders no password input at
+   * all when a hardware protector is present, so the suppression left that route
+   * with nothing focused and no announcement, the exact defect
+   * `focusTitleOnMount` exists to fix. A predicate rather than a boolean for the
+   * same reason: whatever remains here is platform-dependent.
+   */
+  ownsInitialFocus?: () => boolean;
   // Hide on Guardian accounts whose hot key is not yet activated (post-recovery,
   // pre-banner-click). The corresponding Settings flow needs a `hotPublicKey`
   // set on the WalletAccount or it'll fail immediately on the vault lookup.
@@ -115,46 +104,42 @@ type Tab = {
 
 type TabGroup = {
   titleI18nKey: string;
+  Icon: ImportedSVGComponent;
   tabs: Tab[];
 };
 
 const TAB_GROUPS: TabGroup[] = [
   {
     titleI18nKey: 'preferences',
+    Icon: GroupPreferencesIcon,
     tabs: [
       {
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
-        Icon: SettingsIcon,
         Component: GeneralSettings,
-        testID: SettingsSelectors.GeneralButton,
-        isDrawer: true
+        testID: SettingsSelectors.GeneralButton
       },
       {
         slug: 'address-book',
         titleI18nKey: 'addressBook',
-        Icon: AddressBookIcon,
         Component: AddressBook,
-        isDrawer: true,
         testID: SettingsSelectors.AddressBookButton
       },
       {
         slug: 'language',
         titleI18nKey: 'language',
-        Icon: LanguageIcon,
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton,
-        isDrawer: true
+        testID: SettingsSelectors.LanguageButton
       }
     ]
   },
   {
     titleI18nKey: 'security',
+    Icon: GroupSecurityIcon,
     tabs: [
       {
         slug: 'reveal-seed-phrase',
         titleI18nKey: 'recoveryPhrase',
-        Icon: SeedPhraseIcon,
         Component: RevealSeedPhraseFlow,
         testID: SettingsSelectors.RevealSeedPhraseButton,
         hasOwnLayout: true
@@ -162,58 +147,74 @@ const TAB_GROUPS: TabGroup[] = [
       {
         slug: 'keys',
         titleI18nKey: 'keys',
-        Icon: SecretKeyIcon,
         Component: KeysSettings,
-        testID: SettingsSelectors.KeysButton,
-        isDrawer: true
+        testID: SettingsSelectors.KeysButton
       },
       {
         slug: 'guardian-settings',
         titleI18nKey: 'guardianSettings',
-        Icon: SettingsIcon,
+        // No `pageTitleI18nKey` override: 'rotateGuardian' came over from the old
+        // `drawerTitleI18nKey`, where it named a task sheet. A routed page's <h1>
+        // is the page's identity, and this one is the Guardian overview —
+        // provider, endpoint, region, last sync — with Rotate as its CTA. Since
+        // `focusTitleOnMount` is on here, tapping the row labelled "Guardian
+        // Settings" announced "Rotate Guardian, heading level 1".
         Component: GuardianSettings,
-        isDrawer: true,
+        // Needed now the row is a routed Link: MenuItem forwards testID to both
+        // the anchor and Link's analytics call, and an absent one became an
+        // empty data-testid plus a ButtonPress event with an empty name.
+        testID: SettingsSelectors.GuardianSettingsButton,
         guardianOnly: true
       }
     ]
   },
   {
     titleI18nKey: 'developer',
+    Icon: GroupDeveloperIcon,
     tabs: [
       {
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
-        Icon: ToolIcon,
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton,
-        isDrawer: true
+        testID: SettingsSelectors.AdvancedSettingsButton
       },
       {
-        slug: 'dapps',
+        // Distinct slug: the connected-dApps list page owns '/settings/dapps'
+        // (HIDDEN_TABS below); this entry is the toggle screen linking to it.
+        slug: 'dapp-settings',
         titleI18nKey: 'authorizedDApps',
-        Icon: AppsIcon,
         Component: DAppDrawerSettings,
-        testID: SettingsSelectors.DAppsButton,
-        isDrawer: true
+        testID: SettingsSelectors.DAppsButton
       }
     ]
   },
   {
     titleI18nKey: 'about',
+    Icon: GroupAboutIcon,
     tabs: [
       {
         slug: PRIVACY_POLICY_URL,
         titleI18nKey: 'privacyPolicy',
-        Icon: PrivacyPolicyIcon,
         Component: () => null,
         linksOutsideOfWallet: true
       },
       {
         slug: TERMS_OF_USE_URL,
         titleI18nKey: 'termsOfService',
-        Icon: TosIcon,
         Component: () => null,
         linksOutsideOfWallet: true
+      },
+      {
+        // Opens the hosted feedback form. Not an external <a> because that would
+        // hit the system browser on mobile; the onClick routes through
+        // openExternalUrl (native in-app webview on mobile, new tab on desktop).
+        slug: 'send-feedback',
+        titleI18nKey: 'sendFeedback',
+        Component: () => null,
+        testID: SettingsSelectors.SendFeedbackButton,
+        onClick: () => {
+          openExternalUrl({ url: FEEDBACK_URL, title: 'Send feedback' });
+        }
       }
     ]
   }
@@ -224,14 +225,12 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
-    Icon: SecretKeyIcon,
     Component: RevealPrivateKey,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
     titleI18nKey: 'revealHotKey',
-    Icon: SecretKeyIcon,
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
@@ -240,28 +239,26 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'verify-seed-phrase',
     titleI18nKey: 'verifySeedPhrase',
-    Icon: SeedPhraseIcon,
     Component: VerifySeedPhraseFlow,
     hasOwnLayout: true
   },
   {
     slug: 'edit-miden-faucet-id',
+    // Unconditional: EditMidenFaucetId focuses its field on every platform.
+    ownsInitialFocus: () => true,
     titleI18nKey: 'editMidenFaucetId',
-    Icon: SettingsIcon,
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
   },
   {
     slug: 'networks',
     titleI18nKey: 'networks',
-    Icon: ExtensionIcon,
     Component: NetworksSettings,
     testID: SettingsSelectors.NetworksButton
   },
   {
     slug: 'dapps',
     titleI18nKey: 'authorizedDApps',
-    Icon: AppsIcon,
     Component: DAppSettings
   }
 ];
@@ -304,7 +301,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   }, []);
 
   // Filter tabs that are gated to Guardian accounts. Non-Guardian users don't see
-  // the Guardian Settings entry at all (menu, drawer, or routable page).
+  // the Guardian Settings entry at all (menu row or routable page).
   const tabGroups = useMemo(() => {
     const groups = TAB_GROUPS.map(group => ({
       ...group,
@@ -316,7 +313,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     const devEndpointsTab: Tab = {
       slug: 'network-endpoints',
       titleI18nKey: 'devEndpointsRow',
-      Icon: ToolIcon,
       Component: () => null,
       hasOwnLayout: true
     };
@@ -331,35 +327,26 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     [tabGroups, tabIsVisible]
   );
 
-  const drawerTabs = useMemo(() => tabGroups.flatMap(g => g.tabs).filter(t => t.isDrawer), [tabGroups]);
-
-  const activeTab = useMemo(
-    () => allTabs.find(tab => tab.slug === tabSlug && !tab.isDrawer) || null,
-    [allTabs, tabSlug]
-  );
+  const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
+  const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
-  const [openDrawer, setOpenDrawer] = useState<string | null>(null);
   const [showSeedWarning, setShowSeedWarning] = useState(false);
+  // Survives the keyed scroll container below, which remounts per page — see the
+  // comment there. Lives on this component, which stays mounted across the whole
+  // `/settings/:slug` route.
+  const rootScrollTop = useRef(0);
 
-  // On mobile, move parked dApp trays out when a settings drawer /
-  // seed-warning overlay takes over the bottom of the screen.
-  const drawerOrSheetOpen = openDrawer !== null || showSeedWarning;
-  useEffect(() => {
-    if (!isMobile()) return;
-    if (drawerOrSheetOpen) {
-      document.body.setAttribute('data-drawer-open', '');
-    } else {
-      document.body.removeAttribute('data-drawer-open');
-    }
-    // Unmount cleanup: if the Settings page unmounts while a drawer
-    // is still open, force parked dApp trays back in.
-    return () => {
-      if (!isMobile()) return;
-      if (drawerOrSheetOpen) {
-        document.body.removeAttribute('data-drawer-open');
-      }
-    };
-  }, [drawerOrSheetOpen]);
+  // On mobile, move parked dApp trays out while the seed-warning overlay or a
+  // settings sub-page owns the screen. The sub-pages need it for the same
+  // reason the drawers they replaced did: the tray floats above the bottom of
+  // the viewport, which is where these screens pin their primary action.
+  //
+  // Through the shared hook rather than the body attribute directly: the flag is
+  // reference-counted, and RevealSecret and every CustomModal are also holders.
+  // Setting it here by hand meant a modal closing over a settings sub-page (the
+  // confirm in Address Book, say) dropped the count to zero and cleared the flag
+  // while this page still wanted it.
+  useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
@@ -377,93 +364,165 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     };
   }, [showSettingsRoot]);
 
+  // Neither of these buzzes: both are rendered by `Button`, which fires a
+  // hapticLight on every click. Close buzzed twice and View fired a medium AND a
+  // light on one tap — the same double-fire as the recovery-phrase row, hidden
+  // here because the Button mock in the tests does not haptic.
   const handleSeedWarningClose = useCallback(() => {
-    hapticLight();
     setShowSeedWarning(false);
   }, []);
 
   const handleSeedWarningView = useCallback(() => {
-    hapticMedium();
     setShowSeedWarning(false);
     navigate('/settings/reveal-seed-phrase');
   }, []);
 
   return (
     <>
-      {!activeTab && <NavigationHeader title={t('settings')} onBack={() => navigate('/')} />}
+      {/* Headers sit OUTSIDE the scroll container below: a sub-page's header
+          carries its only back affordance, and Language or Address Book
+          overflow the popup, which would scroll it away. */}
+      {activeTab ? (
+        !activeTab.hasOwnLayout && (
+          <NavigationHeader
+            title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
+            onBack={handleSubPageBack}
+            variant="prominent"
+            titleAlign="left"
+            // As drawers these screens were dialogs, so they took focus and were
+            // announced by name. Routes are not announced and the row that
+            // opened them unmounts with the list, dropping focus to <body>.
+            // Skipped for the pages that focus a field themselves — see
+            // `ownsInitialFocus`.
+            focusTitleOnMount={!activeTab.ownsInitialFocus?.()}
+            // Prefixed: the scroll container below is a sibling in this same
+            // fragment and keys on the slug too, and two siblings sharing a key
+            // makes React render both of them.
+            key={`header-${activeTab.slug}`}
+          />
+        )
+      ) : (
+        <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
+      )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col">
+      {/* Keyed so the scroller remounts per page. `/settings` and
+          `/settings/<slug>` are one route, so React reconciled this container
+          instead of replacing it and the offset carried across: opening Language
+          from the bottom of the list landed mid-list, and coming back left
+          Settings wherever Language had been scrolled to. The drawers this
+          replaced never had the problem — they scrolled in their own portal.
+          Keyed on the RESOLVED tab, not the raw slug: an unrecognised slug falls
+          through to the root list, and keying on the slug gave that same list a
+          different identity per bad URL. */}
+      <div
+        key={activeTab?.slug ?? 'root'}
+        // The key above is what loses the root list's place: opening a sub-page
+        // unmounts the root scroller, so returning built a fresh one at the top
+        // and a user who opened Language from the bottom of a long list came back
+        // to the top of it. The drawers this replaced kept the list mounted
+        // underneath. So: remember the root offset while it is showing, and put it
+        // back when it remounts. A ref, not state — this must not re-render on
+        // every scroll event, and the value is only ever read during a mount.
+        ref={node => {
+          if (node && !activeTab) node.scrollTop = rootScrollTop.current;
+        }}
+        onScroll={
+          activeTab
+            ? undefined
+            : event => {
+                rootScrollTop.current = event.currentTarget.scrollTop;
+              }
+        }
+        className="flex-1 min-h-0 overflow-y-auto bg-app-bg flex flex-col"
+      >
         {activeTab ? (
           activeTab.hasOwnLayout ? (
             <activeTab.Component />
           ) : (
-            <>
-              <NavigationHeader title={t(activeTab.titleI18nKey)} onBack={goBack} />
-              <div className="px-4 flex-1 flex flex-col min-h-0">
-                <activeTab.Component />
-              </div>
-            </>
+            // No `onClose`: the sub-pages that still call it do so immediately
+            // before navigating on, and popping first would race the push. The
+            // one screen whose action means "done here" pops itself.
+            //
+            // `font-heading` stays. Dropping it to fix a font was the wrong scope:
+            // the problem was that Preflight sets `font: inherit` on form controls,
+            // so RevealSecret's recovery-phrase and private-key textareas inherited
+            // the display face for the app's highest-stakes text — but removing the
+            // blanket switched all twelve routed screens to Inter to fix those two
+            // fields, and only LanguageSettings kept Nunito, by way of an inline
+            // style. The textareas ask for `font-sans` themselves instead.
+            <div className="font-heading px-4 flex-1 flex flex-col min-h-0">
+              <activeTab.Component />
+            </div>
           )
         ) : (
           // pb-[88px] reserves space at the bottom so the last menu item
           // can scroll above the React BottomNav.
-          <div className="flex flex-col w-full pt-4 pb-22 gap-8 text-heading-gray px-4">
-            {tabGroups.map(group => (
-              <div key={group.titleI18nKey}>
-                <h3 className="font-medium pb-4 text-base text-text-muted">{t(group.titleI18nKey)}</h3>
-                <div className="overflow-hidden flex flex-col gap-6">
-                  {group.tabs.map(tab => {
-                    const isExternal = tab.linksOutsideOfWallet;
-                    const isDrawerTab = tab.isDrawer;
-                    const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
-                    const hasCustomClick = isDrawerTab || isSeedPhrase;
-                    const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
-                    const handleClick = isDrawerTab
-                      ? () => setOpenDrawer(tab.slug)
-                      : isSeedPhrase
-                        ? () => {
-                            hapticLight();
-                            setShowSeedWarning(true);
-                          }
-                        : undefined;
-                    return (
-                      <div key={tab.slug + tab.titleI18nKey} className="px-2">
+          <div className="flex flex-col w-full pb-22 text-heading-gray px-4">
+            <div className="flex flex-col divide-y divide-border-faint">
+              {tabGroups.map(group => (
+                <div key={group.titleI18nKey} className="py-3 first:pt-0">
+                  <div className="flex items-center gap-1.5 pb-3">
+                    {/* Decorative: the heading beside it names the group, so an
+                        unlabelled graphic in the tree just adds an anonymous
+                        node before every section. */}
+                    <div
+                      aria-hidden="true"
+                      className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0"
+                    >
+                      <group.Icon className="w-4 h-4" />
+                    </div>
+                    {/* h2, not h3: the only heading above these is the page title
+                        the header renders as h1, so h3 left a gap in the outline
+                        and screen-reader heading navigation reported a missing
+                        level. */}
+                    <h2 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h2>
+                  </div>
+                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows each
+              grew from a 24px line box to a 44px target, so keeping gap-4 on top
+              would have spread a group much taller than the drawers it replaced.
+              Pitch still rises — 40px to 48px, about 136px over the whole root
+              list — which is extra scroll inside `overflow-y-auto` rather than
+              anything clipped. `gap-1` limits the overshoot; it does not undo it,
+              and the touch target is worth the difference. */}
+                  <div className="overflow-hidden flex flex-col gap-1">
+                    {group.tabs.map(tab => {
+                      const isExternal = tab.linksOutsideOfWallet;
+                      const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
+                      // A tab may carry its own onClick (e.g. Send feedback →
+                      // openExternalUrl); such rows never route to a /settings page.
+                      const hasCustomClick = isSeedPhrase || !!tab.onClick;
+                      const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
+                      // No `hapticLight()` here: MenuItem fires one for every
+                      // branch it renders, so this row buzzed twice on tap while
+                      // every other row buzzed once.
+                      const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
+                      return (
                         <MenuItem
+                          key={tab.slug + tab.titleI18nKey}
                           slug={linkTo}
                           titleI18nKey={tab.titleI18nKey}
-                          Icon={tab.Icon}
-                          iconStyle={tab.iconStyle}
-                          testID={tab.testID?.toString() || ''}
+                          testID={tab.testID}
                           linksOutsideOfWallet={!!isExternal}
                           rightText={tab.slug === 'language' ? languageLabel : undefined}
                           onClick={handleClick}
                         />
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
 
-            <p className="text-base font-medium text-text-muted pt-2">
+            {/* `text-heading-gray`, as with the other muted text this PR touched:
+                `text-text-muted` is #ababab, which is 2.30:1 on the page, and 14px
+                medium is nowhere near the large-text exemption — the PR shrank
+                this from text-base without changing the ink. */}
+            <p className="font-heading text-sm font-medium text-heading-gray pt-2">
               {t('settingsVersion', { version: pkg.version })}
             </p>
           </div>
         )}
       </div>
-
-      {drawerTabs.map(tab => (
-        <Drawer key={tab.slug} open={openDrawer === tab.slug} onOpenChange={open => !open && setOpenDrawer(null)}>
-          <DrawerContent>
-            <DrawerHeader>
-              <DrawerTitle>{t(tab.titleI18nKey)}</DrawerTitle>
-            </DrawerHeader>
-            <div className="px-4 pb-6 overflow-y-auto min-h-0">
-              <tab.Component onClose={() => setOpenDrawer(null)} />
-            </div>
-          </DrawerContent>
-        </Drawer>
-      ))}
 
       {/* Seed phrase warning overlay */}
       <AnimatePresence>

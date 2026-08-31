@@ -4,8 +4,10 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed.svg';
+import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
+import { Icon, IconName } from 'app/icons/v2';
+import { formatDate } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
@@ -37,7 +39,8 @@ interface PendingTabProps {
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
-  failedNoteIds: Set<string>;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimAll: () => void;
@@ -58,7 +61,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   account,
   isDelegatedProvingEnabled,
   claimingNoteIds,
-  failedNoteIds,
+  retriableNoteIds,
+  invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
   onClaimAll,
@@ -121,7 +125,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
         account={account}
         isDelegatedProvingEnabled={isDelegatedProvingEnabled}
         claimingNoteIds={claimingNoteIds}
-        failedNoteIds={failedNoteIds}
+        retriableNoteIds={retriableNoteIds}
+        invalidNoteIds={invalidNoteIds}
         checkingNoteIds={checkingNoteIds}
         onClaimingStateChange={onClaimingStateChange}
         onClaimGroup={onClaimGroup}
@@ -134,6 +139,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
       unclaimedNotesCount={unclaimedNotesCount}
+      retriableNoteIds={retriableNoteIds}
+      invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
       onClaimAll={onClaimAll}
     />
@@ -144,6 +151,8 @@ interface PendingSummaryProps {
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
   unclaimedNotesCount: number;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   onSelectGroup: (faucetId: string) => void;
   onClaimAll: () => void;
 }
@@ -152,6 +161,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
   unclaimedNotesCount,
+  retriableNoteIds,
+  invalidNoteIds,
   onSelectGroup,
   onClaimAll
 }) => {
@@ -184,7 +195,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto py-2 px-4 flex flex-col min-h-full">
+      <div className="w-full mx-auto py-2 px-6 flex flex-col min-h-full">
         <div className="bg-surface-interactive rounded-10 px-4 py-3">
           <p className="text-[10px] text-center text-black font-heading font-semibold leading-snug">
             {t('pendingNotesInfo')}
@@ -210,6 +221,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               key={group.faucetId}
               group={group}
               tokenPrices={tokenPrices}
+              retriableNoteIds={retriableNoteIds}
+              invalidNoteIds={invalidNoteIds}
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
@@ -235,11 +248,20 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 interface AssetSummaryRowProps {
   group: AssetNoteGroup;
   tokenPrices: TokenPrices;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   showDivider: boolean;
   onClick: () => void;
 }
 
-const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, showDivider, onClick }) => {
+const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
+  group,
+  tokenPrices,
+  retriableNoteIds,
+  invalidNoteIds,
+  showDivider,
+  onClick
+}) => {
   const { t } = useTranslation();
   const { metadata, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
@@ -247,6 +269,11 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
   const formattedTotal = groupNumber(formatBigInt(totalAmount, decimals));
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = Number(formatBigInt(totalAmount, decimals)) * price;
+
+  // Notes in this group that failed or went terminal (#456): surface them as a
+  // distinct red badge so a failure is discoverable from the summary, instead
+  // of the neutral incoming-count pill.
+  const needsAttentionCount = notes.filter(n => retriableNoteIds.has(n.id) || invalidNoteIds.has(n.id)).length;
 
   return (
     <button
@@ -263,7 +290,10 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
           </span>
         </div>
         <div className="flex flex-col items-end shrink-0">
-          <span className="font-heading text-base font-bold text-heading-gray leading-tight">
+          <span
+            data-testid="pending-asset-amount"
+            className="font-heading text-base font-bold text-heading-gray leading-tight"
+          >
             {formattedTotal} {symbol}
           </span>
           <span className="font-heading text-sm text-black opacity-50 leading-tight">
@@ -271,9 +301,15 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({ group, tokenPrices, s
           </span>
         </div>
       </div>
-      <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
-        {t('incomingTransfersCount', { count: notes.length })}
-      </div>
+      {needsAttentionCount > 0 ? (
+        <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
+          {t('notesUnresolved', { count: needsAttentionCount })}
+        </div>
+      ) : (
+        <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+          {t('incomingTransfersCount', { count: notes.length })}
+        </div>
+      )}
     </button>
   );
 };
@@ -284,7 +320,8 @@ interface AssetPendingDetailProps {
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
-  failedNoteIds: Set<string>;
+  retriableNoteIds: Set<string>;
+  invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
@@ -296,7 +333,8 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   account,
   isDelegatedProvingEnabled,
   claimingNoteIds,
-  failedNoteIds,
+  retriableNoteIds,
+  invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
   onClaimGroup
@@ -323,7 +361,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto pt-6 px-4 flex flex-col min-h-full">
+      <div className="w-full mx-auto pt-6 px-6 flex flex-col min-h-full">
         <div className="flex flex-col items-center flex-1">
           <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
             <span>{name}</span>
@@ -342,16 +380,19 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
           </div>
 
-          <div className="mt-5 rounded-2xl border border-rule-default bg-white overflow-hidden w-full">
+          <div className="mt-5 w-full">
             {notes.map((note, index) => (
               <DetailNoteRow
                 key={note.id}
                 note={note}
                 account={account}
                 isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                isClaimingFromParent={claimingNoteIds.has(note.id)}
-                hasFailedFromParent={failedNoteIds.has(note.id)}
-                isCheckingFromParent={checkingNoteIds.has(note.id)}
+                claimState={deriveNoteClaimState(note, {
+                  retriableNoteIds,
+                  invalidNoteIds,
+                  claimingNoteIds,
+                  checkingNoteIds
+                })}
                 onClaimingStateChange={onClaimingStateChange}
                 showDivider={index !== notes.length - 1}
               />
@@ -378,13 +419,40 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   );
 };
 
+/** Design-provided padlock glyph for private notes; inherits `currentColor`. */
+const PrivateLockIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg className={className} viewBox="0 0 23 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    <path
+      d="M4.17676 12.1703V8.60738C4.17676 4.17777 6.96934 1 11.2064 1C15.4434 1 18.236 4.17777 18.236 8.60738V12.1703"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M17.6592 12.3633H4.75554C2.68141 12.3633 1 14.0447 1 16.1188V23.2447C1 25.3189 2.68141 27.0003 4.75554 27.0003H17.6592C19.7333 27.0003 21.4148 25.3189 21.4148 23.2447V16.1188C21.4148 14.0447 19.7333 12.3633 17.6592 12.3633Z"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M11.2073 20.7409C12.1115 20.7409 12.8444 20.0079 12.8444 19.1038C12.8444 18.1997 12.1115 17.4668 11.2073 17.4668C10.3032 17.4668 9.57031 18.1997 9.57031 19.1038C9.57031 20.0079 10.3032 20.7409 11.2073 20.7409Z"
+      fill="currentColor"
+    />
+    <path
+      d="M12.2669 21.1266C12.2669 20.5416 11.7927 20.0674 11.2077 20.0674C10.6227 20.0674 10.1484 20.5416 10.1484 21.1266V22.6674C10.1484 23.2524 10.6227 23.7266 11.2077 23.7266C11.7927 23.7266 12.2669 23.2524 12.2669 22.6674V21.1266Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 interface DetailNoteRowProps {
   note: NoteWithMetadata;
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
-  isClaimingFromParent?: boolean;
-  hasFailedFromParent?: boolean;
-  isCheckingFromParent?: boolean;
+  /** Parent-derived state from the four claim id-sets (see deriveNoteClaimState). */
+  claimState?: NoteClaimState;
   onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
   showDivider: boolean;
 }
@@ -393,18 +461,34 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   note,
   account,
   isDelegatedProvingEnabled,
-  isClaimingFromParent = false,
-  hasFailedFromParent = false,
-  isCheckingFromParent = false,
+  claimState = 'pending',
   onClaimingStateChange,
   showDivider
 }) => {
   const { t } = useTranslation();
+  const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
-  const showSpinner = isLoading || isClaimingFromParent || isCheckingFromParent;
   const [error, setError] = useState<string | null>(null);
-  const hasError = error || hasFailedFromParent;
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Fold this row's local claim attempt into the parent-derived state: an
+  // in-flight local claim reads as consuming; a local claim error reads as
+  // retriable. Precedence: consuming > failed (terminal) > retriable > pending.
+  const rowState: NoteClaimState =
+    isLoading || claimState === 'consuming'
+      ? 'consuming'
+      : claimState === 'failed'
+        ? 'failed'
+        : error || claimState === 'retriable'
+          ? 'retriable'
+          : 'pending';
+
+  const showSpinner = rowState === 'consuming';
+  const isRetriable = rowState === 'retriable';
+  const isFailed = rowState === 'failed';
+  // Terminal-invalid notes get no Retry/Claim affordance; everything else that
+  // isn't spinning keeps a button.
+  const showButton = rowState === 'pending' || rowState === 'retriable';
 
   useEffect(() => {
     onClaimingStateChange?.(note.id, isLoading);
@@ -452,37 +536,73 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   const decimals = metadata?.decimals ?? 6;
   const formattedAmount = formatBigInt(BigInt(note.amount), decimals);
   const symbol = metadata?.symbol || 'UNKNOWN';
-  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress) : t('unknown');
+  const { price } = getTokenPrice(tokenPrices, symbol);
+  const usdValue = Number(formattedAmount) * price;
+  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
-    <div className={classNames('relative', showDivider && 'border-b border-rule-default w-full')}>
+    <div
+      data-testid="detail-note-row"
+      className={classNames(
+        'relative w-full',
+        showDivider && 'border-b border-rule-default',
+        (isRetriable || isFailed) && 'bg-red-500/10'
+      )}
+    >
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
-      <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-4 py-3 relative z-10">
-        <span className="text-sm text-text-primary-token truncate">{senderDisplay}</span>
-        <div className="text-accent-primary flex justify-center">
-          {isPublic ? (
-            <EyeOpenIcon style={{ width: 16, height: 16 }} />
-          ) : (
-            <EyeClosedIcon style={{ width: 16, height: 16 }} />
-          )}
+      <div className="flex items-center gap-3 py-3.5 relative z-10">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 font-heading text-heading-gray">
+          <div className="flex items-end gap-1.5">
+            <span data-testid="detail-note-amount" className="inline-flex items-end gap-1.5">
+              <span className="text-xl font-extrabold leading-none text-receive-green">{formattedAmount}</span>
+              <span className="text-sm font-bold leading-none">{symbol}</span>
+            </span>
+            <span className="text-[13px] font-medium leading-none opacity-50">
+              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+            </span>
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-tight">
+            <span className="font-medium lowercase opacity-50">{t('from')}</span>
+            <span className="min-w-0 truncate font-bold">{senderDisplay}</span>
+            <span className="font-medium opacity-40">·</span>
+            {isPublic ? (
+              <EyeOpenIcon className="w-3 h-3 shrink-0 [&_path]:fill-current" />
+            ) : (
+              <PrivateLockIcon className="w-2.5 h-3 shrink-0" />
+            )}
+            <span className="font-bold">{t(isPublic ? 'public' : 'private')}</span>
+          </div>
         </div>
-        <span className="font-heading text-sm font-medium text-text-primary-token text-right">
-          {formattedAmount}
-          {symbol}
-        </span>
-        {!showSpinner ? (
+
+        {showButton ? (
           <Button
             data-testid="claim-button"
-            className="w-18 h-7.5 text-white font-semibold rounded-5 text-xs leading-none"
+            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
-            title={hasError ? t('retry') : t('claim')}
+            title={isRetriable ? t('retry') : t('claim')}
           />
         ) : (
-          <div className="w-18 h-7.5" />
+          <div className="w-20 h-8 shrink-0" />
         )}
       </div>
+      {(isRetriable || isFailed) && (
+        <div className="relative z-10 -mt-1 pb-3 text-xs text-red-500">
+          {isRetriable ? t('noteClaimFailedRetry') : t('noteUnavailable')}
+        </div>
+      )}
+      {note.recallableAtMs !== undefined && (
+        <div className="relative z-10 -mt-1 mb-3.5 flex items-center gap-2 rounded-10 bg-yellow-300 dark:bg-yellow-600/25 px-2.5 py-1.5">
+          <Icon
+            name={IconName.Time}
+            className="w-3! h-3! shrink-0 text-yellow-800 dark:text-yellow-300 [&_path]:fill-current"
+          />
+          <span className="font-heading text-xs font-semibold leading-tight text-yellow-700 dark:text-yellow-300">
+            {t('noteReturnsToSenderBy', { date: formatDate(note.recallableAtMs / 1000) })}
+          </span>
+        </div>
+      )}
     </div>
   );
 };

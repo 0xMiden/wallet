@@ -175,6 +175,10 @@ describe('RevealSecret', () => {
 
   const renderReveal = async (reveal: Reveal) => {
     testContainer = document.createElement('div');
+    // Attached: a detached subtree cannot hold focus in jsdom, so `.focus()` is a
+    // silent no-op there and `document.activeElement` stays on <body>. Every
+    // focus assertion in this suite would pass or fail for that reason alone.
+    document.body.appendChild(testContainer);
     testRoot = createRoot(testContainer);
     await act(async () => {
       testRoot!.render(<RevealSecret reveal={reveal} />);
@@ -264,6 +268,20 @@ describe('RevealSecret', () => {
     const container = await renderReveal('private-key');
     // Mobile skips the focus/select effects; the revealed view still renders.
     expect(buttonWithText(container, 'continue')).toBeFalsy();
+  });
+
+  it('puts the caret in the password field on desktop', async () => {
+    // The effect depends on `hasHardwareProtector` because this component renders
+    // `null` until that resolves. Without it in the deps it ran once against the
+    // empty first commit, when the form ref was still null, and never again — so
+    // the field was never focused, while Settings suppressed its own title focus
+    // on the strength of this effect and left focus on <body> with the page
+    // unannounced. On the two screens that hand out recovery material.
+    const container = await renderReveal('private-key');
+
+    const password = container.querySelector<HTMLInputElement>("input[name='password']");
+    expect(password).not.toBeNull();
+    expect(document.activeElement).toBe(password);
   });
 
   it('reveals the private key with the entered password on the software-unlock path', async () => {

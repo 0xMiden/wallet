@@ -43,6 +43,17 @@ const CLAIM_STATUS_LABEL: Record<IBridgeClaimStatus, string> = {
 
 interface BridgeClaimSectionProps {
   entry: IHistoryEntry;
+  /**
+   * Whether the row came from a restored backup, read straight off the
+   * transaction rather than off `entry`.
+   *
+   * Required, and deliberately not optional: this panel owns four separate
+   * affordances that poll or sign, and an earlier revision read the flag off
+   * `entry` — whose producer here builds an object literal closed with an
+   * `as IHistoryEntry` cast and never set the field. Every guard silently read
+   * `undefined` and did nothing. A required prop makes the compiler ask.
+   */
+  restoredFromBackup: boolean;
   /** Re-load the transaction so persisted claim-status changes are reflected. */
   onUpdated: () => void;
 }
@@ -56,7 +67,7 @@ interface BridgeClaimSectionProps {
  * connected address matching the bridge destination. Epoch (Fast) auto-settles,
  * so it shows "no manual claim required" instead.
  */
-export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdated }) => {
+export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, onUpdated }) => {
   const { t } = useTranslation();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
   const account = useAccount();
@@ -84,14 +95,21 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   // button on that block height.
   const reclaimHeight = entry.bridgeReclaimHeight;
   const reclaimNoteId = entry.outputNoteIds?.[0];
-  const canShowReclaim = isEpoch && transactionFailed && reclaimHeight != null && !!reclaimNoteId;
+  // `transactionFailed` is exactly the state import forces every unfinished
+  // restored row into, so without the flag check a dump naming any note id gets
+  // a "Reclaim funds" button that queues a real consume through the signer.
+  const canShowReclaim =
+    isEpoch && transactionFailed && !restoredFromBackup && reclaimHeight != null && !!reclaimNoteId;
   const reclaimReached =
     canShowReclaim && currentBlock != null && reclaimHeight != null && currentBlock >= reclaimHeight;
 
   // Poll the bridge indexer for a claimable deposit to the destination. Stateless
   // / indexer-driven, so it surfaces deposits from a previous session too.
   useBridgeTracker({
-    active: isAgglayer && !transactionFailed && status !== 'claimed' && !!destination,
+    // A restored row polls nothing and claims nothing: `destination` and the
+    // deposit it matches come from the dump, and `handleClaim` signs an EVM
+    // transaction. Display still shows whatever the backup recorded.
+    active: isAgglayer && !transactionFailed && !restoredFromBackup && status !== 'claimed' && !!destination,
     intervalMs: 8000,
     poll: async () => {
       const deposit = await findClaimableMidenToEvmDeposit(destination);
@@ -112,7 +130,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
   const intentNonce = entry.bridgeIntentNonce;
   const txId = entry.txId;
   useEffect(() => {
-    if (!isEpoch || epochStatus === 'confirmed' || epochStatus === 'failed') return;
+    // The fourth affordance in this panel, and the one the earlier
+    // marker-settling was silently covering: `epochStatus` comes straight off
+    // the row, so a restored `pending` row would poll the allocator against the
+    // dump's nonce and destination every 8s for as long as the page is open,
+    // and write the result back onto the row.
+    if (!isEpoch || restoredFromBackup || epochStatus === 'confirmed' || epochStatus === 'failed') return;
     if (!intentNonce || !destination || !txId) return;
 
     let cancelled = false;
@@ -136,10 +159,10 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       cancelled = true;
       clearInterval(id);
     };
-  }, [isEpoch, epochStatus, intentNonce, destination, txId, onUpdated]);
+  }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId, onUpdated]);
 
   const handleClaim = useCallback(async () => {
-    if (!claimable || !evmProvider || !entry.txId) return;
+    if (!claimable || !evmProvider || !entry.txId || restoredFromBackup) return;
     hapticMedium();
     setError(null);
     setStatus('claiming');
@@ -157,7 +180,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, onUpdat
       await updateBridgeClaimStatus(entry.txId, 'failed');
       setError(err instanceof Error ? err.message : 'Claim failed');
     }
-  }, [claimable, evmProvider, entry.txId, onUpdated]);
+  }, [claimable, evmProvider, entry.txId, restoredFromBackup, onUpdated]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {

@@ -7,6 +7,7 @@ export enum SettingsSelectors {
   RevealPrivateKeyButton = 'Settings/RevealPrivateKeyButton',
   RevealHotKeyButton = 'Settings/RevealHotKeyButton',
   KeysButton = 'Settings/KeysButton',
+  GuardianSettingsButton = 'Settings/GuardianSettingsButton',
   RevealSeedPhraseButton = 'Settings/RevealSeedPhraseButton',
   DAppsButton = 'Settings/DAppsButton',
   NetworksButton = 'Settings/NetworksButton',
@@ -16,5 +17,6 @@ export enum SettingsSelectors {
   FileSettingsButton = 'Settings/FileSettingsButton',
   AdvancedSettingsButton = 'Settings/AdvancedSettingsButton',
   EditMidenFaucetButton = 'Settings/EditMidenFaucetButton',
-  EncryptedWalletFile = 'Settings/EncryptedWalletFile'
+  EncryptedWalletFile = 'Settings/EncryptedWalletFile',
+  SendFeedbackButton = 'Settings/SendFeedbackButton'
 }

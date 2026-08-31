@@ -1,12 +1,19 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import {
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
+  reportGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
+  FaucetError,
   WalletPromptStatus,
   WalletPromptType,
+  __resetFaucetProgressForTest,
   completeWalletPrompt,
   dismissWalletPrompt,
   faucet,
@@ -18,8 +25,10 @@ import {
   normalizeWalletPromptStorage,
   pollActiveBridgePrompts,
   reportHotKeyHardwareFailure,
+  reportHotKeyRotationNeeded,
   seedWalletPrompt,
   setWalletPromptStatus,
+  useGuardianNoteRecoveryProgress,
   useWalletPromptStorage
 } from './wallet-prompts';
 
@@ -30,6 +39,10 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/faucet-api', () => ({
+  // Keep the REAL faucetFetch (timeout + Retry-After) that mintFromForkchoice
+  // now routes through; only stub the MIDEN faucet so the forkchoice half is
+  // driven by the mocked global fetch.
+  ...jest.requireActual('lib/miden-chain/faucet-api'),
   mintFromMidenFaucet: jest.fn()
 }));
 
@@ -68,6 +81,9 @@ describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    // The per-address faucet-source memo is module-level; clear it so a partial
+    // success in one test can't skip a source in the next (they share addresses).
+    __resetFaucetProgressForTest();
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -175,36 +191,88 @@ describe('wallet prompts', () => {
   });
 
   it('requests tokens from both the forkchoice and official Miden faucets', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
-    expect(fetchMock).toHaveBeenCalledWith('https://faucet-api.forkchoice.xyz/api/mint', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        token: 'IMIDEN',
-        address: 'mtst1testaddress',
-        amount: 1_000_000_000,
-        note_type: 'public'
+    // objectContaining: faucetFetch adds an AbortSignal to the init for the
+    // timeout, so match the meaningful fields rather than the exact object.
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://faucet-api.forkchoice.xyz/api/mint',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: 'IMIDEN',
+          address: 'mtst1testaddress',
+          amount: 1_000_000_000,
+          note_type: 'public'
+        })
       })
-    });
+    );
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith('mtst1testaddress', 100_000_000n);
   });
 
+  it('retries ONLY the failed source and never double-mints the one that succeeded (gap 10)', async () => {
+    // Partial failure: forkchoice (IMIDEN) pays out, the MIDEN faucet fails.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockRejectedValueOnce(new Error('PoW rate limited'));
+
+    await expect(faucet('mtst1partial')).rejects.toThrow('MIDEN: PoW rate limited');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+
+    // Retry: MIDEN now succeeds. forkchoice already paid out, so it must NOT be
+    // minted a second time — the whole point of gap 10.
+    mintFromMidenFaucetMock.mockResolvedValueOnce({ txId: '0xtx', noteId: '0xnote' });
+    await faucet('mtst1partial');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // STILL 1 — no double-mint
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2); // failed source retried
+  });
+
+  it('re-mints both sources on a fresh fund after a fully successful one (memo cleared)', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await faucet('mtst1fresh'); // both succeed → per-address memo cleared
+    await faucet('mtst1fresh'); // a genuine re-fund attempts BOTH again
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects unsuccessful forkchoice faucet responses', async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 429 } as Response);
+    fetchMock.mockResolvedValue({ ok: false, status: 429, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet request failed with status 429');
   });
 
   it('rejects when the official Miden faucet fails even if forkchoice succeeds', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, headers: new Headers() } as Response);
     mintFromMidenFaucetMock.mockRejectedValue(new Error('Faucet PoW request failed with status 429'));
 
     await expect(faucet('mtst1testaddress')).rejects.toThrow('Faucet PoW request failed with status 429');
+  });
+
+  it('aggregates both child messages when both faucets reject', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, headers: new Headers() } as Response);
+    mintFromMidenFaucetMock.mockRejectedValue(new Error('PoW rate limited'));
+
+    const error = await faucet('mtst1testaddress').catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(FaucetError);
+    expect((error as FaucetError).message).toContain('Faucet request failed with status 500');
+    expect((error as FaucetError).message).toContain('PoW rate limited');
+  });
+
+  it('stringifies a non-Error rejection reason in the aggregated message', async () => {
+    fetchMock.mockRejectedValue('network down');
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+    await expect(faucet('mtst1testaddress')).rejects.toThrow('IMIDEN: network down');
   });
 
   it('loads prompt storage in the hook and exposes pending checks', async () => {
@@ -312,6 +380,99 @@ describe('wallet prompts', () => {
   });
 });
 
+describe('guardian note-recovery progress card', () => {
+  const OTHER_ACCOUNT = 'account-2';
+  const ACCOUNT = 'account-1';
+
+  beforeEach(async () => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it('reads the progress of the account it was given', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+  });
+
+  // Seed recovery flags EVERY adopted account, so a record belonging to another
+  // account is the normal case rather than an edge one. Narrating its blocks
+  // under this account's name would be a lie about which recovery is running.
+  it('ignores the progress of a different account', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: OTHER_ACCOUNT, step: 'public', syncedToBlock: 500 });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // The card is non-dismissible, so a record whose run died with its realm
+  // would otherwise sit on screen forever.
+  it('ages out a record that stopped being refreshed', async () => {
+    // Written far enough in the past that the real clock makes it stale, so the
+    // hook runs against an unmocked `Date.now`.
+    const dateSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 60_000);
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+    dateSpy.mockRestore();
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    // Long enough for a fresh record to have shown up.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+  });
+
+  it('drops the card when the account it was narrating stops recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => useGuardianNoteRecoveryProgress(id), {
+      initialProps: { id: ACCOUNT as string | null }
+    });
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+    rerender({ id: null });
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // Every home view mounts this. Reading storage on a 2s interval for accounts
+  // with no recovery at all is pure background cost, so a null id means idle.
+  it('does not read storage at all when no account is recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(null));
+
+    await waitFor(() => expect(result.current).toBeNull());
+    expect(getItemSpy).not.toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY);
+  });
+
+  it('picks up a later write without remounting', async () => {
+    jest.useFakeTimers();
+    try {
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+      const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+      await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+      // Mobile and desktop get no storage events, so the poll is the only way
+      // the card advances there.
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+
+      await waitFor(() => expect(result.current?.syncedToBlock).toBe(900));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('bridge prompts', () => {
   const baseBridge = (over: Partial<ITransaction>): ITransaction =>
     ({
@@ -353,6 +514,33 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['epoch-pending', 'agg-unclaimed', 'in-flight']);
   });
 
+  // Import deliberately leaves a restored row's bridge status alone so history
+  // stays truthful, which means the prompt is what has to refuse it: this card
+  // polls the bridge indexer against dump-supplied values on a timer and puts a
+  // Claim button — an EVM signature — in front of the user.
+  it('excludes a restored bridge from the prompt whatever its recorded status', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', epochStatus: 'pending' },
+        initiatedAt: 500
+      }),
+      baseBridge({
+        id: 'restored-agg',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', claimStatus: 'ready' },
+        initiatedAt: 400
+      }),
+      baseBridge({ id: 'restored-in-flight', restoredFromBackup: true, status: ITransactionStatus.Queued }),
+      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 10 })
+    );
+
+    const active = await fetchActiveBridgePrompts('acct-1');
+
+    expect(active.map(tx => tx.id)).toEqual(['mine']);
+  });
+
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
     findClaimableDeposit.mockResolvedValue({ deposit: true });
     const claimable = baseBridge({
@@ -370,6 +558,22 @@ describe('bridge prompts', () => {
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
+  });
+
+  // Defence in depth: today's only caller passes the list `fetchActiveBridgePrompts`
+  // already filtered, but this is exported and takes whatever it is given, and
+  // `pollBridgedSend` queries the allocator and writes back onto the row.
+  it('polls nothing for a restored row even when handed one directly', async () => {
+    const restored = baseBridge({
+      id: 'agg-restored',
+      restoredFromBackup: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    await pollActiveBridgePrompts([restored]);
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
@@ -448,5 +652,34 @@ describe('hot-key hardware failure report', () => {
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyHardwareUnavailable]).toBe(WalletPromptStatus.Dismissed);
     expect(await fetchHotKeyHardwareError()).toEqual({ message: 'still broken' });
+  });
+});
+
+describe('hot-key rotation-needed report', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('seeds the rotation prompt', async () => {
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('does not re-seed after the user dismissed it', async () => {
+    await dismissWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Dismissed);
+  });
+
+  it('re-arms after a completed rotation (a new unwrap failure is a new incident)', async () => {
+    await completeWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+    await reportHotKeyRotationNeeded();
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
   });
 });

@@ -1,6 +1,6 @@
 import React, { FC, useCallback } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';

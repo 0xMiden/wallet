@@ -108,8 +108,8 @@ const GATEWAY = {
 };
 const LAMBDA = {
   id: 'lambda-class',
-  name: 'Lambda Class',
-  operatedBy: 'Lambda Class',
+  name: 'LambdaClass',
+  operatedBy: 'LambdaClass',
   location: 'EU-WEST',
   endpoint: 'https://lc.example.com'
 };
@@ -167,6 +167,23 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByRole('heading', { name: 'Pick one' })).toBeInTheDocument();
     expect(screen.getByText('Choose wisely')).toBeInTheDocument();
     expect(screen.getByTestId('continue-button')).toHaveTextContent('Go');
+  });
+
+  // A rotation failure used to be printed by the caller BELOW this screen, i.e.
+  // outside its scroll container — on a short viewport the user tapped Continue,
+  // nothing visibly happened, and the reason sat off-screen. It now renders
+  // inside, directly above the button, announced.
+  it('renders a caller submission error above the continue button', () => {
+    render(<ChooseGuardianScreen error="Guardian rejected the request" />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Guardian rejected the request');
+    expect(alert.compareDocumentPosition(screen.getByTestId('continue-button'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('renders no error region when the caller has no error', () => {
+    render(<ChooseGuardianScreen />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('hides the header when hideHeader is true', () => {

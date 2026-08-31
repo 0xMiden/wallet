@@ -1,6 +1,6 @@
 import React, { FC } from 'react';
 
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 

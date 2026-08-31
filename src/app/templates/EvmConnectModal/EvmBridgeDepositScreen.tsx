@@ -17,6 +17,7 @@ import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
 } from 'lib/epoch/bridgeable-token';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -332,7 +333,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         decimals: ETH_DECIMALS,
         balance: ethBalance.value === null ? 0 : Number(formatUnits(ethBalance.value, ETH_DECIMALS)),
         // No reliable testnet ETH price; fiatPrice 0 keeps the review from showing a bogus ≈USD.
-        fiatPrice: 0
+        fiatPrice: 0,
+        // A compile-time constant for a fixed token, not a guess about an
+        // unresolved faucet.
+        scaleIsKnown: true
       };
     }
     return {
@@ -341,7 +345,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       decimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
       balance:
         usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)),
-      fiatPrice: 1
+      fiatPrice: 1,
+      scaleIsKnown: true
     };
   }, [token, ethBalance.value, usdcBalance.value]);
 
@@ -377,8 +382,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (raw == null) return undefined;
     try {
       const human = formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
-      const n = Number(human);
-      return Number.isFinite(n) ? n.toFixed(2) : human;
+      return toAdaptiveFixed(human);
     } catch {
       return undefined;
     }

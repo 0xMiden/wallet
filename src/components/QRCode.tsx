@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import QRCodeStyling, { type Options } from 'qr-code-styling';
 
@@ -65,6 +65,9 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, pa
   // Create the styling instance once; re-use across data/size changes via update().
   const qrCode = useMemo(() => new QRCodeStyling(options), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The payload the encoder was LAST handed — see the attribute comment below.
+  const [paintedValue, setPaintedValue] = useState('');
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -77,6 +80,7 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, pa
 
   useEffect(() => {
     qrCode.update(options);
+    setPaintedValue(typeof options.data === 'string' ? options.data : '');
   }, [qrCode, options]);
 
   useImperativeHandle(
@@ -92,7 +96,20 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, pa
   );
 
   return (
-    <div className="bg-pure-white rounded-10 p-2">
+    // `data-qr-payload` mirrors the payload the encoder was last PAINTED with, and
+    // is deliberately written from inside the `qrCode.update(options)` effect above
+    // rather than straight from `qrValue`. The instance is created once and only
+    // that effect repaints it, so mirroring `qrValue` here would report what the
+    // component computed even when the repaint never ran — a QR left showing a
+    // previous account would still read as correct. Sourcing the attribute from the
+    // repaint means a broken/removed `update()` leaves the attribute stale (or, on
+    // first mount, absent) alongside the stale picture.
+    //
+    // The attribute exists because the rendered SVG carries no trace of its own
+    // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
+    // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
+    // same address already renders in `receive-address-full` and the copy button.
+    <div className="bg-pure-white rounded-10 p-2" data-testid="qr-code" data-qr-payload={paintedValue || undefined}>
       <div ref={containerRef} style={{ width: size, height: size }} />
     </div>
   );

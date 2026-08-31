@@ -12,6 +12,7 @@ import {
 } from 'lib/miden/transaction';
 import { WalletMessageType } from 'lib/shared/types';
 
+import { getAccountsWriteQueue } from './accounts-write-queue';
 import { getIntercom } from './defaults';
 import { accountsUpdated, withUnlocked } from './store';
 import type { Vault } from './vault';
@@ -128,19 +129,27 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
     // intercom-driven path; we don't route through Actions.swapHotKey here
     // because importing actions.ts drags webextension-polyfill into the
     // transaction-processor's init chain.
-    return withUnlockedVault(async ({ vault }) => {
-      const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
-      accountsUpdated(updated);
-    });
+    // On the accounts write queue for the same reason the actions-level writers
+    // are: this is a read-modify-write of the whole accounts array, and a
+    // concurrent one (an account create, or the detached Guardian recovery
+    // clearing its flag) would drop one of the two writes.
+    return withUnlockedVault(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.swapHotKey(accountPublicKey, newHotPubKey);
+        accountsUpdated(updated);
+      })
+    );
   },
   setGuardianEndpoint: async (accountPublicKey: string, guardianEndpoint: string) => {
     // Mirror swapHotKey: persist then `accountsUpdated` so the Effector store
     // (and every popup pulling from it) reflects the new per-account endpoint.
     // Otherwise the popup keeps resolving the old guardian for this account.
-    return withUnlockedVault(async ({ vault }) => {
-      const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
-      accountsUpdated(updated);
-    });
+    return withUnlockedVault(({ vault }) =>
+      getAccountsWriteQueue().add(async () => {
+        const updated = await vault.setGuardianEndpoint(accountPublicKey, guardianEndpoint);
+        accountsUpdated(updated);
+      })
+    );
   }
 };
 
@@ -236,11 +245,8 @@ interface StuckTxHealDiagnostic {
  * Escalate a self-heal failure that survived the Dexie re-open + retry.
  *
  * A bare `console.error` is invisible without an open DevTools session, so a
- * silently-wedged heal is undiagnosable in the field. The obvious escalation
- * sink — Segment via `back/analytics.ts` — is DEAD in the shipped SW build:
- * that module throws at load unless `ALEO_WALLET_SEGMENT_WRITE_KEY` is set, and
- * the background Vite build (`vite.background.config.ts`) never defines it, so a
- * dynamic `import('./analytics')` here would only ever reject and emit nothing.
+ * silently-wedged heal is undiagnosable in the field. The transaction analytics
+ * sink was removed (it was dead Aleo-era code), so no analytics is emitted here.
  * Escalating to a Dexie table is just as self-defeating: the heal usually fails
  * BECAUSE IndexedDB is down. Persist a small diagnostic to `chrome.storage.local`
  * instead — it works in the MV3 service worker and survives a broken IndexedDB —

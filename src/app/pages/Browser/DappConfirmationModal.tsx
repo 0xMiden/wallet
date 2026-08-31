@@ -19,7 +19,7 @@
 
 import React, { type FC, useEffect, useRef } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 

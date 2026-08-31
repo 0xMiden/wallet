@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import { getDateFnsLocale } from 'lib/i18n';
+import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -10,13 +11,56 @@ import {
   ITransactionStatus,
   ITransactionType
 } from 'lib/miden/db/types';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { formatAmount } from 'lib/shared/format';
 
-import { IHistoryEntry } from './IHistoryEntry';
+import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
+
+/**
+ * Secondary asset totals of a batch consume (every faucet after the row's
+ * primary `faucetId`), formatted with each faucet's own decimals/symbol. Empty
+ * for single-asset claims and for legacy rows without `assetTotals`.
+ */
+export const resolveConsumeExtraAmounts = async (tx: ITransaction): Promise<IHistoryExtraAmount[]> => {
+  if (tx.type !== 'consume' || !tx.assetTotals) return [];
+  const secondary = tx.assetTotals.filter(total => total.faucetId !== tx.faucetId);
+  return Promise.all(
+    secondary.map(async total => {
+      // Fall back rather than reject. Every entry on a history page is resolved
+      // under one `Promise.all`, so letting a single unresolvable faucet throw
+      // would blank the ENTIRE page — and a batch claim's secondary faucets are
+      // precisely the ones the wallet has never held metadata for. Logged with
+      // both ids because the fallback renders a plausible "Unknown" amount at
+      // default decimals, which is indistinguishable from correct output.
+      const metadata = await getTokenMetadata(total.faucetId).catch((error: unknown) => {
+        console.warn(
+          `Falling back to unknown-token metadata for faucet ${total.faucetId} on transaction ${tx.id}`,
+          error
+        );
+        return DEFAULT_TOKEN_METADATA;
+      });
+      return {
+        faucetId: total.faucetId,
+        // No trustworthy scale means no honest number — name the asset only.
+        // The type check covers the same ground for the value itself: these rows
+        // can come from a restored file, and `formatAmount` calls `.toString()`
+        // on the amount, so a null there would reject this `Promise.all` and
+        // blank the whole page, while a string would render as arithmetic on
+        // nonsense.
+        amount:
+          typeof total.amount === 'bigint' && hasKnownScale(metadata)
+            ? formatAmount(total.amount, metadata.decimals)
+            : undefined,
+        token: metadata.symbol
+      };
+    })
+  );
+};
 
 /** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
 interface SwapExtraInputs {
@@ -43,16 +87,33 @@ export interface SwapHistoryFields {
  */
 export const resolveSwapHistoryFields = async (tx: ITransaction): Promise<SwapHistoryFields> => {
   const extra: SwapExtraInputs = tx.extraInputs ?? {};
-  const offered = getSwapTokenByFaucetId(tx.faucetId) ?? (await getTokenMetadata(tx.faucetId ?? null));
-  const requested =
-    getSwapTokenByFaucetId(extra.requestedFaucetId) ?? (await getTokenMetadata(extra.requestedFaucetId ?? null));
+  // Registry and metadata are kept in separate variables rather than collapsed
+  // with `??`: the two shapes differ, and a union would force every read below
+  // to re-discriminate them — which is how the scale check first went wrong,
+  // testing a property (`name`) that a legitimate metadata record may omit.
+  const offeredRegistry = getSwapTokenByFaucetId(tx.faucetId);
+  const offeredMetadata = offeredRegistry === undefined ? await getTokenMetadata(tx.faucetId ?? null) : undefined;
+  const requestedRegistry = getSwapTokenByFaucetId(extra.requestedFaucetId);
+  const requestedMetadata =
+    requestedRegistry === undefined ? await getTokenMetadata(extra.requestedFaucetId ?? null) : undefined;
+  // A registry token declares its own decimals, so a registry hit is always
+  // scalable. Off the registry, `getTokenMetadata` hands back the unknown-token
+  // placeholder for a faucet it could not resolve, and its 6 decimals are a
+  // guess — scaling by them misreports the size of the swap. Both sides are
+  // still named by `token` / `requestedToken`.
+  const offeredScaleIsKnown = offeredRegistry !== undefined || hasKnownScale(offeredMetadata);
+  const requestedScaleIsKnown = requestedRegistry !== undefined || hasKnownScale(requestedMetadata);
+  const offeredDecimals = offeredRegistry?.decimals ?? offeredMetadata?.decimals;
+  const requestedDecimals = requestedRegistry?.decimals ?? requestedMetadata?.decimals;
 
   return {
-    amount: tx.amount !== undefined ? formatAmount(tx.amount, offered.decimals) : undefined,
-    token: offered.symbol,
+    amount: tx.amount !== undefined && offeredScaleIsKnown ? formatAmount(tx.amount, offeredDecimals) : undefined,
+    token: offeredRegistry?.symbol ?? offeredMetadata?.symbol,
     requestedAmount:
-      extra.requestedAmount !== undefined ? formatAmount(extra.requestedAmount, requested.decimals) : undefined,
-    requestedToken: requested.symbol,
+      extra.requestedAmount !== undefined && requestedScaleIsKnown
+        ? formatAmount(extra.requestedAmount, requestedDecimals)
+        : undefined,
+    requestedToken: requestedRegistry?.symbol ?? requestedMetadata?.symbol,
     requestedFaucetId: extra.requestedFaucetId
   };
 };
@@ -70,14 +131,41 @@ export const isCompletedTransaction = (message: string): boolean => {
 };
 
 /**
- * Round a bridge's (USDC) destination output to 2 decimals for display. The
- * stored value is full 18-decimal precision; the row + detail only ever show 2.
- * Passes non-numeric input through unchanged.
+ * Settlement state for a completed swap order, driving the swap row's status
+ * chip and the receipt's hero pill; `undefined` renders Confirmed. Pending only
+ * for auto-consumed orders that carry an explicit expiry (stamped since
+ * settlement shipped) and have no settlement stamp yet — settled, legacy, and
+ * manual-claim orders all fall through to Confirmed. A settledAt stamp wins over
+ * reclaimedAt (a batch containing payback notes delivered funds even if the
+ * order later expired).
+ *
+ * Shared by the list and the detail screen so one order cannot read "Pending"
+ * in the list and "Confirmed" on its own receipt.
+ */
+export const swapSettlementOf = (tx: ITransaction): 'pending' | 'reclaimed' | undefined => {
+  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
+  const extra = tx.extraInputs ?? {};
+  if (extra.settledAt != null) return undefined;
+  if (extra.reclaimedAt != null) return 'reclaimed';
+  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
+  return undefined;
+};
+
+/**
+ * Round a bridge's (USDC) destination output to the standard 2 decimals for
+ * display, expanding for small non-zero values. Passes non-numeric input
+ * through unchanged.
+ *
+ * Rounds DOWN, never half-up: this now formats the bridge hero's IN side too,
+ * which is the user's own sent amount, and half-up there displays MORE than was
+ * sent (1.239999… → "1.24"). Rounding down also matches the two sibling money
+ * formatters — `formatEarnWithdrawAmount` and the activity row — so the same
+ * value cannot read differently depending on the surface.
  */
 export const formatBridgeOutputAmount = (amount: string | undefined): string | undefined => {
   if (amount === undefined) return undefined;
-  const n = Number(amount);
-  return Number.isFinite(n) ? n.toFixed(2) : amount;
+  const n = new BigNumber(amount);
+  return n.isFinite() ? toAdaptiveFixed(n, undefined, BigNumber.ROUND_DOWN) : amount;
 };
 
 export type BridgeStatus = 'pending' | 'confirmed' | 'failed';
@@ -117,7 +205,7 @@ export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
-  /** Quoted destination output (2dp), falling back to the input amount for legacy/in-flight rows. */
+  /** Quoted destination output, falling back to the input amount for legacy/in-flight rows. */
   outAmount?: string;
   providerLabel: string;
   network: string;
@@ -162,10 +250,11 @@ export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
 /** `earn-withdraw` rows carry a Smart Withdraw lifecycle phase. */
 export const isEarnWithdrawEntry = (entry: IHistoryEntry): boolean => entry.txType === 'earn-withdraw';
 
-/** Trim a human decimal amount to at most 2 places (e.g. `2.50000000` → `2.5`). */
+/** Trim a human decimal amount to 2 places, expanding when needed to preserve a small non-zero value. */
 export const formatEarnWithdrawAmount = (human: string): string => {
   const n = new BigNumber(human);
-  return n.isFinite() ? n.decimalPlaces(2, BigNumber.ROUND_DOWN).toFixed() : human;
+  if (!n.isFinite()) return human;
+  return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
 };
 
 /** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
@@ -208,7 +297,11 @@ export const earnWithdrawAmountFields = (
 ): EarnWithdrawAmountFields => {
   if (extra.phase === 'received' && rowAmount !== undefined) {
     return {
-      amount: formatAmount(rowAmount, destinationMetadata?.decimals),
+      // The whole point of this branch is that the received leg is denominated
+      // in the DESTINATION faucet's asset, so its decimals are load-bearing. If
+      // that faucet never resolved, scaling by the placeholder's guess reports a
+      // withdrawal the user did not receive; the asset is still named.
+      amount: hasKnownScale(destinationMetadata) ? formatAmount(rowAmount, destinationMetadata?.decimals) : undefined,
       token: destinationMetadata?.symbol ?? extra.outputSymbol
     };
   }

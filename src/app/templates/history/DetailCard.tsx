@@ -10,7 +10,13 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 export const DetailCard: FC<{ title?: string; children: React.ReactNode }> = ({ title, children }) => (
   <section className="font-heading">
     {title && (
-      <div className="inline-flex rounded-full bg-[#F1F1F1] px-2.5 py-1 text-sm font-bold leading-4 text-gray dark:bg-surface-interactive">
+      <div
+        // `gray-50` + `heading-gray` rather than a literal #F1F1F1 with `text-gray`:
+        // gray-50 is that same near-white in light and flips on its own, so the
+        // `dark:` override is no longer needed, and #808080 ink was 3.51:1 on the
+        // light chip. Same treatment as the StatusPill below.
+        className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-sm font-bold leading-4 text-heading-gray"
+      >
         {title}
       </div>
     )}
@@ -26,8 +32,16 @@ export const DetailRow: FC<{
   icon?: React.ReactNode;
   isLast?: boolean;
   children?: React.ReactNode;
-}> = ({ label, value, badge, icon, isLast, children }) => (
+  /**
+   * Optional E2E hook on the row root. Scoping to the ROW (not the value) is what
+   * makes the full, untrimmed hash reachable: `HashChip` renders a trimmed
+   * `<button>` next to a sibling `sr-only` `<input>` holding the whole value
+   * (CopyButton), so only a container testid can address both.
+   */
+  testId?: string;
+}> = ({ label, value, badge, icon, isLast, children, testId }) => (
   <div
+    data-testid={testId}
     className={classNames(
       'flex min-h-14 items-center justify-between gap-4 px-2 py-5',
       !isLast && 'border-b border-border-light'
@@ -40,7 +54,14 @@ export const DetailRow: FC<{
     {children ? (
       <div className="flex min-w-0 items-center justify-end text-right">{children}</div>
     ) : badge ? (
-      <span className="rounded-full bg-[#FFF3EB] px-3 py-1 text-sm font-medium text-[#CC5200]">{badge}</span>
+      <span
+        // Alert's Warning pair, which flips, instead of a literal cream fill with
+        // #CC5200 ink: that was 4.03:1 at 14px and neither half had a dark
+        // counterpart, so the chip stayed cream on the dark receipt.
+        className="rounded-full bg-yellow-50 dark:bg-yellow-600/20 px-3 py-1 text-sm font-medium text-heading-gray"
+      >
+        {badge}
+      </span>
     ) : (
       <span className="min-w-0 text-right text-sm font-medium text-heading-gray">{value}</span>
     )}
@@ -63,45 +84,94 @@ export const ExternalLinkValue: FC<{
  * Confirmed / Failed / In Progress pill, driven by the transaction's actual
  * `status` (message-string sniffing broke for types whose completion message
  * wasn't in the known list — e.g. a completed swap's "Swapped").
+ *
+ * `swapSettlement` overrides it for a swap, because a swap row is Completed the
+ * moment the order note is created: the place-order transaction confirmed, the
+ * swap did not. The history list already draws that distinction, so without this
+ * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  */
-export const StatusPill: FC<{ status?: ITransactionStatus; isCancelled?: boolean }> = memo(
-  ({ status, isCancelled }) => {
-    const { t } = useTranslation();
-    const isCompleted = status === ITransactionStatus.Completed;
-    const isFailed = status === ITransactionStatus.Failed;
+export const StatusPill: FC<{
+  status?: ITransactionStatus;
+  isCancelled?: boolean;
+  swapSettlement?: 'pending' | 'reclaimed';
+  testId?: string;
+}> = memo(({ status, isCancelled, swapSettlement: reportedSettlement, testId }) => {
+  const { t } = useTranslation();
+  const isFailed = status === ITransactionStatus.Failed;
+  // A swap that failed or was cancelled never placed its order, so it has no
+  // settlement to report; taking the caller's word for one produced a pill
+  // labelled "Pending" in failure red, which names two different outcomes at
+  // once. Failure is the stronger and more actionable fact, so it wins.
+  const swapSettlement = isFailed || isCancelled ? undefined : reportedSettlement;
+  const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
+  // A reclaimed order ended without delivering what was asked for, so it gets
+  // the same muted treatment as a cancellation — the history list already tones
+  // it that way.
+  const isMuted = isCancelled || swapSettlement === 'reclaimed';
 
-    const dotColor = isCancelled
-      ? 'bg-gray-400'
-      : isCompleted
-        ? 'bg-[#1A9C52]'
-        : isFailed
-          ? 'bg-status-negative'
-          : 'bg-blue-500';
-    const textColor = isCancelled
-      ? 'text-gray-500'
-      : isCompleted
-        ? 'text-[#1A9C52]'
-        : isFailed
-          ? 'text-status-negative'
-          : 'text-blue-500';
-    const label = isCancelled
-      ? t('cancelled')
-      : isCompleted
-        ? t('confirmed')
-        : isFailed
-          ? t('failed')
-          : t('inProgress');
+  // Muted rather than just cancelled, so a reclaimed order is toned the same way
+  // here as it is in the history list.
+  const bgColor = isMuted
+    ? 'bg-gray-400'
+    : isCompleted
+      ? 'bg-tx-received'
+      : isFailed
+        ? 'bg-status-negative'
+        : 'bg-tx-sent';
+  // Ink is picked per fill, in the same order as `bgColor`, because no single ink
+  // clears AA on all four — each fill is mid-tone in a different direction, and a
+  // user cancellation is BOTH Failed and cancelled (`cancel.ts` records a cancel
+  // as a failure), so any mismatch in the ordering pairs an ink with the wrong
+  // fill. Ratios for 12px semibold text, which AA scores at 4.5:1:
+  //   grey #737373        → white 4.74 (black would be 4.43, under)
+  //   tx-received #99ac94 → black 8.68 (white 2.42)
+  //   tx-sent #91acc1     → black 8.88 (white 2.37)
+  //   status-negative     → the one fill that flips with the theme: black on the
+  //                         light #ff5500 is 6.55, white on the deep dark #c51a0a
+  //                         is 5.96. Fixed-palette tokens, so `dark:` is allowed.
+  const fgColor = isMuted
+    ? 'text-pure-white'
+    : isCompleted
+      ? 'text-pure-black'
+      : isFailed
+        ? 'text-pure-black dark:text-pure-white'
+        : 'text-pure-black';
+  const label = isCancelled
+    ? t('cancelled')
+    : swapSettlement === 'reclaimed'
+      ? t('reclaimed')
+      : swapSettlement === 'pending'
+        ? t('pending')
+        : isCompleted
+          ? t('confirmed')
+          : isFailed
+            ? t('failed')
+            : t('inProgress');
 
-    return (
-      <div
-        className={classNames(
-          'flex items-center gap-1 px-4 py-0.5 rounded-full',
-          isCancelled ? 'bg-gray-100' : 'bg-green-600/20'
+  return (
+    <div
+      data-testid={testId}
+      className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor, fgColor)}
+    >
+      {/* Muted first for the same reason as the colours: a cancellation reads
+          Failed, and a grey "Cancelled" pill wearing the failure ✕ names two
+          outcomes at once.
+
+          Decorative — each glyph restates the label beside it, so leaving them
+          in the accessibility tree announced the status twice, once of them as
+          an unnamed graphic. */}
+      <span aria-hidden="true" className="flex items-center">
+        {isMuted ? (
+          <div className="w-2 h-2 rounded-full bg-current" />
+        ) : isCompleted ? (
+          <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
+        ) : isFailed ? (
+          <Icon name={IconName.Close} size="xs" fill="currentColor" />
+        ) : (
+          <div className="w-2 h-2 rounded-full bg-current" />
         )}
-      >
-        <div className={classNames('w-2 h-2 rounded-full', dotColor)} />
-        <span className={classNames('text-[10px] font-medium text-heading-gray', textColor)}>{label}</span>
-      </div>
-    );
-  }
-);
+      </span>
+      <span className="text-xs font-semibold">{label}</span>
+    </div>
+  );
+});

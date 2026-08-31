@@ -17,12 +17,73 @@ import { fetchFromStorage } from '../front/storage';
  *
  * Prefers the per-account `guardianEndpoint` (set at create/recovery time and
  * on switch-guardian) so accounts on different operators don't collide. Falls
- * back to the legacy global `GUARDIAN_URL_STORAGE_KEY` for records created
- * before the field existed, then to the effective network's default guardian.
+ * back to the legacy global `GUARDIAN_URL_STORAGE_KEY`, then to the effective
+ * network's default guardian.
+ *
+ * The global-key fallback is retained BY DESIGN as a frozen, read-only,
+ * never-written last resort (#408 stage 3). The unlock-time backfill stamps a
+ * per-account endpoint on every legacy account it can resolve on-chain, but a
+ * legacy account on a custom/self-hosted/rotated guardian that the backfill
+ * cannot identify has this key as its only pointer — removing the fallback
+ * would strand it. Do NOT delete this read; full removal of the key needs a
+ * "re-enter your guardian URL" user flow (out of scope). The key is no longer
+ * written anywhere in the codebase — grep for writers to confirm.
  */
 export async function resolveGuardianEndpoint(account: WalletAccount): Promise<string> {
   if (account.guardianEndpoint) return account.guardianEndpoint;
   return (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) || getEffectiveDefaultGuardianEndpoint();
+}
+
+/**
+ * Adopt a guardian-served account snapshot locally, refusing any write that
+ * would move the account's state BACKWARDS.
+ *
+ * Guardian snapshots are not ordered, and one recovery adopts the same account
+ * more than once: `recoverGuardianAccountsBySeed` matches an account at more
+ * than one HD index and inserted each match with `overwrite: true`, so whichever
+ * snapshot arrived last won. That is fine while the snapshots agree (both at the
+ * account's current nonce, the common case) and silently corrupting when they
+ * don't: a creation-time snapshot (nonce 0) landing last leaves the account
+ * locally UNCOMMITTED, so the next hot-key rotation is built as an account
+ * CREATION and the node rejects it —
+ *
+ *   initial account commitment 0x0000…0000 does not match the current
+ *   commitment 0x41978d… for account 0x2cb3bb1e…
+ *
+ * — which is the intermittent `guardian-recovery` failure seen on main. Ordering
+ * decides the outcome, hence a flake rather than a hard break.
+ *
+ * Nonce is the ordering key because it increments once per committed
+ * state-changing transaction, so a lower nonce is by definition a staler view of
+ * the same account. Equal nonces still overwrite: same committed state, and the
+ * incoming snapshot may carry detail the stored record lacks.
+ *
+ * Monotonic account state is already an invariant one layer down — the client's
+ * own store rejects the mirror image of this write with "replace_account_header:
+ * new nonce 1 is less than old nonce 2" (observed in the same failing run, on a
+ * second account). This upholds it before the write instead of discovering it
+ * afterwards, and it belongs on the wallet side because the guardian is an
+ * untrusted remote: `importAccountFromGuardian` already refuses a snapshot whose
+ * account ID doesn't match, for the same reason.
+ *
+ * Callers MUST already hold the WASM client lock — this issues client calls and
+ * does not acquire it, so acquiring here would deadlock the existing
+ * `withWasmClientLock` scopes both call sites run inside.
+ */
+export async function insertGuardianAccountMonotonically(client: MidenClient, account: Account): Promise<void> {
+  const accountId = account.id();
+  const incomingNonce = account.nonce().asInt();
+  const stored = await client.accounts.get(accountId);
+
+  if (stored && incomingNonce < stored.nonce().asInt()) {
+    console.warn(
+      `[guardian] ignoring stale account snapshot for ${accountId.toString()}: ` +
+        `guardian served nonce ${incomingNonce}, local state is at nonce ${stored.nonce().asInt()}`
+    );
+    return;
+  }
+
+  await client.accounts.insert({ account, overwrite: true });
 }
 
 // Re-export the slot names from the package for reading account state
@@ -187,11 +248,12 @@ export async function createGuardianAccount(
     // plugin and surfaces here only as opaque ciphertext.
     const hot = await secureHotKey.generateHotKey();
 
-    // Get Guardian endpoint and initialize client
-    const guardianEndpoint =
-      guardianEndpointOverride ??
-      (await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY)) ??
-      getEffectiveDefaultGuardianEndpoint();
+    // Get Guardian endpoint and initialize client. Onboarding always threads the
+    // picked endpoint as the override (stage 1 of #408); with no override we use
+    // the effective network default. The frozen global GUARDIAN_URL_STORAGE_KEY
+    // is intentionally NOT consulted here (#408 stage 3) — a NEW account must
+    // never inherit a stale global pointer.
+    const guardianEndpoint = guardianEndpointOverride ?? getEffectiveDefaultGuardianEndpoint();
 
     registerGuardianOrigin(guardianEndpoint);
     const client = new MultisigClient(webClient, {

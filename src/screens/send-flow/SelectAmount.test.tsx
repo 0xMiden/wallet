@@ -92,6 +92,7 @@ const baseToken = (overrides: Partial<UIToken> = {}): UIToken => ({
   decimals: 6,
   balance: 200,
   fiatPrice: 0.2,
+  scaleIsKnown: true,
   ...overrides
 });
 
@@ -184,8 +185,52 @@ describe('SelectAmount', () => {
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
     });
 
+    // The amount typed here is converted to base units with `token.decimals`.
+    // When those are the unknown-token placeholder's guess of 6, a "1" typed for
+    // an 18-decimal faucet is a millionth of what the screen says — so the flow
+    // stops at the point of entry rather than at the confirmation.
+    describe('a token whose scale never resolved', () => {
+      const unscaled = () => baseToken({ name: 'Unknown', scaleIsKnown: false });
+
+      it('blocks the confirm CTA', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+      });
+
+      it('says so in place of an available balance it cannot vouch for', () => {
+        renderComponent({ token: unscaled() });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent('unknownTokenScale');
+        expect(helper).not.toHaveTextContent('available');
+      });
+
+      it('withholds the fiat estimate, which is that same balance times a price', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+      });
+    });
+
     it('hides the balance helper when showBalanceHelper is false', () => {
       renderComponent({ showBalanceHelper: false });
+      expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
+    });
+
+    it('omits the misleading "$0.00" fiat line when the token has no fiat price (swap DEX tokens, #461)', () => {
+      renderComponent({ token: baseToken({ balance: 5, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available');
+      expect(helper).not.toHaveTextContent('approxFiatValue');
+    });
+
+    it('shows the available-balance helper even in embedded mode when showBalanceHelper is on (#461)', () => {
+      // The swap "You Pay" field is embedded but must still show how much is
+      // spendable — previously embedded mode always stripped the helper.
+      renderComponent({ embedded: true, token: baseToken({ balance: 200 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
+    });
+
+    it('keeps the balance helper off an embedded field when showBalanceHelper is false (swap "You Receive")', () => {
+      renderComponent({ embedded: true, showBalanceHelper: false });
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');
     });
 
@@ -206,13 +251,14 @@ describe('SelectAmount', () => {
       expect(container.firstChild).toHaveClass('px-6');
     });
 
-    it('uses the default footer padding and honors a footerClassName override', () => {
+    it('uses the default keyboard-aware footer padding and honors a footerClassName override', () => {
+      const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
       const { container: def } = renderComponent();
-      expect(def.querySelector('.pb-24')).not.toBeNull();
+      expect(def.innerHTML).toContain(defaultFooterPb);
 
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();
-      expect(override.querySelector('.pb-24')).toBeNull();
+      expect(override.innerHTML).not.toContain(defaultFooterPb);
     });
   });
 
@@ -321,10 +367,12 @@ describe('SelectAmount', () => {
       renderComponent({ embedded: true });
       expect(screen.getByTestId('amount-input')).toBeInTheDocument();
       expect(screen.getByTestId('token-logo')).toBeInTheDocument();
-      // No network pill, no confirm button, no helper (helper prop is undefined).
+      // No network pill / confirm button (embedded strips the chrome), but the
+      // available-balance helper now shows — it's controlled by showBalanceHelper,
+      // not by embedded (#461).
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
       expect(screen.queryByTestId('confirm-btn')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('ai-helper')).not.toBeInTheDocument();
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available');
     });
 
     it('renders the "$" placeholder chip when embedded with no token', () => {
@@ -338,6 +386,82 @@ describe('SelectAmount', () => {
     it('ignores children in the embedded variant', () => {
       renderComponent({ embedded: true, children: <div data-testid="extra-child">extra</div> });
       expect(screen.queryByTestId('extra-child')).not.toBeInTheDocument();
+    });
+  });
+
+  // A cross-chain deposit swaps the Miden chip for a two-row destination
+  // selector, and the CTA additionally waits on a chosen network.
+  describe('bridge variant', () => {
+    const sepolia = { id: 'sepolia' as const, name: 'Sepolia', chainId: 11155111 };
+
+    /** The destination-network row: the last button inside the bridge selector. */
+    const networkRow = (): HTMLButtonElement => {
+      const buttons = screen.getByTestId('ai-token-selector').querySelectorAll('button');
+      const last = buttons.item(buttons.length - 1);
+      if (!last) throw new Error('bridge selector rendered no buttons');
+      return last;
+    };
+
+    it('replaces the Miden pill with the token + destination-network selector', () => {
+      renderComponent({ isBridge: true, network: sepolia, outputSymbol: 'USDC' });
+
+      expect(screen.queryByText('miden')).not.toBeInTheDocument();
+      const selector = screen.getByTestId('ai-token-selector');
+      expect(selector).toHaveTextContent('USDC');
+      expect(selector).toHaveTextContent('Sepolia');
+      // Arrival hint: "{network} · arrives as {symbol}".
+      expect(selector).toHaveTextContent('receiveOnArrivesAs');
+    });
+
+    it('prompts for a network and blocks the CTA until one is chosen', () => {
+      renderComponent({ isBridge: true, network: undefined });
+
+      expect(screen.getByText('selectNetwork')).toBeInTheDocument();
+      expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+    });
+
+    it('enables the CTA once a network is chosen', () => {
+      renderComponent({ isBridge: true, network: sepolia });
+      expect(screen.getByTestId('confirm-btn')).toBeEnabled();
+    });
+
+    it('opens the token and network pickers with haptic feedback', () => {
+      const onSelectToken = jest.fn();
+      const onSelectNetwork = jest.fn();
+      renderComponent({ isBridge: true, network: sepolia, onSelectToken, onSelectNetwork });
+
+      fireEvent.click(screen.getByTestId('send-token-selector'));
+      expect(onSelectToken).toHaveBeenCalled();
+
+      fireEvent.click(networkRow());
+      expect(onSelectNetwork).toHaveBeenCalled();
+      expect(hapticLight).toHaveBeenCalledTimes(2);
+    });
+
+    it('tolerates a missing network handler', () => {
+      renderComponent({ isBridge: true, network: sepolia, onSelectNetwork: undefined });
+
+      expect(() => fireEvent.click(networkRow())).not.toThrow();
+    });
+
+    it('shows the "$" placeholder while no token is chosen', () => {
+      renderComponent({ isBridge: true, token: undefined, network: sepolia });
+
+      expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('$');
+      expect(screen.getByText('selectAToken')).toBeInTheDocument();
+    });
+  });
+
+  // `formatBalance` keeps 4dp but expands so a dust balance never reads as 0.
+  describe('balance helper precision', () => {
+    it('trims trailing zeros on an ordinary balance', () => {
+      renderComponent({ token: baseToken({ balance: 12.5 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 12.5 USDC');
+    });
+
+    it('expands past 4dp rather than rounding a dust balance to zero', () => {
+      renderComponent({ token: baseToken({ balance: 0.00001234, fiatPrice: 0.2 }) });
+      expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 0.000012 USDC');
     });
   });
 });

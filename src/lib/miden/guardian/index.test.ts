@@ -27,14 +27,15 @@ jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn(() => new Uint8Array([1, 2, 3]))
 }));
 
-// Keep accountIdStringToSdk simple — we only assert it was called with the
-// inputs we passed; the real implementation parses bech32 which needs WASM.
-const mockAccountIdStringToSdk = jest.fn((id: string) => ({ toString: () => `sdk(${id})` }));
+// Keep the id parser simple — we only assert it was called with the inputs we
+// passed; the real implementation parses bech32/hex, which needs WASM.
+const mockAccountRefToSdk = jest.fn((ref: string) => ({ toString: () => `sdk(${ref})` }));
 jest.mock('../sdk/helpers', () => ({
-  accountIdStringToSdk: (...args: unknown[]) => mockAccountIdStringToSdk(...(args as [string]))
+  accountRefToSdk: (...args: unknown[]) => mockAccountRefToSdk(...(args as [string]))
 }));
 
 const mockGetAccount = jest.fn();
+const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
 const mockRawWebClient = { kind: 'raw-web-client' };
 const mockMidenClient = {
@@ -42,6 +43,10 @@ const mockMidenClient = {
   syncState: () => mockSyncState(),
   client: mockRawWebClient
 };
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => mockMidenClient,
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
@@ -88,7 +93,8 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
     load: (...a: unknown[]) => multisigClientConfig.load(...a)
   })),
   buildUpdateSignersTransactionRequest: (...a: unknown[]) => mockBuildUpdateSignersTransactionRequest(...a),
-  executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a)
+  executeForSummary: (...a: unknown[]) => mockExecuteForSummary(...a),
+  AccountInspector: { fromAccount: (...a: unknown[]) => mockAccountInspectorFromAccount(...a) }
 }));
 
 const mockGenerateHotKey = jest.fn();
@@ -101,8 +107,13 @@ jest.mock('lib/secure-hot-key', () => ({
 }));
 
 const mockGetSignerDetailsFromAccount = jest.fn();
+// The staleness guard itself is a collaborator here, covered against real
+// nonces in account.test.ts; these tests only assert that the import path
+// routes its write THROUGH it rather than calling accounts.insert directly.
+const mockInsertGuardianAccountMonotonically = jest.fn();
 jest.mock('./account', () => ({
   getSignerDetailsFromAccount: (...a: unknown[]) => mockGetSignerDetailsFromAccount(...a),
+  insertGuardianAccountMonotonically: (...a: unknown[]) => mockInsertGuardianAccountMonotonically(...a),
   // Resolve to the per-account endpoint, falling back to the stored value the
   // fetchFromStorage mock returns — mirrors the real resolveGuardianEndpoint.
   resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
@@ -169,6 +180,8 @@ describe('MultisigService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
+    // Default: AccountInspector reads an empty signer set unless a test overrides it.
+    mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
   });
 
   describe('constructor + getters', () => {
@@ -209,16 +222,35 @@ describe('MultisigService', () => {
   });
 
   describe('proposal builders', () => {
-    it('createSendProposal normalizes recipient+faucet ids through accountIdStringToSdk', async () => {
+    // Through `accountRefToSdk`, not the bech32-only parser: faucet ids reach
+    // the wallet in both hex and bech32 form, and the sibling recallable-send
+    // path already accepts both — a hex id it sends fine must not throw here.
+    it('createSendProposal normalizes recipient+faucet ids through accountRefToSdk', async () => {
       const multisig = makeMultisig();
       const service = new MultisigService(multisig as never, {} as never, 'https://x');
 
-      const proposal = await service.createSendProposal('rec', 'fauc', 1000n);
+      const proposal = await service.createSendProposal('rec', 'fauc', 1000n, 'Private' as never);
 
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('rec');
+      expect(mockAccountRefToSdk).toHaveBeenCalledWith('fauc');
       expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
         noteType: 'Private'
       });
       expect(proposal).toEqual({ kind: 'p2id' });
+    });
+
+    // Was hardcoded Private, so a Public guardian send emitted a private note
+    // the recipient was never handed — the row said 'public', so the relay in
+    // completeSendTransaction was skipped too.
+    it('createSendProposal forwards the caller-resolved note type', async () => {
+      const multisig = makeMultisig();
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.createSendProposal('rec', 'fauc', 1000n, 'Public' as never);
+
+      expect(multisig.createP2idProposal).toHaveBeenCalledWith('sdk(rec)', 'sdk(fauc)', 1000n, undefined, {
+        noteType: 'Public'
+      });
     });
 
     it('createConsumeNotesProposal forwards note ids untouched', async () => {
@@ -456,6 +488,53 @@ describe('MultisigService', () => {
 
       await expect(service.reRegisterCurrentStateOnGuardian()).rejects.toThrow('missing from local client');
     });
+
+    it('re-derives the guardian allowlist from the fresh on-chain account before registering (#619 gap 3)', async () => {
+      // The multisig was loaded from a possibly-stale guardian blob, so its
+      // cached signerCommitments still hold the PRE-rotation [old-hot, cold].
+      let commitmentsAtRegisterTime: string[] | undefined;
+      const registerOnGuardian = jest.fn(async () => {
+        commitmentsAtRegisterTime = [...(multisig as unknown as { signerCommitments: string[] }).signerCommitments];
+      });
+      const multisig = makeMultisig({
+        registerOnGuardian,
+        signerCommitments: ['0xoldhot', '0xcold']
+      });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      const freshAccount = { serialize: () => new Uint8Array([1, 2, 3]) };
+      mockGetAccount.mockResolvedValue(freshAccount);
+      // The freshly-synced on-chain account resolves to the POST-rotation set.
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: ['0xnewhot', '0xcold'] });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      // The allowlist is refreshed from the fresh account (byte-identical to the
+      // vendored client.load derivation) AND is in place BEFORE registering, so
+      // the guardian gets [new-hot, cold], not the stale [old-hot, cold] that
+      // would re-trigger the permanent-401.
+      expect(mockAccountInspectorFromAccount).toHaveBeenCalledWith(freshAccount);
+      expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual([
+        '0xnewhot',
+        '0xcold'
+      ]);
+      expect(commitmentsAtRegisterTime).toEqual(['0xnewhot', '0xcold']);
+    });
+
+    it('keeps the cached allowlist (does NOT overwrite with empty) when the fresh account reads back no signers', async () => {
+      // A truncated storage read yields an empty set from AccountInspector;
+      // overwriting a good allowlist with [] would re-arm the 401 this prevents.
+      const registerOnGuardian = jest.fn(async () => {});
+      const multisig = makeMultisig({ registerOnGuardian, signerCommitments: ['0xhot', '0xcold'] });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+      mockGetAccount.mockResolvedValue({ serialize: () => new Uint8Array([1]) });
+      mockAccountInspectorFromAccount.mockReturnValue({ signerCommitments: [] });
+
+      await service.reRegisterCurrentStateOnGuardian();
+
+      // cached set preserved, and the state blob is still pushed (best-effort).
+      expect((multisig as unknown as { signerCommitments: string[] }).signerCommitments).toEqual(['0xhot', '0xcold']);
+      expect(registerOnGuardian).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('importAccountFromGuardian', () => {
@@ -466,7 +545,7 @@ describe('MultisigService', () => {
       guardianConfig.getState.mockReset();
     });
 
-    it('fetches state, base64-decodes into Account, and inserts into the webClient', async () => {
+    it('fetches state, base64-decodes into Account, and adopts it through the staleness guard', async () => {
       const webClient = {
         accounts: { insert: jest.fn(async () => {}) }
       };
@@ -479,7 +558,10 @@ describe('MultisigService', () => {
 
       expect(guardianConfig.setSigner).toHaveBeenCalled();
       expect(mockAccountDeserialize).toHaveBeenCalled();
-      expect(webClient.accounts.insert).toHaveBeenCalledWith({ account: fakeAccount, overwrite: true });
+      // Routed through the guard, never straight to accounts.insert — an
+      // unguarded overwrite here is what let a stale snapshot win.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalledWith(webClient, fakeAccount);
+      expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
     it('rejects (and does not insert) when the guardian returns a mismatched account id', async () => {
@@ -504,17 +586,22 @@ describe('MultisigService', () => {
       expect(webClient.accounts.insert).not.toHaveBeenCalled();
     });
 
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage has no URL', async () => {
-      // Exercises the `|| DEFAULT_GUARDIAN_ENDPOINT` branch on the endpoint lookup.
+    it('binds to the network default WITHOUT reading the frozen global key', async () => {
+      // #408 stage 3: importAccountFromGuardian no longer reads
+      // GUARDIAN_URL_STORAGE_KEY — it binds to the effective network default.
+      // (No production callers today; a future non-default import must thread a
+      // per-account endpoint rather than reintroduce a global-key read.)
       const webClient = { accounts: { insert: jest.fn(async () => {}) } };
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
       const stateBase64 = Buffer.from('hi').toString('base64');
       guardianConfig.getState.mockResolvedValueOnce({ stateJson: { data: stateBase64 } });
       mockAccountDeserialize.mockReturnValueOnce({ id: () => ({ toString: () => 'acc-id' }) });
 
       await MultisigService.importAccountFromGuardian('pub', 'commit', signWordFn, 'acc-id', webClient as never);
 
-      expect(webClient.accounts.insert).toHaveBeenCalled();
+      // Reached the adoption step, i.e. the import ran to completion.
+      expect(mockInsertGuardianAccountMonotonically).toHaveBeenCalled();
+      // The global-key read is gone: storage is never consulted for the import.
+      expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
   });
 

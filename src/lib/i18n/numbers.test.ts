@@ -6,11 +6,13 @@ import {
   getPluralKey,
   formatBigInt,
   stringToBigInt,
-  stringToAleoMicrocredits,
-  ALEO_MICROCREDITS_TO_CREDITS,
   toLocalFixed,
   toShortened,
-  toFixedRoundedDown
+  toFixedRoundedDown,
+  getAdaptiveDecimalPlaces,
+  toAdaptiveFixed,
+  formatUsd,
+  MAX_DISPLAY_DECIMAL_PLACES
 } from './numbers';
 
 // `toShortened` delegates the thousand/million/billion labelling to i18next's
@@ -96,6 +98,57 @@ describe('toLocalFormat', () => {
   });
 });
 
+describe('adaptive amount formatting', () => {
+  it('keeps two decimal places for ordinary values and zero', () => {
+    expect(getAdaptiveDecimalPlaces(12.345)).toBe(2);
+    expect(toAdaptiveFixed(12.345)).toBe('12.35');
+    expect(toAdaptiveFixed(0)).toBe('0.00');
+  });
+
+  it('shows the first two significant fractional places for small values', () => {
+    expect(getAdaptiveDecimalPlaces('0.001234')).toBe(4);
+    expect(toAdaptiveFixed('0.001234')).toBe('0.0012');
+    expect(toAdaptiveFixed('-0.00005678')).toBe('-0.000057');
+  });
+
+  it('honours a larger normal precision before adapting', () => {
+    // The first non-zero digit already fits inside the requested 4dp, so the
+    // larger normal precision is kept as-is.
+    expect(getAdaptiveDecimalPlaces('0.0001234', 4)).toBe(4);
+    expect(toAdaptiveFixed('1.23456', 4)).toBe('1.2346');
+    // Only once the value is small enough to vanish at 4dp does it adapt.
+    expect(getAdaptiveDecimalPlaces('0.00001234', 4)).toBe(6);
+    expect(toAdaptiveFixed('0.00001234', 4)).toBe('0.000012');
+  });
+
+  it('preserves non-finite BigNumber output', () => {
+    expect(toAdaptiveFixed(NaN)).toBe('NaN');
+    expect(toAdaptiveFixed(Infinity)).toBe('Infinity');
+    expect(toAdaptiveFixed(-Infinity)).toBe('-Infinity');
+  });
+
+  it('uses adaptive precision for small USD values while preserving grouping', () => {
+    expect(formatUsd(1024.5)).toBe('$1,024.50');
+    expect(formatUsd(0.001234)).toBe('$0.0012');
+  });
+
+  // `Intl.NumberFormat` throws `RangeError` above 20 fraction digits, so an
+  // unbounded expansion turned a dust balance (1 base unit of an 18-decimal
+  // token at a sub-cent price) into a render crash rather than a number.
+  it('clamps the expansion so far-below-cent values format instead of throwing', () => {
+    expect(getAdaptiveDecimalPlaces(1e-30)).toBe(MAX_DISPLAY_DECIMAL_PLACES);
+    expect(() => formatUsd(1e-30)).not.toThrow();
+    expect(formatUsd(1e-30)).toBe('$0.00000000000000000000');
+    expect(toAdaptiveFixed('0.000000000000000000000001')).toBe('0.00000000000000000000');
+  });
+
+  it('still expands fully for the deepest token precision we support', () => {
+    // 18 decimals is the deepest real token, so the clamp never truncates one.
+    expect(getAdaptiveDecimalPlaces('0.000000000000000001')).toBe(19);
+    expect(toAdaptiveFixed('0.000000000000000001')).toBe('0.0000000000000000010');
+  });
+});
+
 describe('getPluralKey', () => {
   it('appends the CLDR plural category for a singular amount', () => {
     expect(getPluralKey('item', 1)).toBe('item_one');
@@ -136,9 +189,23 @@ describe('formatBigInt', () => {
     expect(formatBigInt(BigInt(250), 2)).toBe('2.5');
   });
 
-  it('falls back to a single zero-pad when decimals is not positive', () => {
-    // decimals === 0 => numZeros forced to 1; documents the real (quirky) output.
-    expect(formatBigInt(BigInt(5), 0)).toBe('0.05');
+  // The sign used to be zero-padded along with the digits, so the minus ended up
+  // INSIDE the fraction: -5 at 5 decimals came out as the non-numeric "0.000-5".
+  // Reclaims and reversals are the paths that produce a negative here.
+  it('keeps the sign outside the digits for a negative amount', () => {
+    expect(formatBigInt(BigInt(-5), 5)).toBe('-0.00005');
+    expect(formatBigInt(BigInt(-1_500_000))).toBe('-1.5');
+    expect(formatBigInt(BigInt(-250), 2)).toBe('-2.5');
+    expect(formatBigInt(BigInt(-1000), 0)).toBe('-1000');
+  });
+
+  it('renders whole units verbatim for a zero-decimal faucet', () => {
+    // Previously this documented the quirk instead of fixing it: `-decimals` was
+    // `-0`, `slice(0, -0)` returned the empty string, and 5 came out as "0.05" —
+    // two orders of magnitude off. It is rendered on the dApp approval sheet
+    // beside the amount being sent, so it has to be the amount.
+    expect(formatBigInt(BigInt(5), 0)).toBe('5');
+    expect(formatBigInt(BigInt(100), 0)).toBe('100');
   });
 });
 
@@ -147,20 +214,47 @@ describe('stringToBigInt', () => {
     expect(stringToBigInt('1.5', 6)).toBe(BigInt(1_500_000));
   });
 
-  it('rounds to avoid float precision drift', () => {
+  it('does not drift on values a float cannot hold', () => {
     expect(stringToBigInt('2.7', 2)).toBe(BigInt(270));
+    // The regression: `parseFloat('1.000001') * 1e18` is 1000000999999999872,
+    // 128 base units short of the amount the review screen displayed.
+    expect(stringToBigInt('1.000001', 18)).toBe(1_000_001_000_000_000_000n);
+    expect(stringToBigInt('123456789.123456789', 18)).toBe(123_456_789_123_456_789_000_000_000n);
+    // Exact at any width, where the float path lost the low digits entirely.
+    expect(stringToBigInt('9007199254740993', 0)).toBe(9_007_199_254_740_993n);
+  });
+
+  it('truncates digits finer than the faucet can represent', () => {
     expect(stringToBigInt('1.005', 2)).toBe(BigInt(100));
-  });
-});
-
-describe('stringToAleoMicrocredits', () => {
-  it('exposes the microcredits-per-credit constant', () => {
-    expect(ALEO_MICROCREDITS_TO_CREDITS).toBe(1_000_000);
+    expect(stringToBigInt('0.999', 2)).toBe(BigInt(99));
+    // Never rounds up: an outgoing amount must not exceed what was typed.
+    expect(stringToBigInt('1.999999', 2)).toBe(BigInt(199));
   });
 
-  it('floors credits into microcredits', () => {
-    expect(stringToAleoMicrocredits('2.5')).toBe(BigInt(2_500_000));
-    expect(stringToAleoMicrocredits('1.0000009')).toBe(BigInt(1_000_000));
+  it.each([
+    ['no fractional part', '5', 3, 5000n],
+    ['a bare leading point', '.5', 2, 50n],
+    ['a trailing point', '5.', 2, 500n],
+    ['zero', '0', 6, 0n],
+    ['zero decimals', '1234', 0, 1234n],
+    ['a negative amount', '-1.5', 2, -150n],
+    ['an explicit plus', '+1.5', 2, 150n],
+    ['surrounding whitespace', '  1.5  ', 2, 150n],
+    ['exponent notation, as a number input can produce', '1e3', 2, 100000n],
+    ['a negative exponent', '1.5e-2', 4, 150n]
+  ])('handles %s', (_label, input, decimals, expected) => {
+    expect(stringToBigInt(input as string, decimals as number)).toBe(expected);
+  });
+
+  it.each([
+    ['an empty string', ''],
+    ['whitespace only', '   '],
+    ['a bare point', '.'],
+    ['letters', 'abc'],
+    ['a partial number', '1.2.3'],
+    ['a currency symbol', '$5']
+  ])('throws on %s, which callers rely on to mean "not a valid amount yet"', (_label, input) => {
+    expect(() => stringToBigInt(input as string, 2)).toThrow();
   });
 });
 

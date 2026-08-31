@@ -23,6 +23,7 @@
 		7BECE3022FA7691500F466A5 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = 7BECE3012FA7691500F466A5 /* P256K */; settings = {ATTRIBUTES = (Required, ); }; };
 		83CCE39C02FD0BF8DD39551F /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6B2865F76F213517CFCCD1 /* AppViewController.swift */; };
 		A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */; };
+		A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */; };
 		AABBCCDD0000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */; };
 		B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */; };
 		C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */; };
@@ -45,6 +46,7 @@
 		873F0344C8952CB5585102E0 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScreenshotGuardPlugin.swift; sourceTree = "<group>"; };
+		A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HighRefreshRatePlugin.swift; sourceTree = "<group>"; };
 		AABBCCDD0000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BarcodeScannerPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -97,6 +99,7 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				21A34DAD709C71D553F88951 /* LocalBiometricPlugin.swift */,
 				A1C4E9D207F1B3A65D2E8411 /* ScreenshotGuardPlugin.swift */,
+				A1C4E9D207F1B3A65D2E8421 /* HighRefreshRatePlugin.swift */,
 				7BC0FFEF2FAA000000000001 /* HotKeyPlugin.swift */,
 				C7D4E92B3F8B1C5D00A2B9E2 /* BarcodeScannerPlugin.swift */,
 				1A6B2865F76F213517CFCCD1 /* AppViewController.swift */,
@@ -205,6 +208,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				B54E83DC5BCCDB512256423A /* LocalBiometricPlugin.swift in Sources */,
 				A1C4E9D207F1B3A65D2E8410 /* ScreenshotGuardPlugin.swift in Sources */,
+				A1C4E9D207F1B3A65D2E8420 /* HighRefreshRatePlugin.swift in Sources */,
 				7BC0FFEE2FAA000000000001 /* HotKeyPlugin.swift in Sources */,
 				C7D4E92A3F8B1C5D00A2B9E1 /* BarcodeScannerPlugin.swift in Sources */,
 				7B5E86162FD4243200930C68 /* ReownPlugin.swift in Sources */,
@@ -350,8 +354,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
-				DEVELOPMENT_TEAM = YQ9XQQJ5ZM;
+				CURRENT_PROJECT_VERSION = 11;
+				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -359,7 +363,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.15.13;
+				MARKETING_VERSION = 1.15.21;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -375,8 +379,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
-				DEVELOPMENT_TEAM = YQ9XQQJ5ZM;
+				CURRENT_PROJECT_VERSION = 11;
+				DEVELOPMENT_TEAM = LHU7B7J5WL;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -384,7 +388,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.15.13;
+				MARKETING_VERSION = 1.15.21;
 				PRODUCT_BUNDLE_IDENTIFIER = com.miden.bread;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

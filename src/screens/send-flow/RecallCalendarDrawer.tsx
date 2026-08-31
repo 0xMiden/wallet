@@ -5,10 +5,13 @@ import { addDays, addHours, addMinutes, differenceInSeconds, format } from 'date
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import { Calendar } from 'lib/ui/calendar';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
-export const SECONDS_PER_BLOCK = 3;
+// Derived from the shared block-time estimate so the reclaim height computed
+// here agrees with the recall countdown getNoteRecallableAtMs shows later.
+export const SECONDS_PER_BLOCK = ESTIMATED_MS_PER_BLOCK / 1000;
 
 /**
  * Blocks-until-recall (RELATIVE offset) for the given target date. The

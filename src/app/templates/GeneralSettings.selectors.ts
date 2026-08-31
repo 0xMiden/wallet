@@ -5,7 +5,6 @@ export enum GeneralSettingsSelectors {
   DelegateToggle = 'General Settings/DelegateToggle',
   LockUpToggle = 'General Settings/LockUpToggle',
   PopupToggle = 'General Settings/PopupToggle',
-  AutoCloseToggle = 'General Settings/AutoCloseToggle',
   AutoConsumeToggle = 'General Settings/AutoConsumeToggle',
   BiometricToggle = 'General Settings/BiometricToggle',
   HapticFeedbackToggle = 'General Settings/HapticFeedbackToggle',

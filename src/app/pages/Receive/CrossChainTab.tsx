@@ -109,7 +109,9 @@ export const CrossChainTab: React.FC<CrossChainTabProps> = ({
     name: config.symbol,
     decimals: config.decimals,
     balance: 0,
-    fiatPrice: 0
+    fiatPrice: 0,
+    // Fixed EVM deposit tokens — decimals come from the registry, not a placeholder.
+    scaleIsKnown: true
   };
 
   const handleOpenEvm = useCallback(() => {

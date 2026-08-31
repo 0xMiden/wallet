@@ -9,6 +9,7 @@
  *   - `generateTransactionsLoop` early-return when an in-progress tx exists
  */
 
+import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
@@ -94,6 +95,12 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn(async () => {});
 const mockWaitForCommit = jest.fn(async () => {});
 const mockSendPrivateNote = jest.fn(async () => {});
+// The #260 offscreen client proxy reads (syncState/getInputNoteDetails) through
+// the `lib/...` alias of miden-client, which jest mocks separately from the
+// relative specifier below; delegate the alias to the same mock so the proxy's
+// flag-off passthrough hits it (incl. the on-the-fly getMidenClient patches in
+// the verifyStuckTransactionsFromNode branch tests below).
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     syncState: mockSyncState,
@@ -124,6 +131,9 @@ jest.mock('shared/logger', () => ({
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'private';
 jest.mock('../helpers', () => ({
+  // Real `isPrivateNoteType`: it decides whether a completed send relays its
+  // note file to the recipient, so stubbing it would make that branch vacuous.
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => (globalThis as any).__noteTypeForTest
 }));
 
@@ -238,6 +248,128 @@ describe('completeCustomTransaction outer init-error path', () => {
       sdk.withWasmClientLock = origLock;
       errSpy.mockRestore();
     }
+  });
+});
+
+// A private note exists off chain: the chain holds a commitment, and the bytes are
+// what the recipient needs to see or consume it. A private output note the wallet
+// never hands to the transport is therefore stranded — unreachable by its
+// recipient, with no reclaim window guaranteed on a custom note — and the row used
+// to report a clean success regardless. The recipient is supplied by the requesting
+// site and is OPTIONAL, so this is reachable by simply omitting it.
+describe('a custom transaction that strands a private note says so', () => {
+  const customRow = (id: string, overrides: Record<string, unknown> = {}) => {
+    const row: Record<string, unknown> & { status?: ITransactionStatus; displayMessage?: string } = {
+      id,
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      ...overrides
+    };
+    txStore.push(row);
+    return row;
+  };
+
+  const resultWithNotes = (notes: unknown[]) =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({ notes: () => notes })
+      })
+    }) as any;
+
+  const privateNote = { metadata: () => ({ noteType: () => 'private' }), intoFull: () => ({ valid: true }) };
+
+  it('flags the row when no recipient was ever named, and does not pretend to deliver', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-stranded', { secondaryAccountId: undefined });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    // On chain, so Completed — failing it would be untrue and would offer a Retry
+    // that spends the assets a second time.
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
+  });
+
+  it('counts them when more than one is stranded', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-stranded-2', { secondaryAccountId: undefined });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote, privateNote, privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(row.displayMessage).toBe('Completed — 3 private notes could not be delivered');
+  });
+
+  it('flags a note that cannot be turned into deliverable bytes', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-nofull', { secondaryAccountId: 'recipient' });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(
+        row as any,
+        resultWithNotes([{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => undefined }])
+      );
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(row.displayMessage).toBe('Completed — a private note could not be delivered');
+  });
+
+  it('says nothing when the note was handed over', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-delivered', { secondaryAccountId: 'recipient' });
+
+    await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+
+    expect(mockSendPrivateNote).toHaveBeenCalledWith({ valid: true }, 'recipient');
+    expect(row.displayMessage).not.toContain('could not be delivered');
+  });
+
+  // A transport throw is NOT stranding: the note is in the client's store by then
+  // and the SDK outbox retries it, which is what the send path assumes too.
+  it('does not flag a relay that failed after the transport had the note', async () => {
+    _gh.__noteTypeForTest = 'private';
+    const row = customRow('tx-relay-threw', { secondaryAccountId: 'recipient' });
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down') as never);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await completeCustomTransaction(row as any, resultWithNotes([privateNote]));
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).not.toContain('could not be delivered');
+  });
+
+  it('says nothing for a public note, which needs no delivery at all', async () => {
+    _gh.__noteTypeForTest = 'public';
+    const row = customRow('tx-public', { secondaryAccountId: undefined });
+
+    await completeCustomTransaction(
+      row as any,
+      resultWithNotes([{ metadata: () => ({ noteType: () => 'public' }), intoFull: () => ({ valid: true }) }])
+    );
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.displayMessage).not.toContain('could not be delivered');
+    expect(mockSendPrivateNote).not.toHaveBeenCalled();
   });
 });
 
@@ -533,13 +665,18 @@ describe('startBackgroundTransactionProcessing', () => {
 });
 
 describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
-  it('cancels a consume tx whose note state is Invalid', async () => {
+  it('fails a consume tx whose note state is Invalid IMMEDIATELY, ignoring the grace window (INVALID_NOTE_ERROR)', async () => {
+    const { INVALID_NOTE_ERROR } = require('./constants');
     txStore.push({
       id: 'tx-invalid',
       type: 'consume',
       noteId: 'note-bad',
       status: ITransactionStatus.GeneratingTransaction,
       initiatedAt: 1,
+      // FRESH — still well inside MIN_PROCESSING_TIME_BEFORE_STUCK (60s). An Invalid
+      // note can NEVER be consumed, so the reaper must fail it immediately with the
+      // specific reason rather than wait out the grace window like a 'not-landed'
+      // note (W1: restores the fast-fail the #3a refactor collapsed into 'not-landed').
       processingStartedAt: Math.floor(Date.now() / 1000)
     });
     // getInputNoteDetails is on the gap-test mock client. Patch it on the fly.
@@ -553,6 +690,7 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       const resolved = await verifyStuckTransactionsFromNode();
       expect(resolved).toBe(1);
       expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.error).toBe(INVALID_NOTE_ERROR);
     } finally {
       sdk.getMidenClient = origGetClient;
     }
@@ -602,6 +740,145 @@ describe('verifyStuckTransactionsFromNode invalid + missing branches', () => {
       expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
     } finally {
       sdk.getMidenClient = origGetClient;
+    }
+  });
+});
+
+// ─── #260 follow-up #3a: non-guardian killed CONSUME → node-verified requeue ──
+// A deadline-killed non-guardian consume rejects with OperationAbortedError, which
+// propagates to the generateTransactionsLoop catch. Before failing it, the catch
+// asks the node (via verifyConsumeLanded) whether the input note landed as
+// consumed: only 'landed-local' (a note consumed by THIS client's own tracked tx,
+// provably mine) → Completed (the note WAS claimed). 'landed-external'
+// (ConsumedExternal — consumed but NOT provably mine, e.g. a reclaimable P2IDE the
+// sender reclaimed), 'not-landed', 'invalid', and 'unknown' → the funds-safe Failed.
+// A false 'Received' is impossible — only a LOCAL consumed state completes the row.
+describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', () => {
+  const stubProvider: any = { getGuardianClient: async () => null };
+  const dummySign = jest.fn(async () => new Uint8Array([1]));
+
+  const pushConsume = (id: string, extra: Record<string, unknown> = {}) =>
+    txStore.push({
+      id,
+      type: 'consume',
+      noteId: 'note-kill',
+      noteIds: ['note-kill'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      delegateTransaction: false,
+      ...extra
+    });
+
+  // Patch getMidenClient so the consume LEAF is deadline-killed (OperationAbortedError)
+  // and the subsequent node read returns `noteState` (or throws when it is null).
+  const patchClient = (noteState: string | null) => {
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {}),
+      consumeNoteId: jest.fn(async () => {
+        throw new OperationAbortedError('op-kill', 'deadline');
+      }),
+      getInputNoteDetails: jest.fn(async () => {
+        if (noteState === null) throw new Error('node unreachable');
+        return [{ state: noteState }];
+      })
+    });
+    return () => {
+      sdk.getMidenClient = orig;
+    };
+  };
+
+  it('node reports the note LOCAL-consumed (provably mine) → the killed consume ends Completed Received', async () => {
+    pushConsume('nk-landed');
+    const restore = patchClient('ConsumedAuthenticatedLocal');
+    try {
+      const result = await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(result).toBe(false);
+      const row = txStore.find(r => r.id === 'nk-landed')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  it('node reports the note LOCAL-consumed for a self-reclaim (sender === my account) → Completed Reclaimed', async () => {
+    // secondaryAccountId (the note sender) === accountId → self-reclaim label (S1).
+    pushConsume('nk-reclaim', { secondaryAccountId: 'acc-1' });
+    const restore = patchClient('ConsumedUnauthenticatedLocal');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-reclaim')!;
+      expect(row.status).toBe(ITransactionStatus.Completed);
+      expect(row.displayMessage).toBe('Reclaimed');
+    } finally {
+      restore();
+    }
+  });
+
+  it('node reports the note ConsumedExternal (NOT provably mine) → funds-safe Failed, never a false Received', async () => {
+    // ConsumedExternal = nullifier on chain but the consuming tx was not this
+    // client's — for a reclaimable P2IDE the SENDER may have reclaimed it. Marking
+    // this Received would tell the user they got funds a third party actually took,
+    // so the killed-consume path must fail it (funds-safe: a re-consume harmlessly
+    // collides on the nullifier and the next sync reconciles).
+    pushConsume('nk-external');
+    const restore = patchClient('ConsumedExternal');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-external')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).not.toBe('Received');
+    } finally {
+      restore();
+    }
+  });
+
+  it('verifyConsumeLanded(sync=true): a failed sync falls back to last-synced state (LOCAL-consumed → landed-local)', async () => {
+    // sync=true best-effort syncs before reading, but a sync failure must NOT block
+    // the check: a consumed note never un-consumes, so the last-synced state stays
+    // authoritative. The fresh sync throws yet the note already reads LOCAL-consumed
+    // → still 'landed-local' (funds-safe fallback, cancel.ts sync-failure catch).
+    const { verifyConsumeLanded } = require('./cancel');
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(async () => {
+        throw new Error('sync unreachable');
+      }),
+      getInputNoteDetails: jest.fn(async () => [{ state: 'ConsumedAuthenticatedLocal' }])
+    });
+    try {
+      const verdict = await verifyConsumeLanded({ id: 'v-syncfail', noteId: 'note-kill' }, true);
+      expect(verdict).toBe('landed-local');
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  });
+
+  it('node still reports the note Committed → Failed, no false Completed, no requeue', async () => {
+    pushConsume('nk-committed');
+    const restore = patchClient('Committed');
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      const row = txStore.find(r => r.id === 'nk-committed')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.status).not.toBe(ITransactionStatus.Queued);
+    } finally {
+      restore();
+    }
+  });
+
+  it('node query errors → Failed, never a false Completed', async () => {
+    pushConsume('nk-nodeerr');
+    const restore = patchClient(null);
+    try {
+      await generateTransactionsLoop(dummySign, false, stubProvider);
+      expect(txStore.find(r => r.id === 'nk-nodeerr')!.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      restore();
     }
   });
 });

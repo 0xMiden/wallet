@@ -4,8 +4,29 @@ import { liveQuery } from 'dexie';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
+import { type SignCallbackReason } from './sign-callback';
 import { ITransaction, ITransactionStage, ITransactionStatus, TransactionOutput } from '../db/types';
 import { getMidenClient } from '../sdk/miden-client';
+
+/**
+ * Feature flag: is the offscreen WASM client active? Read as a module constant
+ * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
+ * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
+ * the service-worker bundle that runs the transaction loop, OFF elsewhere and
+ * hardcoded OFF on mobile — see the defines in the vite configs.
+ */
+const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
+
+// Re-export the sign-callback classification from its leaf home (issue #260,
+// slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
+// cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
+// every existing caller — `import { buildSignCallbackError, ... } from './helper'`
+// / `./index` — unchanged.
+export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
+// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
+// return type) and re-exported from that local binding to avoid naming it in
+// two separate re-export statements.
+export type { SignCallbackReason };
 
 /**
  * Detect the eventually-consistent Guardian canonicalization error:
@@ -23,40 +44,6 @@ import { getMidenClient } from '../sdk/miden-client';
 export function isGuardianCanonicalizationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   return /Refusing to overwrite local state/i.test(message) || /is not greater than local nonce/i.test(message);
-}
-
-/**
- * Stable tags attached to errors the sign callback throws, so the catch
- * site for a failed executeTransaction can pattern-match on the raw
- * thrown value (recovered via `midenClient.lastAuthError()`) and treat
- * each failure mode differently — e.g. retry a `locked` failure after
- * the wallet unlocks instead of marking the tx permanently Failed.
- */
-export type SignCallbackReason = 'locked' | 'rejected' | 'not_found' | 'internal';
-
-export interface SignCallbackError extends Error {
-  reason: SignCallbackReason;
-}
-
-/**
- * Wrap an underlying sign failure in a typed Error that the SDK will
- * capture verbatim (see `WebClient.lastAuthError`). Classifies by
- * inspecting the underlying error's shape — current signals are the
- * Zustand-store locked state (string "Not initialized" from
- * `assertInited`) and generic TypeError for null-vault access.
- */
-export function buildSignCallbackError(err: unknown): SignCallbackError {
-  const underlying = err instanceof Error ? err : new Error(String(err));
-  let reason: SignCallbackReason = 'internal';
-  const msg = underlying.message || '';
-  if (/not initialized|locked|vault.*null|Cannot read propert/i.test(msg)) {
-    reason = 'locked';
-  }
-  const wrapped = Object.assign(new Error(`Sign callback failed (${reason}): ${msg}`), {
-    reason,
-    cause: underlying
-  }) as SignCallbackError;
-  return wrapped;
 }
 
 /**
@@ -105,6 +92,23 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
   await Repo.transactions.where({ id: id }).modify(t => {
     Object.assign(t, otherValues);
     t.status = status;
+    // Stamp the terminal stage on success. `setTransactionStage` refuses writes
+    // once a row is terminal, so the trailing setTransactionStage(id,'complete')
+    // in generateTransaction is a silent no-op and a SUCCESSFUL row keeps
+    // whatever stage it happened to be in — a completed replace-hot-key freezes
+    // at 'confirming', a completed guardian consume at 'guardian-synced'. That
+    // read as "still in flight" and cost several investigations (#618).
+    //
+    // Unconditional, and AFTER the Object.assign so it wins: completeCustomTransaction
+    // forwards `interpretTransactionResult(...)`, i.e. the whole pick-time row, so any
+    // presence check on `otherValues.stage` misfires there and writes the stale
+    // pick-time stage straight back. No Completed caller passes `stage` deliberately —
+    // the only deliberate stage payload is requeueTransactionForRetry, which writes Queued.
+    //
+    // Failed rows keep their stage: there it records WHERE the failure happened
+    // and is diagnostically load-bearing (GeneratingTransaction reads it to pin
+    // the failed step).
+    if (status === ITransactionStatus.Completed) t.stage = 'complete';
   });
 };
 
@@ -113,9 +117,13 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
  * `generateTransaction` / `completeSendTransaction` so the progress modal
  * can show "Syncing" / "Sending" / "Confirming" / "Delivering" instead of
  * a single opaque "Generating transaction". Does not gate on status —
- * late writes after `Completed` are no-ops via the `.modify` callback
- * (the stage field is informational and only read while status is
- * pre-terminal).
+ * late writes after a terminal status are no-ops via the `.modify` callback.
+ *
+ * That terminal guard is load-bearing, NOT a formality: a Failed row's stage
+ * records WHERE it failed and `GeneratingTransaction` reads it to pin the failed
+ * step, so a late write would erase the failure location. Completed rows are
+ * stamped `'complete'` by `updateTransactionStatus` itself (#618), which is why
+ * this function stays the pre-terminal writer.
  */
 export const setTransactionStage = async (id: string, stage: ITransactionStage) => {
   await Repo.transactions.where({ id }).modify(tx => {
@@ -126,11 +134,133 @@ export const setTransactionStage = async (id: string, stage: ITransactionStage) 
 };
 
 /**
- * Reads the SDK-captured last auth error and extracts a `reason` tag if
- * present. Returns undefined if there was no auth failure or the thrown
- * value didn't carry a reason.
+ * Reconcile a Failed row that the node says actually LANDED.
+ *
+ * Separate from {@link updateTransactionStatus} because that function's terminal
+ * guard makes this impossible through it: `requeueFailedTransaction` only ever
+ * runs on a Failed row, so its "provably on chain — complete it instead of
+ * resubmitting" branch threw `Transaction already in a finalized state` every
+ * single time, and the UI surfaced that string as the retry error. The row then
+ * stayed Failed for a send that had succeeded, with no way to reconcile it.
+ *
+ * The guard itself is right and stays: it stops a LATE error downgrading a
+ * finalized row. Promoting Failed → Completed on node evidence is the opposite
+ * operation — deliberate, evidence-backed, and the only thing standing between
+ * an ambiguous post-submit abort and a second payment — so it gets its own
+ * narrow door rather than a hole in that one. Refuses to touch an
+ * already-Completed row, which needs no reconciling.
+ */
+export const completeVerifiedLandedTransaction = async (
+  id: string,
+  otherValues: Partial<ITransaction> = {}
+): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Failed) return;
+    Object.assign(tx, otherValues);
+    tx.status = ITransactionStatus.Completed;
+    tx.stage = 'complete';
+    // The failure is no longer the row's story; leaving it behind renders a
+    // completed transaction with an error on it.
+    tx.error = undefined;
+    tx.rawError = undefined;
+  });
+};
+
+/**
+ * Record that this row's pipeline reached the point where a broadcast can no
+ * longer be ruled out — the sticky half of the double-send guard that
+ * `requeueFailedTransaction` reads before dropping a send's cached request.
+ *
+ * Unlike `setTransactionStage` this deliberately does NOT skip terminal rows,
+ * and that exemption is the entire reason it exists. Nothing aborts a running
+ * pipeline when its row is failed out from under it — the Cancel button and the
+ * stuck-row reaper (`cancelStuckTransactions`) both go through
+ * `cancelWhilePipelineMayStillRun`, which writes `Failed` and no stage — so the
+ * pipeline runs on and submits. (Not `cancelStaleQueuedTransactions`, which
+ * takes rows that were never picked up, so there is no pipeline to outlive.) The
+ * `setStage('submitting')` that would have recorded the crossing is exactly what
+ * the terminal guard suppresses, leaving the row frozen at whichever pre-submit
+ * stage it happened to hold when the cancel landed. Retry then reads that stage
+ * as proof nothing was broadcast, rebuilds the request, and mints a SECOND
+ * payment for a transfer already on chain. Writing the flag through a guard-free
+ * modify is what makes the record outlive that race.
+ */
+export const markMayHaveSubmitted = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.mayHaveSubmitted = true;
+  });
+};
+
+/**
+ * Record that this row was failed from outside its own pipeline while that
+ * pipeline was still running, so the retry guard treats a submit as possible
+ * until the pipeline resolves. See `ITransaction.cancelledInFlightAt` for why
+ * this is separate from — and expires unlike — `mayHaveSubmitted`.
+ *
+ * Guard-free as to the TERMINAL state, for the same reason as
+ * `markMayHaveSubmitted`: the cancel it accompanies is what makes the row
+ * terminal, so it cannot wait for that.
+ *
+ * It does test the in-flight condition, and does so in here rather than at the
+ * call site, because the two have to be one write. The caller decides from a row
+ * it read earlier; if the pipeline's own catch lands in between, that catch
+ * resolves the marker and THEN this writes a fresh one — onto a row whose
+ * pipeline is now provably dead, with the only thing that would have cleared it
+ * already run. The row is then refused for the marker's full lifetime for no
+ * reason. Re-reading the status inside the `modify` closes that window: Dexie
+ * runs it against the committed row.
+ */
+export const markCancelledInFlight = async (id: string) => {
+  const at = Math.floor(Date.now() / 1000);
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.GeneratingTransaction) return;
+    tx.cancelledInFlightAt = at;
+  });
+};
+
+/**
+ * Resolve the above: the pipeline has stopped, so a submit is no longer merely
+ * possible. Called from the pipeline's own catch, and what lets a genuine execute
+ * or prove failure rebuild its request rather than replaying a bad one.
+ *
+ * On the guardian paths a submit that HAD happened is recorded on
+ * `mayHaveSubmitted` by the leaf before it submitted, so the guard holds on that
+ * instead and clearing this loses nothing. A plain send stamps nothing, so
+ * clearing genuinely returns it to "no evidence either way" — correct for the
+ * failures that reach here (the pipeline stopped, and the aborted-op case is
+ * routed to the flag instead), but not a claim that a crossing was recorded
+ * elsewhere. See `cancelTransactionAfterPipelineStopped`.
+ */
+export const clearCancelledInFlight = async (id: string) => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    tx.cancelledInFlightAt = undefined;
+  });
+};
+
+/**
+ * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
+ * the SW-inline WASM client, used by the transaction loop to DEFER a
+ * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
+ *
+ * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
+ * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
+ * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
+ * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
+ * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
+ * a genuinely-failed offscreen write on that stale slot would leave it Queued
+ * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
+ * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
+ * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
+ *
+ * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
+ * guard below dead-code-eliminates, and this reads the SW client exactly as it
+ * always has.
  */
 export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
+  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
+  // is not authoritative for the failing op. The locked signal (if any) rides the
+  // op-keyed error tag instead.
+  if (USE_OFFSCREEN_CLIENT) return undefined;
   try {
     const midenClient = await getMidenClient();
     const rawClient = (midenClient as any).client;

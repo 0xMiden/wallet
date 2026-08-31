@@ -1,5 +1,6 @@
 import type { BrowserContext, Page, Request, Response as PwResponse, Worker } from '@playwright/test';
 
+import type { FetchFaultWire } from './network-faults';
 import type { TimelineRecorder } from './timeline-recorder';
 import type { NetworkCategory } from './types';
 
@@ -54,30 +55,53 @@ export function attachNetworkCapture(
   timeline: TimelineRecorder
 ): void {
   context.on('requestfinished', async (request: Request) => {
-    if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
-    const url = request.url();
-    if (!isMidenRelated(url)) return;
+    // Whole body guarded, like the SW listeners below. This is an ASYNC
+    // listener, so a rejection here is an unhandled rejection that Playwright
+    // charges to whichever test is running, and capture is diagnostic only —
+    // it must never fail a run.
+    //
+    // This guard does NOT catch "Object with guid handle@… was not bound in the
+    // connection", despite that being the failure the surrounding change chased
+    // (guardian-recovery-stress's browser-crash spec on main at d77bc51d / run
+    // 32478703603). That error is thrown by Playwright's connection dispatcher
+    // while deserializing a channel, not delivered as a rejection: `dispatch`
+    // deletes the pending callback and then evaluates the result validator as
+    // the argument to `callback.resolve`, so a throw there escapes `dispatch`
+    // and the awaited promise simply never settles — no `catch` in this body is
+    // on the stack. Nor can this listener avoid it: the `requestfinished` event
+    // payload itself carries `request` and `response` as channels, resolved
+    // before the listener runs. Removing the `request.response()` call below
+    // would not help. The handle-free rewrite in `two-wallets.ts` works because
+    // it drops a handle the WALLET code asked for; there is no equivalent lever
+    // here.
+    try {
+      if (request.serviceWorker()) return; // handled by attachServiceWorkerFetchCapture
+      const url = request.url();
+      if (!isMidenRelated(url)) return;
 
-    const category = classifyUrl(url);
-    const response = await request.response();
-    const status = response?.status() ?? 0;
-    const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
+      const category = classifyUrl(url);
+      const response = await request.response();
+      const status = response?.status() ?? 0;
+      const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
 
-    timeline.emit({
-      category: 'network_request',
-      severity: status >= 400 ? 'error' : 'info',
-      wallet: walletLabel,
-      message: `${request.method()} ${url} -> ${status}`,
-      data: {
-        url,
-        method: request.method(),
-        status,
-        responseBody,
-        networkCategory: category,
-        timing: request.timing(),
-        source: 'page'
-      }
-    });
+      timeline.emit({
+        category: 'network_request',
+        severity: status >= 400 ? 'error' : 'info',
+        wallet: walletLabel,
+        message: `${request.method()} ${url} -> ${status}`,
+        data: {
+          url,
+          method: request.method(),
+          status,
+          responseBody,
+          networkCategory: category,
+          timing: request.timing(),
+          source: 'page'
+        }
+      });
+    } catch {
+      // browser/context gone mid-capture — drop the event
+    }
   });
 
   context.on('requestfailed', (request: Request) => {
@@ -125,35 +149,65 @@ export async function attachServiceWorkerFetchCapture(
   walletLabel: 'A' | 'B',
   timeline: TimelineRecorder
 ): Promise<void> {
-  serviceWorker.on('console', msg => {
-    const text = msg.text();
-    if (!text.startsWith(SW_FETCH_LOG_PREFIX)) return;
-    try {
-      const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
-      const status: number = parsed.status ?? 0;
-      const err: string | undefined = parsed.err;
-      timeline.emit({
-        category: 'network_request',
-        severity: status >= 400 || err ? 'error' : 'info',
-        wallet: walletLabel,
-        message:
-          `${parsed.method} ${parsed.url} -> ${status}` +
-          (parsed.durationMs != null ? ` (${parsed.durationMs}ms)` : '') +
-          (err ? ` ERR ${err.slice(0, 120)}` : ''),
-        data: {
-          url: parsed.url,
-          method: parsed.method,
-          status,
-          durationMs: parsed.durationMs,
-          err,
-          networkCategory: parsed.category,
-          source: 'service_worker'
+  // Inside the guard, like the evaluate below. Attaching to a worker that has
+  // ALREADY gone (extension service workers are recycled aggressively, and a
+  // spec that kills the browser destroys them outright) throws a Playwright
+  // protocol error, and because callers invoke this fire-and-forget that
+  // becomes an unhandled rejection Playwright charges to whichever test is
+  // running. Losing capture on a dead worker is fine; failing the test for it
+  // is not.
+  //
+  // NOT the "Object with guid handle@… was not bound in the connection" failure
+  // an earlier version of this comment named, which is a different mechanism
+  // this `try` could not have caught anyway: it is raised out of band while the
+  // client validates a reply naming a handle, and the only call below is an
+  // `evaluate`, whose reply carries a serialized value and no handle. See
+  // `suspendScreenCapture` in `screen-capture.ts` for the real one.
+  try {
+    serviceWorker.on('console', msg => {
+      const text = msg.text();
+      if (!text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+      try {
+        const parsed = JSON.parse(text.slice(SW_FETCH_LOG_PREFIX.length));
+        const status: number = parsed.status ?? 0;
+        const err: string | undefined = parsed.err;
+        if (process.env.FETCH_FAULT_DEBUG && parsed.category === 'rpc') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[net-obs] rpc ${parsed.method} status=${status} err=${(err ?? '').slice(0, 40)} realm=${String(parsed.realm).split('/').pop()}`
+          );
         }
-      });
-    } catch {
-      // malformed log line — ignore
-    }
-  });
+        timeline.emit({
+          category: 'network_request',
+          severity: status >= 400 || err ? 'error' : 'info',
+          wallet: walletLabel,
+          message:
+            `${parsed.method} ${parsed.url} -> ${status}` +
+            (parsed.durationMs != null ? ` (${parsed.durationMs}ms)` : '') +
+            (err ? ` ERR ${err.slice(0, 120)}` : ''),
+          data: {
+            url: parsed.url,
+            method: parsed.method,
+            status,
+            durationMs: parsed.durationMs,
+            err,
+            networkCategory: parsed.category,
+            source: 'service_worker'
+          }
+        });
+      } catch {
+        // malformed log line — ignore
+      }
+    });
+  } catch (err) {
+    timeline.emit({
+      category: 'test_lifecycle',
+      severity: 'warn',
+      wallet: walletLabel,
+      message: `[SW-NET] console listener attach failed: ${err instanceof Error ? err.message : String(err)}`
+    });
+    return;
+  }
 
   try {
     await serviceWorker.evaluate(prefix => {
@@ -179,16 +233,56 @@ export async function attachServiceWorkerFetchCapture(
         if (!HOST_PATTERN.test(url)) return origFetch(input, init);
 
         const category = classify(url);
+
+        // --- Fault injection (resilience harness) ---
+        // context.route CANNOT reach node/prover/transport gRPC-web (it runs in
+        // this realm — the SW or the SDK's page-worker — not on a routable page
+        // request), so faults for those targets are applied HERE at the fetch
+        // layer. Gated on `__E2E_NET_FAULTS` (set by armFetchFaults): unarmed, this
+        // is a pure pass-through, so every non-resilience suite is unaffected.
+        const faults = (g.__E2E_NET_FAULTS as FetchFaultWire[] | undefined) || [];
+        if (faults.length) {
+          g.__E2E_NET_FAULT_HITS = g.__E2E_NET_FAULT_HITS || {};
+          const hits = g.__E2E_NET_FAULT_HITS as Record<string, number>;
+          for (const f of faults) {
+            if (!url.includes(f.host)) continue;
+            if (f.path && !url.includes(f.path)) continue;
+            const prior = hits[f.id] || 0;
+            if (f.mode === 'failFirstN' && prior >= (f.count || 1)) break; // recovered — pass through
+            hits[f.id] = prior + 1;
+            console.log(prefix + JSON.stringify({ url, method, status: 0, category, err: 'INJECTED:' + f.mode }));
+            if (f.mode === 'delay' || f.mode === 'slowStream') {
+              await new Promise(r => setTimeout(r, f.delayMs || (f.mode === 'slowStream' ? 8000 : 3000)));
+              break; // fall through to the real fetch below
+            }
+            if (f.mode === 'hang') return new Promise<Response>(() => {}); // never settles
+            if (f.mode === 'status500' || f.mode === 'failFirstN') {
+              return new Response('injected network fault', { status: 500 });
+            }
+            if (f.mode === 'status429RetryAfter') {
+              return new Response(JSON.stringify({ error: 'rate_limited', retryable: true }), {
+                status: 429,
+                headers: { 'retry-after': String(f.retryAfterSec || 1) }
+              });
+            }
+            if (f.mode === 'truncatedBody') return new Response('{', { status: 200 });
+            if (f.mode === 'malformedBody') return new Response('not a valid response body', { status: 200 });
+            // connectionRefused / abort / timeout → surface as a transport error
+            throw new TypeError('Failed to fetch (injected ' + f.mode + ')');
+          }
+        }
+
         const start = performance.now();
+        const realm = (g.location && g.location.href) || 'unknown';
         try {
           const res = await origFetch(input, init);
           const durationMs = Math.round(performance.now() - start);
-          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category }));
+          console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm }));
           return res;
         } catch (err) {
           const durationMs = Math.round(performance.now() - start);
           const errStr = err instanceof Error ? err.message : String(err);
-          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr }));
+          console.log(prefix + JSON.stringify({ url, method, status: 0, durationMs, category, err: errStr, realm }));
           throw err;
         }
       };
@@ -219,10 +313,16 @@ export async function attachServiceWorkerFetchCapture(
  * spawned by the page (current + future).
  */
 export function attachPageWorkersCapture(page: Page, walletLabel: 'A' | 'B', timeline: TimelineRecorder): void {
+  // `.catch`, not bare `void`: these are deliberately not awaited, so without a
+  // rejection handler a worker that dies mid-attach surfaces as an unhandled
+  // rejection and Playwright fails whichever test happens to be running. The
+  // callee guards its own Playwright calls; this is the backstop for anything
+  // it can't (a worker destroyed between `page.workers()` and the attach).
+  const attach = (worker: Worker): void => {
+    attachServiceWorkerFetchCapture(worker, walletLabel, timeline).catch(() => {});
+  };
   for (const worker of page.workers()) {
-    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
+    attach(worker);
   }
-  page.on('worker', worker => {
-    void attachServiceWorkerFetchCapture(worker, walletLabel, timeline);
-  });
+  page.on('worker', attach);
 }

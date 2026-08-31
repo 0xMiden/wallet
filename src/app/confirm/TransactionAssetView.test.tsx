@@ -150,13 +150,34 @@ it('shows the "Unknown" label (not native MIDEN) for an on-chain-resolved unknow
   // fetchTokenMetadata degrades an unrecognized, uncached faucet to
   // DEFAULT_TOKEN_METADATA ("Unknown") rather than MIDEN_METADATA — this
   // guards against a never-held token being mislabeled as native MIDEN.
-  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({ base: { decimals: 6, symbol: 'Unknown' } });
+  //
+  // The placeholder's 6 decimals are a guess, so the quantity is withheld: this
+  // is the screen a user approves a dApp's transfer from, and "7" here would be
+  // an authoritative claim about an amount that could be off by a factor of a
+  // trillion. The asset is still named, so the row is not a mystery.
+  (fetchTokenMetadata as jest.Mock).mockResolvedValueOnce({
+    base: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
+  });
   render(
     <TransactionAssetView
       view={{ ...view, outgoing: [{ faucetId: 'fUnrecognized', amount: 7n }], incoming: [] } as any}
       mode="verified"
     />
   );
-  await waitFor(() => expect(screen.getByText('7/6 Unknown')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText('? Unknown')).toBeInTheDocument());
+  expect(screen.queryByText(/7/)).not.toBeInTheDocument();
   expect(screen.queryByText(/MIDEN/)).not.toBeInTheDocument();
+});
+
+it('withholds the quantity when the metadata lookup fails outright', async () => {
+  // A rejected lookup knows nothing about this faucet's decimals — the old code
+  // fell through to `formatAmount`'s own default and printed a number anyway.
+  (fetchTokenMetadata as jest.Mock).mockRejectedValueOnce(new Error('metadata service down'));
+  render(
+    <TransactionAssetView
+      view={{ ...view, outgoing: [{ faucetId: 'fA', amount: 10n }], incoming: [] } as any}
+      mode="verified"
+    />
+  );
+  await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
 });

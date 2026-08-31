@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 import { openEarnPosition } from 'lib/epoch';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -258,6 +258,31 @@ describe('EarnDepositReview', () => {
       fireEvent.click(screen.getByTestId('open-position-btn'));
 
       expect(await screen.findByText('allocator unreachable')).toBeInTheDocument();
+    });
+
+    it('falls back to a generic message when the rejection is not an Error', async () => {
+      mockOpenEarnPosition.mockRejectedValue('nope');
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      expect(await screen.findByText('earnFailedToOpenPosition')).toBeInTheDocument();
+    });
+
+    // Double-tapping the CTA must not open two positions.
+    it('ignores a second tap while the first submission is in flight', async () => {
+      let release: () => void = () => {};
+      mockOpenEarnPosition.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
+      renderReview('aave-usdc-ethereum-1', '?amount=1000');
+
+      const cta = screen.getByTestId('open-position-btn');
+      fireEvent.click(cta);
+      fireEvent.click(cta);
+
+      expect(mockOpenEarnPosition).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        release();
+      });
     });
 
     it('disables the CTA for a zero amount', () => {

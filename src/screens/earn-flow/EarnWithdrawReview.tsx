@@ -8,6 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CircleButton } from 'components/CircleButton';
 import { TokenLogo } from 'components/TokenLogo';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -97,7 +98,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
           <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
-            {amountValue.toFixed(2)}
+            {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={withdrawSymbol} size="md" />

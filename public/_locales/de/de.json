@@ -270,7 +270,6 @@
   "fastTransactionDescription": "Die Transaktion wird automatisch übertragen und abgeschlossen.",
   "fastTransaction": "Transaktionsgeschwindigkeit",
   "delegateProofSettings": "Beweisgenerierung delegieren",
-  "delegateProofSettingsDescription": "Hier können Sie die Delegation der Beweiserstellung an einen Remote-Server konfigurieren. Dadurch wird die Beweiserstellung beschleunigt, die Transaktionsdetails werden jedoch an einen vertrauenswürdigen Server weitergegeben.",
   "mainAssetBalanceIsZero": "Ihr Aleo-Credits-Guthaben (Hauptguthaben) ist Null. Für die Gebühr sind Aleo-Credits erforderlich.",
   "claim": "Beanspruchen",
   "availableToClaim": "Zur Inanspruchnahme verfügbar",

@@ -43,6 +43,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onCrossChain })
             <QRCode ref={qrRef} address={address} size={300} />
             <CopyButton
               text={address}
+              data-testid="receive-copy-address"
               className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
             >
               <span className="text-base font-heading font-bold text-heading-gray">

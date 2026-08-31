@@ -7,9 +7,10 @@ import {
   orderIdString,
   type SwapOrder
 } from './classification';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransactionStatus } from '../db/types';
 import { toNoteTypeString } from '../helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { initiateConsumeNotesTransaction } from '../transaction/initiate';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
@@ -150,15 +151,17 @@ export async function settleSwapOrders(
   }
 
   const managedNotes = await withWasmClientLock(async () => {
-    const client = await getMidenClient();
-    const rawNotes = await client.getConsumableNotes(accountId);
-    const classified = await classifySwapOrderNotes(rawNotes, accountId, client, orders);
-    return rawNotes.flatMap(note => {
-      const id = note.id()?.toString();
+    // Both the consumable-note read (slice 4) and the per-order PSWAP lineage inside
+    // classifySwapOrderNotes (slice 7a) now route through the proxy, so flag-ON they
+    // read the offscreen client's canonical state; no live client is threaded here.
+    // The caller lock still serializes the flag-OFF inline reads (byte-identical).
+    const rawNotes = await midenClientProxy.getConsumableNotes(accountId);
+    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders);
+    return rawNotes.flatMap<ConsumableNote>(note => {
+      const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
       if (!id || !swapOrder) return [];
-      const metadata = note.metadata();
-      const type: ConsumableNote['type'] = metadata ? toNoteTypeString(metadata.noteType()) : 'unknown';
+      const type: ConsumableNote['type'] = note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown';
       return [
         {
           id,

@@ -221,7 +221,7 @@
 
   function injectWalletAPI() {
     // MidenWallet class that mimics the browser extension API (MidenWindowObject)
-    // Must match the interface from @demox-labs/miden-wallet-adapter-miden
+    // Must match the interface from @miden-sdk/miden-wallet-adapter-miden
     class MidenWallet {
       constructor() {
         // Public properties matching MidenWindowObject

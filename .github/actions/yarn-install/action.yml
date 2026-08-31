@@ -1,0 +1,65 @@
+name: Run yarn install (retried)
+description: >
+  `yarn install`, retried on transient registry failures.
+
+  A single bad response from the npm registry used to fail a whole job: a
+  502 Bad Gateway on ONE tarball (@babel/core) took down Build Production on
+  main (run 32365630996) while every other workflow on that commit was green,
+  and the deploy had done nothing wrong. yarn v1 retries some socket-level
+  errors but NOT an HTTP error response, so a 502 is terminal — retry has to
+  wrap the install itself.
+
+  A hang is the other half of the failure mode, and it needs a hard bound
+  rather than a workflow-level one: `timeout-minutes` on a step that `uses` a
+  composite action is not reliably enforced, so each attempt is wrapped in
+  `timeout` here instead. `--network-timeout` bounds an individual stalled
+  fetch inside that. Same reasoning as the apt-mirror hardening in
+  e2e-blockchain.yml: a wedged mirror should cost minutes, not the job.
+
+  Deliberately a plain `yarn install` (no --frozen-lockfile): two callers in
+  pr.yml run AFTER `inject-linked-web-sdk-pr` has rewritten package.json to
+  `file:` deps, which the committed lockfile by definition does not match.
+
+inputs:
+  attempts:
+    description: How many times to try the install before giving up.
+    required: false
+    default: '3'
+  attempt-timeout:
+    description: Hard cap per attempt, as a `timeout(1)` duration.
+    required: false
+    default: 6m
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ATTEMPTS: ${{ inputs.attempts }}
+        ATTEMPT_TIMEOUT: ${{ inputs.attempt-timeout }}
+      run: |
+        set -uo pipefail
+        for attempt in $(seq 1 "$ATTEMPTS"); do
+          # Run bare and capture $? on the next line. NOT `if yarn …; then`: a
+          # false `if` with no `else` exits 0, so reading $? after the `fi`
+          # reports success for a failed install and loses timeout's 124.
+          timeout "$ATTEMPT_TIMEOUT" yarn install --network-timeout 600000
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          # 124 is timeout(1)'s "killed the command" code, worth naming: it means
+          # the registry hung rather than answering with an error.
+          if [ "$status" -eq 124 ]; then
+            echo "::warning::yarn install exceeded ${ATTEMPT_TIMEOUT} (attempt ${attempt}/${ATTEMPTS})"
+          fi
+          if [ "$attempt" -lt "$ATTEMPTS" ]; then
+            # Linear backoff: a registry 502 is usually over in seconds, and a
+            # long sleep here just burns the job's budget.
+            delay=$((attempt * 15))
+            echo "::warning::yarn install failed (attempt ${attempt}/${ATTEMPTS}, exit ${status}); retrying in ${delay}s"
+            sleep "$delay"
+          fi
+        done
+        echo "::error::yarn install failed after ${ATTEMPTS} attempts"
+        exit 1

@@ -38,6 +38,11 @@ jest.mock('./client', () => ({
 
 jest.mock('./guardian-sync', () => ({ zustandProvider: { kind: 'zustand' } }));
 
+const mockClearNoteReceived = jest.fn();
+jest.mock('lib/mobile/native-notifications', () => ({
+  clearNoteReceivedNotification: (...args: unknown[]) => mockClearNoteReceived(...args)
+}));
+
 const note = (id: string, faucetId = 'native-faucet', extra: Record<string, unknown> = {}) => ({
   id,
   faucetId,
@@ -80,6 +85,28 @@ describe('NativeNoteAutoConsumeManager', () => {
     // Exactly the two eligible native notes — never n2/n3/n4.
     expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['n1', 'n1b']));
     expect(mockStartBg).toHaveBeenCalled();
+  });
+
+  it('clears the stale claim notification after auto-claiming native notes off-Home (#459)', async () => {
+    mockClaimable = [note('n1')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    // This route-independent consumer must dismiss the "click to claim"
+    // notification too — it's the path that runs when the user isn't on Home.
+    await waitFor(() => expect(mockClearNoteReceived).toHaveBeenCalled());
+  });
+
+  it('does not clear the notification when there are no eligible native notes', async () => {
+    mockClaimable = [note('n2', 'other-faucet')]; // wrong faucet -> nothing to consume
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    // Give the tick a chance to run and bail.
+    await waitFor(() => expect(mockGetFaucetIdSetting).toHaveBeenCalled());
+    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockClearNoteReceived).not.toHaveBeenCalled();
   });
 
   it('does not kick the tx processor when nothing needs driving (all deduped)', async () => {

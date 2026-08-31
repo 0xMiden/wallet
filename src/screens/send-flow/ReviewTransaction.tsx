@@ -19,6 +19,7 @@ import {
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -80,7 +81,8 @@ export const ReviewTransaction: React.FC = () => {
       name: match.metadata.symbol,
       decimals: match.metadata.decimals,
       balance: match.balance,
-      fiatPrice: match.fiatPrice
+      fiatPrice: match.fiatPrice,
+      scaleIsKnown: hasKnownScale(match.metadata)
     };
   }, [balanceData, tokenId]);
 
@@ -135,6 +137,37 @@ export const ReviewTransaction: React.FC = () => {
   // default-seeding effect below never clobbers an explicit choice (race guard).
   const recallTouchedRef = useRef(false);
 
+  // E2E-only hook: the shortest window RecallCalendarDrawer offers is 30 minutes,
+  // so no click path produces a recall a test can wait out — and without one, the
+  // whole reclaim half of a send (the only path where a user's funds come BACK)
+  // is unreachable from any E2E run. The harness assigns
+  // `globalThis.__TEST_RECALL_BLOCKS__` (a RELATIVE blocks offset, or null for
+  // "Never") before entering the send flow and this page adopts it exactly as if
+  // the user had picked it in the drawer. Same MIDEN_E2E_TEST gate as
+  // __TEST_SET_SHARE_PRIVATELY__ above; zero production impact.
+  //
+  // Declared BEFORE the seeding effect below so `recallTouchedRef` is already set
+  // when that effect runs on the same commit — the 7-day default cannot clobber
+  // an armed value.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    if (isBridge) return;
+    const armed = (globalThis as unknown as { __TEST_RECALL_BLOCKS__?: number | null }).__TEST_RECALL_BLOCKS__;
+    if (armed === undefined) return;
+    recallTouchedRef.current = true;
+    if (armed === null) {
+      setRecallNever(true);
+      setRecallDate(undefined);
+      setRecallBlocks(undefined);
+      return;
+    }
+    const date = addSeconds(new Date(), armed * SECONDS_PER_BLOCK);
+    setRecallNever(false);
+    setRecallDate(date);
+    setRecallTime(format(date, 'HH:mm'));
+    setRecallBlocks(String(armed));
+  }, [isBridge]);
+
   // Default every same-chain send to a 7-day reclaim (expiration) offset. The
   // user can override via the "Edit" link, which opens RecallCalendarDrawer.
   // recallBlocks is a RELATIVE blocks-until-recall offset — the SDK-interface
@@ -181,6 +214,10 @@ export const ReviewTransaction: React.FC = () => {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
+  // `token` is undefined until balances load; an absent token is handled by the
+  // deep-link guard below, so only a LOADED token with an unreadable scale
+  // blocks the CTA.
+  const scaleIsUnknown = token !== undefined && !token.scaleIsKnown;
 
   // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
   // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
@@ -200,6 +237,16 @@ export const ReviewTransaction: React.FC = () => {
 
   const onSubmit = useCallback(async () => {
     if (isSubmitting || !token || !publicKey) return;
+    // This screen is addressable by URL (`/send/review?amount=…&tokenId=…`), so
+    // it re-derives its own token and cannot rely on the amount screen having
+    // refused first. Every `stringToBigInt(amount, token.decimals)` below turns
+    // the typed amount into base units; with the placeholder's guessed decimals
+    // that is a different quantity than the one being confirmed, and it is about
+    // to leave the wallet irreversibly.
+    if (!token.scaleIsKnown) {
+      setSubmitError(t('unknownTokenScale'));
+      return;
+    }
     setIsSubmitting(true);
     setSubmitError(undefined);
     // Re-confirm this user-initiated send with biometrics when the user has them
@@ -270,7 +317,6 @@ export const ReviewTransaction: React.FC = () => {
         requestSWTransactionProcessing();
       }
 
-      goToGeneratingTransaction(txId);
       goToGeneratingTransaction(txId);
     } catch (e) {
       console.error(e);
@@ -350,10 +396,14 @@ export const ReviewTransaction: React.FC = () => {
             label: t('sendPayment'),
             onPress: onSubmit,
             loading: isSubmitting,
-            disabled: isSubmitting,
+            // Disabled rather than merely rejected on press: the reason is known
+            // before the user reaches for the button, and letting them tap a live
+            // CTA only to be refused reads as a wallet fault rather than a
+            // deliberate refusal.
+            disabled: isSubmitting || scaleIsUnknown,
             'data-testid': 'send-review-submit'
           }}
-          error={submitError}
+          error={scaleIsUnknown ? t('unknownTokenScale') : submitError}
         >
           <ReviewRow label={t('to')} value={to} />
 

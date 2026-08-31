@@ -23,7 +23,9 @@ import {
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetRequest,
+  resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
+  swapSettlementOf,
   TRANSACTION_COLORS
 } from './transactionUtils';
 
@@ -39,6 +41,11 @@ jest.mock('lib/i18n', () => ({
 jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: jest.fn()
 }));
+
+// The real constant, not a copy. It carries `scaleIsUnknown`, which is how
+// `resolveConsumeExtraAmounts` tells "never looked this faucet up" apart from a
+// stored record that genuinely says "Unknown" with real decimals.
+const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_METADATA;
 
 // The DEX swap registry pulls in SDK account-id helpers; stub the single lookup
 // used here so tests choose between the registry-hit and fallback paths.
@@ -72,6 +79,80 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+describe('resolveConsumeExtraAmounts', () => {
+  const consumeTx = (assetTotals?: { faucetId: string; amount: bigint }[]): any => ({
+    type: 'consume',
+    faucetId: 'faucet-a',
+    amount: 20n,
+    assetTotals
+  });
+
+  it('returns nothing for a non-consume transaction', async () => {
+    await expect(resolveConsumeExtraAmounts({ type: 'send', faucetId: 'faucet-a' } as any)).resolves.toEqual([]);
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+  });
+
+  it('returns nothing for a legacy consume row without assetTotals', async () => {
+    await expect(resolveConsumeExtraAmounts(consumeTx(undefined))).resolves.toEqual([]);
+  });
+
+  it('excludes the primary faucet and formats each secondary with its own decimals', async () => {
+    mockGetTokenMetadata.mockImplementation(async (faucetId: string | null) =>
+      faucetId === 'faucet-b' ? ({ symbol: 'BBB', decimals: 2 } as any) : ({ symbol: 'CCC', decimals: 8 } as any)
+    );
+
+    await expect(
+      resolveConsumeExtraAmounts(
+        consumeTx([
+          { faucetId: 'faucet-a', amount: 20n },
+          { faucetId: 'faucet-b', amount: 10n },
+          { faucetId: 'faucet-c', amount: 5n }
+        ])
+      )
+    ).resolves.toEqual([
+      { faucetId: 'faucet-b', amount: 'fmt(10,2)', token: 'BBB' },
+      { faucetId: 'faucet-c', amount: 'fmt(5,8)', token: 'CCC' }
+    ]);
+  });
+
+  // Every entry on a history page resolves under one Promise.all, so a single
+  // unresolvable faucet must not take the whole page down with it — but it must
+  // not invent a number either. The unknown-token fallback's 6 decimals is a
+  // placeholder, and a batch claim's secondary faucets are precisely the ones the
+  // wallet has never held: scaling an 18-decimal token by 6 renders it 10^12 too
+  // large, and nothing on screen would distinguish that from a correct total.
+  it.each([
+    ['the lookup throws', () => mockGetTokenMetadata.mockRejectedValue(new Error('faucet lookup failed'))],
+    ['the lookup resolves to the unknown-token default', () => mockGetTokenMetadata.mockResolvedValue(UNKNOWN_METADATA)]
+  ])('names the asset but withholds the amount when %s', async (_label, arrange) => {
+    arrange();
+
+    const resolved = await resolveConsumeExtraAmounts(
+      consumeTx([
+        { faucetId: 'faucet-a', amount: 20n },
+        { faucetId: 'faucet-b', amount: 10n }
+      ])
+    );
+
+    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: undefined, token: 'Unknown' }]);
+  });
+
+  // The other half: a faucet the wallet DOES know is still scaled by its own
+  // decimals. Withholding here would hide a total the wallet can state exactly.
+  it('keeps the amount when the faucet resolves to real metadata', async () => {
+    mockGetTokenMetadata.mockResolvedValue({ symbol: 'BBB', decimals: 18 } as any);
+
+    const resolved = await resolveConsumeExtraAmounts(
+      consumeTx([
+        { faucetId: 'faucet-a', amount: 20n },
+        { faucetId: 'faucet-b', amount: 10n }
+      ])
+    );
+
+    expect(resolved).toEqual([{ faucetId: 'faucet-b', amount: 'fmt(10,18)', token: 'BBB' }]);
+  });
+});
+
 describe('resolveSwapHistoryFields', () => {
   it('resolves both sides from the DEX registry and formats present amounts', async () => {
     mockGetSwapTokenByFaucetId.mockImplementation((faucetId?: string) => {
@@ -99,6 +180,32 @@ describe('resolveSwapHistoryFields', () => {
     expect(mockGetTokenMetadata).not.toHaveBeenCalled();
     expect(mockFormatAmount).toHaveBeenCalledWith(100n, 8);
     expect(mockFormatAmount).toHaveBeenCalledWith(250n, 6);
+  });
+
+  // Off the registry AND unresolvable: the placeholder's 6 decimals are a guess,
+  // and scaling a swap by them misreports how much was offered and asked for.
+  // Both sides are still named.
+  it('withholds both amounts when neither side resolves to a real scale', async () => {
+    mockGetSwapTokenByFaucetId.mockReturnValue(undefined);
+    mockGetTokenMetadata.mockResolvedValue({
+      symbol: 'Unknown',
+      name: 'Unknown',
+      decimals: 6,
+      scaleIsUnknown: true
+    } as any);
+
+    const tx: any = {
+      amount: 1000n,
+      faucetId: 'offered-faucet',
+      extraInputs: { requestedAmount: 2000n, requestedFaucetId: 'requested-faucet' }
+    };
+
+    const result = await resolveSwapHistoryFields(tx);
+
+    expect(result.amount).toBeUndefined();
+    expect(result.requestedAmount).toBeUndefined();
+    expect(result.token).toBe('Unknown');
+    expect(result.requestedToken).toBe('Unknown');
   });
 
   it('falls back to wallet metadata, defaults missing faucet ids to null, and omits absent amounts', async () => {
@@ -278,13 +385,19 @@ describe('formatBridgeOutputAmount', () => {
     expect(formatBridgeOutputAmount(undefined)).toBeUndefined();
   });
 
-  it('rounds a full-precision value to 2 decimals', () => {
-    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.24');
+  // Rounds DOWN, so the hero can never claim the user sent or received more than
+  // they did. Half-up would render 1.239999… as "1.24".
+  it('truncates a full-precision value to 2 decimals rather than rounding up', () => {
+    expect(formatBridgeOutputAmount('1.239999999999999999')).toBe('1.23');
     expect(formatBridgeOutputAmount('0')).toBe('0.00');
   });
 
   it('pads a whole number to 2 decimals', () => {
     expect(formatBridgeOutputAmount('12')).toBe('12.00');
+  });
+
+  it('expands precision for a small non-zero output', () => {
+    expect(formatBridgeOutputAmount('0.00126')).toBe('0.0012');
   });
 
   it('passes non-numeric input through unchanged', () => {
@@ -293,6 +406,27 @@ describe('formatBridgeOutputAmount', () => {
 });
 
 describe('bridgeStatusOf', () => {
+  // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
+  // so its terminal status must beat the route's own (initially pending) metadata.
+  it('reports a failed Miden transaction as failed regardless of route metadata', () => {
+    expect(bridgeStatusOf(bridgeEntry({ status: 3, bridgeProvider: 'agglayer', bridgeClaimStatus: 'pending' }))).toBe(
+      'failed'
+    );
+  });
+
+  it.each([
+    ['ready', 'confirmed'],
+    ['received', 'confirmed'],
+    ['failed', 'failed'],
+    [undefined, 'pending']
+  ])('maps the inbound bridge phase %s', (bridgeInPhase, expected) => {
+    expect(
+      bridgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInPhase: bridgeInPhase as IHistoryEntry['bridgeInPhase'] })
+      )
+    ).toBe(expected);
+  });
+
   it('maps the agglayer claim lifecycle', () => {
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' }))).toBe('confirmed');
     expect(bridgeStatusOf(bridgeEntry({ bridgeProvider: 'agglayer', bridgeClaimStatus: 'failed' }))).toBe('failed');
@@ -319,7 +453,7 @@ describe('bridgeRowDisplay', () => {
       bridgeRowDisplay(
         bridgeEntry({
           token: 'MIDEN',
-          amount: 5n,
+          amount: '5',
           bridgeProvider: 'epoch',
           bridgeOutputSymbol: 'USDC',
           bridgeOutputAmount: '4.987654',
@@ -329,7 +463,8 @@ describe('bridgeRowDisplay', () => {
     ).toEqual({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
-      outAmount: '4.99',
+      // Truncated, not rounded up: a quote must not promise more than it pays.
+      outAmount: '4.98',
       providerLabel: 'Epoch',
       network: 'Sepolia',
       status: 'confirmed'
@@ -339,7 +474,7 @@ describe('bridgeRowDisplay', () => {
   it('defaults an agglayer row without an output symbol to ETH and falls back to the input amount', () => {
     expect(
       bridgeRowDisplay(
-        bridgeEntry({ token: 'MIDEN', amount: 7n, bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
+        bridgeEntry({ token: 'MIDEN', amount: '7', bridgeProvider: 'agglayer', bridgeClaimStatus: 'claimed' })
       )
     ).toEqual({
       inSymbol: 'MIDEN',
@@ -384,7 +519,7 @@ describe('bridgeInRowDisplay', () => {
         bridgeEntry({
           txType: 'consume',
           token: 'MIDEN',
-          amount: 3n,
+          amount: '3',
           bridgeInProvider: 'agglayer',
           bridgeInSourceSymbol: 'ETH'
         })
@@ -399,6 +534,22 @@ describe('bridgeInRowDisplay', () => {
     });
   });
 
+  // Once the note is consumed the row's own amount is the truth, so a `received`
+  // phase wins over the quoted output amount even on a bridged-receive row.
+  it('prefers the row amount over the quoted output once the phase is received', () => {
+    expect(
+      bridgeInRowDisplay(
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'received',
+          amount: '7',
+          bridgeInOutputAmount: '99',
+          bridgeInProvider: 'epoch'
+        })
+      ).outAmount
+    ).toBe('7');
+  });
+
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
     expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',
@@ -411,6 +562,49 @@ describe('bridgeInRowDisplay', () => {
   });
 });
 
+describe('swap settlement state', () => {
+  // Drives the swap row's chip AND the receipt's hero pill, so a wrong answer
+  // here is visible in two places at once — and reads "Pending" forever on an
+  // order that settled, which is the confusion this shared helper exists to end.
+  // Same minimal-shape casting as the helpers above; only these fields are read.
+  const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
+
+  it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
+  });
+
+  it('stops reporting pending once the order carries a settlement stamp', () => {
+    expect(
+      swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, settledAt: 1_700_000_200 }))
+    ).toBeUndefined();
+  });
+
+  it('lets a settlement outrank a reclaim — a batch with paybacks delivered funds', () => {
+    expect(
+      swapSettlementOf(
+        swap({ orderId: 42n, expiresAt: 1_700_000_120, settledAt: 1_700_000_200, reclaimedAt: 1_700_000_300 })
+      )
+    ).toBeUndefined();
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, reclaimedAt: 1_700_000_300 }))).toBe(
+      'reclaimed'
+    );
+  });
+
+  it('leaves a manual-claim order Confirmed — nothing settles it on a schedule', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120, autoConsume: false }))).toBeUndefined();
+  });
+
+  it('leaves a legacy order without an expiry Confirmed rather than pending forever', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n }))).toBeUndefined();
+  });
+
+  it('ignores an order id it never got and rows that are not completed swaps', () => {
+    expect(swapSettlementOf(swap({ expiresAt: 1_700_000_120 }))).toBeUndefined();
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }, 0))).toBeUndefined();
+    expect(swapSettlementOf({ type: 'send', status: 2, extraInputs: { orderId: 42n } } as any)).toBeUndefined();
+  });
+});
+
 describe('earn withdraw helpers', () => {
   it('tags only earn-withdraw entries', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'earn-withdraw' }))).toBe(true);
@@ -418,10 +612,14 @@ describe('earn withdraw helpers', () => {
     expect(isEarnWithdrawEntry(bridgeEntry({ txType: 'send' }))).toBe(false);
   });
 
-  it('trims a human decimal amount to at most two places, rounding down', () => {
+  it('trims a human decimal amount to two places, rounding down', () => {
     expect(formatEarnWithdrawAmount('2.50000000')).toBe('2.5');
     expect(formatEarnWithdrawAmount('1.239')).toBe('1.23');
     expect(formatEarnWithdrawAmount('7')).toBe('7');
+  });
+
+  it('expands precision for a small non-zero withdrawal amount', () => {
+    expect(formatEarnWithdrawAmount('0.001239')).toBe('0.0012');
   });
 
   it('passes a non-numeric amount through unchanged', () => {
@@ -478,10 +676,24 @@ describe('earnWithdrawAmountFields', () => {
     });
   });
 
-  it('falls back to the recorded output symbol when destination metadata is missing', () => {
+  // This branch exists BECAUSE the received leg is denominated in the
+  // destination faucet's asset, so its decimals are the whole point. Without
+  // them there is no scale to apply — `formatAmount`'s own default is a
+  // statement about a different token. The asset is still named from the
+  // recorded output symbol, so the row says what landed, just not how much.
+  it('withholds the amount when the destination faucet never resolved', () => {
     expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, undefined)).toEqual({
-      amount: formatAmount(100n, undefined),
+      amount: undefined,
       token: 'MDN'
+    });
+  });
+
+  it('withholds the amount when the destination resolved only to the placeholder', () => {
+    const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+
+    expect(earnWithdrawAmountFields({ ...extra, phase: 'received', outputSymbol: 'MDN' }, 100n, placeholder)).toEqual({
+      amount: undefined,
+      token: 'Unknown'
     });
   });
 

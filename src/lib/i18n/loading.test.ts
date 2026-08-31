@@ -41,8 +41,8 @@ describe('i18n/loading', () => {
   });
 
   describe('REFRESH_MSGTYPE', () => {
-    it('should be ALEO_I18N_REFRESH', () => {
-      expect(REFRESH_MSGTYPE).toBe('ALEO_I18N_REFRESH');
+    it('should be MIDEN_I18N_REFRESH', () => {
+      expect(REFRESH_MSGTYPE).toBe('MIDEN_I18N_REFRESH');
     });
   });
 

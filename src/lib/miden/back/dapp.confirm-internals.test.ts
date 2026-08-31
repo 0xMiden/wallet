@@ -22,6 +22,7 @@ _g.__dappConfInternals = {
     })),
     getInputNoteDetails: jest.fn(async () => []),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'n1' })),
     on: jest.fn()
@@ -100,7 +101,12 @@ jest.mock('../sdk/miden-client', () => ({
   runWhenClientIdle: () => {}
 }));
 
-jest.mock('lib/miden/sdk/helpers', () => ({ getBech32AddressFromAccountId: () => 'bech32' }));
+// Spread the real module — see the note in dapp.coverage.test.ts: the send
+// flow's authorization gate needs `sameWalletAccountId` to exist.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  getBech32AddressFromAccountId: () => 'bech32'
+}));
 
 jest.mock('./simulate-custom-tx', () => ({
   simulateCustomTransaction: jest.fn(async () => ({ summaryBytes: 'confirm-sim-sum' }))
@@ -112,7 +118,7 @@ jest.mock('lib/miden/note-quarantine', () => ({
   releaseNoteIds: (ids: string[]) => mockReleaseNoteIds(ids)
 }));
 
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

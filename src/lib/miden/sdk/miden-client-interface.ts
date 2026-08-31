@@ -1,11 +1,14 @@
 import {
   Account,
   AccountFile,
+  Address,
   AuthSecretKey,
+  Endpoint,
   type ConsumableNoteRecord,
   exportStore,
   getWasmOrThrow,
   importStore,
+  InputNote,
   InputNoteRecord,
   InputNoteState,
   MidenClient,
@@ -14,6 +17,8 @@ import {
   NoteExportFormat,
   NoteFile,
   NoteQuery,
+  type NoteInclusionProof,
+  RpcClient,
   NoteType,
   TransactionProver,
   TransactionRequest,
@@ -32,22 +37,32 @@ import {
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { NoteExportType } from './constants';
-import { getBech32AddressFromAccountId } from './helpers';
+import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
+import {
+  accountRefToSdk,
+  buildPswapCreateRequest,
+  buildSendTransactionRequest,
+  getBech32AddressFromAccountId,
+  walletAccountIdToSdk
+} from './helpers';
 import { yieldWasmClientLock } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
+import { recordProveTelemetry } from './prove-telemetry';
 import { ConsumeTransaction, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
-import type { CreatedGuardianKeys } from '../guardian/account';
+import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
+import { isPrivateNoteType } from '../helpers';
 
 export interface GuardianAccountCreationResult {
   accountId: string;
@@ -124,7 +139,21 @@ export type MidenClientCreateOptions = {
   getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
   signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
   onConnectivityIssue?: () => void;
+  /**
+   * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
+   * Defaults to `!isMobile()` (the historical behavior). The offscreen document
+   * passes `false` so its client runs on the doc's own multi-threaded main-thread
+   * WASM instance (rayon pool) instead of a method-worker with an un-pooled
+   * single-threaded instance — required for MT proving in-realm AND for the
+   * keystore sign callback / `lastAuthError` to be reachable (both are
+   * "meaningful only with `useWorker:false`" per the SDK).
+   */
+  useWorker?: boolean;
 };
+
+// Re-export the slice-4 consumable-note DTO from the interface too, so callers
+// that already import note types from here get it in one place.
+export type { ConsumableNoteAsset, ConsumableNoteDto } from './consumable-notes';
 
 export type InputNoteDetails = {
   noteId: string;
@@ -138,6 +167,21 @@ export type InputNoteDetails = {
 export type FungibleAssetDetails = {
   amount: string;
   faucetId: string;
+};
+
+/**
+ * One public-backfill op's outcome. The two "come back for more" signals are
+ * mutually exclusive:
+ *
+ * `saturated` — the BLOCK RANGE was too big for one op; retry it as halves.
+ * `nextNoteOffset` — the range was fine but held more notes than one op imports;
+ * re-offer the SAME range starting at this note index. Absent means finished.
+ */
+export type RecoveryRangeResult = {
+  imported: number;
+  failures: number;
+  saturated: boolean;
+  nextNoteOffset?: number;
 };
 
 /**
@@ -231,8 +275,10 @@ export class MidenClientInterface {
       //    bypassing the native bridge. Opt out so the callback survives.
       //
       // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149).
-      useWorker: !isMobile()
+      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+      // overrides to `false` (issue #260, slice 5, design §5.2 — see
+      // MidenClientCreateOptions.useWorker).
+      useWorker: options.useWorker ?? !isMobile()
     });
 
     return new MidenClientInterface(midenClient, network);
@@ -248,6 +294,13 @@ export class MidenClientInterface {
 
   async createMidenWallet(walletType: WalletType, seed?: Uint8Array, auth?: AuthScheme): Promise<string> {
     if (walletType === WalletType.Guardian) {
+      // NOTE: Guardian creation never reaches here — Vault.spawn and
+      // createHDAccount always route Guardian to createGuardianMidenWallet
+      // (which threads the picked endpoint). This branch passes no endpoint
+      // override, so createGuardianAccount binds to the network default (the
+      // frozen global key is no longer consulted for NEW accounts — #408
+      // stage 3). If anything ever routes Guardian through createMidenWallet for
+      // a non-default operator, thread the per-account endpoint here.
       const { createGuardianAccount } = await import('../guardian/account');
       const { account } = await createGuardianAccount(this.client, seed);
       return getBech32AddressFromAccountId(account.id());
@@ -270,10 +323,21 @@ export class MidenClientInterface {
    * ciphertext + cold secret-key bytes the wallet must persist (vault wraps
    * both before writing them to storage).
    */
-  async createGuardianMidenWallet(coldSeed?: Uint8Array): Promise<GuardianAccountCreationResult> {
+  async createGuardianMidenWallet(
+    coldSeed?: Uint8Array,
+    guardianEndpoint?: string
+  ): Promise<GuardianAccountCreationResult> {
     const { createGuardianAccount } = await import('../guardian/account');
-    const { account, keys, guardianEndpoint } = await createGuardianAccount(this.client, coldSeed);
-    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint };
+    // Forward the caller's picked endpoint as the override so the account binds
+    // to it (stage 1 of #408). When undefined, createGuardianAccount binds to
+    // the network default (the frozen global key is no longer consulted for NEW
+    // accounts — #408 stage 3).
+    const {
+      account,
+      keys,
+      guardianEndpoint: usedEndpoint
+    } = await createGuardianAccount(this.client, coldSeed, false, guardianEndpoint);
+    return { accountId: getBech32AddressFromAccountId(account.id()), keys, guardianEndpoint: usedEndpoint };
   }
 
   async importMidenWallet(accountBytes: Uint8Array): Promise<string> {
@@ -366,7 +430,10 @@ export class MidenClientInterface {
         const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
         const bech32 = await withWasmClientLock(async () => {
           const acc = Account.deserialize(accountBytes);
-          await this.client.accounts.insert({ account: acc, overwrite: true });
+          // The same account matches at more than one HD index, so this runs
+          // twice per recovery; a plain overwrite lets whichever snapshot
+          // arrives last win, including a creation-time one.
+          await insertGuardianAccountMonotonically(this.client, acc);
           await this.client.keystore.insert(acc.id(), coldSk);
           return getBech32AddressFromAccountId(acc.id());
         });
@@ -402,6 +469,341 @@ export class MidenClientInterface {
     // alpha.4 resolves a NoteId object, current `next` resolves the hex
     // string directly.
     return String(await this.client.notes.import(noteFile));
+  }
+
+  /**
+   * Pending-note recovery source 1 of 3: drain the private-note transport
+   * backlog into the store. Kept a standalone short op (the SW orchestrates
+   * the sources as separate offscreen calls) so nothing holds the WASM mutex
+   * long enough for queued reads to deadline-kill the realm.
+   */
+  async drainPrivateNoteTransport(): Promise<void> {
+    await this.client.notes.fetchPrivate({ mode: 'all' });
+  }
+
+  /**
+   * Pending-note recovery source 2 of 3: import serialized notes recovered
+   * from pending Guardian `consume_notes` proposals, attaching a node-fetched
+   * inclusion proof when one exists.
+   */
+  async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    let imported = 0;
+    let failures = 0;
+
+    const notes: Note[] = [];
+    for (const noteBytes of proposalNoteBytes) {
+      try {
+        notes.push(Note.deserialize(noteBytes));
+      } catch (error) {
+        failures++;
+        console.warn('[GuardianRecovery] Failed to deserialize one proposal note:', error);
+      }
+    }
+
+    // ONE proof lookup for the whole batch, not one per note. Per-note lookups
+    // with the default one-retry budget meant a wedged node cost up to 30s ×
+    // batch size inside a single WASM-mutex hold — and on mobile and desktop
+    // that hold has no op deadline to cut it short, so every other wallet
+    // operation, including a transaction the user is waiting on, stalls for all
+    // of it. `retries: 0` for the same reason the other recovery reads use it.
+    // A failed lookup is not fatal: the notes import as Expected instead.
+    const proofs = new Map<string, NoteInclusionProof>();
+    if (notes.length > 0) {
+      try {
+        const fetched = await withRpcTimeout(
+          () => rpc.getNotesById(notes.map(note => note.id())),
+          'recoveryProposalNoteProofs',
+          { retries: 0 }
+        );
+        // Keyed by id rather than trusting position: `getNotesById` may answer
+        // short or reordered (the public backfill counts on that too).
+        for (const entry of fetched) {
+          const proof = entry?.inclusionProof;
+          if (proof) proofs.set(String(entry.noteId), proof);
+        }
+      } catch (error) {
+        console.warn('[GuardianRecovery] Proposal note proof lookup failed; importing as Expected:', error);
+      }
+    }
+
+    // One import per distinct id. A batch holding the same note twice — which
+    // the Guardian, not this wallet, decides — would otherwise hand the same
+    // proof to `authenticated` twice, and the second call gets a handle the
+    // first one already moved into Rust. Re-importing is a no-op anyway.
+    const imports = new Set<string>();
+    for (const note of notes) {
+      try {
+        const noteId = String(note.id());
+        if (imports.has(noteId)) continue;
+        imports.add(noteId);
+        const inclusionProof = proofs.get(noteId);
+        const inputNote = inclusionProof
+          ? InputNote.authenticated(note, inclusionProof)
+          : InputNote.unauthenticated(note);
+        await this.client.notes.import(NoteFile.fromInputNote(inputNote));
+        imported++;
+      } catch (error) {
+        failures++;
+        console.warn('[GuardianRecovery] Failed to import one proposal note:', error);
+      }
+    }
+    return { imported, failures };
+  }
+
+  /**
+   * Resolve the public-backfill scan range for a recovered account: binary
+   * search block headers for the first block minted after the account was
+   * created (Guardian `createdAt`, seconds), with a margin for clock skew.
+   * Scanning from the creation block instead of genesis keeps the backfill
+   * proportional to the account's age.
+   */
+  async resolveRecoveryScanRange(createdAtSeconds: number): Promise<{ startBlock: number; latestBlock: number }> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    // ~log2(tip) sequential header reads, so each one gets a short bound and no
+    // retry: a slow node must not spend the caller's whole op deadline here,
+    // and the recovery retries the whole range on the next backend start.
+    const header = (blockNum?: number) =>
+      withRpcTimeout(() => rpc.getBlockHeaderByNumber(blockNum), 'recoveryScanRangeHeader', {
+        timeoutMs: 8_000,
+        retries: 0
+      });
+
+    const latestHeader = await header();
+    const latestBlock = latestHeader.blockNum();
+    const clockSkewMarginSeconds = 600;
+    const target = createdAtSeconds - clockSkewMarginSeconds;
+    if (target <= 0) return { startBlock: 0, latestBlock };
+    // Timestamps only ever NARROW the scan, and this scan runs once: whatever
+    // it skips is skipped forever, because a clean pass clears the one-shot
+    // pending flag. `createdAt` comes from the Guardian operator's clock and the
+    // headers come from the node, so every way those two can disagree is
+    // resolved by scanning MORE, never less.
+    if (latestHeader.timestamp() <= target) {
+      // The account claims to be newer than the chain tip, yet it demonstrably
+      // exists on that chain. One of the two clocks is wrong; starting at the
+      // tip would scan a single block, find nothing, and report success. A node
+      // that reports no tip timestamp at all lands here too, since `target` is
+      // positive by this point.
+      console.warn(
+        `[GuardianRecovery] Reported creation time is at or beyond the chain tip (tip ` +
+          `${latestHeader.timestamp()}, target ${target}); scanning from genesis instead`
+      );
+      return { startBlock: 0, latestBlock };
+    }
+    const genesis = await header(0);
+    if (genesis.timestamp() >= target) return { startBlock: 0, latestBlock };
+    // Invariant: timestamp(lo) < target <= timestamp(hi).
+    let lo = 0;
+    let hi = latestBlock;
+    // Deadline as well as a bisection bound: this whole method runs inside one
+    // mutex-held op, and ~log2(tip) reads at 8s each would blow well past the
+    // 60s the chunking design budgets for an op. Stopping early only widens the
+    // scan — `lo` is always a block older than the account, which is exactly
+    // what the backfill needs — so a slow node costs extra scanned blocks
+    // rather than a wedged wallet.
+    const searchDeadline = Date.now() + 20_000;
+    while (lo + 1 < hi) {
+      if (Date.now() > searchDeadline) {
+        console.warn(
+          `[GuardianRecovery] Creation-block search ran out of budget; scanning from block ${lo} (widened range)`
+        );
+        break;
+      }
+      const mid = lo + Math.floor((hi - lo) / 2);
+      const midHeader = await header(mid);
+      const midTimestamp = midHeader.timestamp();
+      // The bisection is only valid over monotonically increasing timestamps.
+      // A zero or absent one breaks that invariant and would push `lo` past the
+      // account's real creation block, silently skipping its history.
+      if (midTimestamp <= 0) {
+        console.warn(`[GuardianRecovery] Block ${mid} reported no timestamp; scanning from genesis instead`);
+        return { startBlock: 0, latestBlock };
+      }
+      if (midTimestamp < target) lo = mid;
+      else hi = mid;
+    }
+    return { startBlock: lo, latestBlock };
+  }
+
+  /**
+   * Pending-note recovery source 3 of 3: import committed public notes whose
+   * tag matches the account, over ONE bounded block range. The SW walks the
+   * full creation-to-tip span in chunks through this method so progress is
+   * reportable and the WASM mutex is released between chunks.
+   *
+   * `saturated` means "this range is too big to do in one op, hand me halves":
+   * either the node refused the span, or the range holds more tag matches than
+   * one op should import. Narrowing is the CALLER's job, not this method's —
+   * every dispatch of it runs under the WASM mutex with the SW's write deadline
+   * already armed (`offscreen/main.ts` `handleCall`), so work it does not
+   * finish inside that one op has to come back as another op, not as recursion
+   * inside this one.
+   */
+  async recoverPublicNotesRange(
+    accountId: string,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset = 0
+  ): Promise<RecoveryRangeResult> {
+    const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+    const accountSdkId = walletAccountIdToSdk(accountId);
+    const noteTag = Address.fromAccountId(accountSdkId).toNoteTag();
+    return this.recoverPublicNotesInRange(rpc, noteTag, blockFrom, blockTo, noteOffset);
+  }
+
+  /**
+   * Span at or below which a range is no longer narrowed. A dense range still
+   * has to be imported eventually, and past this point narrowing has stopped
+   * helping (a single block cannot be split); such a range is paged by note
+   * count instead, via `nextNoteOffset`.
+   */
+  private static readonly MIN_SPLIT_SPAN_BLOCKS = 1_000;
+
+  /**
+   * Tag matches one op will import. Past this it reports `saturated` and
+   * imports nothing, so the caller can come back with halves: on mobile and
+   * desktop the op runs inline with no deadline, so an unbounded note count is
+   * an unbounded WASM-mutex hold — every wallet operation behind it, including
+   * a transaction the user is waiting on, stalls for its duration.
+   */
+  private static readonly MAX_NOTES_PER_CHUNK = 200;
+
+  /**
+   * A node that refuses the requested span because it is too wide is reported
+   * as saturated so the caller can retry halves; anything else propagates.
+   * Rate limiting must NOT land here:
+   * "429 Too Many Requests" would otherwise be read as a span complaint and
+   * answered by doubling the number of requests.
+   */
+  private static isBlockSpanTooWide(error: unknown): boolean {
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const rateLimited =
+      message.includes('too many requests') ||
+      message.includes('rate limit') ||
+      message.includes('resource exhausted') ||
+      message.includes('resourceexhausted') ||
+      message.includes('429');
+    if (rateLimited) return false;
+    return (
+      message.includes('paginationerror') ||
+      message.includes('blockpagination') ||
+      message.includes('safety cap') ||
+      (message.includes('block') && (message.includes('too many') || message.includes('maximum number')))
+    );
+  }
+
+  private async recoverPublicNotesInRange(
+    rpc: RpcClient,
+    noteTag: ReturnType<Address['toNoteTag']>,
+    blockFrom: number,
+    blockTo: number,
+    noteOffset: number
+  ): Promise<RecoveryRangeResult> {
+    const span = blockTo - blockFrom + 1;
+    const splittable = span > MidenClientInterface.MIN_SPLIT_SPAN_BLOCKS;
+
+    let syncInfo;
+    try {
+      // Bounded, no retry: an unbounded await here hangs the WASM mutex on the
+      // inline (mobile/desktop) path, where no op deadline exists to kill it.
+      // The no-retry part is also load-bearing for correctness: this call MOVES
+      // `noteTag` into Rust, so a second attempt would hand it a dead handle.
+      syncInfo = await withRpcTimeout(() => rpc.syncNotes(blockFrom, blockTo, [noteTag]), 'recoverySyncNotes', {
+        timeoutMs: 30_000,
+        retries: 0
+      });
+    } catch (error) {
+      if (splittable && MidenClientInterface.isBlockSpanTooWide(error)) {
+        return { imported: 0, failures: 0, saturated: true };
+      }
+      throw error;
+    }
+
+    const allCommittedNotes = syncInfo.notes();
+    if (splittable && allCommittedNotes.length > MidenClientInterface.MAX_NOTES_PER_CHUNK) {
+      // Nothing imported on purpose: the halves re-scan their own sub-ranges,
+      // and importing a prefix here would only be repeated work (imports are
+      // idempotent) while still holding the mutex for the whole prefix.
+      console.log(
+        `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo}: ${allCommittedNotes.length} tag matches ` +
+          `exceeds ${MidenClientInterface.MAX_NOTES_PER_CHUNK} per op; asking the caller for a narrower range`
+      );
+      return { imported: 0, failures: 0, saturated: true };
+    }
+
+    // Below the split floor a dense range cannot be narrowed further, so it is
+    // paged by NOTE instead: the op imports at most `MAX_NOTES_PER_CHUNK` and
+    // hands back where to continue. Without this, an unsplittable window holding
+    // thousands of matches — which anyone can arrange, since a note tag is a
+    // truncated commitment and volume can be aimed at a victim's — is one
+    // unbounded op: on the extension it outlives its deadline, the realm is
+    // killed, the orchestrator reads that as a deferral and retries the SAME
+    // window forever; on mobile and desktop it holds the only WASM mutex for as
+    // long as it takes.
+    const committedNotes = allCommittedNotes.slice(noteOffset, noteOffset + MidenClientInterface.MAX_NOTES_PER_CHUNK);
+    const consumedTo = noteOffset + committedNotes.length;
+    const nextNoteOffset = consumedTo < allCommittedNotes.length ? consumedTo : undefined;
+
+    let imported = 0;
+    let failures = 0;
+    // A PRIVATE tag match carries no body over RPC by design (the SDK documents
+    // `note` as undefined for private notes). It belongs to the transport drain
+    // (source 1), so it is not a failure of this source.
+    let skippedPrivate = 0;
+    let unexpected = 0;
+    const fetchBatchSize = 100;
+    for (let start = 0; start < committedNotes.length; start += fetchBatchSize) {
+      const noteIds = committedNotes.slice(start, start + fetchBatchSize).map(note => note.noteId());
+      // Read BEFORE the call: passing these into `getNotesById` MOVES them into
+      // Rust (wasm-bindgen unwraps every element and zeroes the JS wrapper's
+      // pointer), so afterwards each one is a dead handle and stringifying it
+      // traps. Only the array's length survives the call.
+      //
+      // Resolved BY ID, not by count. A response of the right length can still
+      // be the wrong notes — duplicates of one id, or ids never asked for —
+      // and counting length alone would read that as a clean chunk, letting
+      // the orchestrator clear the one-shot flag over notes never imported.
+      const requestedIds = new Set(noteIds.map(String));
+      const fetchedNotes = await withRpcTimeout(() => rpc.getNotesById(noteIds), 'recoveryGetNotesById', {
+        retries: 0
+      });
+      const answeredIds = new Set<string>();
+      for (const fetched of fetchedNotes) {
+        const noteId = String(fetched.noteId);
+        if (!requestedIds.has(noteId) || answeredIds.has(noteId)) {
+          unexpected++;
+          continue;
+        }
+        answeredIds.add(noteId);
+        const inputNote = fetched.asInputNote();
+        if (!inputNote) {
+          // A body-less PUBLIC note is the node failing to serve what it said
+          // it had, not an expected private note.
+          if (fetched.noteType === NoteType.Public) {
+            failures++;
+            console.warn(`[GuardianRecovery] Node returned public note ${noteId} without a body`);
+          } else {
+            skippedPrivate++;
+          }
+          continue;
+        }
+        try {
+          await this.client.notes.import(NoteFile.fromInputNote(inputNote));
+          imported++;
+        } catch (error) {
+          failures++;
+          console.warn('[GuardianRecovery] Failed to import one public note:', error);
+        }
+      }
+      failures += noteIds.length - answeredIds.size;
+    }
+    console.log(
+      `[GuardianRecovery] Public backfill blocks ${blockFrom}-${blockTo} notes ${noteOffset}-${consumedTo} of ` +
+        `${allCommittedNotes.length} tag matches: ${imported} imported, ${skippedPrivate} private, ` +
+        `${unexpected} unrequested/duplicate, ${failures} failed`
+    );
+    return { imported, failures, saturated: false, nextNoteOffset };
   }
 
   async getAccount(accountId: string) {
@@ -475,6 +877,24 @@ export class MidenClientInterface {
     await this.client.notes.sendPrivate({ note, to });
   }
 
+  /**
+   * Consumable notes reduced to plain, JSON-safe {@link ConsumableNoteDto}s
+   * (issue #260, slice 4).
+   *
+   * This is the DTO-returning form the offscreen proxy routes through. Its whole
+   * point is that the reclaim gate inside {@link getConsumableNotes}
+   * (`consumableAfterBlock() <= getSyncHeight()`) AND the per-note reduction run
+   * in the SAME realm — so when the flag is on and `syncState` ran offscreen, the
+   * gate uses the offscreen (sync-running) realm's height rather than a stale
+   * SW-inline height. The reduction is behavior-preserving: it relocates the exact
+   * reach-through the callers used into one shared reducer.
+   */
+  async getConsumableNoteDtos(accountId: string): Promise<ConsumableNoteDto[]> {
+    const records = await this.getConsumableNotes(accountId);
+    const syncHeight = await this.client.getSyncHeight();
+    return reduceConsumableNoteRecords(records, syncHeight);
+  }
+
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
     // Use the consumability-annotated listing (raw WebClient) instead of the
     // bare `notes.listAvailable`: a sender-side P2IDE note is "available" but
@@ -545,7 +965,9 @@ export class MidenClientInterface {
                 accountId,
                 recipientAccountId: secondaryAccountId,
                 faucetId,
-                noteType: noteType === 'private' ? 'private' : 'public',
+                // Same coercion the request builder uses, so the key can't say
+                // 'public' for a note built Private (and vice versa).
+                noteType: isPrivateNoteType(noteType) ? 'private' : 'public',
                 amount: BigInt(amount)
               }
             : undefined;
@@ -555,13 +977,32 @@ export class MidenClientInterface {
           cacheParams
         );
       }
-      const { result } = await this.client.transactions.send({
-        account: accountId,
-        to: secondaryAccountId,
-        token: faucetId,
-        amount,
-        type: noteType as any,
-        reclaimAfter,
+      // The sender's local account supplies the outgoing asset's vault key
+      // (callback flag included) — see `buildSendTransactionRequest`.
+      //
+      // Looked up by the CANONICAL id, matching the sender id handed to the
+      // builder on the next line and the guardian path's own read. The raw
+      // `accountId` may be the composite `<address>_<suffix>` form, which
+      // `accounts.get` resolves via the SDK's bech32 parser and which therefore
+      // throws for suffixes whose routing parameters don't decode — a failure
+      // this read would newly introduce, since nothing loaded the account here
+      // before.
+      const senderAccount = await this.client.accounts.get(walletAccountIdToSdk(accountId).toString());
+      const request = buildSendTransactionRequest(
+        senderAccount ?? undefined,
+        walletAccountIdToSdk(accountId),
+        accountRefToSdk(secondaryAccountId),
+        faucetId,
+        BigInt(amount),
+        isPrivateNoteType(noteType) ? NoteType.Private : NoteType.Public,
+        reclaimAfter
+      );
+      // The same canonical id the vault was read with. Handing the raw one here
+      // would let the account the request is EXECUTED against diverge from the
+      // account its asset's vault key came from — the mismatch that silently
+      // reinstates the callback-flag bug — and would reject composite forms the
+      // read above accepts.
+      const { result } = await this.client.transactions.submit(walletAccountIdToSdk(accountId).toString(), request, {
         prover
       });
       return result;
@@ -700,16 +1141,40 @@ export class MidenClientInterface {
   async swapTransaction(transaction: SwapTransaction): Promise<TransactionResult> {
     const { accountId, faucetId, amount, extraInputs } = transaction;
 
-    const offer = { token: faucetId, amount };
-    const request = { token: extraInputs.requestedFaucetId, amount: extraInputs.requestedAmount };
+    const withInner = (
+      this.client as unknown as {
+        _withInnerWebClient?: <T>(fn: (inner: any) => Promise<T>) => Promise<T>;
+      }
+    )._withInnerWebClient;
+    if (typeof withInner !== 'function') {
+      throw new Error('_withInnerWebClient missing from @miden-sdk/miden-sdk; expected version 0.15.5 or newer.');
+    }
 
     return proveWithFallback(async prover => {
-      const { result } = await this.client.transactions.pswapCreate({
-        account: accountId,
-        offer,
-        request,
-        prover
-      });
+      // `transactions.pswapCreate` would build, prove and submit in one call, but
+      // it builds the offered asset from faucet id + amount and so always offers
+      // the Disabled callback variant — see `buildPswapCreateRequest`. Split the
+      // build out so the note can be re-emitted against the vault key the
+      // creator actually holds, then submit that instead.
+      //
+      // The canonical id for both the vault read and the submit, for the reason
+      // spelled out on the send path above: the account a request is EXECUTED
+      // against must be the one its asset's vault key came from.
+      const canonicalId = walletAccountIdToSdk(accountId).toString();
+      const creatorAccount = await this.client.accounts.get(canonicalId);
+      const reference = (await withInner.call(this.client, async (inner: any) =>
+        inner.newPswapCreateTransactionRequest(
+          walletAccountIdToSdk(accountId),
+          accountRefToSdk(faucetId),
+          BigInt(amount),
+          accountRefToSdk(extraInputs.requestedFaucetId),
+          BigInt(extraInputs.requestedAmount),
+          NoteType.Public,
+          NoteType.Public
+        )
+      )) as TransactionRequest;
+      const request = buildPswapCreateRequest(creatorAccount ?? undefined, reference, faucetId, BigInt(amount));
+      const { result } = await this.client.transactions.submit(canonicalId, request, { prover });
       return result;
     }, transaction.delegateTransaction);
   }
@@ -884,6 +1349,29 @@ export class MidenClientInterface {
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
   }
 
+  /**
+   * Node-authoritative commit state of a specific transaction (by hex id).
+   *
+   *   - `'committed'` the tx is on chain (TransactionStatus has a block number).
+   *   - `'pending'`   the tx is locally known but not yet committed (still in
+   *                   the mempool / awaiting a block) — it was submitted.
+   *   - `'not-found'` no local record — INDETERMINATE. The tx may have landed on
+   *                   chain without this client recording it (e.g. an offscreen
+   *                   write killed after submit but before apply), so a caller
+   *                   MUST NOT treat this as "definitely didn't land".
+   *
+   * Used by the send/swap idempotent-retry guard (transaction/cancel.ts
+   * `verifySendLanded`) so a Failed row whose original submit actually landed is
+   * never blindly resubmitted (double-send). Mirrors the note-state authority of
+   * `verifyConsumeLanded` but for the OUTPUT side, keyed on the tx id.
+   */
+  async getTransactionCommitState(txId: string): Promise<'committed' | 'pending' | 'not-found'> {
+    const transactions = await this.client.transactions.list();
+    const record = transactions.find(tx => tx.id().toHex() === txId);
+    if (!record) return 'not-found';
+    return record.transactionStatus().getBlockNum() !== undefined ? 'committed' : 'pending';
+  }
+
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
@@ -931,12 +1419,16 @@ export async function proveWithFallback<T>(
     return TransactionProver.newLocalProver();
   };
 
+  const startedAt = performance.now();
   try {
-    const t0 = performance.now();
     const result = !shouldDelegate ? await fn(localProverFactory()) : await fn();
     const pathLabel = shouldDelegate ? 'delegate' : isMobile() ? 'native-mobile' : 'local';
-    const durationMs = (performance.now() - t0).toFixed(1);
-    recordProveTiming(`path=${pathLabel} duration_ms=${durationMs} platform=${isMobile() ? 'mobile' : 'desktop'}`);
+    const durationMs = performance.now() - startedAt;
+    recordProveTiming(
+      `path=${pathLabel} duration_ms=${durationMs.toFixed(1)} platform=${isMobile() ? 'mobile' : 'desktop'}`
+    );
+    // #466: always-on structured timing so an occasional 20s+ prove is visible.
+    recordProveTelemetry({ path: pathLabel, durationMs, fellBack: false });
     // A successful prover call (whether local or remote) means the prover
     // pathway the wallet actually uses is healthy. If we'd previously
     // marked the prover as down, clear it now — the old design never
@@ -945,6 +1437,7 @@ export async function proveWithFallback<T>(
     return result;
   } catch (err) {
     if (shouldDelegate) {
+      const remoteDurationMs = performance.now() - startedAt;
       // The remote prover path failed. Whether or not we can fall back
       // locally, the user-facing surface should know remote proving is
       // unavailable. Only categorize transport-shaped errors so we
@@ -956,14 +1449,35 @@ export async function proveWithFallback<T>(
       // Fall back to the local path. On mobile this is the native
       // Rust prover; on desktop / extension it's the WASM local prover.
       recordProveTiming('delegate failed, retrying with local prover');
-      const t0 = performance.now();
-      const result = await fn(localProverFactory());
-      recordProveTiming(
-        `path=${isMobile() ? 'native-mobile-fallback' : 'local-fallback'} duration_ms=${(
-          performance.now() - t0
-        ).toFixed(1)}`
-      );
-      return result;
+      const fallbackStartedAt = performance.now();
+      const fallbackPath = isMobile() ? 'native-mobile' : 'local';
+      try {
+        const result = await fn(localProverFactory());
+        recordProveTiming(
+          `path=${fallbackPath}-fallback duration_ms=${(performance.now() - fallbackStartedAt).toFixed(1)}`
+        );
+        // #466: the user waited for the stalled remote attempt AND the local
+        // re-prove — record the total wall time + the remote portion, since this
+        // remote→local doubling is the prime 20s+ suspect.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs
+        });
+        return result;
+      } catch (fallbackErr) {
+        // Both remote and local proving failed — a 20s+ that ends in failure is
+        // exactly the worst #466 case, so record it before the error propagates.
+        recordProveTelemetry({
+          path: fallbackPath,
+          durationMs: performance.now() - startedAt,
+          fellBack: true,
+          remoteDurationMs,
+          failed: true
+        });
+        throw fallbackErr;
+      }
     }
     throw err;
   }
@@ -987,15 +1501,21 @@ function isLocalProver(prover: TransactionProver): boolean {
 
 /**
  * Build the `(accountId, request)` tuple for a send transaction's execute
- * step, used by both the actual `sendTransaction` flow and the
- * speculation flow. Keeping this in a single function means the
- * Speculation params and the real-send params produce IDENTICAL
- * TransactionRequest WASM objects, which is what the cache hit relies on.
+ * step, used by both the actual `sendTransaction` flow and the speculation
+ * flow. Keeping this in a single function is what makes the two agree on the
+ * request they build from a given set of params.
  *
- * Note: WASM-bindgen value-consumption is real here. `newSendTransactionRequest`
- * consumes `senderId` by value; we allocate a fresh `AccountId` for the
- * subsequent `executeTransaction`. Don't refactor this to share AccountIds
- * across calls without re-checking the wasm-bindgen ownership semantics.
+ * The two requests are NOT byte-identical — the note's serial number is random,
+ * so no two builds of the same send ever match. The cache doesn't need them to:
+ * `speculationParamsHash` keys purely on the params, and a hit replays the
+ * cached execution + proof wholesale rather than rebuilding a request.
+ *
+ * Note: a fresh `AccountId` is allocated for the subsequent `executeTransaction`
+ * rather than sharing one. As of SDK 0.15.9 neither `executeTransaction` nor the
+ * note builders consume their `AccountId` by value (the generated glue reads
+ * `__wbg_ptr` without `__destroy_into_raw`), so this is belt-and-braces — but
+ * re-check the glue before relying on sharing, since a method that DOES move its
+ * argument leaves the JS handle nulled.
  */
 async function buildSendExecuteArgs(
   wasm: any,
@@ -1009,19 +1529,23 @@ async function buildSendExecuteArgs(
 ): Promise<{ accountId: any; request: TransactionRequest }> {
   const senderId = resolveAccountId(wasm, senderAccountId);
   const receiverId = resolveAccountId(wasm, recipientAccountId);
-  const tokenId = resolveAccountId(wasm, faucetId);
   // noteType arrives as either an SDK enum (real send) or a literal
-  // 'public'/'private' string (speculation). Handle both.
-  const isPrivate = noteType === 'private' || (typeof noteType === 'object' && noteType === wasm.NoteType.Private);
-  const nt = isPrivate ? wasm.NoteType.Private : wasm.NoteType.Public;
-  const request: TransactionRequest = await inner.newSendTransactionRequest(
+  // 'public'/'private' string (speculation) — `isPrivateNoteType` takes both and
+  // throws on anything else rather than silently downgrading to public. The
+  // enum is numeric (`Private = 0`), so the former `typeof === 'object'` arm
+  // never matched and every non-'private' value fell through to public.
+  const nt = isPrivateNoteType(noteType) ? wasm.NoteType.Private : wasm.NoteType.Public;
+  // The sender's local account supplies the outgoing asset's vault key
+  // (callback flag included) — see `buildSendTransactionRequest`.
+  const senderAccount = await inner.getAccount(resolveAccountId(wasm, senderAccountId));
+  const request = buildSendTransactionRequest(
+    senderAccount ?? undefined,
     senderId,
     receiverId,
-    tokenId,
-    nt,
+    faucetId,
     typeof amount === 'string' ? BigInt(amount) : amount,
-    reclaimAfter ?? null,
-    null
+    nt,
+    reclaimAfter
   );
   const senderIdForExec = resolveAccountId(wasm, senderAccountId);
   return { accountId: senderIdForExec, request };
@@ -1039,19 +1563,31 @@ function speculationParamsHash(p: SpeculationParams): string {
 /**
  * Mirror of the SDK's `resolveAccountRef` (js/utils.js) — converts a string
  * account identifier (hex or bech32) into the wasm-bindgen `AccountId` type
- * that lower-level methods like `executeTransaction` and
- * `newSendTransactionRequest` consume. The wallet stores account IDs as
- * bech32 (`mtst1...` for testnet), but in places (URL params, dApp inputs)
- * a `0x`-prefixed hex form may also appear, so handle both.
+ * that lower-level methods like `executeTransaction` and `getAccount` take.
+ * The wallet stores account IDs as bech32 (`mtst1...` for testnet), but in
+ * places (URL params, dApp inputs) a `0x`-prefixed hex form may also appear,
+ * so handle both.
  *
- * Note: each call returns a freshly-allocated `AccountId`. Multiple
- * wasm-bindgen WASM methods CONSUME their `AccountId` argument
- * (e.g. `newSendTransactionRequest` and `executeTransaction` both move
- * the value), so callers must allocate one per consume site.
+ * The composite `WalletAccount.publicKey` form (`<address>_<suffix>`) is reduced
+ * to its address first, exactly as `walletAccountIdToSdk` does for the SW-side
+ * path — every caller here passes an ACCOUNT id, and `Address.fromBech32` only
+ * parses the composite form for suffixes whose routing parameters happen to
+ * decode. Ids without a `_` are unaffected. This matters most for the sender
+ * account read (`getAccount`): without the split, a composite id could throw
+ * where nothing read the account at all before.
+ *
+ * Note: each call returns a freshly-allocated `AccountId`. As of SDK 0.15.9 the
+ * methods used here borrow rather than move it, but some wasm-bindgen methods do
+ * move their argument (`exportAccountFile` is one) and leave the JS handle
+ * nulled, so allocating per call site keeps that distinction from mattering.
  */
 function resolveAccountId(wasm: any, ref: string): any {
-  if (ref.startsWith('0x') || ref.startsWith('0X')) {
-    return wasm.AccountId.fromHex(ref);
+  const address = ref.split('_')[0] ?? ref;
+  if (address.startsWith('0x') || address.startsWith('0X')) {
+    // Lowercase the prefix for the same reason `accountRefToSdk` does: the hex
+    // DIGITS are case-insensitive but `fromHex` requires a literal '0x' and
+    // throws on '0X…', so the uppercase arm led straight to a guaranteed throw.
+    return wasm.AccountId.fromHex(`0x${address.slice(2)}`);
   }
-  return wasm.AccountId.fromBech32(ref);
+  return wasm.AccountId.fromBech32(address);
 }

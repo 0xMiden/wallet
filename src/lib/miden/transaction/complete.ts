@@ -9,6 +9,7 @@ import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
+import { midenClientProxy } from '../back/miden-client-proxy';
 import {
   BridgedSendTransaction,
   EarnDepositTransaction,
@@ -16,6 +17,7 @@ import {
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
+  IConsumedAssetTotal,
   IConsumeSwapSettleExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
@@ -28,14 +30,27 @@ import {
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
-import { toNoteTypeString } from '../helpers';
+import { isPrivateNoteType, toNoteTypeString } from '../helpers';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
+import { withWasmClientLock } from '../sdk/miden-client';
 import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
   const outputNotes = executedTx.outputNotes().notes();
+
+  // A private note is only reachable by its recipient if the bytes are handed to
+  // them out of band — the chain carries a commitment, not the note. So a private
+  // output note we never pass to the transport is stranded: the recipient cannot
+  // see or consume it, and a custom note need not carry any reclaim window for the
+  // sender either. That is a silent loss of whatever it holds, and it used to be
+  // reported as a clean success. Counted here and surfaced on the row below.
+  //
+  // Only the cases where the transport never received the note count. A throw from
+  // `sendPrivateNote` does not: by then the note is in the client's store and the
+  // SDK outbox retries it on the next sync, which is the same reasoning
+  // `completeSendTransaction` applies to its own relay failures.
+  let strandedPrivateNotes = 0;
 
   for (const note of outputNotes) {
     // Only care about private notes
@@ -44,7 +59,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     }
 
     if (!transaction.secondaryAccountId) {
+      // The recipient is supplied by the requesting site and is optional, so a
+      // custom request that emits a private note without naming one lands here.
       console.error('Missing recipient account id for private note', { txId: transaction.id });
+      strandedPrivateNotes++;
       continue;
     }
 
@@ -55,41 +73,40 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       const maybeFullNote = note.intoFull();
       if (!maybeFullNote) {
         console.error('intoFull() returned undefined for output note');
+        strandedPrivateNotes++;
         continue;
       }
       fullNote = maybeFullNote;
     } catch (error) {
       console.error('Failed to convert output note into full note', { error });
+      strandedPrivateNotes++;
       continue;
     }
 
-    // Get client + send private note (wrapped in lock to prevent concurrent WASM access)
+    // Relay the private note + wait for commit as a coherent unit on ONE client.
+    // Both route through `midenClientProxy` (issue #260, slice 7b): under the flag
+    // the send ran offscreen, so the note lives in the OFFSCREEN client's store and
+    // that realm owns the fresh sync height — the relay + wait MUST run there, not on
+    // the dormant SW client. Flag-off both run on the SW client, byte-identical to
+    // the former inline `getMidenClient()` calls (each proxy call owns its own WASM
+    // lock, so the outer lock this block used to hold is gone). Best-effort: any
+    // relay/wait failure is caught and logged, then the row still reaches Completed
+    // (degraded, not Failed) below.
     try {
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-
-        try {
-          // Relay to the transport layer BEFORE waiting for commit. The block hint
-          // sendPrivateNote attaches is the client's current sync height, and the
-          // recipient scans FORWARD from it for the note's on-chain commitment.
-          // Waiting for commit first advances sync height to/past the commitment
-          // block, so on fast chains the hint overshoots the commitment and the
-          // recipient never finds the note (silent non-delivery). Relaying first
-          // keeps the hint below the commitment; the commit wait still gates the
-          // Completed status below.
-          await midenClient.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
-          await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-        } catch (error) {
-          console.error('Failed to send private note through the transport layer', {
-            txId: transaction.id,
-            secondaryAccountId: transaction.secondaryAccountId,
-            error
-          });
-        }
-      });
+      // Relay to the transport layer BEFORE waiting for commit. The block hint
+      // sendPrivateNote attaches is the client's current sync height, and the
+      // recipient scans FORWARD from it for the note's on-chain commitment.
+      // Waiting for commit first advances sync height to/past the commitment
+      // block, so on fast chains the hint overshoots the commitment and the
+      // recipient never finds the note (silent non-delivery). Relaying first
+      // keeps the hint below the commitment; the commit wait still gates the
+      // Completed status below.
+      await midenClientProxy.sendPrivateNote(fullNote, transaction.secondaryAccountId!);
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
-      console.error('Failed to initialize Miden client for private note send', {
+      console.error('Failed to send private note through the transport layer', {
         txId: transaction.id,
+        secondaryAccountId: transaction.secondaryAccountId,
         error
       });
     }
@@ -97,6 +114,18 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+
+  if (strandedPrivateNotes > 0) {
+    // Completed, not Failed: the transaction is on chain and the assets have left
+    // the account, so failing the row would be untrue and would offer a Retry that
+    // spends again. What is wrong is the DELIVERY, and the row is the only place
+    // the user would ever learn about it — `error` is rendered for failed rows
+    // only, so the label is what carries it.
+    updatedTransaction.displayMessage =
+      strandedPrivateNotes === 1
+        ? 'Completed — a private note could not be delivered'
+        : `Completed — ${strandedPrivateNotes} private notes could not be delivered`;
+  }
 
   await updateTransactionStatus(transaction.id, ITransactionStatus.Completed, updatedTransaction);
 };
@@ -120,14 +149,29 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     throw new Error('completeConsumeTransaction: note has no fungible assets');
   }
   const faucetId = getBech32AddressFromAccountId(asset.faucetId());
-  let amount = 0n;
+  // Per-faucet totals over EVERY asset of EVERY consumed note. The queue-time
+  // value the `ConsumeTransaction` constructor wrote is only an estimate — its
+  // `ConsumableNote` inputs carry just the first fungible asset per note — so a
+  // completed row recomputes it here against the executed transaction and stays
+  // consistent with `amount` below (which is this list's `faucetId` entry).
+  const totalsByFaucet = new Map<string, bigint>();
   for (const inputNote of inputNotes) {
     for (const noteAsset of inputNote.note().assets().fungibleAssets()) {
-      if (getBech32AddressFromAccountId(noteAsset.faucetId()) === faucetId) {
-        amount += noteAsset.amount();
-      }
+      const assetFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+      totalsByFaucet.set(assetFaucetId, (totalsByFaucet.get(assetFaucetId) ?? 0n) + noteAsset.amount());
     }
   }
+  const assetTotals: IConsumedAssetTotal[] = Array.from(totalsByFaucet, ([id, total]) => ({
+    faucetId: id,
+    amount: total
+  }));
+  const amount = totalsByFaucet.get(faucetId) ?? 0n;
+
+  // Only a uniform batch has a single answer, matching the constructor's rule —
+  // otherwise the details card would label a mixed claim by its first note alone.
+  const noteTypes = inputNotes.map(inputNote => toNoteTypeString(inputNote.note().metadata().noteType()));
+  const firstNoteType = noteTypes[0];
+  const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
     displayMessage,
@@ -135,7 +179,8 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     secondaryAccountId,
     faucetId,
     amount,
-    noteType: toNoteTypeString(note.metadata().noteType()),
+    assetTotals,
+    noteType: uniformNoteType,
     completedAt: Math.floor(Date.now() / 1000), // Convert to seconds.
     resultBytes: result.serialize()
   });
@@ -241,6 +286,16 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   });
 };
 
+/**
+ * Attempts for the post-rotation guardian re-register, covering the WHOLE block
+ * (provider read -> sync -> local account -> cold service -> push), not just the
+ * final push which retries internally. A miss here leaves the freshly-rotated
+ * hot key unauthorized, so every later guardian request 401s.
+ */
+const POST_ROTATION_REREGISTER_ATTEMPTS = 3;
+/** Linear backoff base between those attempts. */
+const POST_ROTATION_REREGISTER_BACKOFF_MS = 1_000;
+
 export const completeReplaceHotKeyTransaction = async (
   tx: ReplaceHotKeyTransaction,
   result: TransactionResult | undefined,
@@ -263,36 +318,72 @@ export const completeReplaceHotKeyTransaction = async (
     // but never touches the allowlist, so without this push every request
     // signed by the NEW hot key 401s ("session expired") forever.
     // `registerOnGuardian` derives the allowlist from the service's in-memory
-    // `signerCommitments`, so the cold service is built FRESH here from the
-    // freshly-synced on-chain account (now [new-hot, cold]). Reusing the
-    // pre-rotation service that drove the tx pushed the OLD allowlist — the
-    // historical permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s
-    // hot-sync. Best-effort: an on-chain-successful rotation must not be
-    // failed by a guardian blip (registerOnGuardian retries 5× internally).
-    try {
-      const accounts = await guardianProvider.getAccounts();
-      const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
-      if (!walletAccount) {
-        throw new Error(`Guardian account ${tx.accountId} not found in provider`);
+    // `signerCommitments`. `buildColdMultisigService` loads that field from the
+    // guardian's stored blob (which can still be pre-rotation), so
+    // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
+    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // 3) — otherwise this could re-push the OLD allowlist, the historical
+    // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
+    // Best-effort: an on-chain-successful rotation must not be failed by a
+    // guardian blip (`registerOnGuardianWithRetry` retries up to
+    // MAX_GUARDIAN_REGISTER_RETRIES times, honouring Retry-After); a miss is
+    // recorded as `reRegisterFailed` for observability and healed by the
+    // guardian-sync 401 self-heal.
+    // Retried as a WHOLE, not just at its last call. `registerOnGuardianWithRetry`
+    // only covers the final push; everything that feeds it — reading the provider
+    // accounts, the `syncState`, the local `getAccount`, building the cold service
+    // — runs exactly once, and any of them throwing lands in the catch below with
+    // the allowlist never written. That is not a theoretical gap: a guardian
+    // recovery run rotated the key, missed the re-register, and then 401'd
+    // ("session has expired") on every consume that followed, because nothing
+    // re-attempts a miss on this path. The frontend self-heal does eventually
+    // repair it, but only after SELF_HEAL_AUTH_FAILURE_THRESHOLD consecutive
+    // 401s on SYNC ticks plus a 60s cooldown — so a wallet that rotates and
+    // immediately transacts stays broken for the whole of that window.
+    let reRegisterFailed = false;
+    let reRegisterError: unknown;
+    for (let attempt = 1; attempt <= POST_ROTATION_REREGISTER_ATTEMPTS; attempt++) {
+      try {
+        const accounts = await guardianProvider.getAccounts();
+        const walletAccount = accounts.find(a => sameWalletAccountId(a.publicKey, tx.accountId));
+        if (!walletAccount) {
+          throw new Error(`Guardian account ${tx.accountId} not found in provider`);
+        }
+        const sdkAccount = await withWasmClientLock(async () => {
+          await midenClientProxy.syncState();
+          return midenClientProxy.getAccount(tx.accountId);
+        });
+        if (!sdkAccount) {
+          throw new Error(`Guardian account ${tx.accountId} not found in local client`);
+        }
+        const coldService = await MultisigService.buildColdMultisigService(
+          sdkAccount,
+          walletAccount,
+          guardianProvider.signWord
+        );
+        await coldService.reRegisterCurrentStateOnGuardian();
+        reRegisterError = undefined;
+        break;
+      } catch (e) {
+        reRegisterError = e;
+        if (attempt < POST_ROTATION_REREGISTER_ATTEMPTS) {
+          console.warn(
+            `Post-rotation guardian re-register attempt ${attempt}/${POST_ROTATION_REREGISTER_ATTEMPTS} failed; retrying:`,
+            e
+          );
+          // Linear backoff. The common failures here are a not-yet-canonicalized
+          // account read and a guardian still settling the rotation, both of
+          // which clear in seconds — so waiting is what makes the retry useful.
+          await new Promise(resolve => setTimeout(resolve, POST_ROTATION_REREGISTER_BACKOFF_MS * attempt));
+        }
       }
-      const sdkAccount = await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await midenClient.syncState();
-        return midenClient.getAccount(tx.accountId);
-      });
-      if (!sdkAccount) {
-        throw new Error(`Guardian account ${tx.accountId} not found in local client`);
-      }
-      const coldService = await MultisigService.buildColdMultisigService(
-        sdkAccount,
-        walletAccount,
-        guardianProvider.signWord
-      );
-      await coldService.reRegisterCurrentStateOnGuardian();
-    } catch (e) {
+    }
+    if (reRegisterError) {
+      reRegisterFailed = true;
       console.error(
-        'Failed to re-register post-rotation signer set on guardian — the new hot key stays unauthorized (401) until a re-register lands:',
-        e
+        `Failed to re-register post-rotation signer set on guardian after ${POST_ROTATION_REREGISTER_ATTEMPTS} attempts — ` +
+          'the new hot key stays unauthorized (401) until a re-register lands:',
+        reRegisterError
       );
     }
 
@@ -306,6 +397,9 @@ export const completeReplaceHotKeyTransaction = async (
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
+      // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
+      // extraInputs) and record whether the guardian re-register landed (#619 gap 1).
+      extraInputs: { ...tx.extraInputs, reRegisterFailed },
       // `result` is absent on the apply-after-submit-failed reconcile path: the
       // rotation is already on chain, we just lack the local TransactionResult.
       ...(result && {
@@ -435,7 +529,34 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   const noteId = note?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
-  if (tx.noteType === NoteTypeEnum.Private && note && noteId) {
+  // Via `isPrivateNoteType`, not a bare `=== NoteTypeEnum.Private` string
+  // compare: a row can carry the SDK's NUMERIC note type (the enum is accepted
+  // wherever a note type is taken, and `Private` is `0`), and a string compare
+  // answers "public" for it. That would build a private note and then skip the
+  // relay below — the recipient never learns the note exists, and the "missing
+  // full note" guard is skipped too, so it fails silently rather than loudly.
+  // The dApp boundary normalizes before persisting; this is the backstop for
+  // any other producer.
+  //
+  // Swallowing the throw is deliberate here and only here. This runs AFTER the
+  // transaction is on chain, so letting it propagate would fail a LANDED send
+  // before its id is captured — and Retry, seeing no id, would rebuild and pay a
+  // second time. An unrecognized value at this point can only come from a row
+  // some older build wrote, which is a delivery problem; escalating it into a
+  // double spend is strictly worse than logging and skipping the relay.
+  let isPrivateSend: boolean;
+  try {
+    isPrivateSend = isPrivateNoteType(tx.noteType);
+  } catch (error) {
+    console.error('[completeSendTransaction] unrecognized noteType; skipping the private-note relay', {
+      id: tx.id,
+      noteType: tx.noteType,
+      error
+    });
+    isPrivateSend = false;
+  }
+
+  if (isPrivateSend && note && noteId) {
     // Wrap all WASM client operations in a lock to prevent concurrent access.
     // The SDK persists the relay payload to its durable outbox before invoking
     // transport (miden-client#2127); if the transport call fails, the SDK
@@ -444,24 +565,26 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
     // and the SDK will deliver the blob eventually. We just log and move on.
     await setTransactionStage(tx.id, 'confirming');
     try {
-      await withWasmClientLock(async () => {
-        const midenClient = await getMidenClient();
-        await setTransactionStage(tx.id, 'delivering');
-        try {
-          // Relay BEFORE waiting for commit — same reason as completeCustomTransaction:
-          // the sync-height block hint must stay below the note's commitment block, or
-          // the recipient scans past it and never receives.
-          await midenClient.sendPrivateNote(note, tx.secondaryAccountId);
-        } catch (error) {
-          console.warn('Private-note transport failed; SDK outbox will retry on next sync', {
-            txId: tx.id,
-            noteId,
-            secondaryAccountId: tx.secondaryAccountId,
-            error
-          });
-        }
-        await midenClient.waitForTransactionCommit(executedTx.id().toHex());
-      });
+      await setTransactionStage(tx.id, 'delivering');
+      try {
+        // Relay BEFORE waiting for commit — same reason as completeCustomTransaction:
+        // the sync-height block hint must stay below the note's commitment block, or
+        // the recipient scans past it and never receives. Both the relay and the
+        // paired wait route through `midenClientProxy` (issue #260, slice 7b) so they
+        // run on the SAME client that created the note: the OFFSCREEN client flag-on
+        // (which owns the note + the fresh sync height), the SW client flag-off —
+        // byte-identical to the former inline block (each proxy call owns its WASM
+        // lock, so the outer lock is gone).
+        await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);
+      } catch (error) {
+        console.warn('Private-note transport failed; SDK outbox will retry on next sync', {
+          txId: tx.id,
+          noteId,
+          secondaryAccountId: tx.secondaryAccountId,
+          error
+        });
+      }
+      await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
       // Lock acquisition or pre-transport step (e.g. waitForTransactionCommit)
       // failed. The on-chain tx may not be confirmed yet from this client's
@@ -470,7 +593,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       // is the source of truth — subsequent sync_state will reconcile.
       console.warn('Pre-transport step failed during private send; relying on SDK reconcile', { txId: tx.id, error });
     }
-  } else if (tx.noteType === NoteTypeEnum.Private && (!note || !noteId)) {
+  } else if (isPrivateSend && (!note || !noteId)) {
     console.error('Missing full note for private send', { txId: tx.id });
     await updateTransactionStatus(tx.id, ITransactionStatus.Failed, {
       displayMessage: 'Send failed: note unavailable',

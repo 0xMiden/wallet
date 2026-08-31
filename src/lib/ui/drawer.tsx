@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
@@ -21,12 +22,19 @@ interface DrawerProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
+  /**
+   * Names this drawer's overlay screen-key segment (`drawer:<screenKey>`).
+   * Omit to fall back to the generic `drawer` id — open/close is still
+   * captured, just without a per-drawer label. E2E-only; no visual effect.
+   */
+  screenKey?: string;
 }
 
-function Drawer({ open = false, onOpenChange, children }: DrawerProps) {
+function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
+  useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
       <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
@@ -48,7 +56,30 @@ interface DrawerContentProps extends Omit<
   hideHandle?: boolean;
 }
 
-function DrawerContent({ className, overlayClassName, children, hideHandle = true, ...props }: DrawerContentProps) {
+/**
+ * Was the press that Radix is calling "outside the drawer" actually inside the
+ * confirmation/alert dialog stacked ABOVE it?
+ *
+ * react-modal portals into a `div.ReactModalPortal` on <body>, outside the
+ * drawer's subtree, so Radix reads a click on the dialog as an outside
+ * interaction and dismisses the drawer — pulling it closed underneath the very
+ * question it is still asking. Radix dispatches its outside-event on the element
+ * that was actually pressed, so the original event's target identifies the
+ * dialog.
+ */
+function isPressInsideModalPortal(event: { detail: { originalEvent: Event } }): boolean {
+  const target = event.detail.originalEvent.target;
+  return target instanceof Element && target.closest('.ReactModalPortal') !== null;
+}
+
+function DrawerContent({
+  className,
+  overlayClassName,
+  children,
+  hideHandle = true,
+  onPointerDownOutside,
+  ...props
+}: DrawerContentProps) {
   return (
     <VaulDrawer.Portal>
       <VaulDrawer.Overlay
@@ -58,12 +89,21 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
         data-slot="drawer-content"
         aria-describedby={undefined}
         className={cn(
-          // pb: the sheet is fixed to the viewport bottom, so body's safe-area
-          // padding (mobile.html) doesn't reach it — pad past the Android nav
-          // bar / iOS home indicator ourselves (env() is 0 on extension).
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none pb-[env(safe-area-inset-bottom)]',
+          // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
+          // keyboard padding (mobile.html) doesn't reach it — pad past the
+          // Android nav bar / iOS home indicator AND the iOS soft keyboard
+          // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
+          // (env() and the var are 0 on extension/Android). The transition runs
+          // in sync with the native keyboard slide.
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[20px] bg-surface-solid text-sm outline-none',
+          'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
           className
         )}
+        onPointerDownOutside={event => {
+          onPointerDownOutside?.(event);
+          // vaul dismisses only if this event comes back un-prevented.
+          if (isPressInsideModalPortal(event)) event.preventDefault();
+        }}
         {...props}
       >
         {!hideHandle && (

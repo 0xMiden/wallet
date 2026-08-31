@@ -13,6 +13,7 @@ import {
   getSignerDetailsFromAccount,
   GUARDIAN_SLOT_NAMES,
   guardianProviderFromEndpoint,
+  insertGuardianAccountMonotonically,
   MULTISIG_SLOT_NAMES,
   resolveGuardianEndpoint
 } from './account';
@@ -285,7 +286,7 @@ describe('getGuardianCommitmentFromAccount', () => {
 });
 
 describe('guardianProviderFromEndpoint', () => {
-  it('maps a known Open-Zeppelin endpoint to its provider id', () => {
+  it('maps a known OpenZeppelin endpoint to its provider id', () => {
     expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
   });
 
@@ -293,7 +294,7 @@ describe('guardianProviderFromEndpoint', () => {
     expect(guardianProviderFromEndpoint('https://miden-guardian.dev.eu-north-3.gateway.fm')).toBe('gateway');
   });
 
-  it('maps a known Lambda Class endpoint to its provider id', () => {
+  it('maps a known LambdaClass endpoint to its provider id', () => {
     expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
   });
 
@@ -376,8 +377,9 @@ describe('createGuardianAccount', () => {
       hotCiphertext: 'hot-ciphertext-hex',
       coldSecretKeyHex: expect.any(String)
     });
-    // Endpoint is returned so vault can persist it per-account. No stored URL
-    // here (beforeEach stubs undefined), so it falls back to the default.
+    // Endpoint is returned so vault can persist it per-account. No override was
+    // supplied and the frozen global key is never consulted for a create, so it
+    // resolves to the effective network default.
     expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
@@ -404,23 +406,22 @@ describe('createGuardianAccount', () => {
     expect(multisig.registerOnGuardian).not.toHaveBeenCalled();
   });
 
-  it('uses the stored guardian URL when no override is supplied', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://stored.guardian');
+  it('falls back to the default (NOT the frozen global key) when no override is supplied', async () => {
+    // #408 stage 3: a NEW account must never inherit the frozen global key.
+    // createGuardianAccount no longer reads GUARDIAN_URL_STORAGE_KEY at all — the
+    // assertion below proves storage is never consulted. With no override, the
+    // endpoint is the effective network default.
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
     const result = await createGuardianAccount(webClient as never, new Uint8Array(32));
 
-    // When storage yields a URL, create still succeeds — the URL propagation
-    // goes through MultisigClient's constructor which we stubbed, so the
-    // useful signal is that fetchFromStorage was consulted.
-    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
-    // And the stored URL is returned for per-account persistence.
-    expect(result.guardianEndpoint).toBe('https://stored.guardian');
+    // The global-key read is gone: storage is never consulted for a create.
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+    expect(result.guardianEndpoint).toBe('https://default.guardian.test');
   });
 
-  it('prefers the explicit override over storage and default', async () => {
-    mockFetchFromStorage.mockResolvedValueOnce('https://stored.guardian');
+  it('prefers the explicit override over the default', async () => {
     const webClient = makeWebClient();
     multisigClientConfig.create.mockResolvedValueOnce(makeMultisig());
 
@@ -431,7 +432,7 @@ describe('createGuardianAccount', () => {
       'https://override.guardian'
     );
 
-    // Override short-circuits the storage lookup entirely.
+    // Override is used verbatim; storage is never consulted.
     expect(mockFetchFromStorage).not.toHaveBeenCalled();
     expect(result.guardianEndpoint).toBe('https://override.guardian');
   });
@@ -469,5 +470,80 @@ describe('resolveGuardianEndpoint', () => {
     mockFetchFromStorage.mockResolvedValueOnce(undefined);
     const endpoint = await resolveGuardianEndpoint({} as never);
     expect(endpoint).toBe('https://default.guardian.test');
+  });
+});
+
+describe('insertGuardianAccountMonotonically', () => {
+  const makeAccount = (nonce: bigint) => ({
+    id: () => ({ toString: () => 'acc-1' }),
+    nonce: () => ({ asInt: () => nonce })
+  });
+
+  const makeClient = (storedNonce?: bigint) => ({
+    accounts: {
+      insert: jest.fn(async () => {}),
+      get: jest.fn(async () => (storedNonce === undefined ? null : makeAccount(storedNonce)))
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('inserts when the account is not present locally', async () => {
+    const client = makeClient();
+    const account = makeAccount(3n);
+
+    await insertGuardianAccountMonotonically(client as never, account as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledWith({ account, overwrite: true });
+  });
+
+  it('inserts when the snapshot is newer than local state', async () => {
+    const client = makeClient(1n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('still overwrites at an equal nonce, since the snapshot may carry more detail', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a staler snapshot instead of rolling local state backwards', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+
+    expect(client.accounts.insert).not.toHaveBeenCalled();
+  });
+
+  it('keeps the committed state when a creation-time snapshot arrives last', async () => {
+    // The `guardian-recovery` flake exactly: one recovery adopts the same
+    // account twice, and before this guard a nonce-0 snapshot landing second
+    // left the account locally uncommitted, so the following hot-key rotation
+    // was built as an account creation and the node rejected it with
+    // "initial account commitment 0x0000…0000 does not match the current
+    // commitment". Order must no longer decide the outcome.
+    const stored: { nonce: bigint } = { nonce: 0n };
+    const client = {
+      accounts: {
+        insert: jest.fn(async ({ account }: { account: { nonce: () => { asInt: () => bigint } } }) => {
+          stored.nonce = account.nonce().asInt();
+        }),
+        get: jest.fn(async () => (stored.nonce === 0n ? null : makeAccount(stored.nonce)))
+      }
+    };
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+    await insertGuardianAccountMonotonically(client as never, makeAccount(0n) as never);
+
+    expect(stored.nonce).toBe(1n);
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
   });
 });

@@ -213,9 +213,23 @@ const sharedDefine = {
   'process.env.VERSION': JSON.stringify(pkg.version),
   'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
   'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
+  // Issue #260 slice 1: route flag-gated WASM-client reads (getAccount) through
+  // the chrome.offscreen document. DEFAULT OFF — off is a strict no-op vs. the
+  // inline client. See src/lib/miden/back/miden-client-proxy.ts.
+  'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
   'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
   'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
   'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
+  // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
+  // the __TEST_*__ hooks) so a harness build can keep the hooks while still
+  // exercising the real side panel / endpoint-override paths. Default 'false'
+  // => identical to today in every non-E2E build. Both MUST stay defined: this
+  // bundle runs with `globals: { process: false }` below, so a `process.env.X`
+  // read that isn't replaced at build time throws a ReferenceError at runtime.
+  'process.env.MIDEN_E2E_DISABLE_SIDEPANEL': JSON.stringify(process.env.MIDEN_E2E_DISABLE_SIDEPANEL ?? 'false'),
+  'process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES': JSON.stringify(
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
+  ),
   'process.env.MIDEN_ENABLE_BRIDGE_UI': JSON.stringify(process.env.MIDEN_ENABLE_BRIDGE_UI ?? 'false'),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(
     process.env.WALLETCONNECT_PROJECT_ID ?? 'b54ef53f878d160bf63c6eae3a567e67'
@@ -264,7 +278,17 @@ export default defineConfig({
             plugins: ['@svgr/plugin-jsx'],
             exportType: 'named',
             namedExport: 'ReactComponent',
-            jsxRuntime: 'automatic',
+            // Classic runtime so SVGR emits `import * as React from "react"` into
+            // each generated component. The output is returned as `moduleType: 'jsx'`
+            // and recompiled by the bundler with the CLASSIC runtime (tsconfig
+            // `jsx: "react"`, which rolldown-vite honors for these modules and which
+            // neither `esbuild` nor `oxc` JSX options override) → `React.createElement`.
+            // With the automatic runtime SVGR imports nothing from 'react', so those
+            // `React.createElement` calls reference an undefined `React` — harmless in
+            // unminified dev builds (a stray React leaks into the chunk) but crashing
+            // minified production builds ("React is not defined"). Classic keeps the
+            // import and the reference matched.
+            jsxRuntime: 'classic',
             prettier: false,
             svgo: false,
             titleProp: true,
@@ -331,7 +355,18 @@ export default defineConfig({
     sourcemap: process.env.MODE_ENV !== 'production',
     target: 'es2022',
     minify: process.env.MODE_ENV === 'production',
-    modulePreload: { polyfill: false },
+    // `false`, not just `{ polyfill: false }`: the polyfill flag only drops the
+    // runtime shim, leaving Vite to inject a <link rel="modulepreload"> per chunk
+    // into every HTML entry (18 of them in sidepanel.html). Chrome then logs
+    // "was preloaded using link preload but not used within a few seconds" for
+    // each chunk that doesn't execute right away — six entry pages' worth of
+    // console noise.
+    //
+    // Preloading buys ~nothing here anyway: modulepreload exists to hide NETWORK
+    // latency, and every chunk in a packaged extension is a local
+    // chrome-extension:// file. Dropping the links costs no real load time and
+    // avoids eagerly fetching + parsing chunks a given page may never run.
+    modulePreload: false,
     rollupOptions: {
       input: {
         // UI pages (HTML entry points at project root for Vite processing)
@@ -377,7 +412,20 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es'
+    format: 'es',
+    // Same reason as vite.background.config.ts: Vite bundles workers in a
+    // separate pass with its own asset naming, so this config also emitted a
+    // second copy of the SDK's 19.5 MB wasm as `assets/miden_client_web-<hash>.wasm`
+    // alongside the main pass's `static/wasm/…`. BOTH configs need this — fixing
+    // only one leaves the other re-adding the duplicate (verified the hard way).
+    rollupOptions: {
+      output: {
+        assetFileNames: assetInfo =>
+          assetInfo.names?.[0]?.endsWith('.wasm')
+            ? 'static/wasm/[name].[hash][extname]'
+            : 'static/media/[name].[hash][extname]'
+      }
+    }
   },
 
   resolve: {

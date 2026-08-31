@@ -25,7 +25,7 @@ jobs:
             specs: ""
           - name_suffix: " [fast blocks]"
             block_interval: "500ms"
-            specs: "playwright/e2e/tests/send-private.spec.ts"
+            specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
     name: local-e2e (chrome)${{ matrix.name_suffix }}
     runs-on: ubuntu-latest
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
@@ -46,6 +46,21 @@ jobs:
       # rustc — a newer stable can reject the pinned older CLI/transport crates and
       # go red on unrelated PRs. Bump this deliberately (and the cache key below).
       - uses: dtolnay/rust-toolchain@1.96.1
+      # The cargo cache is SHARED by every E2E workflow and warmed on main
+      # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
+      # of spending ~12 min rebuilding binaries that are byte-identical across
+      # jobs. Keyed on what actually determines those binaries — the rustc pin,
+      # the note-transport ref and the pinned miden-client-cli rev — NOT on all of
+      # package.json, which changes on most PRs for unrelated reasons and used to
+      # bust this cache every time.
+      - name: Compute shared cargo cache key
+        id: cargo_cache_key
+        run: |
+          rev=$(node -p "require('./package.json').midenClientCliGit.rev")
+          url=$(node -p "require('./package.json').midenClientCliGit.url")
+          ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+          pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
+          echo "key=miden-e2e-cargo-v1-rust1.96.1-${{ hashFiles('playwright/e2e/local-stack/versions.env') }}-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -55,7 +70,7 @@ jobs:
             ${{ runner.temp }}/note-transport/target
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
-          key: local-e2e-cargo-v3-rust1.96.1-${{ hashFiles('package.json', 'playwright/e2e/local-stack/versions.env') }}
+          key: ${{ steps.cargo_cache_key.outputs.key }}
       - run: yarn install --frozen-lockfile
       - name: Pre-install miden-client-cli (off the per-test clock)
         run: |
@@ -100,8 +115,19 @@ jobs:
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
       - name: Install Playwright browser
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
       - name: Run core specs
         # --retries=1 (spec §7 budget; base config is retries:0, shared with the live
@@ -111,6 +137,13 @@ jobs:
         # matrix.specs is empty for the default-timing leg (full core suite) and
         # scoped to send-private for the fast-blocks leg.
         run: xvfb-run -a yarn test:e2e:blockchain:run --retries=1 ${{ matrix.specs }}
+      - name: Report flaky (retried-then-passed) specs
+        # A spec that failed once and passed on the retry above is reported as a
+        # plain green run, so the flake it represents is invisible. Print one
+        # FLAKY line per such spec from the JSON report so the flake rate can be
+        # read off the log / tracked over time. Diagnostic only -- never fails.
+        if: always()
+        run: node scripts/report-flaky-e2e.mjs test-results/results.json
       # Guardian (`guardian-*.spec.ts`) coverage lives in its own workflow,
       # pr-e2e-guardian-lifecycle.yml, which brings up BOTH guardians (A :3000 +
       # B :3001, `guardian-switch` compose profile) and runs the full suite via

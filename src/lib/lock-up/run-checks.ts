@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 
-import { CHECK_ALEO_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
+import { CHECK_PAGES_EXIST, WALLET_AUTOLOCK_TIME } from 'lib/fixed-times';
 import { assertResponse, request } from 'lib/miden/front';
 import { WalletMessageType } from 'lib/shared/types';
 
@@ -27,8 +27,17 @@ if (await needsLocking()) {
 }
 
 // Establish background connection. sw.js will update timestamp on close
-(window as any).chrome.runtime.connect({
+const popupPort = (window as any).chrome.runtime.connect({
   name: 'Popup Connection'
+});
+// Read the error on disconnect. Without a listener that touches it, a connect
+// that finds no receiving end (service worker still starting, or the context
+// orphaned by an extension reload) leaves `runtime.lastError` unread, and
+// Chrome logs "Unchecked runtime.lastError: Could not establish connection".
+// This port is fire-and-forget by design — the service worker only uses its
+// disconnect to timestamp closure — so there is nothing to retry here.
+popupPort.onDisconnect.addListener(() => {
+  void (window as any).chrome.runtime.lastError;
 });
 
 // Set immediately, and then every x seconds
@@ -37,10 +46,18 @@ if (getOpenedMidenPagesN() > 0) {
 }
 setInterval(async () => {
   if (getOpenedMidenPagesN() > 0) {
-    await browser.runtime.sendMessage('wakeup');
+    try {
+      // Waking the service worker is best-effort. Unguarded, a reject here
+      // (worker still starting, or context orphaned by a reload) became an
+      // uncaught rejection every 10s for the life of the page — and skipped
+      // the timestamp update below, which is the part that actually matters.
+      await browser.runtime.sendMessage('wakeup');
+    } catch {
+      // fall through to the timestamp update
+    }
     await updateClosureTimestamp();
   }
-}, CHECK_ALEO_PAGES_EXIST);
+}, CHECK_PAGES_EXIST);
 
 function getOpenedMidenPagesN() {
   return browser.extension.getViews().length;

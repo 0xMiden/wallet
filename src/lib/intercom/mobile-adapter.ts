@@ -78,7 +78,13 @@ export class MobileIntercomAdapter {
       }
 
       case WalletMessageType.NewWalletRequest:
-        await Actions.registerNewWallet(req.walletType, req.password, req.mnemonic, req.ownMnemonic);
+        await Actions.registerNewWallet(
+          req.walletType,
+          req.password,
+          req.mnemonic,
+          req.ownMnemonic,
+          req.guardianEndpoint
+        );
         return { type: WalletMessageType.NewWalletResponse };
 
       case WalletMessageType.ImportFromClientRequest:
@@ -232,6 +238,14 @@ export class MobileIntercomAdapter {
         return {
           type: WalletMessageType.ApplyUserGuardianEndpointResponse,
           applied
+        };
+      }
+
+      case WalletMessageType.StartGuardianRecoveryRequest: {
+        const started = await Actions.startGuardianRecovery(req.accountPublicKey);
+        return {
+          type: WalletMessageType.StartGuardianRecoveryResponse,
+          started
         };
       }
 

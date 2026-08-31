@@ -6,7 +6,14 @@ window.global = window.global || window;
 // Buffer polyfill will be set by the first module that imports 'buffer'
 // For now, set a stub that will be overridden
 if (typeof window.Buffer === 'undefined') {
-  window.Buffer = { isBuffer: function() { return false; }, from: function(a) { return new Uint8Array(a); } };
+  window.Buffer = {
+    isBuffer: function () {
+      return false;
+    },
+    from: function (a) {
+      return new Uint8Array(a);
+    }
+  };
 }
 
 // Pre-React theme bootstrap. Reads the same localStorage key the React
@@ -29,4 +36,3 @@ if (typeof window.Buffer === 'undefined') {
     }
   } catch (e) {}
 })();
-

@@ -34,7 +34,27 @@ const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol
 jest.mock('lib/miden/metadata', () => ({
   get MIDEN_METADATA() {
     return mockMidenMeta;
-  }
+  },
+  // Real value. `useReceiptAmount` routes a claim through
+  // `formatConsumeAssetParts`, whose whole point is that an unresolved
+  // NON-native faucet reads Unknown rather than MIDEN.
+  DEFAULT_TOKEN_METADATA: { symbol: 'Unknown', decimals: 6, scaleIsUnknown: true }
+}));
+
+let mockNativeAssetId: string | null = null;
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => mockNativeAssetId
+}));
+
+// Explicit, because `__mocks__/app/hooks/useMidenFaucetId.ts` is picked up
+// automatically for this specifier and hard-codes a non-null id. Under that
+// mock `mockNativeAssetId` never reaches the component, so every case below
+// silently ran with a resolved native faucet — including the ones written to
+// exercise the unresolved path.
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockNativeAssetId
 }));
 
 jest.mock('lib/shared/format', () => ({
@@ -42,6 +62,19 @@ jest.mock('lib/shared/format', () => ({
 }));
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
+
+// The guardian success view resolves provider names and renders the v2 Icon
+// barrel; both are stubbed so the dispatcher test stays lightweight.
+jest.mock('app/hooks/useCurrentGuardianEndpoint', () => ({
+  guardianEndpointDisplayName: (endpoint: string | undefined, unknown: string) =>
+    endpoint ? `guardian(${endpoint})` : unknown
+}));
+
+jest.mock('app/icons/v2', () => ({
+  __esModule: true,
+  IconName: new Proxy({}, { get: (_t, prop) => String(prop) }),
+  Icon: ({ name }: { name: string }) => <span data-testid="v2-icon" data-name={name} />
+}));
 
 jest.mock('lib/store', () => ({
   useWalletStore: (selector?: (state: typeof mockState) => unknown) => (selector ? selector(mockState) : mockState)
@@ -70,6 +103,7 @@ describe('TransactionSuccess', () => {
   beforeEach(() => {
     mockState.assetsMetadata = {};
     mockMidenMeta.symbol = 'MIDEN';
+    mockNativeAssetId = null;
   });
 
   const renderInto = async (element: React.ReactElement) => {
@@ -88,8 +122,36 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('Transaction Complete!');
     // No amount, no destination, no txHash → no receipt rows, no amount block.
     expect(container.textContent).not.toContain('Total Paid');
-    expect(container.textContent).not.toContain('Source TX');
+    expect(container.textContent).not.toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
+
+    act(() => root.unmount());
+  });
+
+  it('pins the completion CTAs outside the scroll region so they are never clipped (#463)', async () => {
+    // A send transaction with a hash renders BOTH the primary (Done) and the
+    // secondary (View in Activities) CTA — the latter is the one the report says
+    // gets clipped in the ~360x600 popup. They must live OUTSIDE the scrollable
+    // receipt body, in a non-shrinking footer, so a short viewport scrolls the
+    // body instead of pushing the buttons off-screen.
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        onDoneClick={() => {}}
+        transaction={baseTransaction({ type: 'send', status: 2, transactionId: '0xabcdef', amount: 1000000n })}
+      />
+    );
+
+    const scrollRegion = container.querySelector('.overflow-y-auto');
+    expect(scrollRegion).not.toBeNull();
+
+    const ctas = container.querySelectorAll('[data-testid="done-button"]');
+    expect(ctas.length).toBeGreaterThan(0);
+    ctas.forEach(cta => {
+      // The CTA must NOT be inside the scroll body (or a short popup clips it)...
+      expect(scrollRegion!.contains(cta)).toBe(false);
+      // ...and must sit in a shrink-0 footer that can't be compressed away.
+      expect(cta.closest('.shrink-0')).not.toBeNull();
+    });
 
     act(() => root.unmount());
   });
@@ -113,7 +175,7 @@ describe('TransactionSuccess', () => {
     expect(container.textContent).toContain('to');
     expect(container.textContent).toContain('Total Paid');
     expect(container.textContent).toContain('12345 TST');
-    expect(container.textContent).toContain('Source TX');
+    expect(container.textContent).toContain('Transaction ID');
 
     // The source-tx row is clickable → wired to onViewExplorer.
     const explorerButton = container.querySelector('button[aria-label="viewOnMidenscan"]') as HTMLButtonElement;
@@ -121,6 +183,65 @@ describe('TransactionSuccess', () => {
     act(() => explorerButton.click());
     expect(onViewExplorer).toHaveBeenCalledTimes(1);
 
+    act(() => root.unmount());
+  });
+
+  it('relabels the receipt for a consume: From, Total Consumed and Notes Consumed rows', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 5n,
+          secondaryAccountId: 'mtst1apsender_addr1234',
+          noteId: '0xnote1aaaaaaaa',
+          noteIds: ['0xnote1aaaaaaaa', '0xnote2bbbbbbbb']
+        })}
+        txHash="0xabcdef1234567890"
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('from');
+    expect(container.textContent).not.toContain('Total Paid');
+    expect(container.textContent).toContain('Total Consumed');
+    expect(container.textContent).toContain('Notes Consumed');
+    // Both claimed note ids render, truncated, in the Notes Consumed row.
+    expect(container.textContent).toContain('0xnote…aaaa');
+    expect(container.textContent).toContain('0xnote…bbbb');
+    // The summary pill's right side reads "Consumed" instead of an address.
+    expect(container.textContent).toContain('Consumed');
+    expect(container.textContent).toContain('Transaction ID');
+
+    act(() => root.unmount());
+  });
+
+  // This receipt REPLACES the in-progress summary badge on the same screen a
+  // second later. Resolving its amount from the scalar `amount`/`faucetId` pair
+  // made the displayed total shrink at the moment of success — "20 AAA,
+  // Unknown" while claiming, then "20 AAA" once it landed.
+  it('reports every faucet a batch claim swept up, matching the in-progress badge', async () => {
+    mockState.assetsMetadata = { 'faucet-a': { symbol: 'AAA', decimals: 6 } };
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'consume',
+          amount: 20n,
+          faucetId: 'faucet-a',
+          secondaryAccountId: 'mtst1apsender_addr1234',
+          assetTotals: [
+            { faucetId: 'faucet-a', amount: 20n },
+            { faucetId: 'faucet-b', amount: 10n }
+          ]
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    // The `toContain` below is what actually bites: the two failure modes this
+    // guards against render "20 AAA, 10 MIDEN" (native fallback for a foreign
+    // faucet) and "20 AAA" (secondary dropped), and neither of those contains
+    // the string asserted here.
+    expect(container.textContent).toContain('20 AAA, Unknown');
     act(() => root.unmount());
   });
 
@@ -136,8 +257,25 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction()} txHash="0xdeadbeef0000" onDoneClick={() => {}} />
     );
-    expect(container.textContent).toContain('Source TX');
+    expect(container.textContent).toContain('Transaction ID');
     expect(container.querySelectorAll('button[aria-label="viewOnMidenscan"]')).toHaveLength(0);
+    act(() => root.unmount());
+  });
+
+  it('routes switch-guardian transactions to the guardian success view with the provider transition', async () => {
+    const tx = baseTransaction({
+      type: 'switch-guardian',
+      extraInputs: { previousGuardianEndpoint: 'https://old.gd', newGuardianEndpoint: 'https://new.gd' }
+    } as Partial<ITransaction>);
+    const { container, root } = await renderInto(<TransactionSuccess transaction={tx} onDoneClick={() => {}} />);
+
+    expect(container.textContent).toContain('guardianSwitchSuccessTitle');
+    // Previous → new provider pair resolved from the recorded endpoints.
+    expect(container.textContent).toContain('guardian(https://old.gd)');
+    expect(container.textContent).toContain('guardian(https://new.gd)');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfoTitle');
+    expect(container.textContent).toContain('guardianSwitchSuccessInfo1');
+
     act(() => root.unmount());
   });
 
@@ -175,6 +313,32 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('renders the Guardian rotation view (not the generic fallback) for a switch-guardian tx', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'switch-guardian',
+          extraInputs: {
+            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
+          }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+
+    // The dedicated switch-guardian success view is rendered, naming both
+    // operators in its previous → new transition line (the mocked display-name
+    // helper renders `guardian(<endpoint>)`).
+    expect(container.textContent).toContain('guardianSwitchSuccessTitle');
+    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
+    // NOT the generic SendSuccess fallback.
+    expect(container.textContent).not.toContain('Transaction Complete!');
+
+    act(() => root.unmount());
+  });
+
   it.each([
     ['undefined extraInputs', undefined],
     ['string extraInputs', 'not-an-object'],
@@ -187,9 +351,15 @@ describe('TransactionSuccess', () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 100n, extraInputs })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).not.toContain('Arriving on Ethereum');
-    expect(container.textContent).not.toContain('FAST');
-    expect(container.textContent).not.toContain('SLOW');
+    // The same strings the positive cases above assert. The previous three —
+    // 'Arriving on Ethereum', 'FAST', 'SLOW' — appear in no receipt at all (the
+    // first only in a comment, and the speed copy is 'Fast'/'Slow'), so this case
+    // held even when the guard was reduced to `typeof value === 'object'` and
+    // every input below rendered as a bridged send.
+    expect(container.textContent).not.toContain('Route');
+    expect(container.textContent).not.toContain('Via Epoch');
+    expect(container.textContent).not.toContain('Fast');
+    expect(container.textContent).not.toContain('Slow');
     act(() => root.unmount());
   });
 
@@ -210,19 +380,41 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
-  it('falls back to the MDN literal when neither the faucet nor MIDEN_METADATA carries a symbol', async () => {
-    mockMidenMeta.symbol = undefined;
+  // A row with no faucet is about the native asset, so an empty store still
+  // shows the quantity — MIDEN's scale does not depend on what has been cached.
+  it('quantifies a faucet-less receipt from MIDEN metadata', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 3n })} onDoneClick={() => {}} />
     );
-    expect(container.textContent).toContain('3 MDN');
+    expect(container.textContent).toContain('3 MIDEN');
     act(() => root.unmount());
   });
 
+  // A NAMED faucet the store cannot resolve is a different case: there is no
+  // trustworthy scale for it, and borrowing MIDEN's would misreport the amount.
   it('handles an undefined assetsMetadata store slice without throwing', async () => {
     mockState.assetsMetadata = undefined;
     const { container, root } = await renderInto(
       <TransactionSuccess transaction={baseTransaction({ amount: 9n, faucetId: 'faucet-x' })} onDoneClick={() => {}} />
+    );
+    // The quantity is withheld entirely — not relabelled. Asserting the absence
+    // of "9 MIDEN" alone would still pass if the receipt printed "9 Unknown",
+    // which is the same invented number under a different name.
+    expect(container.textContent).toContain('Payment Sent!');
+    expect(container.textContent).not.toContain('9');
+    act(() => root.unmount());
+  });
+
+  // The native faucet is the case that must NOT be withheld: its scale is fixed,
+  // so an empty store is no reason to drop the amount.
+  it('quantifies a named native faucet even with an empty store', async () => {
+    mockState.assetsMetadata = {};
+    mockNativeAssetId = 'faucet-native';
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({ amount: 9n, faucetId: 'faucet-native' })}
+        onDoneClick={() => {}}
+      />
     );
     expect(container.textContent).toContain('9 MIDEN');
     act(() => root.unmount());

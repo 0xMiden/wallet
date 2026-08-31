@@ -27,7 +27,7 @@ export async function captureWalletSnapshot(
         status: status === 2 ? 'Ready' : status === 1 ? 'Locked' : String(status ?? 'Idle'),
         accountCount: storeData.accounts?.length ?? 0,
         currentAccountPublicKey: storeData.currentAccount?.publicKey ?? null,
-        currentAccountName: storeData.currentAccount?.name ?? null,
+        currentAccountName: storeData.currentAccount?.name ?? null
       };
 
       if (storeData.balances) {
@@ -38,7 +38,7 @@ export async function captureWalletSnapshot(
               allBalances.push({
                 faucetId: String(token.faucetId ?? ''),
                 symbol: String(token.symbol ?? 'Unknown'),
-                amount: String(token.amount ?? token.balance ?? '0'),
+                amount: String(token.amount ?? token.balance ?? '0')
               });
             }
           }
@@ -77,7 +77,7 @@ export async function captureWalletSnapshot(
     walletState,
     balances,
     currentUrl,
-    serviceWorkerStatus,
+    serviceWorkerStatus
   };
 }
 
@@ -110,8 +110,8 @@ export async function captureAndSaveSnapshot(
       status: snapshot.walletState?.status,
       accountCount: snapshot.walletState?.accountCount,
       serviceWorkerStatus: snapshot.serviceWorkerStatus,
-      filePath: filename,
-    },
+      filePath: filename
+    }
   });
 
   return filename;

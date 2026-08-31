@@ -100,6 +100,22 @@ export async function showNoteReceivedNotification(title: string, body: string):
 }
 
 /**
+ * Dismiss the "note received / click to claim" notification.
+ *
+ * Called once the wallet auto-consumes the note (#459): the claim prompt is then
+ * stale — tapping it would open to "nothing to claim" — so it should be removed.
+ */
+export async function clearNoteReceivedNotification(): Promise<void> {
+  if (!isMobile()) return;
+
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: NOTE_RECEIVED_NOTIFICATION_ID }] });
+  } catch (error) {
+    console.error('[NativeNotifications] Error clearing notification:', error);
+  }
+}
+
+/**
  * Set up listener for notification taps.
  * When user taps the notification, close any open webview and navigate to the specified route.
  */

@@ -2,8 +2,8 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -15,7 +15,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CustomRpsContext } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { MIDEN_METADATA, useAccount, useMidenContext } from 'lib/miden/front';
+import { useAccount, useMidenContext } from 'lib/miden/front';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -114,6 +114,38 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
   );
 };
 
+/**
+ * The "this site is asking for something" header shown above every non-connect
+ * approval payload. `origin` is the requesting dApp's origin as recorded when
+ * the user connected — it is the only thing on screen that tells the user WHO
+ * is asking, so it carries an E2E hook.
+ */
+const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
+  <div
+    className={classNames(
+      'text-sm text-left text-black',
+      'flex w-full gap-x-3 items-center p-4',
+      'border border-gray-100 rounded-2xl mb-4'
+    )}
+  >
+    <Icon name={IconName.Globe} fill="currentColor" size="md" />
+    <div className="flex flex-col">
+      <Name className="font-semibold" data-testid="confirm-request-origin">
+        {origin}
+      </Name>
+      {children}
+    </div>
+  </div>
+);
+
+/**
+ * E2E hook for one `label, value` row of a transaction/consume approval screen.
+ * The labels are raw dApp-preview keys ("Amount", "Recipient", "Note Type"), so
+ * they're slugified rather than used verbatim.
+ */
+const txRowValueTestId = (label: string | undefined) =>
+  `confirm-tx-value-${(label ?? '').trim().toLowerCase().replace(/\s+/g, '-')}`;
+
 interface PayloadContentProps {
   payload: MidenDAppPayload;
   account?: WalletAccount;
@@ -185,7 +217,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
         <div>
           <div className="text-sm" key={0}>
             {payload.transactionMessages[0]} <br />
-            {payload.transactionMessages[1]}
+            <span data-testid="confirm-tx-faucet">{payload.transactionMessages[1]}</span>
           </div>
           {account && (
             <>
@@ -202,18 +234,20 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
           <hr className="h-px bg-border-light my-4" />
           {payload.transactionMessages.slice(2).map((message, i) => {
             const [label, rawValue] = message.split(', ');
+            // Amount arrives already formatted from the faucet's real decimals
+            // (dapp.ts `formatSendTransactionPreview`) — do NOT re-scale it here.
+            // Dividing by a hardcoded 10**6 mis-rendered every non-6-decimal
+            // token and lost precision above 2^53 via `Number()`.
             let value = rawValue ?? '';
-            if (label === 'Amount') {
-              const microcredits = Number(value);
-              const amount = microcredits / 10 ** MIDEN_METADATA.decimals;
-              value = amount.toString();
-            } else if (label === 'Recipient') {
+            if (label === 'Recipient') {
               value = truncateAddress(value);
             }
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black">{value}</span>
+                <span className="text-black" data-testid={txRowValueTestId(label)}>
+                  {value}
+                </span>
               </div>
             );
           })}
@@ -568,19 +602,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.TransactionAction_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('requestsATransaction')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('requestsATransaction')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'consume':
@@ -591,19 +615,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.ConsumeAction_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('requestsToConsumeNote')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('requestsToConsumeNote')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'privateNotes':
@@ -614,19 +628,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestPrivateNotes_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('requestsPrivateNotes')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('requestsPrivateNotes')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'sign':
@@ -637,19 +641,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.SignData_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span className="text-text-muted">{t('requestsYourSignature')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span className="text-text-muted">{t('requestsYourSignature')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'assets':
@@ -660,19 +654,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestAssets_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('requestsAssets')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('requestsAssets')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'importPrivateNote':
@@ -683,19 +667,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestImportPrivateNote_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('importPrivateNote')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('importPrivateNote')}</span>
+            </RequestOriginBanner>
           )
         };
       case 'consumableNotes':
@@ -706,19 +680,9 @@ const ConfirmDAppForm: FC = () => {
           confirmActionTitle: t('confirm'),
           confirmActionTestID: ConfirmPageSelectors.RequestConsumableNotes_AcceptButton,
           want: (
-            <div
-              className={classNames(
-                'text-sm text-left text-black',
-                'flex w-full gap-x-3 items-center p-4',
-                'border border-gray-100 rounded-2xl mb-4'
-              )}
-            >
-              <Icon name={IconName.Globe} fill="currentColor" size="md" />
-              <div className="flex flex-col">
-                <Name className="font-semibold">{payload.origin}</Name>
-                <span>{t('requestsConsumableNotes')}</span>
-              </div>
-            </div>
+            <RequestOriginBanner origin={payload.origin}>
+              <span>{t('requestsConsumableNotes')}</span>
+            </RequestOriginBanner>
           )
         };
     }
@@ -795,6 +759,7 @@ const ConfirmDAppForm: FC = () => {
               }}
               isLoading={declining}
               onClick={handleDeclineClick}
+              data-testid={content.declineActionTestID}
             >
               {content.declineActionTitle}
             </Button>
@@ -808,6 +773,7 @@ const ConfirmDAppForm: FC = () => {
               loading={confirming}
               onClick={handleConfirmClick}
               testID={content.confirmActionTestID}
+              data-testid={content.confirmActionTestID}
             >
               {content.confirmActionTitle}
             </FormSubmitButton>

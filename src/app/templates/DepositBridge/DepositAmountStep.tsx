@@ -54,7 +54,9 @@ export const DepositAmountStep: React.FC<DepositAmountStepProps> = ({
     name: token.symbol,
     decimals: token.decimals,
     balance: Number(formatBalance(balance, token.decimals)),
-    fiatPrice: 0
+    fiatPrice: 0,
+    // Fixed EVM deposit tokens — decimals come from the registry, not a placeholder.
+    scaleIsKnown: true
   };
 
   return (

@@ -122,6 +122,33 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   } as IHistoryEntry;
 }
 
+/**
+ * Renders with `restoredFromBackup` defaulted to false.
+ *
+ * The prop is REQUIRED in production for a reason: its previous form read the
+ * flag off `entry`, and the only production producer never set it, so every
+ * guard in this panel read `undefined` and did nothing. Keep this helper as the
+ * only place the default is written, so a restored-row case has to opt in
+ * explicitly rather than inherit a fixture's silence.
+ */
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean; onUpdated?: () => void }) =>
+  render(
+    <BridgeClaimSection
+      entry={props.entry}
+      restoredFromBackup={props.restoredFromBackup ?? false}
+      onUpdated={props.onUpdated ?? jest.fn()}
+    />
+  );
+
+const agglayer = (o: Partial<IHistoryEntry> = {}) =>
+  entry({
+    bridgeProvider: 'agglayer',
+    status: 2,
+    bridgeEpochStatus: undefined,
+    bridgeClaimStatus: 'pending',
+    ...o
+  });
+
 describe('BridgeClaimSection', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -131,7 +158,7 @@ describe('BridgeClaimSection', () => {
   describe('failed Epoch bridge-out reclaim', () => {
     it('shows "reclaimable after block N" until the reclaim height is reached', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(500); // below 1000
-      render(<BridgeClaimSection entry={entry()} onUpdated={jest.fn()} />);
+      renderSection({ entry: entry() });
       await waitFor(() => expect(mockGetCurrentMidenBlock).toHaveBeenCalled());
       expect(await screen.findByText(/t:reclaimableAfterBlock/)).toBeInTheDocument();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
@@ -139,7 +166,7 @@ describe('BridgeClaimSection', () => {
 
     it('shows a Reclaim button once the height passes and consumes the note on click', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200); // >= 1000
-      render(<BridgeClaimSection entry={entry()} onUpdated={jest.fn()} />);
+      renderSection({ entry: entry() });
       const btn = await screen.findByText('t:reclaimFunds');
       fireEvent.click(btn);
       await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false));
@@ -148,7 +175,7 @@ describe('BridgeClaimSection', () => {
     });
 
     it('does not fetch the block or show reclaim UI for a non-failed epoch row', async () => {
-      render(<BridgeClaimSection entry={entry({ status: 2, bridgeEpochStatus: 'pending' })} onUpdated={jest.fn()} />);
+      renderSection({ entry: entry({ status: 2, bridgeEpochStatus: 'pending' }) });
       expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
       expect(screen.queryByText(/t:reclaimableAfterBlock/)).not.toBeInTheDocument();
@@ -157,24 +184,15 @@ describe('BridgeClaimSection', () => {
     it('surfaces an error when the reclaim consume fails', async () => {
       mockGetCurrentMidenBlock.mockResolvedValueOnce(1200);
       mockInitiateConsumeFromId.mockRejectedValueOnce(new Error('reclaim boom'));
-      render(<BridgeClaimSection entry={entry()} onUpdated={jest.fn()} />);
+      renderSection({ entry: entry() });
       fireEvent.click(await screen.findByText('t:reclaimFunds'));
       expect(await screen.findByText('reclaim boom')).toBeInTheDocument();
     });
   });
 
   describe('Agglayer (Slow) claim', () => {
-    const agglayer = (o: Partial<IHistoryEntry> = {}) =>
-      entry({
-        bridgeProvider: 'agglayer',
-        status: 2,
-        bridgeEpochStatus: undefined,
-        bridgeClaimStatus: 'pending',
-        ...o
-      });
-
     it('prompts to connect an EVM wallet when disconnected', () => {
-      render(<BridgeClaimSection entry={agglayer()} onUpdated={jest.fn()} />);
+      renderSection({ entry: agglayer() });
       expect(screen.getByText('t:connectEvmWallet')).toBeInTheDocument();
       // Epoch-only reclaim UI must not appear on an Agglayer row.
       expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
@@ -182,14 +200,14 @@ describe('BridgeClaimSection', () => {
 
     it('asks to connect the destination wallet when the connected address differs', () => {
       mockEvm = { provider: {}, address: '0xother', isConnected: true, connect: jest.fn() };
-      render(<BridgeClaimSection entry={agglayer()} onUpdated={jest.fn()} />);
+      renderSection({ entry: agglayer() });
       expect(screen.getByText('t:connectDestinationWalletToClaim')).toBeInTheDocument();
     });
 
     it('claims the deposit when connected to the destination wallet', async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
-      render(<BridgeClaimSection entry={agglayer()} onUpdated={jest.fn()} />);
+      renderSection({ entry: agglayer() });
       const claimBtn = await screen.findByText('t:claimAsset');
       fireEvent.click(claimBtn);
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
@@ -199,15 +217,77 @@ describe('BridgeClaimSection', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
       mockClaimAgglayer.mockRejectedValueOnce(new Error('claim boom'));
-      render(<BridgeClaimSection entry={agglayer()} onUpdated={jest.fn()} />);
+      renderSection({ entry: agglayer() });
       fireEvent.click(await screen.findByText('t:claimAsset'));
       expect(await screen.findByText('claim boom')).toBeInTheDocument();
     });
 
     it('shows the submitted state once the deposit is claimed', () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
-      render(<BridgeClaimSection entry={agglayer({ bridgeClaimStatus: 'claimed' })} onUpdated={jest.fn()} />);
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'claimed' }) });
       expect(screen.getByText('t:claimAssetSubmitted')).toBeInTheDocument();
+    });
+  });
+
+  // Every affordance in this panel, asserted from ONE restored row. The guards
+  // existed before this suite did and were all inert in production, because the
+  // only producer of `entry` never set the flag — nothing here could have caught
+  // that while the value came from the fixture. Driving them together off a
+  // single prop is the point.
+  describe('a row restored from a backup', () => {
+    it('polls nothing and offers no affordance, whatever the row records', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+
+      renderSection({
+        entry: agglayer({ bridgeClaimStatus: 'pending', bridgeIntentNonce: 'nonce-1' }),
+        restoredFromBackup: true
+      });
+
+      // Nothing is polled: no AggLayer deposit lookup, no Epoch fill poll, and
+      // no Miden block read (which only the reclaim gate triggers).
+      await waitFor(() => expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument());
+      expect(mockFindClaimable).not.toHaveBeenCalled();
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not poll the Epoch fill for a restored pending row', async () => {
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+
+      renderSection({
+        entry: entry({
+          status: 2,
+          bridgeEpochStatus: 'pending',
+          bridgeIntentNonce: 'nonce-1',
+          bridgeReclaimHeight: undefined,
+          outputNoteIds: undefined
+        }),
+        restoredFromBackup: true
+      });
+
+      // Give the effect the same window the non-restored case needs to fire in.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+    });
+
+    it('withholds the reclaim button on a failed Epoch row past its reclaim height', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(5000); // well past 1000
+
+      renderSection({ entry: entry(), restoredFromBackup: true });
+
+      await waitFor(() => expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument());
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('still polls and offers the claim when the row is NOT restored', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
+
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalled());
     });
   });
 
@@ -215,35 +295,30 @@ describe('BridgeClaimSection', () => {
     it('polls the fill and persists the confirmed status', async () => {
       mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
       const onUpdated = jest.fn();
-      render(
-        <BridgeClaimSection
-          entry={entry({
-            status: 2,
-            bridgeEpochStatus: 'pending',
-            bridgeIntentNonce: 'nonce-1',
-            bridgeReclaimHeight: undefined,
-            outputNoteIds: undefined
-          })}
-          onUpdated={onUpdated}
-        />
-      );
+      renderSection({
+        entry: entry({
+          status: 2,
+          bridgeEpochStatus: 'pending',
+          bridgeIntentNonce: 'nonce-1',
+          bridgeReclaimHeight: undefined,
+          outputNoteIds: undefined
+        }),
+        onUpdated
+      });
       await waitFor(() => expect(mockPollEpochIntentFill).toHaveBeenCalled());
       await waitFor(() => expect(onUpdated).toHaveBeenCalled());
     });
 
     it('renders the receiving-tx link once the fill is confirmed', () => {
-      render(
-        <BridgeClaimSection
-          entry={entry({
-            status: 2,
-            bridgeEpochStatus: 'confirmed',
-            bridgeFillTxHash: '0xfillhash',
-            bridgeReclaimHeight: undefined,
-            outputNoteIds: undefined
-          })}
-          onUpdated={jest.fn()}
-        />
-      );
+      renderSection({
+        entry: entry({
+          status: 2,
+          bridgeEpochStatus: 'confirmed',
+          bridgeFillTxHash: '0xfillhash',
+          bridgeReclaimHeight: undefined,
+          outputNoteIds: undefined
+        })
+      });
       expect(screen.getByText('t:receivingTx')).toBeInTheDocument();
     });
   });

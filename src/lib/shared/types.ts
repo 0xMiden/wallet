@@ -79,6 +79,8 @@ export enum WalletMessageType {
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
   ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
+  StartGuardianRecoveryRequest = 'START_GUARDIAN_RECOVERY_REQUEST',
+  StartGuardianRecoveryResponse = 'START_GUARDIAN_RECOVERY_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -178,6 +180,8 @@ export interface SerializedVaultAsset {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 
@@ -206,6 +210,8 @@ export interface SerializedConsumableNote {
   amountBaseUnits: string;
   senderAddress: string;
   noteType?: string; // 'public' | 'private' | 'unknown'
+  /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
+  recallableAtMs?: number;
   swapOrder?: {
     orderId: string;
     depth: number;
@@ -220,6 +226,8 @@ export interface SerializedConsumableNote {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 
@@ -314,7 +322,7 @@ export interface GetInputNoteDetailsResponse extends WalletMessageBase {
 
 export interface GetStateRequest extends WalletMessageBase {
   type: WalletMessageType.GetStateRequest;
-  // TODO: Add an enum param here for determining "which wallet" i.e. Aleo vs Miden
+  // TODO: Add an enum param here for determining which wallet type
 }
 
 export interface GetStateResponse extends WalletMessageBase {
@@ -394,12 +402,21 @@ export interface WalletAccount {
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
   /**
-   * Guardian operator endpoint this account is registered with. Set at create /
-   * recovery time and updated when the user switches guardians. Per-account so
-   * multiple Guardian accounts can live on different operators — absence means a
-   * record created before this field existed, in which case consumers fall back
-   * to the legacy global `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`).
-   * Non-Guardian accounts leave this undefined.
+   * Set on adoption through Guardian seed recovery; the detached pending-note
+   * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once
+   * and clears it. Absent on accounts that were not seed-recovered.
+   */
+  guardianNoteRecoveryPending?: boolean;
+  /**
+   * Guardian operator endpoint this account is registered with — the
+   * authoritative source of truth for endpoint resolution (#408). Set at create /
+   * recovery time, stamped onto legacy accounts by the unlock-time on-chain
+   * backfill, and updated when the user switches guardians. Per-account so
+   * multiple Guardian accounts can live on different operators. When absent (a
+   * legacy record the backfill couldn't resolve on-chain), consumers fall back
+   * to the frozen, read-only, never-written legacy global
+   * `GUARDIAN_URL_STORAGE_KEY` (see `resolveGuardianEndpoint`). Non-Guardian
+   * accounts leave this undefined.
    */
   guardianEndpoint?: string;
   /**
@@ -456,6 +473,11 @@ export interface NewWalletRequest extends WalletMessageBase {
   mnemonic?: string;
   ownMnemonic?: boolean;
   walletType: WalletType;
+  // Guardian operator endpoint the onboarding flow picked (choose-guardian) or
+  // probed (import / recovery). Threaded explicitly so a new Guardian account
+  // binds to the caller's chosen endpoint without round-tripping through the
+  // legacy global GUARDIAN_URL_STORAGE_KEY. Undefined for non-guardian wallets.
+  guardianEndpoint?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {
@@ -767,6 +789,16 @@ export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   applied: boolean;
 }
 
+export interface StartGuardianRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryRequest;
+  accountPublicKey: string;
+}
+
+export interface StartGuardianRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryResponse;
+  started: boolean;
+}
+
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
   type: WalletMessageType.GetPublicKeyForCommitmentRequest;
   commitment: string;
@@ -987,6 +1019,7 @@ export type WalletRequest =
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
+  | StartGuardianRecoveryRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -1049,6 +1082,7 @@ export type WalletResponse =
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
+  | StartGuardianRecoveryResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse

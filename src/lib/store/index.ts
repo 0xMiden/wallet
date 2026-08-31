@@ -130,14 +130,15 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Auth actions
-    registerWallet: async (walletType, password, mnemonic, ownMnemonic) => {
+    registerWallet: async (walletType, password, mnemonic, ownMnemonic, guardianEndpoint) => {
       console.log('[WalletStore] registerWallet called with walletType:', walletType);
       const res = await request({
         type: WalletMessageType.NewWalletRequest,
         walletType,
         password,
         mnemonic,
-        ownMnemonic
+        ownMnemonic,
+        guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
       // State will be synced via StateUpdated notification
@@ -408,6 +409,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.ApplyUserGuardianEndpointResponse);
       return res.applied;
+    },
+
+    startGuardianRecovery: async accountPublicKey => {
+      const res = await request({
+        type: WalletMessageType.StartGuardianRecoveryRequest,
+        accountPublicKey
+      });
+      assertResponse(res.type === WalletMessageType.StartGuardianRecoveryResponse);
+      return res.started;
     },
 
     getPublicKeyForCommitment: async commitment => {

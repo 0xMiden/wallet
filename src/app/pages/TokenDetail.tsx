@@ -13,7 +13,9 @@ import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, getTokenPrice } from 'lib/prices';
@@ -54,6 +56,15 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const balance = token?.balance ?? 0;
   const priceInfo = getTokenPrice(tokenPrices, symbol);
   const fiatValue = balance * priceInfo.price;
+  // `balance` was divided by the placeholder's guessed decimals upstream, so for
+  // an unresolved faucet it is not this user's holding — and the fiat figure
+  // below is that same wrong number multiplied by a price. The hero is the most
+  // emphatic number in the wallet; an em dash says "not known" where a rendered
+  // quantity would say "this is what you have".
+  const scaleIsKnown = hasKnownScale(metadata);
+  // An em dash, not a translated phrase: this slot is a number in a 44px hero,
+  // and the header above it already names the token.
+  const heroBalance = scaleIsKnown ? toAdaptiveFixed(balance) : '—';
 
   const handleBack = () => goBack();
 
@@ -75,11 +86,13 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <TokenLogo symbol={symbol} size="xl" className="rounded-10" />
 
             <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
-              {balance.toFixed(2)}
+              {heroBalance}
             </span>
-            <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
-              ${fiatValue.toFixed(2)}
-            </span>
+            {scaleIsKnown && (
+              <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
+                ${toAdaptiveFixed(fiatValue)}
+              </span>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -160,7 +173,9 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             })}
           </span>
         </div>
-        <span className="font-heading text-2xl font-bold text-heading-gray">${priceInfo.price.toFixed(3)}</span>
+        <span className="font-heading text-2xl font-bold text-heading-gray">
+          ${toAdaptiveFixed(priceInfo.price, 3)}
+        </span>
         <div className="mt-3 h-20">
           <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
@@ -171,7 +186,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
-                      <div className="font-heading font-semibold">${Number(point.value).toFixed(2)}</div>
+                      <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                       {point.time && <div className="opacity-75">{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

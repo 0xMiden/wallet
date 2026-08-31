@@ -17,6 +17,24 @@ permissions:
   pull-requests: write
 
 jobs:
+  # #594 — fail the build when the native prover's miden-client pin drifts from
+  # the version behind @miden-sdk/miden-sdk (unless recorded as a safe exemption).
+  # No install needed: the guard uses only Node built-ins.
+  native-prover-pin:
+    name: Native prover pin lockstep
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v3
+      - name: Use Node 22
+        uses: actions/setup-node@v3
+        with:
+          node-version: 22
+      - name: Check native-prover miden-client pin
+        run: |
+          node scripts/check-native-prover-pin.mjs --self-test
+          node scripts/check-native-prover-pin.mjs
+
   translations:
     name: Update Translation Files
     runs-on: ubuntu-latest
@@ -26,15 +44,23 @@ jobs:
       - name: Check Out Code
         uses: actions/checkout@v3
         with:
-          # Push the translation commit with a maintainer-attributed token, NOT the
-          # default GITHUB_TOKEN. A commit authored/pushed via GITHUB_TOKEN is the
-          # `github-actions[bot]` actor, and GitHub then requires MANUAL APPROVAL for
-          # every workflow that bot commit triggers ("action_required") — which
-          # silently gated all PR CI (earn/swap/local e2e, PR Tests) the moment this
-          # job started pushing translation updates. A PAT/App token from a real
-          # maintainer makes the pushed commit trigger normal, un-gated CI. Falls
-          # back to GITHUB_TOKEN if the secret is unset (behaviour unchanged, still
-          # gated) so forks / unconfigured repos don't break.
+          # Use a PAT (not GITHUB_TOKEN) so the translation commit this job pushes
+          # RE-TRIGGERS the PR checks automatically. By GitHub design, a commit
+          # pushed with GITHUB_TOKEN is the `github-actions[bot]` actor and does NOT
+          # start new workflow runs (GitHub then marks them "action_required",
+          # requiring a maintainer to manually "Approve and run") — which silently
+          # gated all PR CI (earn/swap/local e2e, PR Tests) the moment this job
+          # started pushing locale updates. A PAT-authenticated push from a real
+          # maintainer is not exempt, so CI re-runs on the translation commit without
+          # approval. No loop: the push below is gated on
+          # `git-check.outputs.changes == 'true'`, and the re-run regenerates
+          # identical locales → no diff → no second push.
+          #
+          # SETUP: repo/org admin must add a `TRANSLATIONS_PAT` secret — a token with
+          # write (contents) access to this repo (classic PAT with `repo`, or a
+          # fine-grained PAT / GitHub App token with Contents: write). Until then this
+          # falls back to GITHUB_TOKEN (push still works, manual-approval behavior kept),
+          # so forks / unconfigured repos don't break.
           token: ${{ secrets.TRANSLATIONS_PAT || secrets.GITHUB_TOKEN }}
           # Fork PRs: the head branch lives in the contributor's fork, not the
           # base repo. Without `repository`, checkout defaults to the base repo
@@ -68,12 +94,16 @@ jobs:
           comment: 'true'
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Generate Translation Files
         uses: borales/actions-yarn@v4
+        env:
+          # DeepL API key for the translation engine (utility/generateLanguageFiles.ts).
+          # Add it under repo Settings → Secrets and variables → Actions → DEEPL_API_KEY.
+          # Absent on fork PRs (secrets aren't shared to forks); the utility then skips
+          # translation and this job still runs (it also posts the linked-web-sdk comment).
+          DEEPL_API_KEY: ${{ secrets.DEEPL_API_KEY }}
         with:
           cmd: createTranslationFile
 
@@ -118,9 +148,7 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run ESLint
         uses: borales/actions-yarn@v4
@@ -148,6 +176,9 @@ jobs:
           MIDEN_USE_MOCK_CLIENT: 'true'
 
       - name: Install Playwright Browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright E2E
@@ -174,9 +205,7 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run Coverage Check
         uses: borales/actions-yarn@v4
@@ -219,3 +248,10 @@ jobs:
 
       - name: Check i18n compliance
         run: yarn lint:i18n
+
+      # Ratchet over the E2E suites: blocks NEW assertion shapes that cannot fail
+      # (toBeGreaterThan(0), waitForBalanceAbove(0), long bare sleeps, expect()
+      # inside an if branch). The existing instances are recorded in
+      # playwright/e2e/eslint-rules/known-violations.json and do not fail the job.
+      - name: Check E2E harness conventions
+        run: yarn lint:e2e

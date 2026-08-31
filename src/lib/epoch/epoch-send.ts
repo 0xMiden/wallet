@@ -1,6 +1,7 @@
 import { CollateralType } from '@epoch-protocol/epoch-intents-sdk';
 import { formatUnits } from 'viem';
 
+import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { markBridgedSendFailed, updateBridgeClaimStatus } from 'lib/miden/activity';
 
 import { buildCrossChainIntent, getCrossChainQuote } from './bridge';
@@ -12,7 +13,7 @@ import {
   isBridgeableEvmTokenConfigured
 } from './bridgeable-token';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
-import { createBridgeP2IDNote, type BridgeNoteDeps } from './miden-note';
+import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
 import type { CrossChainIntentParams } from './types';
 
@@ -25,16 +26,14 @@ export interface EpochQuoteOutput {
 
 /**
  * Format an Epoch quote amount (18-decimal base units, or an already-human
- * decimal) to a display string rounded to 2 decimals. The raw `tokenOut` uses
- * the output token's full 18-decimal precision; we only ever surface 2 decimals
- * (USDC) in the send-quote preview and the activity row/detail.
+ * decimal) to a display string with the standard 2-decimal precision, expanding
+ * for small non-zero values that would otherwise appear as zero.
  */
 function formatQuoteAmount(raw: string, decimals: number): string {
   if (!raw || raw === '0') return '0.00';
   try {
     const human = /^\d+\.\d+$/.test(raw) ? raw : formatUnits(BigInt(raw), decimals);
-    const n = Number(human);
-    return Number.isFinite(n) ? n.toFixed(2) : human;
+    return toAdaptiveFixed(human);
   } catch {
     return raw;
   }
@@ -62,8 +61,9 @@ function buildEpochSendParams(
     outputTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
     outputTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
     minTokenOut: '0',
-    // Minimum window + headroom for blocks that elapse while the note is proved
-    // and submitted (the allocator validates against its later chain head).
+    // Mandate-only estimate (hashed into the witness). The NOTE's actual reclaim
+    // height uses the SDK-supplied `recallBlocks` from the mint callback instead;
+    // the allocator validates the note's REMAINING window, not this exact height.
     midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
   };
 }
@@ -126,7 +126,7 @@ export interface EpochSendArgs {
  * client) rather than the wallet-bound store.
  *
  * There is exactly ONE on-chain transaction: the recallable P2IDE note created by
- * the `createMidenP2IDNote` callback (`createBridgeP2IDNote`). That note IS the
+ * the `createMidenP2IDENote` callback (`createBridgeP2IDENote`). That note IS the
  * `bridged-send` activity row — created, proved, and submitted by the normal send
  * pipeline, then marked "Bridged to EVM" by `completeBridgedSendTransaction`.
  * bridgeEpochSend itself creates NO row; it only runs the quote → solve and patches
@@ -148,7 +148,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     currentBlock
   );
 
-  // Forward quote (input → output), then solve. `createMidenP2IDNote` blocks until
+  // Forward quote (input → output), then solve. `createMidenP2IDENote` blocks until
   // the P2IDE `bridged-send` row is committed on Miden before the intent is
   // submitted. The sponsor is the recipient (set inside buildCrossChainIntent). We
   // capture the row id from the callback so we can patch the EVM solve hash on it.
@@ -159,12 +159,14 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     preFetchedQuote: quote,
     collateralType: CollateralType.Miden,
     midenSourceAccount: args.senderPublicKey,
-    createMidenP2IDNote: async (faucet, amount, allocatorId) => {
-      const res = await createBridgeP2IDNote({
+    createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      const res = await createBridgeP2IDENote({
         senderAccountId: args.senderPublicKey,
         faucetId: faucet,
         amount,
         allocatorId,
+        recallBlocks,
+        bindingAttachmentFelts,
         destinationAddress: args.destinationAddress,
         destinationNetwork: EPOCH_DESTINATION_CHAIN_ID,
         deps: args.deps,
@@ -175,7 +177,7 @@ export async function bridgeEpochSend(args: EpochSendArgs): Promise<{ txId?: str
     }
   });
   if (intent.error) {
-    // The `createMidenP2IDNote` callback already committed the P2IDE note and the
+    // The `createMidenP2IDENote` callback already committed the P2IDE note and the
     // send pipeline marked its `bridged-send` row Completed / 'Bridged to EVM'
     // BEFORE the allocator rejected the intent here. Demote that false success to
     // Failed so the user isn't told the bridge succeeded while their funds sit in

@@ -110,11 +110,16 @@ jest.mock('lib/miden/back/vault', () => ({
 const _g = globalThis as any;
 _g.__dappBranchMockGetAccount = jest.fn();
 
+// The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
+// of miden-client, which jest mocks separately from the relative specifier below;
+// delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
+jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
     getInputNoteDetails: jest.fn(async () => []),
     getConsumableNotes: jest.fn(async () => []),
+    getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
     on: jest.fn()
@@ -124,10 +129,14 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));

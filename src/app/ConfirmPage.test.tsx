@@ -20,7 +20,7 @@ import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 // ---------------------------------------------------------------------------
 
 // ESM wallet-adapter package: only the `PrivateDataPermission` enum is read.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' }
 }));
 
@@ -519,7 +519,9 @@ describe('transaction payload', () => {
     transactionMessages: [
       'Sending funds',
       'to a recipient',
-      'Amount, 1000000',
+      // The backend (`formatSendTransactionPreview` / `formatConsumeTransactionPreview`)
+      // already applies the faucet's real decimals, so the amount arrives display-ready.
+      'Amount, -1.5',
       'Recipient, mtst1abcdef_ghij',
       'Fee, 5',
       'NoComma'
@@ -533,8 +535,10 @@ describe('transaction payload', () => {
     expect(screen.getByText('requestsATransaction')).toBeInTheDocument();
     // account block
     expect(screen.getByText(ACCOUNT.name)).toBeInTheDocument();
-    // Amount 1000000 microcredits / 10^6 => "1"
-    expect(screen.getByText('1')).toBeInTheDocument();
+    // Regression guard: ConfirmPage must NOT re-scale the amount. It used to divide
+    // by a hardcoded 10 ** 6 (MIDEN's decimals), which mis-rendered every faucet with
+    // different decimals and lost precision above 2^53 by routing through Number().
+    expect(screen.getByText('-1.5')).toBeInTheDocument();
     // Plain label passes value through untouched.
     expect(screen.getByText('Fee')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();

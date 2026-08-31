@@ -1,8 +1,7 @@
-import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
-
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import type { TimelineRecorder } from '../../harness/timeline-recorder';
+import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -66,6 +65,15 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Android-only helpers (mirror the iOS-only set on IosWalletPage) ─────
 
+  /**
+   * Evaluate a raw JS body (must `return`) in the wallet webview. Mirrors
+   * `IosWalletPage.evalJs` so the shared dApp-browser driver can drive both
+   * platforms through one interface.
+   */
+  async evalJs<T = unknown>(js: string): Promise<T> {
+    return this.cdp.eval<T>(js);
+  }
+
   async locatorText(selector: string): Promise<string | null> {
     return this.cdp.eval<string | null>(
       `var el = document.querySelector(${JSON.stringify(selector)}); ` +
@@ -106,78 +114,82 @@ export class AndroidWalletPage implements WalletPage {
   // ── Onboarding ────────────────────────────────────────────────────────────
 
   async createNewWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'private');
+  }
+
+  /**
+   * Create a Guardian (co-signed) wallet through the same bypass. Guardian is
+   * the ONLY account type production onboarding creates, so a suite that only
+   * ever exercises private wallets is testing a configuration no user has.
+   * Mirrors the iOS and Chrome contracts.
+   */
+  async createGuardianWallet(password: string = DEFAULT_PASSWORD): Promise<{ address: string; seedPhrase: string[] }> {
+    return this.createWalletViaBypass(password, 'guardian');
+  }
+
+  async importWallet(seedPhrase: string[], password: string = DEFAULT_PASSWORD): Promise<{ address: string }> {
+    const { address } = await this.createWalletViaBypass(password, 'private', seedPhrase);
+    return { address };
+  }
+
+  /**
+   * Drive onboarding through the `__test_skip_onboarding` bypass in Welcome.tsx,
+   * exactly as the iOS POM does.
+   *
+   * This replaced a hand-driven walk of the onboarding screens that had gone
+   * stale against the product: it polled for a button reading "Get started",
+   * which no longer exists — the confirmation button is keyed by testid now — so
+   * `createNewWallet` sat for its full 120s and then failed on a condition that
+   * could never become true. `importWallet` was walking the same dead path
+   * (matching on "i already have a wallet", "your wallet is ready" and the same
+   * "get started"), so both are routed through one bypass here rather than two
+   * copies of a screen-by-screen script that drift independently.
+   */
+  private async createWalletViaBypass(
+    password: string,
+    recovery: 'private' | 'guardian',
+    seed?: string[]
+  ): Promise<{ address: string; seedPhrase: string[] }> {
     await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
 
     const passwordEnc = encodeURIComponent(password);
+    const seedEnc = seed && seed.length > 0 ? encodeURIComponent(seed.join(' ')) : '';
+    // Guardian creation does extra HTTP round-trips to co-sign, so it needs a
+    // wider readiness window than a private wallet.
+    const readyTimeoutMs = recovery === 'guardian' ? 180_000 : 120_000;
     await this.cdp.eval(
       `var u = new URL(location.href); ` +
         `u.searchParams.set('__test_skip_onboarding', '1'); ` +
         `u.searchParams.set('password', '${passwordEnc}'); ` +
+        (recovery === 'guardian' ? `u.searchParams.set('walletType', 'guardian'); ` : '') +
+        (seedEnc ? `u.searchParams.set('seed', '${seedEnc}'); ` : '') +
         `location.href = u.toString(); ` +
         `return null;`
     );
+    // Page is reloading — let the WebView settle before the next eval.
     await sleep(2_500);
 
-    await this.pollForCondition(
-      `var btns = Array.from(document.querySelectorAll('button')); ` +
-        `return btns.some(function(b) { return /get started/i.test(b.textContent || ''); });`,
-      120_000
-    );
-
-    await this.cdp.eval(
-      `var btns = Array.from(document.querySelectorAll('button')); ` +
-        `var target = btns.find(function(b) { return /get started/i.test(b.textContent || ''); }); ` +
-        `if (target) target.click(); return target ? true : false;`
-    );
+    // The bypass applies the onboarding state and auto-advances to Confirmation.
+    await this.pollForSelector('[data-testid="onboarding-confirmation"]', 120_000);
+    // "Open wallet" — runs register(), which creates the vault.
+    await this.click('[data-testid="onboarding-confirmation-submit"]');
 
     await this.pollForCondition(
       `var s = window.__TEST_STORE__; ` +
         `if (!s) return false; ` +
         `var st = s.getState(); ` +
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
-      120_000
+      readyTimeoutMs
     );
 
     const address = await this.cdp.eval<string>(
-      `var s = window.__TEST_STORE__.getState(); ` +
-        `return (s.currentAccount && s.currentAccount.publicKey) || '';`
+      `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`
     );
-    if (!address) throw new Error('AndroidWalletPage.createNewWallet: no currentAccount.publicKey after Ready');
-
-    return { address, seedPhrase: [] };
-  }
-
-  async importWallet(seedPhrase: string[], password: string = DEFAULT_PASSWORD): Promise<{ address: string }> {
-    await this.navigateHome();
-    await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
-
-    await this.clickByText('button', /i already have a wallet/i);
-    await this.pollForSelector('[data-testid="import-select-type"]', 15_000);
-    await this.clickByText('*', /import with seed phrase/i);
-
-    for (let i = 0; i < seedPhrase.length; i++) {
-      await this.fillInput(`#seed-phrase-input-${i}`, seedPhrase[i] ?? '');
+    if (!address) {
+      throw new Error(`AndroidWalletPage.createWalletViaBypass(${recovery}): no currentAccount.publicKey after Ready`);
     }
-    await this.clickByText('button', /continue/i);
 
-    await this.pollForCondition(`return location.hash.indexOf('create-password') >= 0;`, 15_000);
-    await this.fillInputByPlaceholder('Enter password', password);
-    await this.fillInputByPlaceholder('Enter password again', password);
-    await this.clickByText('button', /continue/i);
-
-    await this.pollForCondition(
-      `var bd = document.body; return bd && /your wallet is ready/i.test(bd.textContent || '');`,
-      120_000
-    );
-    await this.clickByText('button', /get started/i);
-
-    await this.pollForCondition(
-      `var bd = document.body; return bd && /\\bSend\\b/.test(bd.textContent || '');`,
-      30_000
-    );
-
-    const address = await this.getAccountAddress();
-    return { address };
+    return { address, seedPhrase: seed ?? [] };
   }
 
   async getAccountAddress(): Promise<string> {
@@ -288,7 +300,46 @@ export class AndroidWalletPage implements WalletPage {
       }
     }
     await pumpProveTimings();
+
+    // Nothing authoritative has been read yet. The loop above polls the store IN
+    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
+    // the transaction-progress route), where no mounted screen refreshes
+    // `st.balances` — that projection is written only by the `useAllBalances`
+    // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
+    // consume that has already landed on chain. Confirm with `getBalance()`,
+    // which navigates home and therefore reads a projection something updates.
+    // (Ported from the iOS fix, wallet #651 — the same read was structurally
+    // unable to pass there.)
+    const confirmMs = 120_000;
+    const confirmStart = Date.now();
+    while (Date.now() - confirmStart < confirmMs) {
+      const confirmed = await this.getBalance().catch(() => 0);
+      if (confirmed > 0) {
+        await pumpProveTimings();
+        await this.navigateHome();
+        return;
+      }
+      await sleep(5_000);
+      await this.triggerSync();
+    }
+
+    // The claim did NOT land. This used to return normally, so the run continued
+    // as if the notes were claimed and blew up later on a balance assertion,
+    // attributing a failed consume to delivery. Chrome and iOS both throw here;
+    // this brings Android in line. (Ported from wallet #638.)
+    const surface = await this.cdp
+      .eval<string>(
+        `var h = String(location.hash || ''); ` +
+          `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
+          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+      )
+      .catch(() => 'unreadable');
     await this.navigateHome();
+    throw new Error(
+      `AndroidWalletPage.claimAllNotes: no consumed balance after ${timeoutMs}ms, and none after a further ` +
+        `${confirmMs}ms confirming via getBalance() from the home screen — "Claim All" was clicked but the ` +
+        `consume never landed. Surface at timeout: ${surface}`
+    );
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
@@ -382,7 +433,7 @@ export class AndroidWalletPage implements WalletPage {
           category: 'blockchain_state',
           severity: lastBalance > minBalance ? 'info' : 'warn',
           message: `Balance check: ${lastBalance} (need > ${minBalance}) attempt ${attempt}/${maxAttempts}`,
-          data: { balance: lastBalance, minBalance, attempt, maxAttempts },
+          data: { balance: lastBalance, minBalance, attempt, maxAttempts }
         });
       }
 
@@ -390,9 +441,7 @@ export class AndroidWalletPage implements WalletPage {
       if (attempt < maxAttempts) await sleep(intervalMs);
     }
 
-    throw new Error(
-      `Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`
-    );
+    throw new Error(`Balance did not exceed ${minBalance} within ${timeoutMs}ms. Last balance: ${lastBalance}`);
   }
 
   // ── Lock / Unlock ─────────────────────────────────────────────────────────
@@ -537,10 +586,6 @@ export class AndroidWalletPage implements WalletPage {
         `el.dispatchEvent(new Event('change', { bubbles: true })); ` +
         `return true;`
     );
-  }
-
-  private async fillInputByPlaceholder(placeholder: string, value: string): Promise<void> {
-    await this.fillInput(`input[placeholder="${placeholder}"]`, value);
   }
 
   private async fillInputAny(selectors: string[], value: string): Promise<void> {

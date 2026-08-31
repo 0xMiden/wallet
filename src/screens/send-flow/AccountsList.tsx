@@ -34,14 +34,15 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
   const { t } = useTranslation();
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer open={open} onOpenChange={onOpenChange} screenKey="accounts">
       <DrawerContent>
         <DrawerHeader>
           <DrawerTitle>{t('contacts')}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex flex-col min-h-0 px-4 pb-4 h-120">
+        <div className="flex flex-col min-h-0 px-4 pb-4 h-120" data-testid="send-contacts-list">
           {accounts.length === 0 ? (
             <EmptyState
+              data-testid="send-contacts-empty"
               className="flex-1"
               icon={IconName.Users}
               title={t('noOtherAccounts')}
@@ -52,6 +53,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
               {accounts.map(c => (
                 <CardItem
                   key={c.id}
+                  data-testid={`send-contact-${c.id}`}
                   title={c.name}
                   subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
                   iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
