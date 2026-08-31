@@ -4,6 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { groupActivity } from 'app/templates/history/activity-grouping';
+import ActivityGroupList from 'app/templates/history/ActivityGroupList';
 import History from 'app/templates/history/History';
 import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
@@ -11,6 +13,7 @@ import { SearchInput, TabHeader } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
@@ -19,6 +22,14 @@ type AllHistoryProps = {
 };
 
 type FilterId = 'all' | 'sent' | 'received' | 'faucet';
+
+/**
+ * Which lens the Activity root is showing. `time` is the chronological feed
+ * this page has always been; `group` folds the same transactions into one row
+ * per counterparty. A view switch rather than a replacement — the flat feed
+ * stays the authoritative record.
+ */
+type ActivityView = 'time' | 'group';
 
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
@@ -29,6 +40,8 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const [view, setView] = useState<ActivityView>('time');
+  const { allContacts } = useFilteredContacts();
 
   useEffect(() => {
     let cancelled = false;
@@ -70,9 +83,28 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     setFilter(id);
   };
 
+  const toggleView = () => {
+    hapticSelection();
+    setView(current => (current === 'time' ? 'group' : 'time'));
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader title={t('activity')} />
+      <TabHeader
+        title={t('activity')}
+        actions={
+          <button
+            type="button"
+            data-testid="activity-view-toggle"
+            aria-pressed={view === 'group'}
+            aria-label={view === 'time' ? t('activityViewByGroup') : t('activityViewByTime')}
+            onClick={toggleView}
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+          >
+            <Icon name={view === 'time' ? IconName.Users : IconName.Time} className="w-4 h-4" fill="currentColor" />
+          </button>
+        }
+      />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
@@ -157,6 +189,25 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             scrollParentRef={scrollParentRef}
             searchQuery={search}
             filter={filter}
+            renderEntries={
+              view === 'group'
+                ? entries => (
+                    <ActivityGroupList
+                      groups={groupActivity(entries, {
+                        contacts: allContacts,
+                        // Claims are not history entries — an unclaimed note has
+                        // no transaction — so they are folded in separately and
+                        // can bring a group into existence on their own.
+                        pendingClaims: (claimableNotes ?? []).map(note => ({
+                          id: note.id,
+                          senderAddress: note.senderAddress
+                        }))
+                      })}
+                      onOpenGroup={group => navigate(`/history/group/${encodeURIComponent(group.id)}`)}
+                    />
+                  )
+                : undefined
+            }
           />
         </div>
       </div>
