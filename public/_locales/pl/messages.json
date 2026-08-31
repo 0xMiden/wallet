@@ -2452,6 +2452,10 @@
     "message": "Co się teraz zmienia",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Konfiguracja nieukończona.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Zmiana Guardiana wysłana",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Gdy zmiana zostanie potwierdzona on-chain, nowy Guardian będzie współpodpisywał każdą transakcję, a poprzedni Guardian nie będzie już mógł współpodpisywać dla Twojego konta.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Konfiguracja nieukończona.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Zmiana została potwierdzona w łańcuchu, ale na tym urządzeniu nie udało się zapisać adresu nowego Guardiana. Portfel sprawdza to automatycznie i w razie potrzeby poprosi o ponowne wprowadzenie adresu — nie rozpocznie to kolejnej zmiany. Jeśli monit się nie pojawi, skontaktuj się z pomocą techniczną.",
@@ -2572,6 +2572,10 @@
     "message": "Twój adres guardian został zmieniony i nie udało nam się zidentyfikować nowego operatora. Wpisz jego adres URL, aby ponownie nawiązać połączenie.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Ten operator nie odpowiada adresowi guardian w łańcuchu bloków Twojego konta.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Nie udało się połączyć z tym operatorem. Sprawdź adres URL i połączenie, a następnie spróbuj ponownie.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "To konto nie ma jeszcze Guardiana on-chain, względem którego można by to zweryfikować.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Ten operator nie odpowiada adresowi guardian w łańcuchu bloków Twojego konta.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian niedostępne",
