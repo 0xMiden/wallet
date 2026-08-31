@@ -120,7 +120,6 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   accountRefToSdk: jest.fn((ref: string) => ({ __feeFaucetRef: ref }))
 }));
 
-
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.test',
   getEffectiveNetworkName: () => 'devnet'

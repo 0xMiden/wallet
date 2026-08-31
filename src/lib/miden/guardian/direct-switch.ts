@@ -18,7 +18,6 @@ import {
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -33,7 +32,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { sameWalletAccountId } from '../sdk/helpers';
+import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
