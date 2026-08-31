@@ -32,3 +32,17 @@ export function isSwapEnabled(): boolean {
 export function isBridgeDepositEnabled(): boolean {
   return true;
 }
+
+/**
+ * Deposit-address bridge (CEX-style deposit UX) availability.
+ *
+ * Gates every surface of the derived-EVM-address deposit flow: the Receive
+ * Cross-chain tab, the bridge sheet, the arrival drawer, and the background
+ * balance watcher. It delegates to `isBridgeDepositEnabled` so bridge-in has a
+ * single kill switch today, while keeping a seam to disable ONLY the new
+ * deposit-address surface (per-platform or behind a remote flag) without also
+ * hiding the WalletConnect deposit entry.
+ */
+export function isDepositAddressBridgeEnabled(): boolean {
+  return isBridgeDepositEnabled();
+}

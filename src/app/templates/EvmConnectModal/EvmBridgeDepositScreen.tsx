@@ -3,13 +3,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppKitProvider } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 import { useDebounce } from 'use-debounce';
-import { decodeFunctionResult, encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
+import { encodeFunctionData, EIP1193Provider, formatUnits, parseUnits, toHex } from 'viem';
 import { useWriteContract } from 'wagmi';
 
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
+import { formatBalance, readEthBalance, readMockUsdcBalance } from 'lib/deposit-bridge';
 import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
@@ -39,26 +40,6 @@ const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
 const ETH_SYMBOL = 'ETH';
 const ETH_DECIMALS = 18;
 
-const MOCK_USDC_GET_BALANCE_ABI = [
-  {
-    type: 'function',
-    name: 'getBalance',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
-const ERC20_BALANCE_OF_ABI = [
-  {
-    type: 'function',
-    name: 'balanceOf',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }]
-  }
-] as const;
-
 type SlowBridgeStatus = 'idle' | 'signing' | 'submitted' | 'failed';
 
 interface BridgeBalance {
@@ -76,73 +57,7 @@ interface EvmBridgeDepositScreenProps {
   onClose: () => void;
 }
 
-interface RpcResponse {
-  result?: unknown;
-  error?: { message?: string };
-}
-
 const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: true, error: null };
-
-async function rpcRequest(method: string, params: unknown[]): Promise<unknown> {
-  const chain = getChain(DEFAULT_CHAIN_ID);
-  if (!chain) {
-    throw new Error('Sepolia RPC is not configured');
-  }
-
-  const response = await fetch(chain.rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
-  });
-  const payload = (await response.json()) as RpcResponse;
-  if (payload.error) {
-    throw new Error(payload.error.message ?? `RPC ${method} failed`);
-  }
-  return payload.result;
-}
-
-function formatBalance(value: bigint, decimals: number): string {
-  const [whole = '0', rawFraction = ''] = formatUnits(value, decimals).split('.');
-  const fraction = rawFraction.slice(0, 4).replace(/0+$/, '');
-  return fraction ? `${whole}.${fraction}` : whole;
-}
-
-async function readMockUsdcBalance(evmAddress: string): Promise<bigint> {
-  const account = evmAddress as `0x${string}`;
-  const contract = BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS as `0x${string}`;
-
-  try {
-    const data = encodeFunctionData({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: MOCK_USDC_GET_BALANCE_ABI,
-      functionName: 'getBalance',
-      data: result as `0x${string}`
-    }) as bigint;
-  } catch (err) {
-    console.warn('[EvmBridgeDepositScreen] USDC getBalance failed, falling back to balanceOf', err);
-    const data = encodeFunctionData({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      args: [account]
-    });
-    const result = await rpcRequest('eth_call', [{ to: contract, data }, 'latest']);
-    return decodeFunctionResult({
-      abi: ERC20_BALANCE_OF_ABI,
-      functionName: 'balanceOf',
-      data: result as `0x${string}`
-    }) as bigint;
-  }
-}
-
-async function readEthBalance(evmAddress: string): Promise<bigint> {
-  const result = await rpcRequest('eth_getBalance', [evmAddress, 'latest']);
-  return BigInt(result as string);
-}
 
 function isValidAmount(amount: string): boolean {
   const parsed = Number(amount);

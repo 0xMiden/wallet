@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "保留中のnotes",
-    "englishSource": "Pending notes"
+    "message": "保留中のNotes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "「notes」とは何ですか？",
@@ -3957,8 +3957,8 @@
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "「Fast」ルートでのETHのブリッジでは、まずETHをWETHにラップし、その後WETHをブリッジします。このルートは現時点では利用できません。",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+    "message": "高速ルートは、まず ETH を WETH に変換し、次に WETH をブリッジします。 Miden では引き続き ETH を受け取ることができます。",
+    "englishSource": "The Fast route first converts your ETH into WETH, then bridges the WETH. You'll still receive ETH on Miden."
   },
   "destinationNetwork": {
     "message": "接続先ネットワーク",
@@ -4267,5 +4267,312 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "橋",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "ミデンへの橋",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "代わりに接続されたウォレットからブリッジします",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "イーサリアム セポリア",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositBridgeSelectAsset": {
+    "message": "アセットの選択",
+    "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "ブリッジしたい金額を入力してください",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "どのように送信しますか？",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "スキャンして入金",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "ウォレットを接続する",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "WalletConnect経由でウォレットからブリッジする",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "ウォレットアプリで開く",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "インストール済みのイーサリアムウォレットで、$amount$の送金を事前入力してください",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QRコードまたはアドレス",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "入金アドレスをスキャンまたはコピーしてください",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "イーサリアムウォレットでスキャンし、$amount$をSepolia上の入金アドレスへ送金してください。",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "ウォレットを選択してください",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "デフォルトのウォレット",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "送信フォームが事前入力された状態で開きます",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "イーサリアムのリンクを扱うアプリはどれであっても",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "ブリッジする金額",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "予約済みのネットワーク料金: ~ $amount$ イーサリアム",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "ネットワーク料金に十分な ETH がありません",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "金額がブリッジ可能残高を超えています",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "ブリッジを開始できませんでした",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "この高速ルートは現在利用できません。この金額に対して十分な流動性がありません。",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "エポック経由",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "アグラー経由",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "約30秒",
+    "englishSource": "~30 sec"
+  },
+  "depositSlowArrival": {
+    "message": "約1時間",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "ルートを選択",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "ブリッジのルートを選択してください",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "ブリッジの確認",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "ブリッジを行う",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "ブリッジ手数料",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "総費用",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "ブリッジの確認",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "確認中…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "$eta$ に掲載予定",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "ブリッジの処理中はレートが変動する可能性があります。決済が完了するまでは、受け取る金額は概算となります。",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Fast · Epoch リレーヤー",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "手順",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "リクエストのキャンセル",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "ウォレットで承認する",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "$wallet$で承認する",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Breadがリクエストを作成します。ユーザーはそこで内容を確認し、署名を行います。Breadがユーザーに代わって署名することは決してありません。",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "$wallet$ を開く",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "資金を送金しました",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "資金が検出されました",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "送金を待っています",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "任意のウォレットまたは取引所から、ご自身の入金アドレスへ金額を送金してください。Breadはアドレスを監視し、自動的に検知します。",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Breadの預入アドレス",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "承認をお待ちしています",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "$wallet$ を開き、送信を確認してください。",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "送金を待機中",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "セポリアでの確認",
+    "englishSource": "Confirming on Sepolia"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "イーサリアムへの送信",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "インテントの送信",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "ミデンへの橋",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "ミデンへの橋",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "ブリッジが提出されました",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "トランザクションが送信されるまでこれを開いたままにしておきます",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "資金は準備中です (約 20 分) — アクティビティで追跡します",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ 到着しました",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "今すぐ Miden アカウントにブリッジするか、後で Receive から実行してください。",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "後で",
+    "englishSource": "Later"
   }
 }

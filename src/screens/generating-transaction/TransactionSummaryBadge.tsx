@@ -238,10 +238,11 @@ export const earnMarketLabel = (marketUid: string): string | undefined => {
 /**
  * Implemented variants:
  *
- *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
- *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
- *   consume       →  {amount} {symbol}        ->  Consumed
+ *   send             →  {amount} {symbol}        ->  {recipient}
+ *   swap             →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   earn-deposit     →  {amount} {symbol}        ↑   {market name}   (up-arrow separator)
+ *   consume          →  {amount} {symbol}        ->  Consumed
+ *   bridged-receive  →  {sourceAmount} {sourceSymbol} (Ethereum) -> Miden
  *
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
@@ -255,6 +256,28 @@ export const useTransactionSummaryBadgeContent = (
   const { t } = useTranslation();
 
   return useMemo(() => {
+    if (transaction?.type === 'bridged-receive') {
+      // `extraInputs` is untyped on ITransaction — read the two display fields
+      // defensively rather than asserting the whole shape.
+      const extra: unknown = transaction.extraInputs;
+      const source = extra && typeof extra === 'object' ? extra : undefined;
+      const sourceAmount: unknown = source ? Reflect.get(source, 'sourceAmount') : undefined;
+      const sourceSymbol: unknown = source ? Reflect.get(source, 'sourceSymbol') : undefined;
+      if (typeof sourceAmount !== 'string' || !sourceAmount || typeof sourceSymbol !== 'string' || !sourceSymbol) {
+        return undefined;
+      }
+
+      return {
+        lhs: (
+          <span className="flex min-w-0 items-baseline gap-1.5">
+            <span className="truncate">{`${sourceAmount} ${sourceSymbol}`}</span>
+            <span className="shrink-0 text-sm font-medium text-gray">{t('ethereum')}</span>
+          </span>
+        ),
+        rhs: <span className="min-w-0 truncate">{t('miden')}</span>
+      };
+    }
+
     if (transaction?.type === 'consume') {
       const parts = formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId);
 

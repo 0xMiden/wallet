@@ -56,6 +56,10 @@ jest.mock('./NativeNoteAutoConsumeManager', () => ({
   NativeNoteAutoConsumeManager: () => null
 }));
 
+jest.mock('lib/deposit-bridge/DepositAddressWatcher', () => ({
+  DepositAddressWatcher: () => null
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   primeNativeAssetId: jest.fn()
 }));

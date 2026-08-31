@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "Очікують на обробку notes",
-    "englishSource": "Pending notes"
+    "message": "Очікують на обробку (Notes)",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "Що таке «notes, що очікують на обробку»?",
@@ -3957,8 +3957,8 @@
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "Перенесення ETH за швидким маршрутом спочатку перетворює його на WETH, а потім здійснює перенесення WETH. Цей маршрут поки що недоступний.",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+    "message": "Швидкий маршрут спочатку перетворює ваш ETH на WETH, а потім з’єднує WETH. Ви все одно отримуватимете ETH на Miden.",
+    "englishSource": "The Fast route first converts your ETH into WETH, then bridges the WETH. You'll still receive ETH on Miden."
   },
   "destinationNetwork": {
     "message": "Мережа пунктів призначення",
@@ -4267,5 +4267,312 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "Натомість перейдіть із підключеного гаманця",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositBridgeSelectAsset": {
+    "message": "Виберіть актив",
+    "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "Введіть суму, яку ви хочете перевести",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "Як ви хочете це надіслати?",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "Відскануйте, щоб внести кошти",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "Підключіть гаманець",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "Переказ з гаманця через WalletConnect",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "Відкрити в додатку гаманця",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "Заздалегідь заповніть форму відправлення на адресу $amount$ у встановленому гаманці Ethereum",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR-код або адреса",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "Відскануйте або скопіюйте адресу для поповнення рахунку",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "Відскануйте за допомогою гаманця Ethereum, щоб надіслати $amount$ на вашу адресу для депозиту на Sepolia.",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "Оберіть гаманець",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "Гаманець за замовчуванням",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "Відкривається з попередньо заповненим полем відправника",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "Незалежно від того, який додаток обробляє посилання на Ethereum",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "Сума для мосту",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "Плата за мережу зарезервована: ~ $amount$ ETH",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "Недостатньо ETH для оплати мережі",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "Сума перевищує баланс, який можна погасити",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "Не вдалося запустити міст",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "Швидкий маршрут зараз недоступний — недостатньо ліквідних коштів на цю суму.",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "через Epoch",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "через Agglayer",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "~30 сек",
+    "englishSource": "~30 sec"
+  },
+  "depositSlowArrival": {
+    "message": "~1 година",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "Оберіть маршрут",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "Оберіть маршрут перенесення",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "Переглянути міст",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "Ви здійснюєте міст",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "Комісія за міст",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "Загальна вартість",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "Підтвердити перехід",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "Підтверджую…",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "Доступно на $eta$",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "Курси можуть змінюватися під час переказу. Сума, яку ви отримаєте, є орієнтовною, доки операція не буде завершена.",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Швидкий · Релей епохи",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Повільно · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "Кроки",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "Скасувати запит",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "Підтвердити у гаманці",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "Затвердіть у $wallet$",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread підготував запит — ви переглядаєте його та підписуєте безпосередньо там. Bread ніколи не підписує за вас.",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "Відкрити $wallet$",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "Я переказав кошти",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "Виявлені кошти",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "Очікуємо на ваш переказ",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "Надішліть суму на свою адресу депозиту з будь-якого гаманця або біржі. Bread відстежує цю адресу та автоматично її розпізнає.",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "Ваша адреса для депозиту в Bread",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "Чекаємо на ваше затвердження",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "Відкрийте $wallet$ та підтвердьте відправлення.",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "Очікування переказу",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "Підтвердження на Sepolia",
+    "englishSource": "Confirming on Sepolia"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "Відправка в Ethereum",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "Подання наміру",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "Міст на Мідень",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "Міст подано",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "Тримайте це відкритим, доки трансакцію не буде подано",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "Кошти в дорозі (~20 хв) — відстежуйте в Activity",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ прибуло",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "Підключіть його до свого облікового запису Miden зараз або зробіть це пізніше з Receive.",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "Пізніше",
+    "englishSource": "Later"
   }
 }

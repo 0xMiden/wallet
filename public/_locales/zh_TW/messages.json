@@ -3078,8 +3078,8 @@
     "englishSource": "This note is no longer available"
   },
   "pendingNotes": {
-    "message": "待處理 notes",
-    "englishSource": "Pending notes"
+    "message": "待處理 Notes",
+    "englishSource": "Pending Notes"
   },
   "whatArePendingNotes": {
     "message": "什麼是待處理的「notes」？",
@@ -3957,8 +3957,8 @@
     "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
-    "message": "透過「快速路徑」進行 ETH 跨鏈轉移時，會先將 ETH 封裝為 WETH，再將 WETH 進行跨鏈轉移。此路徑目前尚未開放。",
-    "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+    "message": "Fast 路线首先将您的 ETH 转换为 WETH，然后桥接 WETH。您仍然会在 Miden 上收到 ETH。",
+    "englishSource": "The Fast route first converts your ETH into WETH, then bridges the WETH. You'll still receive ETH on Miden."
   },
   "destinationNetwork": {
     "message": "目的地網路",
@@ -4267,5 +4267,312 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "bridge": {
+    "message": "桥",
+    "englishSource": "Bridge"
+  },
+  "bridgeToMiden": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridge to Miden"
+  },
+  "bridgeFromConnectedWallet": {
+    "message": "改为从连接的钱包桥接",
+    "englishSource": "Bridge from a connected wallet instead"
+  },
+  "ethereumSepolia": {
+    "message": "以太坊塞波利亚",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "depositBridgeSelectAsset": {
+    "message": "选择资产",
+    "englishSource": "Select asset"
+  },
+  "depositAmountEntryTitle": {
+    "message": "請輸入您要進行跨鏈轉移的金額",
+    "englishSource": "Enter the amount you want to bridge"
+  },
+  "depositMethodTitle": {
+    "message": "您希望以何種方式傳送此訊息？",
+    "englishSource": "How do you want to send it?"
+  },
+  "depositMethodQrTitle": {
+    "message": "掃描以存入",
+    "englishSource": "Scan to deposit"
+  },
+  "depositMethodConnectWallet": {
+    "message": "連接錢包",
+    "englishSource": "Connect a wallet"
+  },
+  "depositMethodConnectWalletDesc": {
+    "message": "透過 WalletConnect 從錢包進行跨鏈轉移",
+    "englishSource": "Bridge from a wallet via WalletConnect"
+  },
+  "depositMethodWalletApp": {
+    "message": "在錢包應用程式中開啟",
+    "englishSource": "Open in wallet app"
+  },
+  "depositMethodWalletAppDesc": {
+    "message": "在已安裝的以太坊錢包中預填 $amount$ 轉帳單",
+    "englishSource": "Pre-fill a send of $amount$ in an installed Ethereum wallet",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositMethodQr": {
+    "message": "QR 碼或地址",
+    "englishSource": "QR code or address"
+  },
+  "depositMethodQrDesc": {
+    "message": "請掃描或複製存款地址",
+    "englishSource": "Scan or copy the deposit address"
+  },
+  "depositMethodQrExplainer": {
+    "message": "請使用以太坊錢包掃描此地址，將 $amount$ 轉帳至您在 Sepolia 上的存款地址。",
+    "englishSource": "Scan with an Ethereum wallet to send $amount$ to your deposit address on Sepolia.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositWalletListTitle": {
+    "message": "選擇一個錢包",
+    "englishSource": "Choose a wallet"
+  },
+  "depositWalletDefaultName": {
+    "message": "預設錢包",
+    "englishSource": "Default wallet"
+  },
+  "depositWalletUniversalLink": {
+    "message": "開啟時，發送欄位已預先填入",
+    "englishSource": "Opens with the send pre-filled"
+  },
+  "depositWalletEthereumScheme": {
+    "message": "無論哪款應用程式處理以太坊連結",
+    "englishSource": "Whichever app handles Ethereum links"
+  },
+  "depositBridgeAmountTitle": {
+    "message": "桥接金额",
+    "englishSource": "Amount to bridge"
+  },
+  "depositNetworkFeeReserved": {
+    "message": "网络费保留：~ $amount$ 以太坊",
+    "englishSource": "Network fee reserved: ~$amount$ ETH",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositNotEnoughForGas": {
+    "message": "没有足够的 ETH 来支付网络费用",
+    "englishSource": "Not enough ETH for network fees"
+  },
+  "depositAmountExceedsMax": {
+    "message": "金额超过可桥接余额",
+    "englishSource": "Amount exceeds the bridgeable balance"
+  },
+  "depositBridgeSubmitFailed": {
+    "message": "无法启动桥",
+    "englishSource": "Could not start the bridge"
+  },
+  "fastRouteUnavailable": {
+    "message": "快速通道目前不可用——没有足够的流动性来满足这一金额。",
+    "englishSource": "The fast route is unavailable right now — not enough liquidity for this amount."
+  },
+  "viaEpoch": {
+    "message": "通过纪元",
+    "englishSource": "via Epoch"
+  },
+  "viaAgglayer": {
+    "message": "通过Agglayer",
+    "englishSource": "via Agglayer"
+  },
+  "depositFastArrival": {
+    "message": "約 30 秒",
+    "englishSource": "~30 sec"
+  },
+  "depositSlowArrival": {
+    "message": "約 1 小時",
+    "englishSource": "~1 hour"
+  },
+  "chooseRoute": {
+    "message": "選擇路徑",
+    "englishSource": "Choose route"
+  },
+  "chooseBridgingRoute": {
+    "message": "選擇跨鏈路線",
+    "englishSource": "Choose the bridging route"
+  },
+  "reviewBridge": {
+    "message": "檢視橋接",
+    "englishSource": "Review bridge"
+  },
+  "youBridge": {
+    "message": "您正在進行跨鏈轉移",
+    "englishSource": "You bridge"
+  },
+  "bridgeFee": {
+    "message": "橋接手續費",
+    "englishSource": "Bridge fee"
+  },
+  "totalCost": {
+    "message": "總成本",
+    "englishSource": "Total cost"
+  },
+  "confirmBridge": {
+    "message": "確認跨鏈轉移",
+    "englishSource": "Confirm bridge"
+  },
+  "confirming": {
+    "message": "確認中……",
+    "englishSource": "Confirming…"
+  },
+  "bridgeArrivesIn": {
+    "message": "已發佈於 $eta$",
+    "englishSource": "Arrives in $eta$",
+    "placeholders": {
+      "eta": {
+        "content": "$1"
+      }
+    }
+  },
+  "bridgeRatesMoveNotice": {
+    "message": "在橋接進行期間，匯率可能會波動。您收到的金額在結算前僅為預估數值。",
+    "englishSource": "Rates can move while the bridge is in flight. The amount you receive is an estimate until it settles."
+  },
+  "routeFastEpoch": {
+    "message": "Fast · 時代中繼器",
+    "englishSource": "Fast · Epoch relayer"
+  },
+  "routeSlowAgglayer": {
+    "message": "Slow · Agglayer",
+    "englishSource": "Slow · Agglayer"
+  },
+  "steps": {
+    "message": "步驟",
+    "englishSource": "Steps"
+  },
+  "cancelRequest": {
+    "message": "取消請求",
+    "englishSource": "Cancel Request"
+  },
+  "approveInWalletTitle": {
+    "message": "在錢包中批准",
+    "englishSource": "Approve in Wallet"
+  },
+  "approveInWallet": {
+    "message": "請於 $wallet$ 進行核准",
+    "englishSource": "Approve in $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "approveInWalletBody": {
+    "message": "Bread 已預先準備好該申請書——您可在該處審閱並簽署。Bread 絕不會代您簽署。",
+    "englishSource": "Bread prepared the request — you review and sign it there. Bread never signs for you."
+  },
+  "depositOpenWallet": {
+    "message": "開啟 $wallet$",
+    "englishSource": "Open $wallet$",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositSentTheFunds": {
+    "message": "我已發送資金",
+    "englishSource": "I have sent the funds"
+  },
+  "depositFundsDetected": {
+    "message": "偵測到資金",
+    "englishSource": "Funds detected"
+  },
+  "depositAwaitingTransfer": {
+    "message": "等待您的轉帳",
+    "englishSource": "Waiting for your transfer"
+  },
+  "depositAwaitingTransferBody": {
+    "message": "請從任何錢包或交易所將款項發送至您的存款地址。Bread 會監控該地址並自動擷取款項。",
+    "englishSource": "Send the amount to your deposit address from any wallet or exchange. Bread watches the address and picks it up automatically."
+  },
+  "yourDepositAddress": {
+    "message": "您的 Bread 存款地址",
+    "englishSource": "Your Bread deposit address"
+  },
+  "depositStepWaitingForApproval": {
+    "message": "等待您的批准",
+    "englishSource": "Waiting for you to approve"
+  },
+  "depositStepWaitingForApprovalBody": {
+    "message": "開啟 $wallet$ 並確認轉帳。",
+    "englishSource": "Open $wallet$ and confirm the send.",
+    "placeholders": {
+      "wallet": {
+        "content": "$1"
+      }
+    }
+  },
+  "depositStepWaitingForTransfer": {
+    "message": "等待轉帳",
+    "englishSource": "Waiting for the transfer"
+  },
+  "depositStepConfirmingOnSepolia": {
+    "message": "在 Sepolia 上確認",
+    "englishSource": "Confirming on Sepolia"
+  },
+  "transactionStepSendingToEthereum": {
+    "message": "发送至以太坊",
+    "englishSource": "Sending to Ethereum"
+  },
+  "transactionStepSubmittingIntent": {
+    "message": "提交意向",
+    "englishSource": "Submitting intent"
+  },
+  "transactionStepBridgingToMiden": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveProcessingTitle": {
+    "message": "通往米登的桥梁",
+    "englishSource": "Bridging to Miden"
+  },
+  "bridgedReceiveSubmittedTitle": {
+    "message": "桥梁已提交",
+    "englishSource": "Bridge submitted"
+  },
+  "bridgedReceiveProcessingDescription": {
+    "message": "保持打开状态直到交易提交",
+    "englishSource": "Keep this open until the transaction is submitted"
+  },
+  "bridgedReceiveOnTheWay": {
+    "message": "资金正在路上（约 20 分钟）——活动跟踪",
+    "englishSource": "Funds are on the way (~20 min) — track in Activity"
+  },
+  "depositArrivalDrawerTitle": {
+    "message": "$amount$ $symbol$ 已送達",
+    "englishSource": "$amount$ $symbol$ arrived",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositArrivalDrawerDescription": {
+    "message": "立即将其桥接到您的 Miden 帐户，或者稍后通过 Receive 进行桥接。",
+    "englishSource": "Bridge it to your Miden account now, or do it later from Receive."
+  },
+  "depositArrivalLater": {
+    "message": "之后",
+    "englishSource": "Later"
   }
 }

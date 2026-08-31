@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import { DepositArrivalRouter } from 'app/templates/DepositArrivalRouter';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -248,6 +249,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} />
         </div>
       </div>
+
+      {/* Deposit-address bridge pickup — mounted once for every tab route. Pure
+          store subscriber, renders nothing; it navigates to the waiting screen
+          when money lands on the address unprompted. */}
+      <DepositArrivalRouter />
     </div>
   );
 };

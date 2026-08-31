@@ -341,6 +341,25 @@ describe('useTransactionSummaryBadgeContent', () => {
     act(() => root.unmount());
   });
 
+  it('summarises a bridged-receive row as source amount → Miden', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({
+        type: 'bridged-receive',
+        extraInputs: { provider: 'agglayer', phase: 'submitting', sourceAmount: '0.5', sourceSymbol: 'ETH' }
+      })
+    );
+    expect(container.querySelector('[data-testid="lhs"]')?.textContent).toContain('0.5 ETH');
+    act(() => root.unmount());
+  });
+
+  it('returns undefined for a bridged-receive row missing its source fields', async () => {
+    const { container, root } = await renderProbe(
+      baseTransaction({ type: 'bridged-receive', extraInputs: { provider: 'epoch', phase: 'submitting' } })
+    );
+    expect(container.textContent).toContain('UNDEFINED');
+    act(() => root.unmount());
+  });
+
   // An empty store does not make a foreign faucet native. Naming it MIDEN would
   // also scale it by MIDEN's 6 decimals, which is the invented number this
   // whole path exists to avoid — so the asset is named and left unquantified.
