@@ -168,7 +168,14 @@ runs:
         # Not --frozen-lockfile: the lockfile is resolved against the guardian
         # branch's own dep set, and a wallet runner may carry a different npm
         # registry mirror. A drifted lockfile should not fail the wallet's CI.
-        $PNPM install --no-frozen-lockfile
+        #
+        # --ignore-scripts because pnpm 10 makes an ignored dependency build script a
+        # HARD error (ERR_PNPM_IGNORED_BUILDS, seen here on esbuild), and this package
+        # does not need any of them: its build is `generate:masm && tsc`, which reads
+        # sources and emits dist/. Skipping dependency lifecycle scripts does not affect
+        # `pnpm run build` below, which is invoked explicitly. Verified locally: install
+        # succeeds, dist/index.js is produced, and the exports the wallet needs are in it.
+        $PNPM install --no-frozen-lockfile --ignore-scripts
         echo "::endgroup::"
 
         echo "::group::Build @openzeppelin/miden-multisig-client"
