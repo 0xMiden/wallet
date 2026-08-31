@@ -194,12 +194,13 @@ describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
   });
 
-  it('keeps the settings tab active on a settings sub-page', () => {
-    // Matched on the path segment, so a `/settings/<slug>` drill-in doesn't
-    // drop the tab back to home.
+  it('maps only the bare /settings root, since sub-pages never mount this shell', () => {
+    // `/settings/<slug>` renders in FullScreenPage, so it cannot reach
+    // activeTabFromPath at all — asserting a settings tab for it would be
+    // testing a state the app cannot produce.
     mockLocation.pathname = '/settings/general-settings';
     renderLayout();
-    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
   });
 
   it('maps an unrelated path (e.g. /token-detail) to the home tab', () => {
@@ -379,14 +380,6 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     fireEvent.click(screen.getByTestId('nav-settings'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
-  });
-
-  it('returns to the Settings root when tapping Settings from a sub-page', () => {
-    mockLocation.pathname = '/settings/general-settings';
-    renderLayout();
-    fireEvent.click(screen.getByTestId('nav-settings'));
-    expect(mockHaptic).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings');
   });
 });
 

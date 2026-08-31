@@ -53,10 +53,13 @@ function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
-  // Matched on the segment, so Settings stays lit on `/settings/<slug>` too —
-  // sub-pages render in FullScreenPage today, but the tab shouldn't go dark if
-  // one ever renders inside the shell.
-  if (segment === 'settings') return 'settings';
+  // Exact, unlike the segment matches above: `/history/:programId` renders
+  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
+  // only Settings route that mounts TabLayout is the bare root — every
+  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
+  // Matching the segment here would only ever cover paths that cannot reach
+  // this function.
+  if (pathname === '/settings') return 'settings';
   return 'home';
 }
 
