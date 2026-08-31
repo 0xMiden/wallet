@@ -97,6 +97,41 @@ describe('BottomNav — active vs inactive rendering', () => {
   });
 });
 
+describe('BottomNav — four destinations', () => {
+  // The wallet ships four primary destinations (Home, Explore, Activity,
+  // Settings) off-extension. The pill's gutter and gap are sized for that.
+  const fourItems: BottomNavItem[] = [
+    { id: 'home', label: 'Home', icon: <svg data-testid="icon-home" /> },
+    { id: 'explore', label: 'Explore', icon: <svg data-testid="icon-explore" /> },
+    { id: 'activity', label: 'Activity', icon: <svg data-testid="icon-activity" /> },
+    { id: 'settings', label: 'Settings', icon: <svg data-testid="icon-settings" /> }
+  ];
+
+  it('renders every destination, in order', () => {
+    const { container } = render(<BottomNav items={fourItems} activeId="home" onChange={jest.fn()} />);
+
+    const buttons = Array.from(container.querySelectorAll('nav > button'));
+    expect(buttons).toHaveLength(4);
+    expect(buttons.map(b => b.textContent)).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
+  });
+
+  it('marks exactly one of the four active', () => {
+    render(<BottomNav items={fourItems} activeId="settings" onChange={jest.fn()} />);
+
+    expect(getTab('Settings').getAttribute('aria-current')).toBe('page');
+    expect(screen.getAllByRole('button').filter(b => b.hasAttribute('aria-current'))).toHaveLength(1);
+  });
+
+  it('reports the tapped destination id', () => {
+    const onChange = jest.fn();
+    render(<BottomNav items={fourItems} activeId="home" onChange={onChange} />);
+
+    fireEvent.click(getTab('Settings'));
+
+    expect(onChange).toHaveBeenCalledWith('settings');
+  });
+});
+
 describe('BottomNav — icon vs iconActive selection', () => {
   it('renders iconActive on the active tab when the item provides one', () => {
     renderNav({ activeId: 'activity' });

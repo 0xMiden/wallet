@@ -266,8 +266,18 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
+    // The root wears the same TabHeader as Activity and Explore — a plain
+    // heading, not the sub-page NavigationHeader.
+    expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+  });
+
+  it('gives the root no back affordance, since it is a tab destination', () => {
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.queryByTestId('nav-back')).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('renders all four group headings', () => {
@@ -475,8 +485,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     // Arriving from the wallet home, not from within Settings — stealing focus
-    // here would fight the navigation the user already made.
-    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+    // here would fight the navigation the user already made. The root's
+    // TabHeader has no focus-on-mount behaviour at all, so there is nothing to
+    // steal it.
+    expect(screen.queryByTestId('nav-header')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
@@ -491,13 +504,10 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
   });
 
-  it('navigates home when the root header back button is pressed', () => {
-    render(<Settings tabSlug={null} />);
-
-    fireEvent.click(screen.getByTestId('nav-back'));
-
-    expect(mockNavigate).toHaveBeenCalledWith('/');
-  });
+  // The root's back-to-home chevron is gone: Settings is a bottom-nav
+  // destination, and tab roots don't carry one (see the tab-destination test
+  // in the root-menu block above). Sub-page back behaviour is unchanged and
+  // still covered below.
 
   it('renders a preference slug as a full-screen page under a navigation header', () => {
     render(<Settings tabSlug="general-settings" />);

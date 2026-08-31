@@ -17,7 +17,8 @@ jest.mock('app/icons/v2', () => ({
   IconName: {
     CopyNew: 'CopyNew',
     MidenLogo: 'MidenLogo',
-    SettingsNew: 'SettingsNew'
+    SettingsNew: 'SettingsNew',
+    Edit: 'Edit'
   }
 }));
 
@@ -183,7 +184,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the new copy icon and a settings icon colored with the card secondary tone', () => {
+  it('renders the new copy icon and an edit icon colored with the card secondary tone', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
 
     const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
@@ -191,10 +192,12 @@ describe('BalanceCard states, delta, and interactions', () => {
     // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
     expect(copyIcon?.className).toContain('w-3.5!');
 
-    const settingsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
-    expect(settingsIcon?.getAttribute('data-name')).toBe('SettingsNew');
-    expect(settingsIcon?.className).toContain('text-card-slate-deep');
-    expect(settingsIcon?.className).toContain('w-3!');
+    // An edit glyph, not a gear: the button opens account options, and a gear
+    // here read as "Settings", which is now its own bottom-nav destination.
+    const optionsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
+    expect(optionsIcon?.getAttribute('data-name')).toBe('Edit');
+    expect(optionsIcon?.className).toContain('text-card-slate-deep');
+    expect(optionsIcon?.className).toContain('w-3!');
   });
 
   it('omits the settings button when onMore is not provided', () => {

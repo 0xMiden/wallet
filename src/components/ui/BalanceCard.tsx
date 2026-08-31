@@ -193,7 +193,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
           {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
               size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
-              Do not drop the `!` (same for the settings icon below). */}
+              Do not drop the `!` (same for the edit icon below). */}
           <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
         </CopyButton>
         {onMore && (
@@ -203,7 +203,10 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             aria-label={t('balanceCardAccountOptions')}
             className="shrink-0 flex items-center justify-center w-4.5 h-4.5 rounded-full bg-pure-white"
           >
-            <Icon name={IconName.SettingsNew} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
+            {/* An edit glyph, not a gear: this opens the account options drawer,
+                and a gear here read as "Settings" — which is now its own
+                bottom-nav destination. */}
+            <Icon name={IconName.Edit} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
           </button>
         )}
       </div>

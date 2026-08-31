@@ -164,6 +164,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       </FullScreenPage>
     ))
   ],
+  // The Settings ROOT is a primary tab destination, so it renders in TabLayout
+  // with the persistent footer. Exact-matched and placed ahead of the generic
+  // route below, which keeps serving every `/settings/<slug>` sub-page in
+  // FullScreenPage — drilling in and backing out is unchanged.
+  [
+    '/settings',
+    onlyReady(() => (
+      <TabLayout>
+        <Settings />
+      </TabLayout>
+    ))
+  ],
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
