@@ -39,11 +39,27 @@ runs:
         ATTEMPT_TIMEOUT: ${{ inputs.attempt-timeout }}
       run: |
         set -uo pipefail
+
+        # `timeout` is GNU coreutils and is ABSENT on macOS runners, where this action
+        # is reached by the iOS compile job. A missing binary made the whole step fail
+        # with `timeout: command not found` before yarn ever ran — an install failure
+        # that had nothing to do with the install. Prefer gtimeout (coreutils via
+        # brew), then timeout, and fall back to running bare: an unbounded install is
+        # worse than a bounded one but far better than a job that cannot start.
+        if command -v timeout >/dev/null 2>&1; then
+          TIMEOUT="timeout $ATTEMPT_TIMEOUT"
+        elif command -v gtimeout >/dev/null 2>&1; then
+          TIMEOUT="gtimeout $ATTEMPT_TIMEOUT"
+        else
+          TIMEOUT=""
+          echo "::warning::no timeout(1) on this runner; running yarn install unbounded (the workflow-level timeout-minutes still applies)"
+        fi
+
         for attempt in $(seq 1 "$ATTEMPTS"); do
           # Run bare and capture $? on the next line. NOT `if yarn …; then`: a
           # false `if` with no `else` exits 0, so reading $? after the `fi`
           # reports success for a failed install and loses timeout's 124.
-          timeout "$ATTEMPT_TIMEOUT" yarn install --network-timeout 600000
+          $TIMEOUT yarn install --network-timeout 600000
           status=$?
           if [ "$status" -eq 0 ]; then
             exit 0
