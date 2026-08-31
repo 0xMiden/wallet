@@ -187,6 +187,24 @@ runs:
           exit 1
         fi
 
+        # DROP THE BUILD-TIME node_modules BEFORE THE WALLET INSTALLS THIS.
+        #
+        # A `file:` dep is COPIED wholesale, nested node_modules included, and the wallet's
+        # yarn then resolves imports against that copied tree instead of its own. pnpm's
+        # layout is not flat: here it gives @noble/curves@1.9.7 a v1 @noble/hashes while the
+        # package itself takes the ^2.0.1 it declares. Copy that in and the two collapse —
+        # curves resolves against v2, which exports `./utils.js` and not `./utils`, and the
+        # wallet's bundler dies with
+        #   "./utils" is not exported ... from @openzeppelin/miden-multisig-client/node_modules/@noble/hashes
+        # far from anything that names the real cause.
+        #
+        # Only dist/ and package.json are needed to consume the build. Removing node_modules
+        # makes yarn resolve the declared deps in the WALLET's tree, which is what happens
+        # with the published package and is therefore the behaviour we want to reproduce.
+        echo "::group::Drop the build-time node_modules from the injected package"
+        rm -rf "$GUARDIAN_DIR/$PKG_SUBDIR/node_modules"
+        echo "::endgroup::"
+
         # Point the wallet at the local build. $GITHUB_WORKSPACE, not
         # `git rev-parse --show-toplevel`: the CWD is inside the cloned
         # guardian repo, so rev-parse would silently rewrite ITS package.json
