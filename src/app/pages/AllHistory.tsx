@@ -15,6 +15,7 @@ import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { setActivityView, useActivityView } from 'lib/settings/activity-view';
 import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
@@ -22,14 +23,6 @@ type AllHistoryProps = {
 };
 
 type FilterId = 'all' | 'sent' | 'received' | 'faucet';
-
-/**
- * Which lens the Activity root is showing. `time` is the chronological feed
- * this page has always been; `group` folds the same transactions into one row
- * per counterparty. A view switch rather than a replacement — the flat feed
- * stays the authoritative record.
- */
-type ActivityView = 'time' | 'group';
 
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
@@ -40,7 +33,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
-  const [view, setView] = useState<ActivityView>('time');
+  const view = useActivityView();
   const { allContacts } = useFilteredContacts();
 
   useEffect(() => {
@@ -83,9 +76,11 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     setFilter(id);
   };
 
+  // Persisted, not component state: opening a group unmounts this page, so a
+  // local flag would drop the user back into the time feed on return.
   const toggleView = () => {
     hapticSelection();
-    setView(current => (current === 'time' ? 'group' : 'time'));
+    setActivityView(view === 'time' ? 'group' : 'time');
   };
 
   return (
