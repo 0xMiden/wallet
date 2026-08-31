@@ -142,13 +142,18 @@ runs:
     # Assert the chain came up with the fee that was asked for. Without this the single
     # most consequential property of the run is invisible: a suite that believes it is
     # proving fee behaviour passes on a fee-free chain and reports green.
-    # start-test-node.sh copies the genesis `[[wallet]]` accounts to <clone>/data/funders.
-    # The harness's default guess is $HOME/miden/miden-client/target/test-node/data/accounts,
-    # which is neither the right base nor the right subdirectory on a runner, so without this
-    # every suite on a fee-charging chain fails with "no funder wallets were found".
+    # The harness defaults to $HOME/miden/miden-client/target/test-node/data/accounts, which
+    # only resolves on a checkout that happens to live at that path; on a runner the clone is
+    # under RUNNER_TEMP, so every suite on a fee-charging chain fails with "no funder wallets
+    # were found". Same directory, correct base.
+    #
+    # Not <clone>/data/funders: importFunders() needs native_faucet.mac alongside the
+    # wallet_*.mac files (the CLI has no token-symbol entry for MIDEN, so the funding asset has
+    # to be named by faucet id), and start-test-node.sh copies only the wallets there.
+    # data/accounts is the one directory holding both.
     - name: Export the funder wallet directory
       shell: bash
-      run: echo "MIDEN_E2E_FUNDER_DIR=${{ runner.temp }}/miden-client/data/funders" >> "$GITHUB_ENV"
+      run: echo "MIDEN_E2E_FUNDER_DIR=${{ runner.temp }}/miden-client/target/test-node/data/accounts" >> "$GITHUB_ENV"
 
     - name: Verify genesis fee parameters
       shell: bash
