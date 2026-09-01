@@ -352,22 +352,6 @@ runs:
           ( cd "$SDK_DIR" && for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
               cargo update -p "$c" >/dev/null 2>&1 || true
             done )
-
-          # A patch that only PARTLY applies is silent: cargo emits no warning and just
-          # resolves a registry copy alongside the git one, so every build step stays green
-          # while the account-component procedure roots disagree. That is exactly how a
-          # missing miden-agglayer cost a full CI round here. Assert one source per crate.
-          ( cd "$SDK_DIR" && cargo metadata --format-version 1 >/dev/null 2>&1 || true )
-          dupes=""
-          for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
-            n=$(grep -c "^name = \"$c\"$" "$SDK_DIR/Cargo.lock" 2>/dev/null || echo 0)
-            if [ "${n:-0}" -gt 1 ]; then dupes="$dupes $c($n)"; fi
-          done
-          if [ -n "$dupes" ]; then
-            echo "::error title=inject-linked-web-sdk-pr::protocol patch applied only partly; these resolve to more than one source:${dupes}. The build would mix protocol versions and the account procedure roots would not match."
-            exit 1
-          fi
-          echo "protocol patch verified: one source per crate"
         fi
         echo "::endgroup::"
 
@@ -664,3 +648,29 @@ runs:
       with:
         header: linked-web-sdk-pr
         delete: true
+
+    # Its own step: the injection step above is 20.6k characters and GitHub caps a single
+    # `run:` at 21000, so anything further added there fails the whole action at parse time
+    # with "Exceeded max expression length" — which reads like a syntax error, not a size one.
+    #
+    # A partly-applied patch is silent: cargo emits no warning and simply resolves a registry
+    # copy alongside the git one, so every step stays green while the account-component
+    # procedure roots disagree. A missing miden-agglayer cost a full CI round exactly that way.
+    - name: Verify the protocol patch applied cleanly
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
+        lock="$SDK_DIR/Cargo.lock"
+        [ -f "$lock" ] || exit 0          # no linked SDK PR: nothing to verify
+        grep -q 'github.com/0xMiden/protocol' "$lock" || exit 0   # no protocol patch in play
+        dupes=""
+        for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
+          n=$(grep -c "^name = \"$c\"$" "$lock" 2>/dev/null || true)
+          if [ "${n:-0}" -gt 1 ]; then dupes="$dupes $c($n)"; fi
+        done
+        if [ -n "$dupes" ]; then
+          echo "::error title=inject-linked-web-sdk-pr::protocol patch applied only partly; these resolve to more than one source:${dupes}. The build mixes protocol versions and the account procedure roots will not match."
+          exit 1
+        fi
+        echo 'protocol patch verified: one source per crate'
