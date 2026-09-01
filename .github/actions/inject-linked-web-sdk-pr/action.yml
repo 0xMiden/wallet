@@ -340,14 +340,85 @@ runs:
         echo "::endgroup::"
 
         if [ "${{ inputs.build-node-module }}" = "true" ]; then
-          echo "::group::Build the napi module (nodejs feature)"
+          echo "::group::Build the SDK's napi module (nodejs feature)"
           cd "$SDK_DIR"
-          cargo build -p miden-client-web --no-default-features --features nodejs --release
-          lib="$(ls "$SDK_DIR"/target/release/libmiden_client_web.* 2>/dev/null | head -1)"
-          [ -n "$lib" ] || { echo "::error::napi build produced no libmiden_client_web"; exit 1; }
-          # The loader requires a .node extension.
-          cp "$lib" "$SDK_DIR/target/release/miden_client_web.node"
-          echo "MIDEN_MODULE_PATH=$SDK_DIR/target/release/miden_client_web.node" >> "$GITHUB_ENV"
+
+          # `miden-client-web` is declared `crate-type = ["cdylib"]`, so a HOST
+          # build (no --target) drops the addon at
+          # target/release/libmiden_client_web.so on linux — right next to
+          # target/release/libmiden_client_web.d, cargo's dep-info file.
+          # Globbing `libmiden_client_web.*` and taking `head -1` therefore
+          # picks the `.d` (it sorts before `.so`), and copying that ~200-byte
+          # TEXT file to miden_client_web.node yields a green build, a set
+          # MIDEN_MODULE_PATH, and a spec that dies on
+          # `require(): invalid ELF header`.
+          #
+          # So: ask cargo where it actually put the artifact rather than
+          # guessing. That is also immune to CARGO_TARGET_DIR,
+          # `build.target-dir`, and a --target triple relocating the directory.
+          # (Progress and diagnostics still go to stderr, so the job log is
+          # unchanged; only the JSON message stream is captured.)
+          artifacts="${RUNNER_TEMP:-/tmp}/napi-build-artifacts.jsonl"
+          cargo build -p miden-client-web --no-default-features --features nodejs \
+            --release --message-format=json-render-diagnostics > "$artifacts"
+
+          lib="$(python3 - "$artifacts" <<'PYEOF'
+        import json, sys
+
+        # A cdylib's compiler-artifact message lists the linked library in
+        # `filenames`; the .d dep-info file is never in there. Match the LIB
+        # target's name (miden_client_web), not the package name
+        # (miden-client-web), and accept every host extension so this keeps
+        # working if the action is ever run on a macOS or Windows runner.
+        found = ""
+        with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("reason") != "compiler-artifact":
+                    continue
+                if (msg.get("target") or {}).get("name") != "miden_client_web":
+                    continue
+                for name in msg.get("filenames") or []:
+                    if name.endswith((".so", ".dylib", ".dll")):
+                        found = name
+        print(found)
+        PYEOF
+        )"
+
+          # NB: keep this as an explicit `if`, not `[ -n "$lib" ] || { ...; }`
+          # after a pipeline — under `set -euo pipefail` a failing producer
+          # kills the step before the error message can fire, which is how the
+          # previous version could only ever fail silently.
+          if [ -z "$lib" ] || [ ! -f "$lib" ]; then
+            echo "::error title=napi build::cargo built miden-client-web but reported no cdylib for the 'miden_client_web' lib target (artifact messages: $artifacts)."
+            exit 1
+          fi
+
+          # node's `require()` only accepts a native addon under a `.node` name.
+          # Write it beside the library, which is exactly where the SDK's own
+          # dev-mode loader puts its copy
+          # (crates/web-client/js/node/loader.js, candidate 4).
+          node_module="$(dirname "$lib")/miden_client_web.node"
+          cp -f "$lib" "$node_module"
+
+          # Prove it loads before handing the path to the specs — this is the
+          # check that would have caught the `.d` file. A bad addon now fails
+          # here, in this step, instead of as an opaque playwright failure ten
+          # minutes later. `process.exit(0)` because napi's tokio runtime can
+          # hold the event loop open.
+          node -e 'const p = process.argv[1]; const m = require(p); if (!m || typeof m !== "object") { throw new Error("napi module loaded but exported " + typeof m); } console.log("napi module loads: " + p); process.exit(0);' "$node_module"
+
+          # Consumed by the SDK loader's step 1 (explicit override). It has to
+          # be this env var rather than the loader's repo-target-dir fallback:
+          # yarn COPIES a `file:` dep into node_modules, so that fallback walks
+          # up from the wallet's node_modules and never finds the SDK checkout.
+          echo "MIDEN_MODULE_PATH=$node_module" >> "$GITHUB_ENV"
           echo "::endgroup::"
         fi
 
