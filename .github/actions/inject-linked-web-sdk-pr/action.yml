@@ -17,6 +17,13 @@ description: >
   by scripts/dev-with-web-sdk-pr.sh, which writes the same patch under a
   marker block you can clear with --clear.
 
+  Nested markers in the LINKED PR's own body are honored too, so a chain
+  like wallet → web-sdk → protocol resolves transitively:
+    Client PR: #N        pins the cloned SDK's miden-client crates
+    Protocol PR: #N      emits a [patch.crates-io] for the protocol
+                         crates, which reach the SDK through miden-client
+  Both may be present on one web-sdk PR; they compose.
+
   Mirrors web-sdk's `inject-linked-client-pr` action; the differences are
   (1) the marker name, (2) the dep injection target (package.json vs.
   Cargo.toml), and (3) the build step (the SDK packages must be built
@@ -178,7 +185,7 @@ runs:
         git -C "$SDK_DIR" checkout --detach FETCH_HEAD
         echo "::endgroup::"
 
-        # COMPOSE WITH WEB-SDK'S OWN LINKED-CLIENT MECHANISM.
+        # COMPOSE WITH WEB-SDK'S OWN LINKED-DEPENDENCY MARKERS.
         #
         # The linked web-sdk PR may itself depend on an unreleased miden-client,
         # declared by a `Client PR:` marker in ITS description — that is how
@@ -193,8 +200,12 @@ runs:
         # miden-client crates to that head sha before building. Same rewrite
         # web-sdk performs on itself, by SHA for the same reason (a merged PR's
         # branch is usually deleted; the commit object is not).
-        echo "::group::Resolve the linked web-sdk PR's own Client PR marker"
+        #
+        # The body is read once here; both nested markers below parse it, and a
+        # web-sdk PR may carry either, both, or neither.
         sdk_body=$(gh api "repos/${REPO}/pulls/${NUM}" --jq '.body // ""' 2>/dev/null || echo "")
+
+        echo "::group::Resolve the linked web-sdk PR's own Client PR marker"
         client_marker=$(printf '%s' "$sdk_body" \
           | grep -ioE '^[[:space:]]*Client PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
           | head -1 || true)
@@ -203,9 +214,15 @@ runs:
         else
           client_repo=$(printf '%s' "$client_marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/rust-sdk")
           client_num=$(printf '%s' "$client_marker" | grep -oE '[0-9]+$')
-          client_meta=$(gh api "repos/${client_repo}/pulls/${client_num}" \
-            --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)"' 2>/dev/null \
-            || { echo "::error title=inject-linked-web-sdk-pr::${REPO}#${NUM} declares 'Client PR: ${client_repo}#${client_num}' but it could not be read."; exit 1; })
+          # `if !` rather than `|| { echo ...; exit 1; }`: inside a command
+          # substitution the echo is captured into the variable instead of
+          # printed, so the step would die with a bare exit 1 and no annotation
+          # (gh's own stderr is already suppressed above).
+          if ! client_meta=$(gh api "repos/${client_repo}/pulls/${client_num}" \
+            --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)"' 2>/dev/null); then
+            echo "::error title=inject-linked-web-sdk-pr::${REPO}#${NUM} declares 'Client PR: ${client_repo}#${client_num}' but it could not be read."
+            exit 1
+          fi
           IFS=$'\t' read -r c_owner c_repo c_ref c_sha <<< "$client_meta"
           echo "Pinning the SDK's miden-client to ${c_owner}/${c_repo}@${c_sha:0:8} (from ${client_repo}#${client_num})"
 
@@ -245,6 +262,91 @@ runs:
         PYEOF
 
           ( cd "$SDK_DIR" && cargo update -p miden-client >/dev/null 2>&1 || true )
+        fi
+        echo "::endgroup::"
+
+        # And one level further out, for the protocol crates.
+        #
+        # miden-protocol / miden-standards / miden-tx / miden-tx-batch /
+        # miden-block-prover are NOT direct deps of the SDK — they arrive
+        # transitively through miden-client. So a `Protocol PR:` marker cannot be
+        # applied as a dep-line rewrite; it emits a workspace-wide
+        # [patch.crates-io] block instead. That is also what makes it correct:
+        # [patch.crates-io] applies to the whole graph, so it redirects the
+        # protocol crates the git-pinned miden-client above compiles against too,
+        # and client, SDK and wallet all build against one miden-standards.
+        #
+        # Skipping it is how a MASM change in miden-standards lands in the client
+        # but not in the SDK: the SDK's compiled account components keep the
+        # published procedure roots, so guarded accounts hash to a root the client
+        # doesn't recognize and the pinned-version assert throws at runtime —
+        # nothing fails at compile time to point at the missing dependency.
+        #
+        # Pinned by rev for the same reason as the client block above.
+        echo "::group::Resolve the linked web-sdk PR's own Protocol PR marker"
+        protocol_marker=$(printf '%s' "$sdk_body" \
+          | grep -ioE '^[[:space:]]*Protocol PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
+          | head -1 || true)
+        if [ -z "$protocol_marker" ]; then
+          echo "No Protocol PR marker on ${REPO}#${NUM}; the SDK builds against published protocol crates."
+        else
+          protocol_repo=$(printf '%s' "$protocol_marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/protocol")
+          protocol_num=$(printf '%s' "$protocol_marker" | grep -oE '[0-9]+$')
+          if ! protocol_meta=$(gh api "repos/${protocol_repo}/pulls/${protocol_num}" \
+            --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)"' 2>/dev/null); then
+            echo "::error title=inject-linked-web-sdk-pr::${REPO}#${NUM} declares 'Protocol PR: ${protocol_repo}#${protocol_num}' but it could not be read."
+            exit 1
+          fi
+          IFS=$'\t' read -r p_owner p_repo p_ref p_sha <<< "$protocol_meta"
+          echo "Pinning the SDK's protocol crates to ${p_owner}/${p_repo}@${p_sha:0:8} (from ${protocol_repo}#${protocol_num})"
+
+          python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${p_owner}/${p_repo}.git" "${p_sha}" "${protocol_repo}#${protocol_num}" <<'PYEOF'
+        import re, sys
+        path, url, sha, origin = sys.argv[1:5]
+        # All five live in the one protocol repo, so one rev pins them coherently.
+        crates = ['miden-protocol', 'miden-standards', 'miden-tx', 'miden-tx-batch', 'miden-block-prover']
+        w = max(len(c) for c in crates)
+        patched = [f'{c:<{w}} = {{ git = "{url}", rev = "{sha}" }}' for c in crates]
+        head = [
+            '# >>>>>>> nested linked-protocol-pr (wallet CI) >>>>>>>\n',
+            f'# The linked web-sdk PR declares "Protocol PR: {origin}"; pinned to {sha}.\n',
+            '# Workspace-wide rather than a dep-line rewrite: the protocol crates reach\n',
+            '# the SDK through miden-client, so this redirects miden-client too.\n',
+            '# Runner-local override; never committed.\n',
+        ]
+        tail = '# <<<<<<< nested linked-protocol-pr <<<<<<<\n'
+        with open(path) as f:
+            lines = f.readlines()
+        table_re = re.compile(r'''^\s*\[patch\.(?:crates-io|"crates-io"|'crates-io')\]\s*$''')
+        key_re = re.compile(r'^\s*(?P<name>[A-Za-z0-9_-]+)\s*=')
+        header_re = re.compile(r'^\s*\[')
+        start = next((i for i, ln in enumerate(lines) if table_re.match(ln)), None)
+        if start is None:
+            # No [patch.crates-io] yet: append one. A second header would be a
+            # TOML duplicate-table error, hence the reuse path below.
+            if lines and not lines[-1].endswith('\n'):
+                lines.append('\n')
+            out = lines + ['\n'] + head + ['[patch.crates-io]\n'] + [p + '\n' for p in patched] + [tail]
+        else:
+            end = next((i for i in range(start + 1, len(lines)) if header_re.match(lines[i])), len(lines))
+            kept, superseded = [], []
+            for ln in lines[start + 1:end]:
+                m = key_re.match(ln)
+                (superseded if m and m.group('name') in crates else kept).append(ln)
+            out = (lines[:start + 1] + kept + head
+                   + ['#  ' + s.rstrip('\n') + '\n' for s in superseded]
+                   + [p + '\n' for p in patched] + [tail] + lines[end:])
+        with open(path, 'w') as f:
+            f.writelines(out)
+        print(f'Patched {len(patched)} protocol crate(s) to {sha[:8]}')
+        PYEOF
+
+          # Pre-resolve the patched entries into Cargo.lock. Best-effort: cargo
+          # re-resolves a changed [patch] table on the next build regardless, and
+          # a crate absent from this graph is not an error.
+          ( cd "$SDK_DIR" && for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover; do
+              cargo update -p "$c" >/dev/null 2>&1 || true
+            done )
         fi
         echo "::endgroup::"
 
