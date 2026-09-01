@@ -205,6 +205,27 @@ describe('Vault.createHDAccount: EVM identity stamping', () => {
     expect(created?.hdIndex).toBe(1);
     expect(created?.evmAddress).toBe(EVM_ADDR_0);
   });
+
+  it('falls back to the first HD account when no account reproduces the stored address', async () => {
+    // EVM_ADDR_1 is the addressIndex-1 derivation, but the only account sits at
+    // hdIndex 0 — so the stored address is unreproducible (a rotated or
+    // foreign-stamped wallet) and the resolver must fall through to the first
+    // HD account rather than keep an address it holds no key for.
+    const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_1)]);
+    mockCreateMidenWallet.mockResolvedValueOnce('acc-pub-key-2');
+
+    const accounts = await vault.createHDAccount(WalletType.OnChain);
+
+    expect(accounts.map(account => account.evmAddress)).toEqual([EVM_ADDR_0, EVM_ADDR_0]);
+
+    // The key persisted alongside it is the one that actually signs for it.
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<`0x${string}`>(
+      keys.accEvmSecretKey(EVM_ADDR_0),
+      vaultKey
+    );
+    expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
+  });
 });
 
 describe('Vault.backfillEvmAddresses', () => {

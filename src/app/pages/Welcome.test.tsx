@@ -72,9 +72,11 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 
 // Miden context + store + intercom sync.
 const mockRegisterWallet = jest.fn();
+const mockScanForAccounts = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
-    registerWallet: (...a: any[]) => mockRegisterWallet(...a)
+    registerWallet: (...a: any[]) => mockRegisterWallet(...a),
+    scanForAccounts: (...a: any[]) => mockScanForAccounts(...a)
   })
 }));
 
@@ -84,8 +86,10 @@ jest.mock('lib/miden/front/storage', () => ({
 }));
 
 const mockSyncFromBackend = jest.fn();
+// Accounts list the recovered-accounts overview renders (store re-syncs after every scan).
+const mockStoreAccounts = [{ publicKey: 'mtst1recovered' }];
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: any) => selector({ syncFromBackend: mockSyncFromBackend })
+  useWalletStore: (selector: any) => selector({ syncFromBackend: mockSyncFromBackend, accounts: mockStoreAccounts })
 }));
 
 const mockFetchState = jest.fn();
@@ -572,7 +576,7 @@ describe('Welcome — import-select-recovery-method', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+      payload: { guardianEndpoint: 'https://g' }
     });
     // Stage 1 of #408: no longer written to the global GUARDIAN_URL_STORAGE_KEY.
     expect(mockPutToStorage).not.toHaveBeenCalled();
@@ -581,7 +585,9 @@ describe('Welcome — import-select-recovery-method', () => {
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', expect.any(String), true, 'https://g');
   });
 
-  it('threads no endpoint for non-guardian wallets', async () => {
+  it('skipping the guardian step threads no endpoint and falls back to a public wallet type', async () => {
+    // The restore scans both namespaces regardless; the wallet type only picks
+    // what a zero-found restore creates fresh.
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-from-seed' });
@@ -589,12 +595,146 @@ describe('Welcome — import-select-recovery-method', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.OffChain }
+      payload: {}
     });
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, 'pw', expect.any(String), true, undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', expect.any(String), true, undefined);
+  });
+});
+
+// ===========================================================================
+// Recovered-accounts overview (post-registration import step)
+// ===========================================================================
+
+describe('Welcome — recovered accounts', () => {
+  async function importToConfirmation(endpoint?: string) {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-from-seed' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { guardianEndpoint: endpoint } });
+    mockNavigate.mockClear();
+  }
+
+  it('an import pauses on the recovered-accounts overview instead of entering the wallet', async () => {
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#recovered-accounts');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('routes #recovered-accounts to the overview and forwards the live account list', async () => {
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+    expect(currentStep()).toBe(OnboardingStep.RecoveredAccounts);
+    expect(mockFlowProps.current.recoveredAccounts).toBe(mockStoreAccounts);
+    expect(mockFlowProps.current.isScanning).toBe(false);
+    expect(mockFlowProps.current.scanError).toBeNull();
+    expect(mockFlowProps.current.lastScanFoundNone).toBe(false);
+  });
+
+  it('a reload on #recovered-accounts with no in-memory flow enters the wallet (vault already exists)', async () => {
+    await renderWelcome();
+    await setHash('#recovered-accounts');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.RecoveredAccounts);
+  });
+
+  it('scan-more-accounts forwards the count and chosen endpoint and reports when nothing new was found', async () => {
+    mockScanForAccounts.mockResolvedValue([]);
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockScanForAccounts).toHaveBeenCalledWith(5, 'https://g');
+    expect(mockFlowProps.current.lastScanFoundNone).toBe(true);
+    expect(mockFlowProps.current.isScanning).toBe(false);
+    expect(mockFlowProps.current.scanError).toBeNull();
+  });
+
+  it('scan-more-accounts clears the found-none flag when accounts turn up', async () => {
+    mockScanForAccounts.mockResolvedValueOnce([]).mockResolvedValueOnce([{ publicKey: 'mtst1new' }]);
+    await importToConfirmation();
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockFlowProps.current.lastScanFoundNone).toBe(true);
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockScanForAccounts).toHaveBeenLastCalledWith(5, undefined);
+    expect(mockFlowProps.current.lastScanFoundNone).toBe(false);
+  });
+
+  it('scan-more-accounts surfaces an Error message and a stringified non-Error', async () => {
+    mockScanForAccounts.mockRejectedValueOnce(new Error('node unreachable')).mockRejectedValueOnce('nope');
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockFlowProps.current.scanError).toBe('node unreachable');
+    expect(mockFlowProps.current.isScanning).toBe(false);
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockFlowProps.current.scanError).toBe('nope');
+  });
+
+  it('marks the overview as scanning while a scan is pending', async () => {
+    let release!: (found: unknown[]) => void;
+    mockScanForAccounts.mockImplementation(() => new Promise(res => (release = res)));
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+
+    await act(async () => {
+      mockFlowProps.current.onAction({ id: 'scan-more-accounts', payload: { count: 5 } });
+    });
+    expect(mockFlowProps.current.isScanning).toBe(true);
+
+    await act(async () => {
+      release([]);
+    });
+    expect(mockFlowProps.current.isScanning).toBe(false);
+  });
+
+  it('recovered-accounts-continue enters the wallet via the post-onboarding route', async () => {
+    mockCanHandoff = true;
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'recovered-accounts-continue' });
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+  });
+
+  it('hardware back on the overview is consumed without leaving (the wallet already exists)', async () => {
+    await importToConfirmation('https://g');
+    await dispatch({ id: 'confirmation' });
+    await setHash('#recovered-accounts');
+    mockNavigate.mockClear();
+
+    let result!: boolean | void;
+    await act(async () => {
+      result = mockBackHandlerRef.current!();
+    });
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(currentStep()).toBe(OnboardingStep.RecoveredAccounts);
+  });
+
+  it('a failed non-guardian import also bounces back to the recovery-method step', async () => {
+    // The widened "no accounts found for this seed" abort surfaces there too.
+    mockRegisterWallet.mockRejectedValue(new Error('no accounts found'));
+    await importToConfirmation();
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.guardianLookupError).toBe(true);
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
   });
 });
 
@@ -651,7 +791,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
+      payload: { guardianEndpoint: 'https://g' }
     });
     mockNavigate.mockClear();
     await dispatch({ id: 'confirmation' });

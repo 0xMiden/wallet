@@ -81,35 +81,47 @@ const mockAccounts = [
   { publicKey: 'mtst1primary', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
   { publicKey: 'mtst1secondary', name: 'Account 2', isPublic: false, type: WalletType.OffChain, hdIndex: 0 }
 ];
-const mockWalletState = {
+const mockBalances = {
+  mtst1primary: [
+    {
+      tokenId: 'miden',
+      tokenSlug: 'MIDEN',
+      metadata: { symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false },
+      balance: 4,
+      fiatPrice: 2,
+      change24h: 0
+    }
+  ],
+  mtst1secondary: [
+    {
+      tokenId: 'usdc',
+      tokenSlug: 'USDC',
+      metadata: { symbol: 'USDC', name: 'USD Coin', decimals: 6, scaleIsUnknown: false },
+      balance: 3,
+      fiatPrice: 5,
+      change24h: 0
+    }
+  ]
+};
+const mockTokenPrices = {
+  MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
+  USDC: { price: 5, change24h: 0, percentageChange24h: 0 }
+};
+
+// `currentAccount` is widened to include `undefined` so a test can render the
+// no-current-account state (the drawer then leaves the account order untouched).
+interface MockWalletState {
+  accounts: typeof mockAccounts;
+  currentAccount: (typeof mockAccounts)[number] | undefined;
+  balances: typeof mockBalances;
+  tokenPrices: typeof mockTokenPrices;
+}
+
+const mockWalletState: MockWalletState = {
   accounts: mockAccounts,
-  currentAccount: mockAccounts[0]!,
-  balances: {
-    mtst1primary: [
-      {
-        tokenId: 'miden',
-        tokenSlug: 'MIDEN',
-        metadata: { symbol: 'MIDEN', name: 'Miden', decimals: 6, scaleIsUnknown: false },
-        balance: 4,
-        fiatPrice: 2,
-        change24h: 0
-      }
-    ],
-    mtst1secondary: [
-      {
-        tokenId: 'usdc',
-        tokenSlug: 'USDC',
-        metadata: { symbol: 'USDC', name: 'USD Coin', decimals: 6, scaleIsUnknown: false },
-        balance: 3,
-        fiatPrice: 5,
-        change24h: 0
-      }
-    ]
-  },
-  tokenPrices: {
-    MIDEN: { price: 2, change24h: 0, percentageChange24h: 0 },
-    USDC: { price: 5, change24h: 0, percentageChange24h: 0 }
-  }
+  currentAccount: mockAccounts[0],
+  balances: mockBalances,
+  tokenPrices: mockTokenPrices
 };
 
 jest.mock('lib/store', () => ({
@@ -331,6 +343,91 @@ describe('AccountsDrawer', () => {
     await waitFor(() => expect(mockEditAccountName).toHaveBeenCalledWith('mtst1secondary', 'Savings'));
     expect(mockUpdateCurrentAccount).not.toHaveBeenCalled();
     expect(hapticLight).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the stored account order when there is no current account', () => {
+    mockWalletState.currentAccount = undefined;
+    renderDrawer();
+
+    const accountNames = screen.getAllByTestId('accounts-drawer-account-name');
+    expect(accountNames[0]!.textContent).toContain('Account 1');
+    expect(accountNames[1]!.textContent).toContain('Account 2');
+    screen.getAllByTestId('accounts-drawer-account').forEach(row => {
+      expect(row.getAttribute('aria-checked')).toBe('false');
+    });
+  });
+
+  it('closes the rename form via the cancel button', () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    expect(screen.getByRole('textbox', { name: 'editAccountName' })).toBeTruthy();
+
+    fireEvent.click(screen.getByText('cancel'));
+
+    expect(screen.queryByRole('textbox', { name: 'editAccountName' })).toBeNull();
+    expect(mockEditAccountName).not.toHaveBeenCalled();
+  });
+
+  it('closes the rename form when Escape is pressed in the name input', () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'editAccountName' }), { key: 'Escape' });
+
+    expect(screen.queryByRole('textbox', { name: 'editAccountName' })).toBeNull();
+  });
+
+  it('rejects a duplicate name on submit with an inline alert', () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    const input = screen.getByRole('textbox', { name: 'editAccountName' });
+    fireEvent.change(input, { target: { value: 'Account 1' } });
+    // The confirm button is disabled for a taken name, so the form is submitted
+    // directly (Enter in the input does the same in a browser).
+    fireEvent.submit(input.closest('form')!);
+
+    expect(mockEditAccountName).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toBe('invalidAccountName');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('keeps the form open with an error alert when the rename request fails', async () => {
+    mockEditAccountName.mockRejectedValueOnce(new Error('backend down'));
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'editAccountName' }), { target: { value: 'Savings' } });
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('smthWentWrongWhile'));
+    expect(screen.getByRole('textbox', { name: 'editAccountName' })).toHaveValue('Savings');
+  });
+
+  it('ignores a second submit while the first rename is still saving', async () => {
+    let resolveSave: () => void = () => {};
+    mockEditAccountName.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          resolveSave = resolve;
+        })
+    );
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editAccountName: Account 2' }));
+    const input = screen.getByRole('textbox', { name: 'editAccountName' });
+    fireEvent.change(input, { target: { value: 'Savings' } });
+    fireEvent.click(screen.getByRole('button', { name: 'confirm' }));
+
+    const form = input.closest('form')!;
+    expect(screen.getByRole('button', { name: 'confirm' }).getAttribute('aria-busy')).toBe('true');
+    fireEvent.submit(form);
+
+    expect(mockEditAccountName).toHaveBeenCalledTimes(1);
+
+    resolveSave();
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'editAccountName' })).toBeNull());
   });
 
   it('disables rename confirmation for a duplicate account name', () => {

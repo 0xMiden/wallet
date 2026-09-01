@@ -26,7 +26,7 @@ import Explore from './Explore';
 // ---------------------------------------------------------------------------
 
 let mockFaucetId: string | null = 'faucet-native';
-let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
+let mockAccount: { publicKey: string; name?: string; type?: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
 let mockIsExtension = true;
@@ -44,6 +44,8 @@ const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
 const mockClearNoteReceivedNotification = jest.fn();
+// Captures the HomeOverview back handler so tests can drive hardware back.
+let mockBackHandler: (() => boolean | void) | null = null;
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -103,31 +105,72 @@ jest.mock('components/Loader', () => ({
   Loader: (props: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="refresh-loader" {...props} />
 }));
 
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (handler: () => boolean | void) => {
+    mockBackHandler = handler;
+  }
+}));
+
 jest.mock('components/ui', () => ({
   BalanceCard: ({
     accountNumber,
     accountId,
+    accountName,
+    accountType,
     amount,
-    onMore
+    onMore,
+    onSwitch,
+    onAdd
   }: {
     accountNumber: string;
     accountId: string;
+    accountName: string | undefined;
+    accountType: string;
     amount: string;
     onMore: () => void;
+    onSwitch: () => void;
+    onAdd: () => void;
   }) => (
     <div data-testid="balance-card">
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
+      <span data-testid="balance-account-name">{accountName}</span>
+      <span data-testid="balance-account-type">{accountType}</span>
       <span data-testid="balance-amount">{amount}</span>
       <button data-testid="balance-more" onClick={onMore}>
         more
       </button>
+      <button data-testid="balance-switch" onClick={onSwitch}>
+        switch
+      </button>
+      <button data-testid="balance-add" onClick={onAdd}>
+        add
+      </button>
     </div>
   ),
-  AccountsDrawer: ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) =>
+  AccountsDrawer: ({
+    open,
+    onOpenChange,
+    onAddAccount
+  }: {
+    open: boolean;
+    onOpenChange: (v: boolean) => void;
+    onAddAccount: () => void;
+  }) =>
     open ? (
       <div data-testid="accounts-drawer">
         <button data-testid="drawer-close" onClick={() => onOpenChange(false)}>
+          close
+        </button>
+        <button data-testid="drawer-add-account" onClick={onAddAccount}>
+          add account
+        </button>
+      </div>
+    ) : null,
+  AddAccountDrawer: ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) =>
+    open ? (
+      <div data-testid="add-account-drawer">
+        <button data-testid="add-account-close" onClick={() => onOpenChange(false)}>
           close
         </button>
       </div>
@@ -416,6 +459,88 @@ describe('Explore', () => {
         fireEvent.click(screen.getByTestId('drawer-close'));
       });
       expect(screen.queryByTestId('accounts-drawer')).toBeNull();
+    });
+
+    it('opens the accounts drawer via the switcher chip', async () => {
+      await renderExplore();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('balance-switch'));
+      });
+      expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+    });
+
+    it('opens the add-account drawer from the balance card plus and closes it again', async () => {
+      await renderExplore();
+
+      expect(screen.queryByTestId('add-account-drawer')).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('balance-add'));
+      });
+      expect(screen.getByTestId('add-account-drawer')).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('add-account-close'));
+      });
+      expect(screen.queryByTestId('add-account-drawer')).toBeNull();
+    });
+
+    it('opens the add-account drawer from the accounts drawer add action', async () => {
+      await renderExplore();
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('balance-more'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('drawer-add-account'));
+      });
+      expect(screen.getByTestId('add-account-drawer')).toBeInTheDocument();
+    });
+
+    it('passes the account name and type through to the balance card', async () => {
+      mockAccount = { publicKey: 'mtst1account', name: 'Savings', type: 'public' };
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-account-name')).toHaveTextContent('Savings');
+      expect(screen.getByTestId('balance-account-type')).toHaveTextContent('public');
+    });
+
+    describe('hardware back', () => {
+      it('closes the add-account drawer first, then the accounts drawer, then passes through', async () => {
+        await renderExplore();
+
+        // Nothing open: not consumed.
+        let handled: boolean | void = false;
+        act(() => {
+          handled = mockBackHandler?.();
+        });
+        expect(handled).toBe(false);
+
+        // Open both drawers (accounts → add).
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('balance-more'));
+        });
+        await act(async () => {
+          fireEvent.click(screen.getByTestId('drawer-add-account'));
+        });
+        expect(screen.getByTestId('add-account-drawer')).toBeInTheDocument();
+
+        // First back closes the add-account drawer only.
+        act(() => {
+          handled = mockBackHandler?.();
+        });
+        expect(handled).toBe(true);
+        expect(screen.queryByTestId('add-account-drawer')).toBeNull();
+        expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
+
+        // Second back closes the accounts drawer.
+        act(() => {
+          handled = mockBackHandler?.();
+        });
+        expect(handled).toBe(true);
+        expect(screen.queryByTestId('accounts-drawer')).toBeNull();
+      });
     });
 
     it('navigates to the token detail page when an asset row is clicked', async () => {

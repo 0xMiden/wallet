@@ -953,6 +953,78 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('scanForAccounts', () => {
+    const scannedAccounts = [
+      { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+      { publicKey: 'pk2', name: 'Account 2', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
+    ];
+
+    it('sends ScanForAccountsRequest with the count and guardian endpoint, then syncs fresh state', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ScanForAccountsResponse,
+        found: [scannedAccounts[1]]
+      });
+      // Same stale-broadcast race as createAccount: the action pulls fresh state itself.
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: {
+          status: WalletStatus.Ready,
+          accounts: scannedAccounts,
+          currentAccount: scannedAccounts[0],
+          networks: [],
+          settings: { contacts: [] },
+          ownMnemonic: true
+        }
+      });
+
+      const found = await useWalletStore.getState().scanForAccounts(5, 'https://guardian.example');
+
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.ScanForAccountsRequest,
+        additionalCount: 5,
+        guardianEndpoint: 'https://guardian.example'
+      });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, { type: WalletMessageType.GetStateRequest });
+      expect(found).toEqual([scannedAccounts[1]]);
+
+      // The pulled state is applied to the store, not just awaited.
+      const state = useWalletStore.getState();
+      expect(state.accounts).toHaveLength(2);
+      expect(state.currentAccount?.publicKey).toBe('pk1');
+    });
+
+    it('sends an undefined guardianEndpoint when none is provided', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ScanForAccountsResponse, found: [] });
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetStateResponse,
+        state: { status: WalletStatus.Idle, accounts: [], networks: [], settings: {}, ownMnemonic: false }
+      });
+
+      const found = await useWalletStore.getState().scanForAccounts(3);
+
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.ScanForAccountsRequest,
+        additionalCount: 3,
+        guardianEndpoint: undefined
+      });
+      expect(found).toEqual([]);
+    });
+
+    it('throws on an invalid scan response and never pulls state', async () => {
+      mockRequest.mockResolvedValueOnce({ type: 'wrong' });
+
+      await expect(useWalletStore.getState().scanForAccounts(5)).rejects.toThrow('Invalid response');
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws on an invalid GetState response', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ScanForAccountsResponse, found: [] });
+      mockRequest.mockResolvedValueOnce({ type: 'wrong' });
+
+      await expect(useWalletStore.getState().scanForAccounts(5)).rejects.toThrow('Invalid response');
+    });
+  });
+
   describe('revealMnemonic', () => {
     it('returns the mnemonic from the response', async () => {
       mockRequest.mockResolvedValueOnce({

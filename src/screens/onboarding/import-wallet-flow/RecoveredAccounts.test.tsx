@@ -71,6 +71,37 @@ describe('RecoveredAccountsScreen', () => {
     expect(badges[1]).toHaveTextContent('accountBadgeGuardian');
   });
 
+  it('badges each wallet type: public for on-chain, guardian, private for everything else', () => {
+    render(
+      <RecoveredAccountsScreen
+        accounts={[
+          account({ publicKey: 'mt1qpubcccccccccccccccccccccccccccc', name: 'Public', type: WalletType.OnChain }),
+          account({
+            publicKey: 'mt1qguardiandddddddddddddddddddddddd',
+            name: 'Guarded',
+            isPublic: false,
+            type: WalletType.Guardian
+          }),
+          account({
+            publicKey: 'mt1qprivateeeeeeeeeeeeeeeeeeeeeeeeee',
+            name: 'Private',
+            isPublic: false,
+            type: WalletType.OffChain
+          })
+        ]}
+        onScanMore={jest.fn()}
+        onContinue={jest.fn()}
+      />
+    );
+
+    const badges = screen.getAllByTestId('type-badge');
+    expect(badges.map(badge => badge.textContent)).toEqual([
+      'accountBadgePublic',
+      'accountBadgeGuardian',
+      'accountBadgePrivate'
+    ]);
+  });
+
   it('continues via the footer button', () => {
     const { onContinue } = renderScreen();
     fireEvent.click(screen.getByTestId('recovered-accounts-continue'));

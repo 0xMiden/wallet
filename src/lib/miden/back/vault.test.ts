@@ -2347,4 +2347,126 @@ describe('Multi-account recovery (seed scan)', () => {
     await expect(vault.scanForMoreAccounts(21)).rejects.toThrow(PublicError);
     await expect(vault.scanForMoreAccounts(2.5)).rejects.toThrow(PublicError);
   });
+
+  /**
+   * Swap the network reported by the NEXT `getMidenClient()` resolution while
+   * keeping the rest of the stub client intact (the scan reads `.network`
+   * before anything else on it).
+   */
+  function useNextClientNetwork(network: string) {
+    const factory = mockGetMidenClient.getMockImplementation();
+    if (!factory) throw new Error('mockGetMidenClient lost its default implementation');
+    mockGetMidenClient.mockImplementationOnce(async options => ({ ...(await factory(options)), network }));
+  }
+
+  it('scanForMoreAccounts is a no-op against the mock network', async () => {
+    // The mock network answers every probe affirmatively, so a scan there would
+    // "find" an account at every index.
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    useNextClientNetwork('mock');
+
+    const { found, accounts } = await vault.scanForMoreAccounts(3);
+
+    expect(found).toEqual([]);
+    expect(accounts.map(a => a.publicKey)).toEqual(['acc-pub-key-1']);
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+  });
+
+  it('scanForMoreAccounts surfaces the abort when a target failed and nothing was found', async () => {
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    // Connectivity, not a definitive miss — the public target is never optional,
+    // so the run returns an error and no hits.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockRejectedValue(new Error('Failed to fetch'));
+
+    await expect(vault.scanForMoreAccounts(3)).rejects.toThrow(/Could not reach the Miden network/);
+  });
+
+  it('scanForMoreAccounts keeps found accounts when a LATER target aborts', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const vault = await seedVault('pw', { ownMnemonic: true });
+      // Public target completes with one new account…
+      mockMidenClient.importPublicMidenWalletFromSeed.mockResolvedValueOnce('pub-scanned');
+      // …then the (non-optional, because the caller chose the operator)
+      // guardian target blows up.
+      mockMidenClient.recoverGuardianAccountsBySeed.mockRejectedValueOnce(new Error('operator down'));
+
+      const { found, accounts } = await vault.scanForMoreAccounts(2, 'https://chosen-op.example');
+
+      expect(found.map(a => a.publicKey)).toEqual(['pub-scanned']);
+      expect(accounts.map(a => a.publicKey)).toEqual(['acc-pub-key-1', 'pub-scanned']);
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[Vault.scanForMoreAccounts] a scan target aborted after accounts were found',
+        expect.any(Error)
+      );
+      // The found account is persisted despite the partial failure.
+      expect((await vault.fetchAccounts()).map(a => a.publicKey)).toEqual(['acc-pub-key-1', 'pub-scanned']);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it('createHDAccount sources a second Guardian account endpoint from its sibling', async () => {
+    const sibling: WalletAccount = guardianAccountSeed();
+    const vault = await seedVault('pw', { accounts: [sibling], currentPk: 'guardian-existing' });
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-2',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://sibling-op.example'
+    });
+
+    const accounts = await vault.createHDAccount(WalletType.Guardian);
+
+    expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(expect.objectContaining({ publicKey: 'guardian-existing' }));
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'https://sibling-op.example'
+    );
+    expect(accounts.map(a => a.publicKey)).toEqual(['guardian-existing', 'guardian-acc-2']);
+  });
+
+  it('createHDAccount prefers an explicitly chosen Guardian endpoint over the sibling default', async () => {
+    // Per-account endpoints exist precisely so two Guardian accounts can live on
+    // different operators — the Choose-Guardian step must beat the sibling.
+    const sibling: WalletAccount = guardianAccountSeed();
+    const vault = await seedVault('pw', { accounts: [sibling], currentPk: 'guardian-existing' });
+    mockMidenClient.createGuardianMidenWallet.mockResolvedValueOnce({
+      accountId: 'guardian-acc-2',
+      keys: GUARDIAN_KEYS_FIXTURE,
+      guardianEndpoint: 'https://picked-op.example'
+    });
+
+    await vault.createHDAccount(WalletType.Guardian, undefined, 'https://picked-op.example');
+
+    expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      'https://picked-op.example'
+    );
+    // The sibling is never consulted when the caller named an operator.
+    expect(mockResolveGuardianEndpoint).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount leaves existing accounts untouched when the vault has no mnemonic', async () => {
+    // An encrypted-file import can store '' — no EVM key is derivable, so the
+    // existing accounts must be carried through unmodified rather than restamped.
+    const vault = await seedVault('pw', { mnemonic: '' });
+    mockMidenClient.createMidenWallet.mockResolvedValueOnce('acc-pub-key-2');
+
+    const accounts = await vault.createHDAccount(WalletType.OnChain);
+
+    expect(accounts.map(a => a.publicKey)).toEqual(['acc-pub-key-1', 'acc-pub-key-2']);
+    expect(accounts.every(a => a.evmAddress === undefined)).toBe(true);
+  });
+
+  it('importAccountFromPrivateKey leaves existing accounts untouched when the vault has no mnemonic', async () => {
+    const vault = await seedVault('pw', { mnemonic: '' });
+
+    const accounts = await vault.importAccountFromPrivateKey(
+      'deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef',
+      'No EVM Import'
+    );
+
+    expect(accounts.map(a => a.publicKey)).toEqual(['acc-pub-key-1', 'bech32:imported-account-id']);
+    expect(accounts.every(a => a.evmAddress === undefined)).toBe(true);
+  });
 });
