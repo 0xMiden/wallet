@@ -37,6 +37,13 @@
       "sdkVersion": "0.15.9",
       "sdkMidenClient": "0.15.5",
       "reason": "web-sdk 0.15.9 bumped miden-client 0.15.4->0.15.5 (and miden-client-web/-sqlite-store/-idxdb-store) only; every transaction-kernel crate (miden-protocol/tx/core-lib/assembly/core/mast-package/prover) is unchanged, so the =0.15.4 prover produces the same procedure set as SDK 0.15.9. Verified by diffing the web-sdk 0.15.8/0.15.9 Cargo.lock in #594."
+    },
+    {
+      "pin": "0.16.0-rc.2",
+      "sdkVersion": "0.16.0-rc.5",
+      "sdkMidenClient": "0.16.0-rc.3",
+      "kernelDrift": [],
+      "reason": "web-sdk 0.16.0-rc.5 resolves miden-client 0.16.0-rc.3 while the committed prover remains on 0.16.0-rc.2; every transaction-kernel crate resolves identically in the native prover and web-sdk lockfiles, so both sides retain the same procedure roots. Verified by the native-prover pin guard while updating #812."
     }
   ]
 }
